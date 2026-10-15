@@ -1,0 +1,37 @@
+From fb27ba230acd85018cd23d66a8ac8767277bbe6b Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 23:36:23 -0400
+Subject: [PATCH 36/37] docs: deep-idle research: quiet-machine PD always run,
+ 20 of 20 pairs
+
+Co-Authored-By: Claude Haiku 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AuzUDcEeRJQ6RCdWW2XWLb
+---
+ docs/deep-idle-research.md | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/docs/deep-idle-research.md b/docs/deep-idle-research.md
+index f1cac51bff68..a01d9a66896b 100644
+--- a/docs/deep-idle-research.md
++++ b/docs/deep-idle-research.md
+@@ -301,6 +301,17 @@ load    rounds  setting         Total System     Heatpipe (SoC)    lower in
+                                 (standard errors in brackets)
+ ```
+ 
++The cleanest run came last, on a quiet machine (about 6.5 W, busy
++6.7%), 20 rounds of 20 s:
++
++```
++setting        mean W   PD %   WFI %   paired difference from default
++default         6.52     5.7    87.0
++pd-always       5.61    91.9     0.0   -0.92 W (se 0.12), lower in 20 of 20
++Heatpipe Power: default 3.36 W, pd-always 2.55 W (-0.82 W, se 0.12, 18 of 20)
++busy 6.7% / 7.4%; mean MHz E/P0/P1 984/871/829 vs 986/861/810
++```
++
+ Three things follow. The saving is in the SoC package (Heatpipe Power
+ moves with Total System Power), and it grows with load: a core idling in
+ WFI is still powered at its cluster's current voltage, so its leakage
+-- 
+2.55.0
+

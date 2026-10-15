@@ -1,0 +1,27 @@
+From 2e6a372803f2fe2c9e9871bca1d531c5ac4dbbfa Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 22:57:35 -0400
+Subject: [PATCH 32/37] docs: deep-idle research: wording
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AuzUDcEeRJQ6RCdWW2XWLb
+---
+ docs/deep-idle-research.md | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/docs/deep-idle-research.md b/docs/deep-idle-research.md
+index 7575779836a4..40d13fae30e1 100644
+--- a/docs/deep-idle-research.md
++++ b/docs/deep-idle-research.md
+@@ -13,7 +13,7 @@ machine or in source is marked as an unknown.
+   ([cpuidle-apple.c](../drivers/cpuidle/cpuidle-apple.c)) runs here with two
+   states: WFI (clock gated) and "CPU PD", Apple's deep WFI with state
+   retention. Every CPU has both, and s2idle uses only CPU PD; awake, the
+-  governor almost never picks CPU PD (next-but-two point). What is missing
++  governor almost never picks CPU PD (fourth point). What is missing
+   is everything below the cores: cluster power-off without retention, and
+   SoC-level sleep.
+ * **Raw boot mode is enough for the CPU side on T6020; dj is right there.**
+-- 
+2.55.0
+

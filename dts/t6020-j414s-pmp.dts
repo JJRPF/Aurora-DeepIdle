@@ -1,0 +1,22 @@
+// SPDX-License-Identifier: GPL-2.0+ OR MIT
+/*
+ * MacBook Pro (14-inch, M2 Pro, 2023), with the PMP booted
+ *
+ * target-type: J414s
+ *
+ * Opt-in test variant of t6020-j414s.dts. APPLE_USE_PMP adds the pmp alias,
+ * so m1n1 copies the PMP's ADT values onto the PMP node and enables it, and
+ * points the DCP, AVD and ISP power domains at their PMP report entries.
+ * The PMP driver then boots the PMP, which reads those reports.
+ *
+ * It is left out of the Makefile on purpose: it has the same compatible as
+ * t6020-j414s.dtb, and m1n1 boots the last DTB that matches, so shipping
+ * both would turn the PMP on for every J414s. Build it by name and bundle
+ * it into m1n1's stage 2 instead of t6020-j414s.dtb to test it.
+ *
+ * Copyright The Asahi Linux Contributors
+ */
+
+#define APPLE_USE_PMP
+
+#include "t6020-j414s.dts"

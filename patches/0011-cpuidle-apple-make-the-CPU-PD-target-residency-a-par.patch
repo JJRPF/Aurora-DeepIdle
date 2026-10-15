@@ -1,0 +1,100 @@
+From d2ad90efc99397501d36222e3b5be7e7cc86a0f2 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 21:57:15 -0400
+Subject: [PATCH 11/37] cpuidle: apple: make the CPU PD target residency a
+ parameter
+
+CPU PD's 10 ms target residency was never measured, and on a busy M2 Pro
+forcing CPU PD for every idle entry used about 1 W less than the menu
+governor's choices (30 paired rounds, SMC Total System Power), so the
+break-even point is far below 10 ms. Add pd_residency_us, settable on the
+command line and writable at runtime, so values can be compared without a
+rebuild each. The governors read target_residency_ns on every idle entry,
+so a write takes effect at once. The default stays 10000.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AuzUDcEeRJQ6RCdWW2XWLb
+---
+ docs/deep-idle-research.md      | 10 +++++++++
+ drivers/cpuidle/cpuidle-apple.c | 37 +++++++++++++++++++++++++++++++++
+ 2 files changed, 47 insertions(+)
+
+diff --git a/docs/deep-idle-research.md b/docs/deep-idle-research.md
+index 00e1835919be..3cf69fbb971e 100644
+--- a/docs/deep-idle-research.md
++++ b/docs/deep-idle-research.md
+@@ -237,6 +237,16 @@ reproduces "PD always" at runtime, and `echo 0` undoes it; it does not
+ survive a reboot. Not measured: the latency cost (CPU PD's declared exit
+ latency is 10 us, itself unmeasured).
+ 
++To find the break-even point without a rebuild per value,
++`cpuidle-apple.c` now takes `pd_residency_us` (default 10000, unchanged
++behaviour). It is a command-line parameter (`cpuidle_apple.pd_residency_us=`)
++and writable at runtime: `echo 1000 | sudo tee
++/sys/module/cpuidle_apple/parameters/pd_residency_us`. The governors read
++the state's `target_residency_ns` on every idle entry, so the change takes
++effect at once. Values below the exit latency or above 1 s are refused.
++One reboot into a kernel with it allows an A/B over several values (for
++example 10000, 2000, 1000, 500, 200) with the same rotating method.
++
+ Sensors usable for measurements: SMC "Total System Power" (hwmon
+ `macsmc_hwmon` power1), "Heatpipe Power" (power4), and the battery's
+ `energy_now` (`macsmc-battery`).
+diff --git a/drivers/cpuidle/cpuidle-apple.c b/drivers/cpuidle/cpuidle-apple.c
+index 6c02bd4197c2..ce1a804e52ae 100644
+--- a/drivers/cpuidle/cpuidle-apple.c
++++ b/drivers/cpuidle/cpuidle-apple.c
+@@ -8,6 +8,7 @@
+ #include <linux/init.h>
+ #include <linux/cpuidle.h>
+ #include <linux/cpu_pm.h>
++#include <linux/moduleparam.h>
+ #include <linux/platform_device.h>
+ #include <linux/of.h>
+ #include <asm/cpuidle.h>
+@@ -122,6 +123,42 @@ static struct cpuidle_driver apple_idle_driver = {
+ 	.state_count = STATE_COUNT,
+ };
+ 
++/*
++ * CPU PD's target residency, in microseconds. Its break-even point has not
++ * been measured; the governors read it on every idle entry, so it can be
++ * tuned at runtime through /sys/module/cpuidle_apple/parameters/ as well as
++ * on the command line (cpuidle_apple.pd_residency_us=).
++ */
++static int pd_residency_set(const char *val, const struct kernel_param *kp)
++{
++	struct cpuidle_state *s = &apple_idle_driver.states[STATE_PWRDOWN];
++	unsigned int us;
++	int ret;
++
++	ret = kstrtouint(val, 0, &us);
++	if (ret)
++		return ret;
++	if (us < s->exit_latency || us > USEC_PER_SEC)
++		return -EINVAL;
++
++	WRITE_ONCE(s->target_residency, us);
++	WRITE_ONCE(s->target_residency_ns, (s64)us * NSEC_PER_USEC);
++	return 0;
++}
++
++static int pd_residency_get(char *buf, const struct kernel_param *kp)
++{
++	return sysfs_emit(buf, "%u\n",
++			  READ_ONCE(apple_idle_driver.states[STATE_PWRDOWN].target_residency));
++}
++
++static const struct kernel_param_ops pd_residency_ops = {
++	.set = pd_residency_set,
++	.get = pd_residency_get,
++};
++module_param_cb(pd_residency_us, &pd_residency_ops, NULL, 0644);
++MODULE_PARM_DESC(pd_residency_us, "CPU PD target residency in microseconds (default 10000)");
++
+ static int apple_cpuidle_probe(struct platform_device *pdev)
+ {
+ 	/*
+-- 
+2.55.0
+

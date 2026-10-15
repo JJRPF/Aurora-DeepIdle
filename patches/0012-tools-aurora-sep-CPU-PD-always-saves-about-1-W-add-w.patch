@@ -1,0 +1,227 @@
+From 8c24afae476be09fe14574f6fb97847d003cd62f Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 22:00:08 -0400
+Subject: [PATCH 12/37] tools/aurora-sep: CPU PD always saves about 1 W; add
+ wakelat.c and an opt-in rule
+
+30 paired rounds on a busy M2 Pro: disabling WFI, so every idle entry is
+CPU PD, used 0.99 W less (standard error 0.20 W) than the menu governor's
+choices, which with the 10 ms target residency almost never pick CPU PD.
+wakelat.c measured the cost: about 10 us added to each wake-up, as the
+state declares. cpuidle-pd-always.tmpfiles.conf makes the setting
+persistent for those who want it now.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AuzUDcEeRJQ6RCdWW2XWLb
+---
+ docs/deep-idle-research.md                    |  48 +++++++-
+ .../cpuidle-pd-always.tmpfiles.conf           |  12 ++
+ tools/aurora-sep/wakelat.c                    | 116 ++++++++++++++++++
+ 3 files changed, 170 insertions(+), 6 deletions(-)
+ create mode 100644 tools/aurora-sep/cpuidle-pd-always.tmpfiles.conf
+ create mode 100644 tools/aurora-sep/wakelat.c
+
+diff --git a/docs/deep-idle-research.md b/docs/deep-idle-research.md
+index 3cf69fbb971e..4be16ebbd0b3 100644
+--- a/docs/deep-idle-research.md
++++ b/docs/deep-idle-research.md
+@@ -227,14 +227,50 @@ WFI only (PD disabled)      12.81     0.0    87.1   +0.33 W (sd 1.15)
+ PD always (WFI disabled)    11.59    86.6     0.0   -0.90 W (sd 1.48), lower in 5 of 6
+ ```
+ 
+-Forcing CPU PD on every idle entry used less power than the menu
+-governor's choice, not more, which says the 10 ms target residency is far
+-above the break-even point. The spread is as large as the effect, so this
+-needs a repeat on a quiet machine before a patch: lower `target_residency`
+-in `cpuidle-apple.c` (for example to 1 ms) and measure again. Until then,
++A longer repeat, the same day, with the same busy machine: 30 rounds of
++15 s windows, which narrows the paired spread instead of needing a quiet
++machine:
++
++```
++setting                     mean W   PD %   WFI %   paired difference from default
++default                      6.69     5.8    86.5
++WFI only (PD disabled)       6.72     0.0    92.5   +0.03 W (se 0.17), lower in 14 of 30
++PD always (WFI disabled)     5.70    91.9     0.0   -0.99 W (se 0.20), lower in 25 of 30
++```
++
++So forcing CPU PD on every idle entry saves about 1 W, 15% of the
++machine's power at the desktop, about five standard errors from zero. The
++menu governor's choice uses no less than never using CPU PD at all: with a
++10 ms target residency and about 1,500 wakes per CPU per second it almost
++never picks it.
++
++The cost is wake-up latency. `tools/aurora-sep/wakelat.c` (SCHED_FIFO,
++1,000 samples per test at 2 ms, six alternating rounds, medians of the
++rounds):
++
++```
++test                           default p50 / p99    PD always p50 / p99
++timer, E core (cpu1)            8.9 / 17.9 us        18.5 / 39.6 us
++timer, P core (cpu9)            8.4 / 14.8 us        18.4 / 34.8 us
++futex wake E1 -> E2             8.5 / 19.0 us        17.2 / 30.0 us
++futex wake E1 -> P6            12.3 / 21.6 us        20.8 / 34.1 us
++```
++
++CPU PD adds about 10 us per wake-up, which matches its declared exit
++latency (10 us). At 1,500 wakes per CPU per second that is at most 1.5% of
++a CPU's time, too little to explain the power drop by doing less work. The
++worst cases did not change beyond noise. CPU PD is also the state XNU idles
++in (`arm64_retention_wfi`: deep WFI with retention); m1n1 sets plain WFI to
++WFI_MODE 2 at boot (`src/chickens.c` 247-250) and uses the non-retention
++power-off only on the way into system sleep (`src/utils.c` 270-277). So the
++core-level idle state already matches macOS; the governor's choice did
++not.
++
++Until a lower residency is in a kernel,
+ `echo 1 | sudo tee /sys/devices/system/cpu/cpu*/cpuidle/state0/disable`
+ reproduces "PD always" at runtime, and `echo 0` undoes it; it does not
+-survive a reboot. Not measured: the latency cost (CPU PD's declared exit
++survive a reboot. `tools/aurora-sep/cpuidle-pd-always.tmpfiles.conf` makes
++it persistent (opt-in, not installed). Not measured: the latency cost (CPU PD's declared exit
+ latency is 10 us, itself unmeasured).
+ 
+ To find the break-even point without a rebuild per value,
+diff --git a/tools/aurora-sep/cpuidle-pd-always.tmpfiles.conf b/tools/aurora-sep/cpuidle-pd-always.tmpfiles.conf
+new file mode 100644
+index 000000000000..1e7cab24d37e
+--- /dev/null
++++ b/tools/aurora-sep/cpuidle-pd-always.tmpfiles.conf
+@@ -0,0 +1,12 @@
++# Opt-in, for Apple M1-M3 machines with the apple_idle cpuidle driver
++# (state0 = WFI, state1 = CPU PD): disable WFI so that every idle entry
++# uses CPU PD. On an M2 Pro (J414s) this used about 1 W less at the
++# desktop (30 paired rounds, about 15%) and added about 10 us to each
++# wake-up (docs/deep-idle-research.md). Not for a T8140, whose only state
++# is WFI.
++#
++# Install: sudo cp cpuidle-pd-always.tmpfiles.conf /etc/tmpfiles.d/cpuidle-pd-always.conf
++# Apply now: sudo systemd-tmpfiles --create /etc/tmpfiles.d/cpuidle-pd-always.conf
++# Undo: remove the file, then
++#   echo 0 | sudo tee /sys/devices/system/cpu/cpu*/cpuidle/state0/disable
++w /sys/devices/system/cpu/cpu*/cpuidle/state0/disable - - - - 1
+diff --git a/tools/aurora-sep/wakelat.c b/tools/aurora-sep/wakelat.c
+new file mode 100644
+index 000000000000..1f11859d9877
+--- /dev/null
++++ b/tools/aurora-sep/wakelat.c
+@@ -0,0 +1,116 @@
++// Wake-up latency probe: timer overshoot on one CPU, or futex wake across two CPUs.
++// usage: wakelat timer CPU SAMPLES PERIOD_US
++//        wakelat ipi CPU_WAKER CPU_SLEEPER SAMPLES PERIOD_US
++// Prints p50 p90 p99 max in microseconds. Runs SCHED_FIFO 50 when allowed.
++#define _GNU_SOURCE
++#include <linux/futex.h>
++#include <pthread.h>
++#include <sched.h>
++#include <stdatomic.h>
++#include <stdint.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <sys/syscall.h>
++#include <time.h>
++#include <unistd.h>
++
++static int64_t now_ns(void)
++{
++	struct timespec ts;
++	clock_gettime(CLOCK_MONOTONIC, &ts);
++	return (int64_t)ts.tv_sec * 1000000000 + ts.tv_nsec;
++}
++
++static void pin(int cpu)
++{
++	cpu_set_t set;
++	struct sched_param sp = { .sched_priority = 50 };
++
++	CPU_ZERO(&set);
++	CPU_SET(cpu, &set);
++	if (sched_setaffinity(0, sizeof(set), &set)) {
++		perror("sched_setaffinity");
++		exit(1);
++	}
++	sched_setscheduler(0, SCHED_FIFO, &sp);
++}
++
++static int cmp(const void *a, const void *b)
++{
++	int64_t x = *(const int64_t *)a, y = *(const int64_t *)b;
++	return (x > y) - (x < y);
++}
++
++static void report(int64_t *lat, int n)
++{
++	qsort(lat, n, sizeof(*lat), cmp);
++	printf("p50 %.1f p90 %.1f p99 %.1f max %.1f\n", lat[n / 2] / 1e3, lat[n * 9 / 10] / 1e3,
++	       lat[n * 99 / 100] / 1e3, lat[n - 1] / 1e3);
++}
++
++static atomic_int word;
++static _Atomic int64_t stamp;
++static int sleeper_cpu, samples;
++static int64_t *lat;
++
++static void *sleeper(void *arg)
++{
++	(void)arg;
++	pin(sleeper_cpu);
++	for (int i = 0; i < samples; i++) {
++		while (atomic_load(&word) == 0)
++			syscall(SYS_futex, &word, FUTEX_WAIT_PRIVATE, 0, NULL, NULL, 0);
++		lat[i] = now_ns() - atomic_load(&stamp);
++		atomic_store(&word, 0);
++	}
++	return NULL;
++}
++
++int main(int argc, char **argv)
++{
++	if (argc == 5 && !strcmp(argv[1], "timer")) {
++		int cpu = atoi(argv[2]), n = atoi(argv[3]);
++		int64_t period = atoll(argv[4]) * 1000, *l = calloc(n, sizeof(*l));
++		struct timespec ts;
++
++		pin(cpu);
++		clock_gettime(CLOCK_MONOTONIC, &ts);
++		for (int i = 0; i < n; i++) {
++			int64_t target = (int64_t)ts.tv_sec * 1000000000 + ts.tv_nsec + period;
++
++			ts.tv_sec = target / 1000000000;
++			ts.tv_nsec = target % 1000000000;
++			clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &ts, NULL);
++			l[i] = now_ns() - target;
++		}
++		report(l, n);
++		return 0;
++	}
++	if (argc == 6 && !strcmp(argv[1], "ipi")) {
++		int waker = atoi(argv[2]);
++		int64_t period = atoll(argv[5]) * 1000;
++		pthread_t t;
++
++		sleeper_cpu = atoi(argv[3]);
++		samples = atoi(argv[4]);
++		lat = calloc(samples, sizeof(*lat));
++		pthread_create(&t, NULL, sleeper, NULL);
++		pin(waker);
++		for (int i = 0; i < samples; i++) {
++			struct timespec ts = { 0, period };
++
++			nanosleep(&ts, NULL);
++			while (atomic_load(&word) != 0)
++				sched_yield();
++			atomic_store(&stamp, now_ns());
++			atomic_store(&word, 1);
++			syscall(SYS_futex, &word, FUTEX_WAKE_PRIVATE, 1, NULL, NULL, 0);
++		}
++		pthread_join(t, NULL);
++		report(lat, samples);
++		return 0;
++	}
++	fprintf(stderr, "usage: wakelat timer CPU N PERIOD_US | ipi WAKER SLEEPER N PERIOD_US\n");
++	return 2;
++}
+-- 
+2.55.0
+

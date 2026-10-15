@@ -1,0 +1,38 @@
+From d5c579b912e07360433aa6842b10213aadd5d339 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 22:47:22 -0400
+Subject: [PATCH 21/37] docs: deep-idle research: idle cluster clock as an
+ unknown
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AuzUDcEeRJQ6RCdWW2XWLb
+---
+ docs/deep-idle-research.md | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/docs/deep-idle-research.md b/docs/deep-idle-research.md
+index 8a6476a25050..94538aa4d069 100644
+--- a/docs/deep-idle-research.md
++++ b/docs/deep-idle-research.md
+@@ -632,6 +632,18 @@ tables.
+   No Linux code manages memory controller power states on Apple; if the
+   PMP owns them, the PMP (E1) matters for s2idle as well as idle.
+ 
++* Whether an idle P cluster keeps its last clock and voltage. schedutil
++  re-evaluates a policy only on scheduler events of its CPUs, so a
++  cluster that goes idle keeps the last pstate it asked for; whether the
++  hardware lowers the voltage by itself once every core is down is not
++  known. `scaling_cur_freq` reads the hardware status register
++  (`APPLE_DVFS_STATUS`), so sampling it in 200 ms windows in which a
++  cluster's CPUs had no busy jiffies answers it. On this busy machine no
++  P cluster was idle for a whole 200 ms window in 30 s, so it needs a quiet
++  one. If the clock stays up, part of the "PD always" saving is leakage at a
++  voltage nobody needs, and lowering the request when a cluster goes idle
++  would add to it.
++
+ * Whether iBoot arms the wake path (reconfig engine, boot CPU RVBAR) for a
+   raw image as it does for a kernelcache.
+ * The SMC/PMGR/PMP/AOP sleep handshake; macOS's sleep drain on this machine.
+-- 
+2.55.0
+

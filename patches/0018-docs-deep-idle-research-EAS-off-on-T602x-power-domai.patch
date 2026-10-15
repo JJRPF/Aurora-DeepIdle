@@ -1,0 +1,146 @@
+From 0740ef03c9d464585b6aaa84769a25a95d26e485 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 22:37:27 -0400
+Subject: [PATCH 18/37] docs: deep-idle research: EAS off on T602x, power
+ domains held on while awake
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AuzUDcEeRJQ6RCdWW2XWLb
+---
+ docs/deep-idle-research.md | 113 +++++++++++++++++++++++++++++++++++++
+ 1 file changed, 113 insertions(+)
+
+diff --git a/docs/deep-idle-research.md b/docs/deep-idle-research.md
+index 42725d9af5fc..2dddc70f4295 100644
+--- a/docs/deep-idle-research.md
++++ b/docs/deep-idle-research.md
+@@ -287,6 +287,114 @@ Sensors usable for measurements: SMC "Total System Power" (hwmon
+ `macsmc_hwmon` power1), "Heatpipe Power" (power4), and the battery's
+ `energy_now` (`macsmc-battery`).
+ 
++### Power domains held on while awake
++
++With the display off and nothing plugged in, 116 of the 200 power domains
++are on. Most are always-on or are parents of always-on domains, but four
++groups are on only because a device never runtime-suspends (genpd keeps a
++domain on while any device in it is runtime-active, and a device without
++runtime PM counts as active). Read from `pm_genpd_summary`, each device's
++`power/runtime_status` and its device links, on the 11.35 kernel after
++58 h of uptime:
++
++* **The Neural Engine's domains, held by a device with no driver.**
++  `ane_cpu` and its parent `ane_sys` are on, held by two ANE DARTs
++  (`285810000.iommu`, `285820000.iommu`) that have been runtime-active for
++  the whole uptime. Their only consumer, `284000000.ane`, has no driver
++  (this kernel has no accel/ANE driver). `apple_dart_probe_device()`
++  links each consumer to its DART with `DL_FLAG_RPM_ACTIVE` (commit
++  `727c99ada827`), which takes a runtime reference on the DART for the
++  consumer and drops it only when the consumer runtime-suspends, so a
++  consumer that never binds a driver keeps its DART, and the DART's domain,
++  on for ever. The commit itself carries the question as a TODO ("Does
++  this mean devices without bound drivers will keep their DARTs up
++  indefinitely?"); this machine answers it: yes. The same commit is in
++  mainline. The third ANE DART is in the always-on `pmp` domain, and the
++  PMP's DART, which has no consumer, is suspended, as are the AVD and ISP
++  DARTs, whose drivers runtime-suspend. A fix belongs in the DART driver
++  or the driver core: drop the blanket reference for a consumer that has
++  no driver once probing is over, and take it again when a driver binds
++  (`BUS_NOTIFY_BIND_DRIVER`), so a consumer driver without runtime PM
++  stays protected, which is what the flag is for. Disabling the ANE node
++  in the DT would also free them, but would hide the device from an ANE
++  driver.
++* **All four USB-C ports' USB blocks.** `atc0_usb` .. `atc3_usb` have been
++  on since boot with zero idle time, and no USB bus exists (no xHCI host:
++  `dwc3-apple` creates one only when a cable is attached). Each domain
++  holds the dwc3 glue (`dwc3-apple`), the ATC PHY and its mux, none of
++  which implements runtime PM, plus two DARTs that follow the glue through
++  the link above. `dwc3-apple` already tears dwc3 down when the cable goes
++  (`DWC3_APPLE_NO_CABLE`); runtime PM in the glue, the PHY and the mux,
++  suspended in that state and resumed from the Type-C mux/role callbacks,
++  would let the four domains go off while nothing is plugged in. That is
++  driver work across three drivers; the Type-C controllers (cd321x, I2C)
++  keep detecting the plug meanwhile.
++* **The SD card reader.** The GL9755 (`0000:02:00.0`) has been in D0 for the
++  whole uptime: `sdhci-pci-gli` gives the GL9755 no runtime PM, unlike the
++  GL9763E next to it in the same file. Its link idles in L1 (E5 would add
++  L1.2). Tens of milliwatts at most.
++* **The display coprocessors**, covered above (both external DCPs run with
++  nothing attached; E4).
++
++The internal display's mode was also checked: 3024x1964 at a fixed 120 Hz
++with VRR off (`hyprctl monitors`). It was DPMS-off during these
++measurements, so it did not affect them, but at the desktop a fixed
++120 Hz keeps the DCP and the compositor's frame clock at 120 Hz; 60 Hz is
++the obvious battery setting until the VRR idle stall (owner's feedback
++notes) is fixed.
++
++### Energy-aware scheduling is off: no CPU energy model on T602x
++
++`/sys/kernel/debug/energy_model` is empty on this machine although
++`kernel.sched_energy_aware` is 1, every cpufreq policy runs schedutil, and
++the E and P cores have different capacities (561 and 1024). The energy
++model for the CPUs comes from `opp-microwatt` in their OPP tables
++(`cpufreq_register_em_with_opp()`), and `t602x-common.dtsi` has none: its
++nine `opp-microwatt` entries are the GPU's. T8103, T600x, T8112 and T8140
++all have measured CPU values (James Calligeros, measured with the SMC's
++cluster power meter and freqbench), and upstream Asahi's `asahi` branch has
++the same gap for T602x. Without an energy model the scheduler places tasks
++by capacity and idleness only, so short, light tasks land on idle P cores
++as readily as on E cores; with one, as long as no CPU is overutilized, it
++places each waking task where the estimated energy is lowest, which for
++light tasks is the E cluster (at the bottom OPP, an E core costs about
++half of what a P core does per unit of capacity), and leaves the P
++clusters in CPU PD.
++
++T8112 (M2) has the same cores, Blizzard and Avalanche, so its measurements
++carry over once each OPP's voltage is accounted for. This machine's
++voltages are in the ADT (`/arm-io/pmgr` `voltage-states1` for the E
++cluster, `voltage-states5` and `-13` for the P clusters; each pair of cells
++is (65536000 / MHz, mV)):
++
++```
++E   912/612  1284/681  1752/775  2004/834  2256/887  2424/946
++P   702/600   948/625  1188/646  1452/687  1704/718  1968/759  2208/793
++   2400/825  2568/856  2724/896  2868/931  3000/975  3132/1012
++   3264/1056 3360/1056 3408/1056 3504/1056                  (MHz/mV)
++```
++
++Fitting T8112's measured power to P = (a + b f) V^2 f at these voltages
++gives 5.8% (E) and 6.3% (P) rms error, about the measurements' own
++scatter; the implied switching capacitance is flat for E and rises a
++little with frequency for P (leakage and heat at the top).
++`tools/aurora-sep/t6020-cpu-em.py` does the fit and writes the values into
++`t602x-common.dtsi` (`--write`); `tests/test_t6020_cpu_em.py` checks that
++the tree carries them. The energy per cycle rises from each OPP to the
++next, so the energy model marks no OPP inefficient: cpufreq keeps choosing
++among all frequencies as today (an inefficient OPP is skipped by
++schedutil), and only task placement changes. The other EAS conditions hold
++on the running kernel: asymmetric capacities, no SMT, frequency
++invariance (the driver implements `target_index` and `fast_switch`),
++schedutil on every policy, and three performance domains well under the
++complexity limit.
++
++Not measured: the saving. It shows only when the machine is lightly loaded
++(EAS stands aside while any CPU is overutilized), so it needs a quiet
++machine after a reboot into the staged image. M2 Pro/Max share the table;
++their voltages may differ by a few mV per bin, which moves the values by
++a few percent.
++
+ ## What was built
+ 
+ 1. **`arch/arm64/boot/dts/apple/t6020-j414s-pmp.dts`**: `#define
+@@ -344,6 +452,11 @@ Sensors usable for measurements: SMC "Total System Power" (hwmon
+    instead. Both were built from release 11.35's sources with the recipe
+    that rebuilds its stock DTB byte for byte, and both keep the DTBs back to
+    back (m1n1 walks them by `totalsize`).
++5. **CPU energy model** (`t602x-common.dtsi`, see above), and its staged
++   image `~/Work/deep-idle-build/boot.bin.em-test` (sha256 `462a289d...`):
++   the current image with DTB #31 replaced by release 11.35's J414s DTB
++   plus the 23 `opp-microwatt` properties, nothing else (decompiled diff).
++   The chain is intact: 113 DTBs, everything before and after identical.
+ 
+ ## Experiments, smallest first
+ 
+-- 
+2.55.0
+

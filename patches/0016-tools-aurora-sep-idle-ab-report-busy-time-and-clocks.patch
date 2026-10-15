@@ -1,0 +1,170 @@
+From bede1ac0dd2025eb35e385639f661cbce4df9a0c Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 22:29:30 -0400
+Subject: [PATCH 16/37] tools/aurora-sep: idle-ab: report busy time and clocks
+ per setting
+
+Under heavy load a setting could lower power by changing the work done
+or the frequencies schedutil picks, not only the idle power. Each window
+now records the busy time of all CPUs (/proc/stat, idle and iowait left
+out) and each cpufreq policy's mean frequency, and the report prints
+them per setting.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AuzUDcEeRJQ6RCdWW2XWLb
+---
+ tools/aurora-sep/idle-ab.py            | 43 ++++++++++++++++++++++++--
+ tools/aurora-sep/tests/test_idle_ab.py | 16 +++++++++-
+ 2 files changed, 56 insertions(+), 3 deletions(-)
+
+diff --git a/tools/aurora-sep/idle-ab.py b/tools/aurora-sep/idle-ab.py
+index bc86e9cbc495..3a4d67a8b81e 100755
+--- a/tools/aurora-sep/idle-ab.py
++++ b/tools/aurora-sep/idle-ab.py
+@@ -21,7 +21,10 @@ package, which leaves out the display and the rest of the board). The report
+ gives each setting's mean per sensor, its CPU PD and WFI residency, and its
+ difference from the first setting, paired by round: a busy machine's load
+ drifts by watts, and pairing cancels most of it. More rounds narrow the
+-spread (the standard error is printed).
++spread (the standard error is printed). It also gives each setting's busy
++time (all CPUs, from /proc/stat) and each cpufreq policy's mean frequency,
++to show whether a setting changed the work done or the clocks rather than
++only the idle power.
+ 
+ It writes only the cpuidle 'disable' files and pd_residency_us, as root, and
+ puts every one back as it found it on exit, also on an error or Ctrl-C.
+@@ -37,6 +40,8 @@ CPUS = 'sys/devices/system/cpu'
+ HWMON = 'sys/class/hwmon'
+ RESIDENCY = 'sys/module/cpuidle_apple/parameters/pd_residency_us'
+ POWER_LABEL = 'Total System Power'
++POLICIES = 'sys/devices/system/cpu/cpufreq'
++STAT = 'proc/stat'
+ HWMON_NAME = 'macsmc_hwmon'
+ 
+ 
+@@ -84,6 +89,8 @@ class Machine:
+             raise FileNotFoundError('no cpuidle states')
+         self.sensors = power_sensors(root)
+         self.residency = root / RESIDENCY
++        self.policies = sorted((root / POLICIES).glob('policy[0-9]*'),
++                               key=lambda path: int(path.name[6:]))
+         self.saved = {path: path.read_text() for path in self.knobs()}
+ 
+     def knobs(self):
+@@ -115,6 +122,22 @@ class Machine:
+         """Time in WFI and in CPU PD of each CPU, in microseconds."""
+         return [[int((cpu / f'state{i}/time').read_text()) for i in (0, 1)] for cpu in self.cpus]
+ 
++    def busy(self):
++        """(busy, total) jiffies over all CPUs: everything but idle and iowait."""
++        busy = total = 0
++        for line in (self.root / STAT).read_text().splitlines():
++            fields = line.split()
++            if fields and fields[0].startswith('cpu') and fields[0][3:].isdigit():
++                ticks = [int(x) for x in fields[1:]]
++                busy += sum(ticks) - ticks[3] - ticks[4]
++                total += sum(ticks)
++        return busy, total
++
++    def mhz(self):
++        """{policy name: current MHz}."""
++        return {policy.name: int((policy / 'scaling_cur_freq').read_text()) // 1000
++                for policy in self.policies}
++
+     def watts(self):
+         """{label: watts} for every sensor."""
+         return {label: int(path.read_text()) / 1e6 for label, path in self.sensors.items()}
+@@ -132,10 +155,13 @@ def run(machine, names, rounds, window, settle, log=None):
+                 machine.apply(parse_setting(name))
+                 time.sleep(settle)
+                 before, start, samples = machine.residency_us(), time.monotonic(), []
++                ticks, clocks = machine.busy(), []
+                 while time.monotonic() - start < window:
+                     samples.append(machine.watts())
++                    clocks.append(machine.mhz())
+                     time.sleep(1)
+                 after, elapsed = machine.residency_us(), time.monotonic() - start
++                ticks = [b - a for a, b in zip(ticks, machine.busy())]
+                 spent = [[a - b for a, b in zip(*pair)] for pair in zip(after, before)]
+                 total = elapsed * 1e6 * len(machine.cpus)
+                 row = {'round': n, 'setting': name,
+@@ -145,7 +171,10 @@ def run(machine, names, rounds, window, settle, log=None):
+                        'wfi_pct': 100 * sum(cpu[0] for cpu in spent) / total,
+                        'pd_pct': 100 * sum(cpu[1] for cpu in spent) / total,
+                        'pd_pct_by_cpu': {number: round(100 * cpu[1] / (elapsed * 1e6), 1)
+-                                         for number, cpu in zip(machine.numbers(), spent)}}
++                                         for number, cpu in zip(machine.numbers(), spent)},
++                       'busy_pct': 100 * ticks[0] / ticks[1] if ticks[1] else 0.0,
++                       'mhz': {name: statistics.mean(clock[name] for clock in clocks)
++                               for name in clocks[0]}}
+                 rows.append(row)
+                 if log:
+                     print(json.dumps(row), file=log, flush=True)
+@@ -178,6 +207,16 @@ def report(rows, names):
+                 line += (f'   {mean:+.3f} W (sd {sd:.2f}, se {sd / len(diffs) ** 0.5:.3f}, '
+                          f'lower in {lower} of {len(diffs)})')
+             out.append(line)
++    if rows and 'busy_pct' in rows[0]:
++        out.append('Busy time and clocks:')
++        policies = list(rows[0]['mhz'])
++        out.append(f'  {"setting":12} {"busy %":>6} ' + ' '.join(f'{name:>9}' for name in policies))
++        for name in names:
++            mine = [row for row in rows if row['setting'] == name]
++            if mine:
++                out.append(f'  {name:12} {statistics.mean(r["busy_pct"] for r in mine):6.1f} ' +
++                           ' '.join(f'{statistics.mean(r["mhz"][p] for r in mine):9.0f}'
++                                    for p in policies))
+     return out
+ 
+ 
+diff --git a/tools/aurora-sep/tests/test_idle_ab.py b/tools/aurora-sep/tests/test_idle_ab.py
+index f3b7a2db26be..501434ed3599 100644
+--- a/tools/aurora-sep/tests/test_idle_ab.py
++++ b/tools/aurora-sep/tests/test_idle_ab.py
+@@ -31,6 +31,12 @@ def fake_machine(root, residency=True, cpus=2):
+     other.mkdir(parents=True)
+     (other / "name").write_text("tas2764\n")
+     (other / "power1_label").write_text("Speaker\n")
++    for policy, mhz in (("policy0", 912000), ("policy4", 3264000)):
++        (root / idle_ab.POLICIES / policy).mkdir(parents=True)
++        (root / idle_ab.POLICIES / policy / "scaling_cur_freq").write_text(f"{mhz}\n")
++    (root / "proc").mkdir()
++    (root / idle_ab.STAT).write_text("cpu  9 0 0 9 0 0 0 0 0 0\n"
++                                     "cpu0 3 0 1 4 2 0 0 0 0 0\ncpu1 1 0 0 9 0 0 0 0 0 0\nintr 5\n")
+     if residency:
+         param = root / idle_ab.RESIDENCY
+         param.parent.mkdir(parents=True)
+@@ -75,6 +81,9 @@ class IdleAbTest(unittest.TestCase):
+             # A setting without a residency runs with the one found, also after res=.
+             self.assertEqual(seen[4], ("1\n", "0\n", "10000\n"))
+             self.assertEqual(rows[0]["watts"], 6.55)
++            self.assertEqual(rows[0]["mhz"], {"policy0": 912, "policy4": 3264})
++            self.assertEqual(machine.busy(), (5, 20))
++            self.assertEqual(rows[0]["busy_pct"], 0.0)
+             self.assertEqual(rows[0]["sensors"], {"Total System Power": 6.55,
+                                                   "Heatpipe Power": 1.25})
+             for path in machine.saved:
+@@ -139,7 +148,9 @@ class IdleAbTest(unittest.TestCase):
+ 
+     def test_report_pairs_by_round(self):
+         rows = [{"round": n, "setting": s, "watts": w, "pd_pct": 1.0, "wfi_pct": 2.0,
+-                 "sensors": {"Total System Power": w, "Heatpipe Power": w / 4}}
++                 "sensors": {"Total System Power": w, "Heatpipe Power": w / 4},
++                 "busy_pct": 40.0 if s == "default" else 30.0,
++                 "mhz": {"policy0": 912, "policy4": 1000 + n}}
+                 for n, base in enumerate((12.0, 8.0, 10.0))
+                 for s, w in (("default", base), ("pd-always", base - 0.5))]
+         report = "\n".join(idle_ab.report(rows, ["default", "pd-always"]))
+@@ -149,6 +160,9 @@ class IdleAbTest(unittest.TestCase):
+         self.assertIn("-0.500 W (sd 0.00, se 0.000, lower in 3 of 3)", total)
+         self.assertIn("pd-always        2.38", heatpipe)
+         self.assertIn("-0.125 W", heatpipe)
++        clocks = report.split("Busy time and clocks:")[1]
++        self.assertIn("default        40.0       912      1001", clocks)
++        self.assertIn("pd-always      30.0       912      1001", clocks)
+ 
+ 
+ if __name__ == "__main__":
+-- 
+2.55.0
+

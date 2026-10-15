@@ -1,0 +1,175 @@
+From f098b4d2eb9feee01b07ddd12fadb97a819f0ab6 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 21:34:28 -0400
+Subject: [PATCH 07/37] arm64: dts: apple: t6020-j414s-nodcpext: disable the
+ DCPs' Type-C routes
+
+The routes inside the external DCPs are the mode-switch providers the
+USB-C controllers find through their connector graph. The graph checks
+only the far node's own status, so with the DCPs disabled the routes still
+looked available, and fwnode_typec_mux_get() would have deferred the
+cd321x probe for ever, waiting for a mux nobody registers. Disable the six
+routes, and test that no graph link from an enabled node leads to a node
+that is disabled only through an ancestor.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AuzUDcEeRJQ6RCdWW2XWLb
+---
+ .../boot/dts/apple/t6020-j414s-nodcpext.dts   | 30 ++++++++++++-
+ docs/deep-idle-research.md                    | 15 +++++--
+ tools/aurora-sep/tests/test_t6020_nodcpext.py | 43 ++++++++++++++++++-
+ 3 files changed, 83 insertions(+), 5 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/apple/t6020-j414s-nodcpext.dts b/arch/arm64/boot/dts/apple/t6020-j414s-nodcpext.dts
+index b5cc900a26bd..d71777234e95 100644
+--- a/arch/arm64/boot/dts/apple/t6020-j414s-nodcpext.dts
++++ b/arch/arm64/boot/dts/apple/t6020-j414s-nodcpext.dts
+@@ -15,7 +15,11 @@
+  * their DARTs and mailboxes disabled, nothing uses the dispext power
+  * domains, so they are powered off as unused. The display subsystem keeps
+  * only the internal display's DART: an iommus entry for a disabled DART
+- * fails the whole IOMMU setup of the node.
++ * fails the whole IOMMU setup of the node. The DCPs' Type-C routes are
++ * disabled too: they are the mode-switch providers the USB-C controllers
++ * look up through the graph, which checks only the route node's own status,
++ * so an enabled route under a disabled DCP would keep the controllers'
++ * probe deferred waiting for a mux nobody registers.
+  *
+  * It is left out of the Makefile on purpose: it has the same compatible as
+  * t6020-j414s.dtb, and m1n1 boots the last DTB that matches. Build it by
+@@ -69,3 +73,27 @@ &dcpext1_mbox {
+ &dispext1_dart {
+ 	status = "disabled";
+ };
++
++&{/soc/dcp@289c00000/typec-routes/route@0} {
++	status = "disabled";
++};
++
++&{/soc/dcp@289c00000/typec-routes/route@1} {
++	status = "disabled";
++};
++
++&{/soc/dcp@289c00000/typec-routes/route@2} {
++	status = "disabled";
++};
++
++&{/soc/dcp@315c00000/typec-routes/route@0} {
++	status = "disabled";
++};
++
++&{/soc/dcp@315c00000/typec-routes/route@1} {
++	status = "disabled";
++};
++
++&{/soc/dcp@315c00000/typec-routes/route@2} {
++	status = "disabled";
++};
+diff --git a/docs/deep-idle-research.md b/docs/deep-idle-research.md
+index cbcb0244f478..9eaedf5c9525 100644
+--- a/docs/deep-idle-research.md
++++ b/docs/deep-idle-research.md
+@@ -253,12 +253,21 @@ Sensors usable for measurements: SMC "Total System Power" (hwmon
+    for, only aliased DCPs: `src/kboot.c` 1735-1762). It disables both DCPs,
+    their DARTs and mailboxes and the two `dispext` DARTs, and trims the
+    display subsystem's `iommus` to the internal DART (an entry for a disabled
+-   DART fails the node's whole IOMMU setup). Checked in the 11.35 source: the
++   DART fails the node's whole IOMMU setup). It also disables the DCPs'
++   six Type-C `route@N` nodes: they carry `mode-switch`, the USB-C
++   controllers (cd321x) look their mux up through the graph with
++   `fwnode_typec_mux_get()`, and the graph checks only the far node's own
++   status (`fwnode_graph_devcon_matches()`), so an enabled route under a
++   disabled DCP would defer the USB-C controller probe for ever. Checked in
++   the 11.35 source: the
+    display driver skips unavailable DCPs, and USB-C display ports are only
+    created from a probed DCP's routes, so none are created and none fail.
+    fw_devlink ignores disabled suppliers. Not in the Makefile, for the same
+    reason as the PMP variant. `tools/aurora-sep/tests/test_t6020_nodcpext.py`
+-   checks that only those properties change, against the merged sources.
++   checks that only those properties change, against the merged sources,
++   and that no graph link from an enabled node leads to a node that is
++   disabled only through an ancestor. The DP audio controllers of the
++   external DCPs stay enabled and log "No audio support" (`audio.c`).
+ 4. **Staged, not installed**: `~/Work/deep-idle-build/boot.bin.pmp-test` is
+    the current `/boot/m1n1/boot.bin` with its one J414s DTB (DTB #31 of 113,
+    byte-identical to release 11.35's) replaced by the PMP variant, built from
+@@ -266,7 +275,7 @@ Sensors usable for measurements: SMC "Total System Power" (hwmon
+    before it and everything after it, U-Boot included, are byte-identical.
+    `~/Work/deep-idle-build/boot.bin.before-pmp-test` is a copy of the current
+    image (sha256 `3630adc3...`). `~/Work/deep-idle-build/boot.bin.nodcpext-test`
+-   (sha256 `3fb7d0f2...`) is the same image with the no-external-DCP DTB
++   (sha256 `b69443cf...`) is the same image with the no-external-DCP DTB
+    instead. Both were built from release 11.35's sources with the recipe
+    that rebuilds its stock DTB byte for byte, and both keep the DTBs back to
+    back (m1n1 walks them by `totalsize`).
+diff --git a/tools/aurora-sep/tests/test_t6020_nodcpext.py b/tools/aurora-sep/tests/test_t6020_nodcpext.py
+index 250ac09125bd..eecb3d6457c6 100644
+--- a/tools/aurora-sep/tests/test_t6020_nodcpext.py
++++ b/tools/aurora-sep/tests/test_t6020_nodcpext.py
+@@ -30,6 +30,8 @@ DISABLED = (
+     "/soc/mbox@315c08000",     # dcpext1_mbox
+     "/soc/iommu@315304000",    # dispext1_dart
+ )
++# The Type-C routes inside them: the USB-C controllers' mode-switch providers.
++ROUTES = tuple(f"{dcp}/typec-routes/route@{n}" for dcp in DISABLED[0::4] for n in range(3))
+ DISPLAY = "/soc/display-subsystem"
+ 
+ 
+@@ -66,6 +68,45 @@ class J414sNoDcpextTest(unittest.TestCase):
+                 self.assertEqual(self.stock[path].get("status"), '"okay"')
+                 self.assertEqual(self.variant[path]["status"], '"disabled"')
+ 
++    def test_no_mode_switch_is_left_enabled_under_a_disabled_node(self):
++        # fwnode_typec_mux_get() follows the connector's graph and checks only
++        # the remote node's own status: an enabled mode-switch with no driver
++        # behind it defers the USB-C controller's probe for ever.
++        self.assertEqual(len(ROUTES), 6)
++        for path, props in self.variant.items():
++            if "mode-switch" not in props or props.get("status") == '"disabled"':
++                continue
++            parts = path.split("/")
++            ancestors = ["/".join(parts[:i]) for i in range(2, len(parts))]
++            with self.subTest(path=path):
++                for ancestor in ancestors:
++                    self.assertNotEqual(self.variant[ancestor].get("status"), '"disabled"')
++        for path in ROUTES:
++            with self.subTest(path=path):
++                self.assertIn("mode-switch", self.variant[path])
++                self.assertEqual(self.variant[path]["status"], '"disabled"')
++
++    def test_no_graph_link_leads_into_a_disabled_node(self):
++        # The same holds for any graph link: the far side's port parent must
++        # be disabled itself, not only through an ancestor.
++        nodes, handles = self.variant, phandles(self.variant)
++
++        def off(path):
++            parts = path.split("/")
++            return any(nodes.get("/".join(parts[:i]) or "/", {}).get("status") == '"disabled"'
++                       for i in range(2, len(parts) + 1))
++
++        for path, props in nodes.items():
++            if "remote-endpoint" not in props or off(path):
++                continue
++            remote = handles[int(props["remote-endpoint"].strip("<>"), 16)]
++            parent = remote.split("/")[:-2]
++            if parent[-1] == "ports":
++                parent = parent[:-1]
++            parent = "/".join(parent)
++            with self.subTest(path=path, remote=parent):
++                self.assertFalse(off(remote) and nodes[parent].get("status") != '"disabled"')
++
+     def test_display_keeps_only_the_internal_dart(self):
+         cells = self.variant[DISPLAY]["iommus"].strip("<>").split()
+         self.assertEqual(len(cells), 2)
+@@ -95,7 +136,7 @@ class J414sNoDcpextTest(unittest.TestCase):
+         changed = {(path, name) for path in stock
+                    for name in (set(stock[path]) | set(variant[path])) - {"phandle"}
+                    if stock[path].get(name) != variant[path].get(name)}
+-        expected = {(path, "status") for path in DISABLED}
++        expected = {(path, "status") for path in DISABLED + ROUTES}
+         expected |= {("/aliases", "dcpext0"), ("/aliases", "dcpext1"), (DISPLAY, "iommus")}
+         self.assertEqual(changed, expected)
+ 
+-- 
+2.55.0
+

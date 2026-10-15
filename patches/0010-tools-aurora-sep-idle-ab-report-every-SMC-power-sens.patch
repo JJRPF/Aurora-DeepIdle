@@ -1,0 +1,211 @@
+From 54b08545478f8fadc9fab60480d058c99ea6e98f Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 21:54:13 -0400
+Subject: [PATCH 10/37] tools/aurora-sep: idle-ab: report every SMC power
+ sensor
+
+Heatpipe Power is the SoC package, without the display and the rest of
+the board, so it should show an idle-state difference with less of the
+load's noise than Total System Power.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AuzUDcEeRJQ6RCdWW2XWLb
+---
+ tools/aurora-sep/idle-ab.py            | 77 ++++++++++++++++----------
+ tools/aurora-sep/tests/test_idle_ab.py | 22 ++++++--
+ 2 files changed, 65 insertions(+), 34 deletions(-)
+
+diff --git a/tools/aurora-sep/idle-ab.py b/tools/aurora-sep/idle-ab.py
+index 1233c1fce5c5..3ca0dd5f46ab 100755
+--- a/tools/aurora-sep/idle-ab.py
++++ b/tools/aurora-sep/idle-ab.py
+@@ -11,11 +11,13 @@ Each SETTING is one of
+                (needs cpuidle_apple.pd_residency_us)
+ 
+ Every round runs each setting for --window seconds, after --settle seconds,
+-alternating the order from round to round, and samples the SMC's Total
+-System Power once a second. The report gives each setting's mean, its CPU PD
+-and WFI residency, and its difference from the first setting, paired by
+-round: a busy machine's load drifts by watts, and pairing cancels most of
+-it. More rounds narrow the spread (the standard error is printed).
++alternating the order from round to round, and samples every SMC power
++sensor once a second (Total System Power, and Heatpipe Power, the SoC
++package, which leaves out the display and the rest of the board). The report
++gives each setting's mean per sensor, its CPU PD and WFI residency, and its
++difference from the first setting, paired by round: a busy machine's load
++drifts by watts, and pairing cancels most of it. More rounds narrow the
++spread (the standard error is printed).
+ 
+ It writes only the cpuidle 'disable' files and pd_residency_us, as root, and
+ puts every one back as it found it on exit, also on an error or Ctrl-C.
+@@ -31,6 +33,7 @@ CPUS = 'sys/devices/system/cpu'
+ HWMON = 'sys/class/hwmon'
+ RESIDENCY = 'sys/module/cpuidle_apple/parameters/pd_residency_us'
+ POWER_LABEL = 'Total System Power'
++HWMON_NAME = 'macsmc_hwmon'
+ 
+ 
+ def parse_setting(text):
+@@ -43,11 +46,17 @@ def parse_setting(text):
+     raise ValueError(f'unknown setting {text!r}')
+ 
+ 
+-def power_sensor(root):
++def power_sensors(root):
++    """{label: input path} of the SMC's power sensors, Total System Power first."""
++    sensors = {}
+     for label in sorted((root / HWMON).glob('hwmon*/power*_label')):
+-        if label.read_text().strip() == POWER_LABEL:
+-            return label.with_name(label.name.replace('_label', '_input'))
+-    raise FileNotFoundError(f'no hwmon sensor labelled {POWER_LABEL!r}')
++        name = (label.parent / 'name').read_text().strip() if (label.parent / 'name').exists() else ''
++        if name == HWMON_NAME or label.read_text().strip() == POWER_LABEL:
++            sensors[label.read_text().strip()] = label.with_name(
++                label.name.replace('_label', '_input'))
++    if POWER_LABEL not in sensors:
++        raise FileNotFoundError(f'no hwmon sensor labelled {POWER_LABEL!r}')
++    return dict(sorted(sensors.items(), key=lambda item: item[0] != POWER_LABEL))
+ 
+ 
+ class Machine:
+@@ -56,7 +65,7 @@ class Machine:
+         self.cpus = sorted((root / CPUS).glob('cpu[0-9]*/cpuidle'))
+         if not self.cpus:
+             raise FileNotFoundError('no cpuidle states')
+-        self.power = power_sensor(root)
++        self.sensors = power_sensors(root)
+         self.residency = root / RESIDENCY
+         self.saved = {path: path.read_text() for path in self.knobs()}
+ 
+@@ -87,7 +96,8 @@ class Machine:
+                 for i in (0, 1)]
+ 
+     def watts(self):
+-        return int(self.power.read_text()) / 1e6
++        """{label: watts} for every sensor."""
++        return {label: int(path.read_text()) / 1e6 for label, path in self.sensors.items()}
+ 
+ 
+ def run(machine, names, rounds, window, settle, log=None):
+@@ -103,7 +113,10 @@ def run(machine, names, rounds, window, settle, log=None):
+                     time.sleep(1)
+                 after, elapsed = machine.residency_us(), time.monotonic() - start
+                 total = elapsed * 1e6 * len(machine.cpus)
+-                row = {'round': n, 'setting': name, 'watts': statistics.mean(samples),
++                row = {'round': n, 'setting': name,
++                       'watts': statistics.mean(sample[POWER_LABEL] for sample in samples),
++                       'sensors': {label: statistics.mean(sample[label] for sample in samples)
++                                   for label in samples[0]},
+                        'wfi_pct': 100 * (after[0] - before[0]) / total,
+                        'pd_pct': 100 * (after[1] - before[1]) / total}
+                 rows.append(row)
+@@ -115,23 +128,29 @@ def run(machine, names, rounds, window, settle, log=None):
+ 
+ 
+ def report(rows, names):
+-    out = [f'{"setting":12} {"mean W":>8} {"PD %":>6} {"WFI %":>6}   '
+-           f'paired difference from {names[0]}']
+-    base = {row['round']: row['watts'] for row in rows if row['setting'] == names[0]}
+-    for name in names:
+-        mine = [row for row in rows if row['setting'] == name]
+-        if not mine:
+-            continue
+-        line = (f'{name:12} {statistics.mean(r["watts"] for r in mine):8.2f} '
+-                f'{statistics.mean(r["pd_pct"] for r in mine):6.1f} '
+-                f'{statistics.mean(r["wfi_pct"] for r in mine):6.1f}')
+-        diffs = [r['watts'] - base[r['round']] for r in mine if r['round'] in base]
+-        if name != names[0] and len(diffs) > 1:
+-            mean, sd = statistics.mean(diffs), statistics.stdev(diffs)
+-            lower = sum(d < 0 for d in diffs)
+-            line += (f'   {mean:+.2f} W (sd {sd:.2f}, se {sd / len(diffs) ** 0.5:.2f}, '
+-                     f'lower in {lower} of {len(diffs)})')
+-        out.append(line)
++    out = []
++    labels = list(rows[0].get('sensors') or {POWER_LABEL: None}) if rows else []
++    for label in labels:
++        def watts(row):
++            return row['sensors'][label] if 'sensors' in row else row['watts']
++        out.append(f'{label}:')
++        out.append(f'  {"setting":12} {"mean W":>8} {"PD %":>6} {"WFI %":>6}   '
++                   f'paired difference from {names[0]}')
++        base = {row['round']: watts(row) for row in rows if row['setting'] == names[0]}
++        for name in names:
++            mine = [row for row in rows if row['setting'] == name]
++            if not mine:
++                continue
++            line = (f'  {name:12} {statistics.mean(watts(r) for r in mine):8.2f} '
++                    f'{statistics.mean(r["pd_pct"] for r in mine):6.1f} '
++                    f'{statistics.mean(r["wfi_pct"] for r in mine):6.1f}')
++            diffs = [watts(r) - base[r['round']] for r in mine if r['round'] in base]
++            if name != names[0] and len(diffs) > 1:
++                mean, sd = statistics.mean(diffs), statistics.stdev(diffs)
++                lower = sum(d < 0 for d in diffs)
++                line += (f'   {mean:+.3f} W (sd {sd:.2f}, se {sd / len(diffs) ** 0.5:.3f}, '
++                         f'lower in {lower} of {len(diffs)})')
++            out.append(line)
+     return out
+ 
+ 
+diff --git a/tools/aurora-sep/tests/test_idle_ab.py b/tools/aurora-sep/tests/test_idle_ab.py
+index d985bc8d8799..0a1208961d58 100644
+--- a/tools/aurora-sep/tests/test_idle_ab.py
++++ b/tools/aurora-sep/tests/test_idle_ab.py
+@@ -22,9 +22,15 @@ def fake_machine(root, residency=True):
+             (state / "time").write_text("0\n")
+     hwmon = root / idle_ab.HWMON / "hwmon1"
+     hwmon.mkdir(parents=True)
++    (hwmon / "name").write_text("macsmc_hwmon\n")
+     (hwmon / "power1_label").write_text("Heatpipe Power\n")
++    (hwmon / "power1_input").write_text("1250000\n")
+     (hwmon / "power2_label").write_text("Total System Power\n")
+     (hwmon / "power2_input").write_text("6550000\n")
++    other = root / idle_ab.HWMON / "hwmon4"
++    other.mkdir(parents=True)
++    (other / "name").write_text("tas2764\n")
++    (other / "power1_label").write_text("Speaker\n")
+     if residency:
+         param = root / idle_ab.RESIDENCY
+         param.parent.mkdir(parents=True)
+@@ -46,7 +52,7 @@ class IdleAbTest(unittest.TestCase):
+             root = Path(temp)
+             fake_machine(root)
+             machine = idle_ab.Machine(root)
+-            self.assertEqual(machine.power.name, "power2_input")
++            self.assertEqual(list(machine.sensors), ["Total System Power", "Heatpipe Power"])
+             seen = []
+             real_apply = machine.apply
+ 
+@@ -66,6 +72,8 @@ class IdleAbTest(unittest.TestCase):
+             # A setting without a residency runs with the one found, also after res=.
+             self.assertEqual(seen[4], ("1\n", "0\n", "10000\n"))
+             self.assertEqual(rows[0]["watts"], 6.55)
++            self.assertEqual(rows[0]["sensors"], {"Total System Power": 6.55,
++                                                  "Heatpipe Power": 1.25})
+             for path in machine.saved:
+                 self.assertIn(path.read_text(), ("0\n", "10000\n"))
+             self.assertEqual((root / idle_ab.RESIDENCY).read_text(), "10000\n")
+@@ -92,13 +100,17 @@ class IdleAbTest(unittest.TestCase):
+                 idle_ab.run(machine, ["res=500"], 1, 1, 0)
+ 
+     def test_report_pairs_by_round(self):
+-        rows = [{"round": n, "setting": s, "watts": w, "pd_pct": 1.0, "wfi_pct": 2.0}
++        rows = [{"round": n, "setting": s, "watts": w, "pd_pct": 1.0, "wfi_pct": 2.0,
++                 "sensors": {"Total System Power": w, "Heatpipe Power": w / 4}}
+                 for n, base in enumerate((12.0, 8.0, 10.0))
+                 for s, w in (("default", base), ("pd-always", base - 0.5))]
+         report = "\n".join(idle_ab.report(rows, ["default", "pd-always"]))
+-        self.assertIn("default         10.00", report)
+-        self.assertIn("pd-always        9.50", report)
+-        self.assertIn("-0.50 W (sd 0.00, se 0.00, lower in 3 of 3)", report)
++        total, heatpipe = report.split("Heatpipe Power:")
++        self.assertIn("default         10.00", total)
++        self.assertIn("pd-always        9.50", total)
++        self.assertIn("-0.500 W (sd 0.00, se 0.000, lower in 3 of 3)", total)
++        self.assertIn("pd-always        2.38", heatpipe)
++        self.assertIn("-0.125 W", heatpipe)
+ 
+ 
+ if __name__ == "__main__":
+-- 
+2.55.0
+

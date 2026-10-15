@@ -1,0 +1,105 @@
+From 4b97e612e91f29c14abd44ac671ea7172aaad3b2 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Thu, 15 Oct 2026 17:25:44 -0400
+Subject: [PATCH 37/37] tools/aurora-sep: let the T602x tools and tests run
+ from a copy
+
+t6020-cpu-em.py and the T602x DT tests find the kernel tree by their
+own location. AURORA_TREE now names it for a copy kept outside the
+tree; without a tree the tests skip and the tool says what to set.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AuzUDcEeRJQ6RCdWW2XWLb
+---
+ tools/aurora-sep/t6020-cpu-em.py              | 9 +++++++--
+ tools/aurora-sep/tests/test_t6020_cpu_em.py   | 1 +
+ tools/aurora-sep/tests/test_t6020_nodcpext.py | 3 ++-
+ tools/aurora-sep/tests/test_t6020_pmp.py      | 6 ++++--
+ 4 files changed, 14 insertions(+), 5 deletions(-)
+
+diff --git a/tools/aurora-sep/t6020-cpu-em.py b/tools/aurora-sep/t6020-cpu-em.py
+index 1aa9e9c0e948..027f325d205e 100755
+--- a/tools/aurora-sep/t6020-cpu-em.py
++++ b/tools/aurora-sep/t6020-cpu-em.py
+@@ -27,14 +27,17 @@ The voltages are those of a J414s (M2 Pro, 10 cores), from the ADT's
+ /arm-io/pmgr voltage-states1 (E cluster) and voltage-states5 (P cluster 0;
+ cluster 1's voltage-states13 is within 6 mV), whose cells are pairs of
+ (65536000 / MHz, mV). Prints the fit and each table's values; --write
+-puts them into t602x-common.dtsi as each OPP's opp-microwatt.
++puts them into t602x-common.dtsi as each OPP's opp-microwatt. It reads
++the kernel tree it sits in, or the one AURORA_TREE names.
+ """
+ import argparse
++import os
+ from pathlib import Path
+ import re
+ import sys
+ 
+-ROOT = Path(__file__).resolve().parents[2]
++# The kernel tree: this script's own, or AURORA_TREE when run from a copy outside it.
++ROOT = Path(os.environ.get('AURORA_TREE') or Path(__file__).resolve().parents[2])
+ T8112 = ROOT / 'arch/arm64/boot/dts/apple/t8112.dtsi'
+ T602X = ROOT / 'arch/arm64/boot/dts/apple/t602x-common.dtsi'
+ 
+@@ -147,6 +150,8 @@ def main():
+                                      formatter_class=argparse.RawDescriptionHelpFormatter)
+     parser.add_argument('--write', action='store_true', help=f'update {T602X.name}')
+     args = parser.parse_args()
++    if not T8112.exists():
++        parser.error(f'{T8112} not found: set AURORA_TREE to a linux-aurora tree')
+     derived = derive(T8112.read_text())
+     for label, (coef, rms, table) in derived.items():
+         print(f'{label}: a={coef[0]:.1f} b={coef[1]:.5f} rms {rms * 100:.1f}% '
+diff --git a/tools/aurora-sep/tests/test_t6020_cpu_em.py b/tools/aurora-sep/tests/test_t6020_cpu_em.py
+index 3095392423b0..78644081e636 100644
+--- a/tools/aurora-sep/tests/test_t6020_cpu_em.py
++++ b/tools/aurora-sep/tests/test_t6020_cpu_em.py
+@@ -14,6 +14,7 @@ SPEC.loader.exec_module(cpu_em)
+ CAPACITY = {"blizzard_opp": 756, "avalanche_opp": 1024}
+ 
+ 
++@unittest.skipUnless(cpu_em.T8112.exists(), "needs a kernel tree (AURORA_TREE)")
+ class T6020CpuEmTest(unittest.TestCase):
+     @classmethod
+     def setUpClass(cls):
+diff --git a/tools/aurora-sep/tests/test_t6020_nodcpext.py b/tools/aurora-sep/tests/test_t6020_nodcpext.py
+index eecb3d6457c6..7711d98016d5 100644
+--- a/tools/aurora-sep/tests/test_t6020_nodcpext.py
++++ b/tools/aurora-sep/tests/test_t6020_nodcpext.py
+@@ -43,7 +43,8 @@ def merged(board):
+ DISP0_DART = "/soc/iommu@389304000"
+ 
+ 
+-@unittest.skipUnless(shutil.which("cpp") and shutil.which(DTC), "requires cpp and dtc")
++@unittest.skipUnless(shutil.which("cpp") and shutil.which(DTC) and DTS.is_dir(),
++                     "requires cpp, dtc and a kernel tree (AURORA_TREE)")
+ class J414sNoDcpextTest(unittest.TestCase):
+     @classmethod
+     def setUpClass(cls):
+diff --git a/tools/aurora-sep/tests/test_t6020_pmp.py b/tools/aurora-sep/tests/test_t6020_pmp.py
+index e3d4b377fcbc..d2e047ba7583 100644
+--- a/tools/aurora-sep/tests/test_t6020_pmp.py
++++ b/tools/aurora-sep/tests/test_t6020_pmp.py
+@@ -12,7 +12,8 @@ import tempfile
+ import unittest
+ 
+ 
+-ROOT = Path(__file__).resolve().parents[3]
++# The kernel tree: this test's own, or AURORA_TREE when run from a copy outside it.
++ROOT = Path(os.environ.get("AURORA_TREE") or Path(__file__).resolve().parents[3])
+ DTS = ROOT / "arch/arm64/boot/dts/apple"
+ DTC = os.environ.get("DTC", "dtc")
+ 
+@@ -61,7 +62,8 @@ def phandles(nodes):
+             for path, props in nodes.items() if "phandle" in props}
+ 
+ 
+-@unittest.skipUnless(shutil.which("cpp") and shutil.which(DTC), "requires cpp and dtc")
++@unittest.skipUnless(shutil.which("cpp") and shutil.which(DTC) and DTS.is_dir(),
++                     "requires cpp, dtc and a kernel tree (AURORA_TREE)")
+ class J414sPmpTest(unittest.TestCase):
+     @classmethod
+     def setUpClass(cls):
+-- 
+2.55.0
+

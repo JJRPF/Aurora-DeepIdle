@@ -1,0 +1,43 @@
+From 288486335566a9496b76f10a1b5fe0f825987a87 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 23:19:08 -0400
+Subject: [PATCH 34/37] docs: deep-idle research: E7 installs from the staged
+ build
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AuzUDcEeRJQ6RCdWW2XWLb
+---
+ docs/deep-idle-research.md | 15 +++++++++++----
+ 1 file changed, 11 insertions(+), 4 deletions(-)
+
+diff --git a/docs/deep-idle-research.md b/docs/deep-idle-research.md
+index 22a743a6a9d9..9041a2390f8f 100644
+--- a/docs/deep-idle-research.md
++++ b/docs/deep-idle-research.md
+@@ -577,12 +577,19 @@ domains. It only reads.
+   `43_deepidle`, an opt-in GRUB entry modelled on `42_aurora_sep_previous`.
+   Installing it touches `/boot` and `/lib/modules`, so the owner runs:
+ 
++  The build is done and its modules are staged as the user under
++  `staging/` (`modules_install INSTALL_MOD_PATH=`, 1,870 modules, 2.0 GB
++  like the installed trees; the running tree's extra
++  `macsmc-fan-cooling.ko`, not loaded, is not from this source), with the
++  image as `staging/boot/vmlinuz-deepidle-test`:
++
+   ```
+-  cd ~/Work/deepidle-11.35/src
+-  sudo make O=../build LOCALVERSION=-deepidle modules_install
+-  sudo cp ../build/arch/arm64/boot/Image /boot/vmlinuz-deepidle-test
++  cd ~/Work/deepidle-11.35
++  sudo cp -a staging/lib/modules/7.1.12-2-11.35-sep-ARCH-deepidle /lib/modules/
++  sudo chown -R root:root /lib/modules/7.1.12-2-11.35-sep-ARCH-deepidle
++  sudo cp staging/boot/vmlinuz-deepidle-test /boot/
+   sudo mkinitcpio -k 7.1.12-2-11.35-sep-ARCH-deepidle -g /boot/initramfs-deepidle-test.img
+-  sudo install -m 755 ../43_deepidle /etc/grub.d/43_deepidle
++  sudo install -m 755 43_deepidle /etc/grub.d/43_deepidle
+   sudo grub-mkconfig -o /boot/grub/grub.cfg
+   ```
+ 
+-- 
+2.55.0
+

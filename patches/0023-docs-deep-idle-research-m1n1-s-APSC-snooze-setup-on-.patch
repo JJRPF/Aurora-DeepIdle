@@ -1,0 +1,34 @@
+From 8459772f3dacb82679c8f7f031673c659dec31b3 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 22:49:30 -0400
+Subject: [PATCH 23/37] docs: deep-idle research: m1n1's APSC snooze setup on
+ T602x
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AuzUDcEeRJQ6RCdWW2XWLb
+---
+ docs/deep-idle-research.md | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/docs/deep-idle-research.md b/docs/deep-idle-research.md
+index ffbf3af07453..fb6264c88fd0 100644
+--- a/docs/deep-idle-research.md
++++ b/docs/deep-idle-research.md
+@@ -647,6 +647,14 @@ tables.
+   one. If the clock stays up, part of the "PD always" saving is leakage at a
+   voltage nobody needs, and lowering the request when a cluster goes idle
+   would add to it.
++  m1n1 points to the hardware doing it: for T602x it resets every cluster
++  to its "APSC" pstate (pstate 1) and sets "APSC Snooze" (cluster base +
++  0x200f8, bit 40; `src/cpufreq.c` `cpufreq_init_cluster()`), which reads
++  as an automatic drop to that pstate when the cluster idles. For T8103 and
++  T8112 it also copies the APSC pstate's table entry into a separate slot
++  (cluster + 0x70210, and + 0x7ffe8 on T8112); for T602x it does not, so
++  whether snooze has a valid target there is a question for the m1n1
++  authors, or for a read of those registers from m1n1's proxy.
+ 
+ * Whether iBoot arms the wake path (reconfig engine, boot CPU RVBAR) for a
+   raw image as it does for a kernelcache.
+-- 
+2.55.0
+

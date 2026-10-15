@@ -1,0 +1,303 @@
+From 05bec44160151318902c4de5a5bdb054a2bb36c3 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 21:39:09 -0400
+Subject: [PATCH 09/37] tools/aurora-sep: add idle-ab.py
+
+Compare CPU idle settings by SMC Total System Power on a running machine:
+default, CPU PD disabled, WFI disabled, or a CPU PD target residency
+(cpuidle_apple.pd_residency_us). Rounds alternate the order, and the
+report pairs each setting with the first by round, since a busy machine's
+load drifts by watts. Every knob it writes is put back on exit, also on an
+error or Ctrl-C.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AuzUDcEeRJQ6RCdWW2XWLb
+---
+ tools/aurora-sep/idle-ab.py            | 162 +++++++++++++++++++++++++
+ tools/aurora-sep/tests/test_idle_ab.py | 105 ++++++++++++++++
+ 2 files changed, 267 insertions(+)
+ create mode 100755 tools/aurora-sep/idle-ab.py
+ create mode 100644 tools/aurora-sep/tests/test_idle_ab.py
+
+diff --git a/tools/aurora-sep/idle-ab.py b/tools/aurora-sep/idle-ab.py
+new file mode 100755
+index 000000000000..1233c1fce5c5
+--- /dev/null
++++ b/tools/aurora-sep/idle-ab.py
+@@ -0,0 +1,162 @@
++#!/usr/bin/env python3
++"""Compare CPU idle settings by system power, on a running machine.
++
++  idle-ab.py [--rounds N] [--window S] [--settle S] SETTING...
++
++Each SETTING is one of
++  default      both states enabled, the residency as found
++  wfi-only     CPU PD disabled
++  pd-always    WFI disabled, so every idle entry is CPU PD
++  res=US       both states enabled, CPU PD target residency US microseconds
++               (needs cpuidle_apple.pd_residency_us)
++
++Every round runs each setting for --window seconds, after --settle seconds,
++alternating the order from round to round, and samples the SMC's Total
++System Power once a second. The report gives each setting's mean, its CPU PD
++and WFI residency, and its difference from the first setting, paired by
++round: a busy machine's load drifts by watts, and pairing cancels most of
++it. More rounds narrow the spread (the standard error is printed).
++
++It writes only the cpuidle 'disable' files and pd_residency_us, as root, and
++puts every one back as it found it on exit, also on an error or Ctrl-C.
++"""
++import argparse
++import json
++from pathlib import Path
++import statistics
++import sys
++import time
++
++CPUS = 'sys/devices/system/cpu'
++HWMON = 'sys/class/hwmon'
++RESIDENCY = 'sys/module/cpuidle_apple/parameters/pd_residency_us'
++POWER_LABEL = 'Total System Power'
++
++
++def parse_setting(text):
++    """(state0 disable, state1 disable, residency or None) for a SETTING."""
++    fixed = {'default': (0, 0, None), 'wfi-only': (0, 1, None), 'pd-always': (1, 0, None)}
++    if text in fixed:
++        return fixed[text]
++    if text.startswith('res=') and text[4:].isdigit() and int(text[4:]) > 0:
++        return 0, 0, int(text[4:])
++    raise ValueError(f'unknown setting {text!r}')
++
++
++def power_sensor(root):
++    for label in sorted((root / HWMON).glob('hwmon*/power*_label')):
++        if label.read_text().strip() == POWER_LABEL:
++            return label.with_name(label.name.replace('_label', '_input'))
++    raise FileNotFoundError(f'no hwmon sensor labelled {POWER_LABEL!r}')
++
++
++class Machine:
++    def __init__(self, root=Path('/')):
++        self.root = root
++        self.cpus = sorted((root / CPUS).glob('cpu[0-9]*/cpuidle'))
++        if not self.cpus:
++            raise FileNotFoundError('no cpuidle states')
++        self.power = power_sensor(root)
++        self.residency = root / RESIDENCY
++        self.saved = {path: path.read_text() for path in self.knobs()}
++
++    def knobs(self):
++        paths = [cpu / f'state{i}/disable' for cpu in self.cpus for i in (0, 1)]
++        return paths + ([self.residency] if self.residency.exists() else [])
++
++    def apply(self, setting):
++        d0, d1, residency = setting
++        if residency is not None:
++            if not self.residency.exists():
++                raise FileNotFoundError(f'{RESIDENCY} is missing: this kernel has no '
++                                        'pd_residency_us')
++            self.residency.write_text(f'{residency}\n')
++        elif self.residency in self.saved:
++            self.residency.write_text(self.saved[self.residency])
++        for cpu in self.cpus:
++            (cpu / 'state0/disable').write_text(f'{d0}\n')
++            (cpu / 'state1/disable').write_text(f'{d1}\n')
++
++    def restore(self):
++        for path, value in self.saved.items():
++            path.write_text(value)
++
++    def residency_us(self):
++        """Total time in WFI and in CPU PD, over all CPUs, in microseconds."""
++        return [sum(int((cpu / f'state{i}/time').read_text()) for cpu in self.cpus)
++                for i in (0, 1)]
++
++    def watts(self):
++        return int(self.power.read_text()) / 1e6
++
++
++def run(machine, names, rounds, window, settle, log=None):
++    rows = []
++    try:
++        for n in range(rounds):
++            for name in (names if n % 2 == 0 else names[::-1]):
++                machine.apply(parse_setting(name))
++                time.sleep(settle)
++                before, start, samples = machine.residency_us(), time.monotonic(), []
++                while time.monotonic() - start < window:
++                    samples.append(machine.watts())
++                    time.sleep(1)
++                after, elapsed = machine.residency_us(), time.monotonic() - start
++                total = elapsed * 1e6 * len(machine.cpus)
++                row = {'round': n, 'setting': name, 'watts': statistics.mean(samples),
++                       'wfi_pct': 100 * (after[0] - before[0]) / total,
++                       'pd_pct': 100 * (after[1] - before[1]) / total}
++                rows.append(row)
++                if log:
++                    print(json.dumps(row), file=log, flush=True)
++    finally:
++        machine.restore()
++    return rows
++
++
++def report(rows, names):
++    out = [f'{"setting":12} {"mean W":>8} {"PD %":>6} {"WFI %":>6}   '
++           f'paired difference from {names[0]}']
++    base = {row['round']: row['watts'] for row in rows if row['setting'] == names[0]}
++    for name in names:
++        mine = [row for row in rows if row['setting'] == name]
++        if not mine:
++            continue
++        line = (f'{name:12} {statistics.mean(r["watts"] for r in mine):8.2f} '
++                f'{statistics.mean(r["pd_pct"] for r in mine):6.1f} '
++                f'{statistics.mean(r["wfi_pct"] for r in mine):6.1f}')
++        diffs = [r['watts'] - base[r['round']] for r in mine if r['round'] in base]
++        if name != names[0] and len(diffs) > 1:
++            mean, sd = statistics.mean(diffs), statistics.stdev(diffs)
++            lower = sum(d < 0 for d in diffs)
++            line += (f'   {mean:+.2f} W (sd {sd:.2f}, se {sd / len(diffs) ** 0.5:.2f}, '
++                     f'lower in {lower} of {len(diffs)})')
++        out.append(line)
++    return out
++
++
++def main():
++    parser = argparse.ArgumentParser(description=__doc__,
++                                     formatter_class=argparse.RawDescriptionHelpFormatter)
++    parser.add_argument('--rounds', type=int, default=10)
++    parser.add_argument('--window', type=int, default=20, help='seconds per setting')
++    parser.add_argument('--settle', type=int, default=3, help='seconds before sampling')
++    parser.add_argument('--log', type=Path, help='also write each window as JSON lines')
++    parser.add_argument('settings', nargs='+')
++    args = parser.parse_args()
++    for name in args.settings:
++        try:
++            parse_setting(name)
++        except ValueError as error:
++            parser.error(str(error))
++    if len(set(args.settings)) != len(args.settings):
++        parser.error('each setting once')
++    machine = Machine()
++    log = args.log.open('w') if args.log else None
++    rows = run(machine, args.settings, args.rounds, args.window, args.settle, log)
++    print('\n'.join(report(rows, args.settings)))
++    return 0
++
++
++if __name__ == '__main__':
++    sys.exit(main())
+diff --git a/tools/aurora-sep/tests/test_idle_ab.py b/tools/aurora-sep/tests/test_idle_ab.py
+new file mode 100644
+index 000000000000..d985bc8d8799
+--- /dev/null
++++ b/tools/aurora-sep/tests/test_idle_ab.py
+@@ -0,0 +1,105 @@
++"""idle-ab.py: settings, a fake sysfs run that restores every knob, the paired report."""
++
++from pathlib import Path
++import importlib.util
++import tempfile
++import unittest
++from unittest import mock
++
++
++ROOT = Path(__file__).resolve().parents[1]
++SPEC = importlib.util.spec_from_file_location("idle_ab", ROOT / "idle-ab.py")
++idle_ab = importlib.util.module_from_spec(SPEC)
++SPEC.loader.exec_module(idle_ab)
++
++
++def fake_machine(root, residency=True):
++    for n in range(2):
++        for i in range(2):
++            state = root / idle_ab.CPUS / f"cpu{n}/cpuidle/state{i}"
++            state.mkdir(parents=True)
++            (state / "disable").write_text("0\n")
++            (state / "time").write_text("0\n")
++    hwmon = root / idle_ab.HWMON / "hwmon1"
++    hwmon.mkdir(parents=True)
++    (hwmon / "power1_label").write_text("Heatpipe Power\n")
++    (hwmon / "power2_label").write_text("Total System Power\n")
++    (hwmon / "power2_input").write_text("6550000\n")
++    if residency:
++        param = root / idle_ab.RESIDENCY
++        param.parent.mkdir(parents=True)
++        param.write_text("10000\n")
++
++
++class IdleAbTest(unittest.TestCase):
++    def test_settings(self):
++        self.assertEqual(idle_ab.parse_setting("default"), (0, 0, None))
++        self.assertEqual(idle_ab.parse_setting("wfi-only"), (0, 1, None))
++        self.assertEqual(idle_ab.parse_setting("pd-always"), (1, 0, None))
++        self.assertEqual(idle_ab.parse_setting("res=500"), (0, 0, 500))
++        for bad in ("res=0", "res=", "res=x", "fast"):
++            with self.subTest(bad=bad), self.assertRaises(ValueError):
++                idle_ab.parse_setting(bad)
++
++    def test_run_applies_each_setting_and_restores_everything(self):
++        with tempfile.TemporaryDirectory() as temp:
++            root = Path(temp)
++            fake_machine(root)
++            machine = idle_ab.Machine(root)
++            self.assertEqual(machine.power.name, "power2_input")
++            seen = []
++            real_apply = machine.apply
++
++            def apply(setting):
++                real_apply(setting)
++                seen.append(((root / idle_ab.CPUS / "cpu1/cpuidle/state0/disable").read_text(),
++                             (root / idle_ab.CPUS / "cpu1/cpuidle/state1/disable").read_text(),
++                             (root / idle_ab.RESIDENCY).read_text()))
++            machine.apply = apply
++            with mock.patch.object(idle_ab.time, "sleep"), \
++                    mock.patch.object(idle_ab.time, "monotonic", side_effect=range(1000)):
++                rows = idle_ab.run(machine, ["default", "pd-always", "res=500"], 2, 2, 0)
++            self.assertEqual([r["setting"] for r in rows],
++                             ["default", "pd-always", "res=500", "res=500", "pd-always", "default"])
++            self.assertEqual(seen[1], ("1\n", "0\n", "10000\n"))
++            self.assertEqual(seen[2], ("0\n", "0\n", "500\n"))
++            # A setting without a residency runs with the one found, also after res=.
++            self.assertEqual(seen[4], ("1\n", "0\n", "10000\n"))
++            self.assertEqual(rows[0]["watts"], 6.55)
++            for path in machine.saved:
++                self.assertIn(path.read_text(), ("0\n", "10000\n"))
++            self.assertEqual((root / idle_ab.RESIDENCY).read_text(), "10000\n")
++
++    def test_restores_after_an_error(self):
++        with tempfile.TemporaryDirectory() as temp:
++            root = Path(temp)
++            fake_machine(root)
++            machine = idle_ab.Machine(root)
++            with mock.patch.object(idle_ab.time, "sleep", side_effect=KeyboardInterrupt), \
++                    self.assertRaises(KeyboardInterrupt):
++                idle_ab.run(machine, ["pd-always", "res=200"], 1, 5, 1)
++            self.assertEqual((root / idle_ab.CPUS / "cpu0/cpuidle/state0/disable").read_text(),
++                             "0\n")
++            self.assertEqual((root / idle_ab.RESIDENCY).read_text(), "10000\n")
++
++    def test_residency_setting_needs_the_parameter(self):
++        with tempfile.TemporaryDirectory() as temp:
++            root = Path(temp)
++            fake_machine(root, residency=False)
++            machine = idle_ab.Machine(root)
++            with mock.patch.object(idle_ab.time, "sleep"), \
++                    self.assertRaises(FileNotFoundError):
++                idle_ab.run(machine, ["res=500"], 1, 1, 0)
++
++    def test_report_pairs_by_round(self):
++        rows = [{"round": n, "setting": s, "watts": w, "pd_pct": 1.0, "wfi_pct": 2.0}
++                for n, base in enumerate((12.0, 8.0, 10.0))
++                for s, w in (("default", base), ("pd-always", base - 0.5))]
++        report = "\n".join(idle_ab.report(rows, ["default", "pd-always"]))
++        self.assertIn("default         10.00", report)
++        self.assertIn("pd-always        9.50", report)
++        self.assertIn("-0.50 W (sd 0.00, se 0.00, lower in 3 of 3)", report)
++
++
++if __name__ == "__main__":
++    unittest.main()
+-- 
+2.55.0
+

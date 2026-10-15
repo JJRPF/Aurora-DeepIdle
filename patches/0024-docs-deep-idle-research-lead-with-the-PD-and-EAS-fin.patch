@@ -1,0 +1,38 @@
+From 00386a12c7662592d7e430b95c06b2905415446a Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 22:49:50 -0400
+Subject: [PATCH 24/37] docs: deep-idle research: lead with the PD and EAS
+ findings
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AuzUDcEeRJQ6RCdWW2XWLb
+---
+ docs/deep-idle-research.md | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/docs/deep-idle-research.md b/docs/deep-idle-research.md
+index fb6264c88fd0..f15950a02f19 100644
+--- a/docs/deep-idle-research.md
++++ b/docs/deep-idle-research.md
+@@ -28,6 +28,18 @@ machine or in source is marked as an unknown.
+   That is the macOS-under-hypervisor work. One concrete obstacle sits in
+   m1n1's hypervisor: it refuses the CYC_OVRD write XNU makes on its way into
+   system sleep.
++* **The biggest measured win is CPU PD on every idle entry.** The driver's
++  10 ms target residency means menu almost never picks CPU PD here.
++  Disabling WFI (so every idle entry is CPU PD) lowered system power by
++  1.0 W at a 6.7 W desktop and 1.3-2.5 W under moderate load, in paired
++  A/B runs, with the work done and the clocks unchanged; the saving is in
++  the P clusters. It costs about 10 us per wake-up. It is a runtime
++  switch today; `cpuidle_apple.pd_residency_us` (built, not booted) is for
++  finding the right threshold.
++* **Energy-aware scheduling is off on T602x.** The CPU OPP tables have no
++  `opp-microwatt`, so no energy model registers. Values derived from M2's
++  measurements at this machine's voltages are committed and staged as a
++  DTB-only image (E6), not yet booted.
+ * **The workable improvement now is the PMP.** The PMP coprocessor is not
+   booted on this machine: the DT is built without `APPLE_USE_PMP`. Asahi
+   measured about 0.5 W (about 20%) idle saving from booting it on an M1 Pro.
+-- 
+2.55.0
+

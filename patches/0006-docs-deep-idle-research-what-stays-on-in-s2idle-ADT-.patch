@@ -1,0 +1,241 @@
+From addb07398cd6736caadf2a1325ae13e98197841f Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 21:17:14 -0400
+Subject: [PATCH 06/37] docs: deep-idle research: what stays on in s2idle, ADT
+ pre-check, idle A/B
+
+s2idle's wakes add up to about a minute in 38.5 h, so the drain is power
+left on: the power-domain counters show all three display pipelines never
+powered off in four suspends, held on by the DCP driver's wakeup path. The
+ADT, read from m1n1's reserved region, has everything m1n1 needs to boot
+the PMP variant. An A/B of the cpuidle states suggests the CPU PD target
+residency is far too long. Adds experiment E4 for the external DCPs.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AuzUDcEeRJQ6RCdWW2XWLb
+---
+ docs/deep-idle-research.md | 155 ++++++++++++++++++++++++++++++++-----
+ 1 file changed, 134 insertions(+), 21 deletions(-)
+
+diff --git a/docs/deep-idle-research.md b/docs/deep-idle-research.md
+index 52d1bd32c96e..cbcb0244f478 100644
+--- a/docs/deep-idle-research.md
++++ b/docs/deep-idle-research.md
+@@ -34,8 +34,15 @@ machine or in source is marked as an unknown.
+   The T602x DT nodes and report offsets exist, and the running m1n1 already
+   supports it, so turning it on for J414s is a DTB-only change. It is built and
+   staged ([below](#what-was-built)), not yet booted.
+-* **s2idle wakes the whole SoC about 4 times a second**, from a source not yet
+-  identified. A probe that measures it and the drain is included.
++* **The s2idle drain is power left on, not wakes.** s2idle wakes every CPU
++  about 3.7 times a second, but all of that awake time adds up to about 60 s
++  in 38.5 h of suspend, which is milliwatts. What stays on is visible in this
++  boot's power-domain counters: the internal display and both external
++  display pipelines (DCP CPU, front end and system domains) never powered off
++  in any of four suspends, because the DCP driver marks itself a wakeup path
++  to keep its domains on ("we do not support full shutdown properly yet").
++  Both external DCPs stay up with nothing plugged in. The probe now traces
++  the wake source and lists the domains left on, for the next lid close.
+ 
+ ## Idle and sleep states on T6020
+ 
+@@ -139,9 +146,47 @@ none in WFI. Four CPUs (0, 4, 6, 7) logged 506,937-506,991, almost the same
+ number, so most entries are system-wide wakes: about 3.7 per second of
+ sleep. In that time the debugfs
+ wakeup sources counted only a few hundred events, so most of these wakes are
+-not wakeup-source events; the source is **unknown**. (The s2idle time
+-counters read about 60 s, because the clock they use stops in s2idle, so only
+-the entry counts mean anything.)
++not wakeup-source events; the source is **unknown**.
++
++Those wakes are short. The s2idle time counters use the scheduler clock,
++which stops only while every CPU sleeps (`tick_freeze()` suspends
++timekeeping when the last CPU freezes, `kernel/time/tick-common.c` 519-547).
++So a CPU's s2idle time is the time some CPU was awake while it slept: 40-66 s
++per CPU over 38.5 h, about 0.05%, or about 130 us per wake. Even at 5 W while
++awake that is a few mW on average. **The 0.9 W drain is power left on during
++the sleep, not the wakes.**
++
++What is left on: each power domain's debugfs `idle_states` usage counts its
++power-offs. GPU, ANE, NVMe (`ans2`), audio, the USB controllers, SIO's CPU
++and the I2C/SPI/UART domains show exactly 4, one per suspend. These domains
++are not `apple,always-on` in the PMGR tree and still never powered off in
++any of the four suspends (`dptx_phy_ps` is marked always-on by the board,
++`t602x-j414-j416.dtsi`, until DCP can sequence it):
++
++```
++disp0_cpu0 disp0_fe disp0_sys                internal display (DCP)
++dispext0_cpu0 dispext0_fe dispext0_sys       external display 0 (DCP)
++dispext1_cpu0 dispext1_fe dispext1_sys       external display 1 (DCP)
++dptx_phy_ps                                  DisplayPort PHY
++apcie_gp apcie_gpshr_sys                     PCIe (Wi-Fi, SD reader)
++atc0_common .. atc3_common                   USB-C PHY common blocks
++afr sio
++```
++
++The display domains are held on deliberately: `dcp_platform_suspend()` calls
++`device_set_wakeup_path()` "which forces its power domains to stay on. We
++need this as we do not support full shutdown properly yet"
++([dcp.c](../drivers/gpu/drm/apple/dcp.c), around line 2732). That keeps all
++three DCPs and their DARTs powered through every suspend, including both
++external DCPs, with no external display connected (every DP and HDMI
++connector reads `disconnected`). The DCPs do not support runtime PM
++(`power/runtime_status` is `unsupported`), so they are also on whenever the
++machine is awake: all three DCP firmwares are started at bind
++(`dcp_start()` from `apple_drv.c`). How much these domains draw is not
++known; the SMC gives only a system total. E4 below measures the two
++external ones. Upstream Asahi has the same code, and the PMP variant
++does not change it: the DCP is still a wakeup path, so its PMP report
++domain stays on as well.
+ 
+ Power domains while awake (`pm_genpd_summary`): the `pmp` and `pms*`
+ domains are on but the PMP driver is not bound. The `pmp_report` entries
+@@ -151,6 +196,28 @@ with no `apple,tunable-*` properties: m1n1's `dt_set_pmp` (kboot.c 2089-2128)
+ fills those in only when the DT has a `pmp` alias, which only
+ `APPLE_USE_PMP` adds.
+ 
++CPU PD threshold, A/B on the live machine (2026-10-14, AC, other agent
++sessions running, so the load swung by several W). Six rounds rotated three
++settings through the cpuidle `disable` files, 20 s each, logging SMC Total
++System Power; everything was set back to 0 at the end:
++
++```
++setting                     mean W   PD %   WFI %   per-round difference from default
++default                     12.48     3.9    84.5
++WFI only (PD disabled)      12.81     0.0    87.1   +0.33 W (sd 1.15)
++PD always (WFI disabled)    11.59    86.6     0.0   -0.90 W (sd 1.48), lower in 5 of 6
++```
++
++Forcing CPU PD on every idle entry used less power than the menu
++governor's choice, not more, which says the 10 ms target residency is far
++above the break-even point. The spread is as large as the effect, so this
++needs a repeat on a quiet machine before a patch: lower `target_residency`
++in `cpuidle-apple.c` (for example to 1 ms) and measure again. Until then,
++`echo 1 | sudo tee /sys/devices/system/cpu/cpu*/cpuidle/state0/disable`
++reproduces "PD always" at runtime, and `echo 0` undoes it; it does not
++survive a reboot. Not measured: the latency cost (CPU PD's declared exit
++latency is 10 us, itself unmeasured).
++
+ Sensors usable for measurements: SMC "Total System Power" (hwmon
+ `macsmc_hwmon` power1), "Heatpipe Power" (power4), and the battery's
+ `energy_now` (`macsmc-battery`).
+@@ -172,26 +239,56 @@ Sensors usable for measurements: SMC "Total System Power" (hwmon
+    entries, `/proc/interrupts` and, as root, wakeup sources. It compares two
+    snapshots, or wraps one `systemctl suspend`. It reports drain in W, wakes
+    per suspended second, and the interrupts that fired. It only reads, except
+-   that `around` asks systemd to suspend. Tests:
++   that `around` asks systemd to suspend. `arm` and `report` bracket a
++   suspend taken any way (lid, menu). `arm` also starts a tracefs instance
++   of its own, switched on at `machine_suspend` begin and off at the first
++   device resume callback, so it holds only what ran in s2idle. `report`
++   names the interrupt or IPI that woke the SoC each time, tallies
++   interrupts, timers and work items per wake, and lists the power domains
++   that are not always-on and stayed on through the suspend. Tests:
+    `tools/aurora-sep/tests/test_sleep_drain_probe.py`.
+-3. **Staged, not installed**: `~/Work/deep-idle-build/boot.bin.pmp-test` is
++3. **`arch/arm64/boot/dts/apple/t6020-j414s-nodcpext.dts`**: the J414s
++   board without its two external DCPs. It removes the `dcpext0`/`dcpext1`
++   aliases, so m1n1 leaves them alone (it enables, and carves out memory
++   for, only aliased DCPs: `src/kboot.c` 1735-1762). It disables both DCPs,
++   their DARTs and mailboxes and the two `dispext` DARTs, and trims the
++   display subsystem's `iommus` to the internal DART (an entry for a disabled
++   DART fails the node's whole IOMMU setup). Checked in the 11.35 source: the
++   display driver skips unavailable DCPs, and USB-C display ports are only
++   created from a probed DCP's routes, so none are created and none fail.
++   fw_devlink ignores disabled suppliers. Not in the Makefile, for the same
++   reason as the PMP variant. `tools/aurora-sep/tests/test_t6020_nodcpext.py`
++   checks that only those properties change, against the merged sources.
++4. **Staged, not installed**: `~/Work/deep-idle-build/boot.bin.pmp-test` is
+    the current `/boot/m1n1/boot.bin` with its one J414s DTB (DTB #31 of 113,
+    byte-identical to release 11.35's) replaced by the PMP variant, built from
+    release 11.35 (`1caa9fdc3745`) to match the running kernel. The m1n1 code
+    before it and everything after it, U-Boot included, are byte-identical.
+    `~/Work/deep-idle-build/boot.bin.before-pmp-test` is a copy of the current
+-   image (sha256 `3630adc3...`).
++   image (sha256 `3630adc3...`). `~/Work/deep-idle-build/boot.bin.nodcpext-test`
++   (sha256 `3fb7d0f2...`) is the same image with the no-external-DCP DTB
++   instead. Both were built from release 11.35's sources with the recipe
++   that rebuilds its stock DTB byte for byte, and both keep the DTBs back to
++   back (m1n1 walks them by `totalsize`).
+ 
+ ## Experiments, smallest first
+ 
+ * **E1, PMP on J414s** (needs a reboot; owner's go-ahead). Procedure below.
+   This is the only change with an expected battery gain today.
+-* **E2, find the s2idle wake source** (needs a suspend; owner's go-ahead).
+-  Run `sudo tools/aurora-sep/sleep-drain-probe.py around /tmp/s2.json` on
+-  battery, close the lid for at least 30 minutes, then open it. The interrupt
+-  line growing at about 3.7 per suspended second is the culprit (SMC
+-  mailbox, Wi-Fi, NVMe, a timer, or IPIs from `wake_up_all_idle_cpus`). Run
+-  it once on the stock DTB and once with E1, so the drain figures compare.
++* **E2, find the s2idle wake source and what stays on** (needs a suspend;
++  owner's go-ahead). On battery: `sudo tools/aurora-sep/sleep-drain-probe.py
++  arm`, close the lid for at least 30 minutes, open it, then `sudo
++  tools/aurora-sep/sleep-drain-probe.py report`. Run it once on the stock DTB
++  and once with E1, so the drain figures compare. The wakes matter less
++  than first thought (see Measurements); the domain list and the drain
++  matter more.
++* **E4, what do the external DCPs cost?** (needs a reboot; owner's
++  go-ahead). Boot `boot.bin.nodcpext-test` like E1, with no external display
++  attached, and compare the idle power average and an E2 run against stock.
++  Expect `dispext*` domains `off` in `pm_genpd_summary` and HDMI/USB-C
++  display output gone. If the saving is real, the fix is in the DCP driver:
++  start an external DCP only when a display is attached, and power it down
++  when the last one leaves.
+ * **E3, does a raw-mode SoC wake reach m1n1?** This is the experiment that
+   decides raw vs Mach-O for the wake path. It needs a second machine and USB
+   m1n1 proxy, and is not for the daily driver without a plan. From the m1n1
+@@ -250,18 +347,34 @@ tables.
+ * Whether iBoot arms the wake path (reconfig engine, boot CPU RVBAR) for a
+   raw image as it does for a kernelcache.
+ * The SMC/PMGR/PMP/AOP sleep handshake; macOS's sleep drain on this machine.
+-* The source of the ~3.7 wakes per second in s2idle.
+-* CPU PD's real break-even residency; macOS chooses its idle state in closed
+-  code.
++* The source of the ~3.7 wakes per second in s2idle (cheap, but unknown).
++* How much the display domains left on in s2idle draw, and whether a DCP
++  with nothing connected (both dcpext) can be shut down and restarted.
++* CPU PD's real break-even residency (the A/B above suggests well below
++  10 ms) and exit latency; macOS chooses its idle state in closed code.
+ * Whether the T6020 PMP firmware acknowledges every report ID in the DT (see
+   the E1 checks).
+ * Whether the boot CPU's RVBAR is actually locked in raw mode on this
+   machine; m1n1 checks before writing (`src/smp.c` 445-448). It is readable
+-  through cpu-impl-reg, but that address is only in the ADT, which this boot
+-  does not expose.
++  through cpu-impl-reg, whose address is in the ADT (readable now, see the
++  E1 pre-check).
+ 
+ ## E1 test procedure and rollback
+ 
++Pre-check, done 2026-10-14 without a reboot. m1n1 leaves the ADT in a
++reserved-memory region labelled `adt` (`flash@10002f74000`, 0x78000 bytes).
++The `phram` module that would expose it is not installed, but the region is
++not `no-map`, so it was copied read-only from `/proc/kcore` and filtered with
++`tools/aurora-sep/aurora-adt-extract.py`. Everything `dt_set_pmp`
++(m1n1 `src/kboot.c` 2116-2156) needs is there: `/chosen` `board-id` and
++`dram-vendor-id`, and `/arm-io/pmp/iop-pmp-nub` with `dram-capacity`, and
++`firmware-name` `t6020pmp`, `pre-loaded` 1 (iBoot loaded the firmware). So
++m1n1 will not refuse to boot Linux over the PMP. In this tree T602x uses
++the upstream path: the PMP Rust driver (`drivers/soc/apple/pmp.rs`,
++compatible `apple,t6000-pmp-v2`, built in) boots it, and the report driver's
++own start sequence is only for T6030/T6031/T8122 (`starts_pmp`). Still
++unknown: whether the T6020 firmware acknowledges every report ID.
++
+ Before (stock), on battery, screen on at a fixed brightness, desktop idle:
+ average SMC power over 5 minutes:
+ 
+@@ -302,8 +415,8 @@ Rollback:
+ 
+ * Booted, any problem: `sudo cp /boot/m1n1/boot.bin.before-pmp-test
+   /boot/m1n1/boot.bin && sync`, then reboot.
+-* m1n1 does not boot Linux (for example, `dt_set_pmp` cannot find the
+-  PMP's ADT node and kboot bails): hold the power key, open Options, and in
++* m1n1 does not boot Linux (unlikely after the pre-check, but a hang in
++  the PMP driver would look the same): hold the power key, open Options, and in
+   recoveryOS's Terminal mount the ESP (`diskutil list`, then `diskutil mount`
+   the `EFI - OMARC` partition, nvme0n1p4 under Linux). Copy
+   `m1n1/boot.bin.before-pmp-test` over `m1n1/boot.bin`. Booting macOS works
+-- 
+2.55.0
+

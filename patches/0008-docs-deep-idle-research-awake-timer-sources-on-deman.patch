@@ -1,0 +1,93 @@
+From c7eb5951015d07712ca89272fd07be42996b5604 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 21:36:41 -0400
+Subject: [PATCH 08/37] docs: deep-idle research: awake timer sources,
+ on-demand DCP design
+
+The awake wakeups come from user space: one polling process arms about
+80% of the hrtimers, and no kernel timer stands out. The other domains left
+on in s2idle are parents of always-on domains. Write down why starting the
+external DCPs on demand is not built yet, the hook points it needs, and the
+experiments that should come first.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AuzUDcEeRJQ6RCdWW2XWLb
+---
+ docs/deep-idle-research.md | 54 ++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 54 insertions(+)
+
+diff --git a/docs/deep-idle-research.md b/docs/deep-idle-research.md
+index 9eaedf5c9525..00e1835919be 100644
+--- a/docs/deep-idle-research.md
++++ b/docs/deep-idle-research.md
+@@ -196,6 +196,25 @@ with no `apple,tunable-*` properties: m1n1's `dt_set_pmp` (kboot.c 2089-2128)
+ fills those in only when the DT has a `pmp` alias, which only
+ `APPLE_USE_PMP` adds.
+ 
++Who arms the timers while awake (20 s, tracefs `timer` events in an
++instance of its own, 2026-10-14, with agent sessions running): 3,939
++`hrtimer_wakeup` and 1,629 tick expiries per second across all CPUs. One
++user-space process, `agy`, armed 3,263 `hrtimer_wakeup`s per second, about
++80% of them (sub-millisecond sleeps in a polling loop). Browser media
++threads, mimalloc's `mi-scavenger` (208/s) and `claude` (168/s) follow. No
++kernel timer stands out (`delayed_work_timer_fn` 42/s, `process_timeout`
++67/s), so there is no driver poller to fix; idle residency while awake is
++set by the workload.
++
++Domains left on in s2idle other than the displays are all parents of
++domains the device tree keeps always on: `atc*_common` of `atc*_pcie`,
++`apcie_gp` of `apcie_gp_sys` ("Breaks things if shut down"), `sio` of `aes`
++and `dptx_phy_ps`. `afr` is the parent of `gfx` and `dispext0_sys`, so E4
++should free it too. Wi-Fi power save is off on purpose
++(`/etc/NetworkManager/conf.d/omarchy-wifi-powersave.conf`, from
++omarchy-settings: latency over "a fraction of a watt"), and the Wi-Fi
++function is a wakeup device (`power/wakeup` enabled).
++
+ CPU PD threshold, A/B on the live machine (2026-10-14, AC, other agent
+ sessions running, so the load swung by several W). Six rounds rotated three
+ settings through the cpuidle `disable` files, 20 s each, logging SMC Total
+@@ -341,6 +360,41 @@ the numbers, measure macOS's own sleep drain on this machine for a baseline
+ `trace_pmp.py` output of a macOS boot under hv on a T6020, which nobody has
+ posted.
+ 
++## Starting the external DCPs on demand (design, not built)
++
++If E4 shows a saving worth having, the driver fix is to start an external
++DCP only when a display is attached. Not built yet, for three reasons:
++
++1. **The saving needs the domains off before the first start, and that is
++   untested.** Deferring only the start leaves the domains on and saves
++   just the firmware's idle loop. Powering a dispext domain off and on
++   before the coprocessor first runs means its iBoot-preloaded state must
++   survive: the ASC's boot configuration, and the DCP DART, which iBoot
++   locks with its own page tables (`apple-dart.c` reads `locked` from the
++   hardware at probe). The M3 path in this tree does not answer it either:
++   `dcpext_check_power()` refuses to start unless the domain's floor is
++   already active. Nobody has power-cycled a halted DCP and then booted it.
++2. **The T6020 path assumes a running DCP in many places.** At HEAD the
++   classic (13.5 firmware) path runs the CPU and wakes RTKit in
++   `dcp_comp_bind()`, then opens the endpoints in `dcp_start()` from the DRM
++   bind. The HDMI hot-plug interrupt is enabled only once the DCP is active
++   (`dcp_wait_ready()` -> `dcp_enable_dp2hdmi_hpd()`), and the Type-C fabric
++   checks `dcp->active` and the firmware's DPTX services when it picks and
++   reconnects pipelines (`dcp-fabric.c` 1031, 1287, 2190, 2855). Every
++   attach funnels into `dcp_dptx_connect()`, which is the right hook: start
++   the processor there, return `-EAGAIN` the way the M3 path does
++   (`external_native`), and replay the connect once it runs.
++3. **Suspend has to change with it.** A never-started DCP need not be a
++   wakeup path, so its domains could go off in s2idle, which is the same
++   power-cycle question as (1). Once started it stays as today, since the
++   firmware cannot be restarted.
++
++Order: run E4 for the upper bound. If it is worth it, answer (1) with the
++smallest experiment: let the domains power off, then power them on and
++start one DCP, from a debug module or the m1n1 proxy. Only then write the
++driver change, against the branch HEAD, test it with HDMI and USB-C
++displays and a dock, and offer it to whoever maintains the DCP fabric code.
++
+ ## Overlap with hibernation (#50)
+ 
+ The missing CPU lifecycle is shared. Hibernation needs CPUs that can leave
+-- 
+2.55.0
+

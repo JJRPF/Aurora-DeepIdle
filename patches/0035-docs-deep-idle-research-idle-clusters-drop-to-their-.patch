@@ -1,0 +1,57 @@
+From 0b9c931e5b85b46dc727bd4b32c4ce7f9ee1c104 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 23:20:39 -0400
+Subject: [PATCH 35/37] docs: deep-idle research: idle clusters drop to their
+ lowest pstate
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AuzUDcEeRJQ6RCdWW2XWLb
+---
+ docs/deep-idle-research.md | 31 ++++++++++++-------------------
+ 1 file changed, 12 insertions(+), 19 deletions(-)
+
+diff --git a/docs/deep-idle-research.md b/docs/deep-idle-research.md
+index 9041a2390f8f..f1cac51bff68 100644
+--- a/docs/deep-idle-research.md
++++ b/docs/deep-idle-research.md
+@@ -711,25 +711,18 @@ tables.
+   and memory DVFS controller; without it those stay where the boot loader
+   left them, which is the likeliest reason for Asahi's 0.5 W.
+ 
+-* Whether an idle P cluster keeps its last clock and voltage. schedutil
+-  re-evaluates a policy only on scheduler events of its CPUs, so a
+-  cluster that goes idle keeps the last pstate it asked for; whether the
+-  hardware lowers the voltage by itself once every core is down is not
+-  known. `scaling_cur_freq` reads the hardware status register
+-  (`APPLE_DVFS_STATUS`), so sampling it in 200 ms windows in which a
+-  cluster's CPUs had no busy jiffies answers it. On this busy machine no
+-  P cluster was idle for a whole 200 ms window in 30 s, so it needs a quiet
+-  one. If the clock stays up, part of the "PD always" saving is leakage at a
+-  voltage nobody needs, and lowering the request when a cluster goes idle
+-  would add to it.
+-  m1n1 points to the hardware doing it: for T602x it resets every cluster
+-  to its "APSC" pstate (pstate 1) and sets "APSC Snooze" (cluster base +
+-  0x200f8, bit 40; `src/cpufreq.c` `cpufreq_init_cluster()`), which reads
+-  as an automatic drop to that pstate when the cluster idles. For T8103 and
+-  T8112 it also copies the APSC pstate's table entry into a separate slot
+-  (cluster + 0x70210, and + 0x7ffe8 on T8112); for T602x it does not, so
+-  whether snooze has a valid target there is a question for the m1n1
+-  authors, or for a read of those registers from m1n1's proxy.
++* Answered later the same night: an idle P cluster does not keep its
++  clock. With the machine quieter, in 300 windows of 200 ms the P clusters
++  had no busy jiffies 29 times, and `scaling_cur_freq` (the hardware status
++  register, `APPLE_DVFS_STATUS`) read 702 MHz, the lowest pstate, in 28 of
++  them; the E cluster read 912 MHz in 6 of 7. That fits m1n1's "APSC
++  Snooze" setup (cluster base + 0x200f8, bit 40, with the cluster reset to
++  APSC pstate 1; `src/cpufreq.c` `cpufreq_init_cluster()`), though for
++  T602x m1n1 does not copy the snooze pstate into the slot it fills on
++  T8103/T8112. So the "PD always" saving is not leakage of whole idle
++  clusters at a high clock: it is the idle cores of busy clusters, which
++  sit at the voltage their busy siblings set, and that is why it grows with
++  load.
+ 
+ * Whether iBoot arms the wake path (reconfig engine, boot CPU RVBAR) for a
+   raw image as it does for a kernelcache.
+-- 
+2.55.0
+

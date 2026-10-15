@@ -1,0 +1,223 @@
+From ea12e73afdcb40e85a7d2a7763e5ba60cface9b6 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 21:17:13 -0400
+Subject: [PATCH 05/37] arm64: dts: apple: t6020-j414s: add a test variant
+ without external DCPs
+
+Both external display coprocessors are started at boot and, because the
+DCP driver marks itself a wakeup path, kept powered through suspend, with
+nothing connected. This board tree leaves them out, to measure what that
+costs: it drops the dcpext aliases so m1n1 neither enables them nor carves
+out their memory, disables the two DCPs with their DARTs and mailboxes, and
+keeps only the internal DART in the display subsystem's iommus, since an
+entry for a disabled DART fails the node's IOMMU setup. HDMI and USB-C
+display output do not work with it.
+
+Like t6020-j414s-pmp.dts it has the board's compatible and is left out of
+the Makefile. The test compares the merged sources of both trees and allows
+only those changes.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AuzUDcEeRJQ6RCdWW2XWLb
+---
+ .../boot/dts/apple/t6020-j414s-nodcpext.dts   |  71 ++++++++++++
+ tools/aurora-sep/tests/test_t6020_nodcpext.py | 109 ++++++++++++++++++
+ 2 files changed, 180 insertions(+)
+ create mode 100644 arch/arm64/boot/dts/apple/t6020-j414s-nodcpext.dts
+ create mode 100644 tools/aurora-sep/tests/test_t6020_nodcpext.py
+
+diff --git a/arch/arm64/boot/dts/apple/t6020-j414s-nodcpext.dts b/arch/arm64/boot/dts/apple/t6020-j414s-nodcpext.dts
+new file mode 100644
+index 000000000000..b5cc900a26bd
+--- /dev/null
++++ b/arch/arm64/boot/dts/apple/t6020-j414s-nodcpext.dts
+@@ -0,0 +1,71 @@
++// SPDX-License-Identifier: GPL-2.0+ OR MIT
++/*
++ * MacBook Pro (14-inch, M2 Pro, 2023), without the external display DCPs
++ *
++ * target-type: J414s
++ *
++ * Opt-in test variant of t6020-j414s.dts for measuring what the two
++ * external display coprocessors cost: they are started at boot and kept
++ * powered through suspend (the DCP driver marks itself a wakeup path) even
++ * with nothing connected. HDMI and USB-C display output do not work with
++ * this tree; the internal display does.
++ *
++ * Without the dcpext aliases m1n1 leaves both DCPs alone (it enables, and
++ * carves out memory for, only the DCPs that have an alias). With the DCPs,
++ * their DARTs and mailboxes disabled, nothing uses the dispext power
++ * domains, so they are powered off as unused. The display subsystem keeps
++ * only the internal display's DART: an iommus entry for a disabled DART
++ * fails the whole IOMMU setup of the node.
++ *
++ * It is left out of the Makefile on purpose: it has the same compatible as
++ * t6020-j414s.dtb, and m1n1 boots the last DTB that matches. Build it by
++ * name and bundle it into m1n1's stage 2 instead of t6020-j414s.dtb to test
++ * it.
++ *
++ * Copyright The Asahi Linux Contributors
++ */
++
++#include "t6020-j414s.dts"
++
++/ {
++	aliases {
++		/delete-property/ dcpext0;
++		/delete-property/ dcpext1;
++	};
++};
++
++&display {
++	iommus = <&disp0_dart 0>;
++};
++
++&dcpext0 {
++	status = "disabled";
++};
++
++&dcpext0_dart {
++	status = "disabled";
++};
++
++&dcpext0_mbox {
++	status = "disabled";
++};
++
++&dispext0_dart {
++	status = "disabled";
++};
++
++&dcpext1 {
++	status = "disabled";
++};
++
++&dcpext1_dart {
++	status = "disabled";
++};
++
++&dcpext1_mbox {
++	status = "disabled";
++};
++
++&dispext1_dart {
++	status = "disabled";
++};
+diff --git a/tools/aurora-sep/tests/test_t6020_nodcpext.py b/tools/aurora-sep/tests/test_t6020_nodcpext.py
+new file mode 100644
+index 000000000000..250ac09125bd
+--- /dev/null
++++ b/tools/aurora-sep/tests/test_t6020_nodcpext.py
+@@ -0,0 +1,109 @@
++"""J414s (MacBook Pro 14" M2 Pro) test tree without the external DCPs (t6020-j414s-nodcpext.dts).
++
++Set DTC to this kernel's built scripts/dtc/dtc for Apple floating-point cells.
++"""
++
++from pathlib import Path
++import importlib.util
++import shutil
++import subprocess
++import tempfile
++import unittest
++
++
++HERE = Path(__file__).resolve().parent
++SPEC = importlib.util.spec_from_file_location("pmp_test", HERE / "test_t6020_pmp.py")
++pmp_test = importlib.util.module_from_spec(SPEC)
++SPEC.loader.exec_module(pmp_test)
++
++DTS, DTC = pmp_test.DTS, pmp_test.DTC
++parse, phandles = pmp_test.parse, pmp_test.phandles
++
++# The external DCPs and everything only they use.
++DISABLED = (
++    "/soc/dcp@289c00000",      # dcpext0
++    "/soc/iommu@28930c000",    # dcpext0_dart
++    "/soc/mbox@289c08000",     # dcpext0_mbox
++    "/soc/iommu@289304000",    # dispext0_dart
++    "/soc/dcp@315c00000",      # dcpext1
++    "/soc/iommu@31530c000",    # dcpext1_dart
++    "/soc/mbox@315c08000",     # dcpext1_mbox
++    "/soc/iommu@315304000",    # dispext1_dart
++)
++DISPLAY = "/soc/display-subsystem"
++
++
++def merged(board):
++    """The board's tree after dtc merges its overrides, references kept as &label."""
++    dump = subprocess.run([DTC, "-q", "-I", "dts", "-O", "dts"], input=pmp_test.preprocess(board),
++                          check=True, capture_output=True, text=True)
++    return parse(dump.stdout)
++DISP0_DART = "/soc/iommu@389304000"
++
++
++@unittest.skipUnless(shutil.which("cpp") and shutil.which(DTC), "requires cpp and dtc")
++class J414sNoDcpextTest(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        cls.temp = tempfile.TemporaryDirectory(prefix="aurora-t6020-nodcpext-")
++        cls.addClassCleanup(cls.temp.cleanup)
++        compile_board = pmp_test.J414sPmpTest.compile_board.__func__
++        cls.stock = compile_board(cls, "t6020-j414s")
++        cls.variant = compile_board(cls, "t6020-j414s-nodcpext")
++
++    def test_m1n1_finds_no_external_dcp(self):
++        # m1n1 enables and carves out memory for the DCPs named by an alias.
++        self.assertIn("dcpext0", self.stock["/aliases"])
++        self.assertIn("dcpext1", self.stock["/aliases"])
++        self.assertNotIn("dcpext0", self.variant["/aliases"])
++        self.assertNotIn("dcpext1", self.variant["/aliases"])
++        for alias in ("dcp", "disp0", "disp0_piodma"):
++            self.assertEqual(self.variant["/aliases"][alias], self.stock["/aliases"][alias])
++
++    def test_external_dcps_and_their_darts_and_mailboxes_are_off(self):
++        for path in DISABLED:
++            with self.subTest(path=path):
++                self.assertEqual(self.stock[path].get("status"), '"okay"')
++                self.assertEqual(self.variant[path]["status"], '"disabled"')
++
++    def test_display_keeps_only_the_internal_dart(self):
++        cells = self.variant[DISPLAY]["iommus"].strip("<>").split()
++        self.assertEqual(len(cells), 2)
++        self.assertEqual(phandles(self.variant)[int(cells[0], 16)], DISP0_DART)
++        self.assertEqual(len(self.stock[DISPLAY]["iommus"].strip("<>").split()), 6)
++
++    def test_no_enabled_device_uses_a_dispext_domain(self):
++        handles = phandles(self.variant)
++        dispext = {handle for handle, path in handles.items()
++                   if "power-controller" in path and
++                   self.variant[path].get("label", "").startswith('"dispext')}
++        self.assertEqual(len(dispext), 6)
++        for path, props in self.variant.items():
++            if "power-controller" in path or "pmp_report" in path:
++                continue
++            if props.get("status", '"okay"') != '"okay"' or "power-domains" not in props:
++                continue
++            cells = {int(cell, 16) for cell in props["power-domains"].strip("<>").split()}
++            with self.subTest(path=path):
++                self.assertFalse(cells & dispext)
++
++    def test_only_those_properties_differ(self):
++        # dtc numbers phandles in a different order for each tree; compare the
++        # merged sources instead, which keep references as &label.
++        stock, variant = (merged(board) for board in ("t6020-j414s", "t6020-j414s-nodcpext"))
++        self.assertEqual(set(stock), set(variant))
++        changed = {(path, name) for path in stock
++                   for name in (set(stock[path]) | set(variant[path])) - {"phandle"}
++                   if stock[path].get(name) != variant[path].get(name)}
++        expected = {(path, "status") for path in DISABLED}
++        expected |= {("/aliases", "dcpext0"), ("/aliases", "dcpext1"), (DISPLAY, "iommus")}
++        self.assertEqual(changed, expected)
++
++    def test_variant_is_not_built_by_default(self):
++        makefile = (DTS / "Makefile").read_text()
++        self.assertIn("t6020-j414s.dtb", makefile)
++        self.assertNotIn("t6020-j414s-nodcpext", makefile)
++
++
++if __name__ == "__main__":
++    unittest.main()
+-- 
+2.55.0
+

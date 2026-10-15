@@ -1,0 +1,426 @@
+From e4270b7f3b3a66354df0159dd90794c514c12937 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 22:25:49 -0400
+Subject: [PATCH 15/37] arm64: dts: apple: t602x: add an energy model for the
+ CPUs
+
+The T602x CPU OPP tables have no opp-microwatt, so no energy model is
+registered for the CPUs and the scheduler's energy-aware placement
+(EAS) is off on M2 Pro/Max: /sys/kernel/debug/energy_model is empty on a
+J414s although sched_energy_aware is 1 and every policy runs schedutil.
+T8103, T600x, T8112 and T8140 have measured values.
+
+T8112 (M2) has the same Blizzard and Avalanche cores. Its measured
+per-OPP power is fitted to P = (a + b f) V^2 f per core type, with V the
+J414s's own voltage for each OPP (ADT /arm-io/pmgr voltage-states1 and
+voltage-states5), and the fit gives the T602x values: within 6.3% rms of
+the T8112 measurements for both core types. The energy per cycle rises
+from each OPP to the next, so no OPP is marked inefficient and cpufreq
+keeps choosing among all frequencies as before; only task placement
+changes. tools/aurora-sep/t6020-cpu-em.py derives the values and writes
+them; its tests check that the tree carries them.
+
+These are derived, not measured on T602x: measuring them needs a quiet
+machine and the SMC's cluster power meter, as was done for T8112.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AuzUDcEeRJQ6RCdWW2XWLb
+---
+ arch/arm64/boot/dts/apple/t602x-common.dtsi |  23 +++
+ tools/aurora-sep/t6020-cpu-em.py            | 158 ++++++++++++++++++++
+ tools/aurora-sep/tests/test_t6020_cpu_em.py |  70 +++++++++
+ 3 files changed, 251 insertions(+)
+ create mode 100755 tools/aurora-sep/t6020-cpu-em.py
+ create mode 100644 tools/aurora-sep/tests/test_t6020_cpu_em.py
+
+diff --git a/arch/arm64/boot/dts/apple/t602x-common.dtsi b/arch/arm64/boot/dts/apple/t602x-common.dtsi
+index 295a46647de4..86e40808021b 100644
+--- a/arch/arm64/boot/dts/apple/t602x-common.dtsi
++++ b/arch/arm64/boot/dts/apple/t602x-common.dtsi
+@@ -268,31 +268,37 @@ opp02 {
+ 			opp-hz = /bits/ 64 <912000000>;
+ 			opp-level = <2>;
+ 			clock-latency-ns = <7700>;
++			opp-microwatt = <53000>;
+ 		};
+ 		opp03 {
+ 			opp-hz = /bits/ 64 <1284000000>;
+ 			opp-level = <3>;
+ 			clock-latency-ns = <25000>;
++			opp-microwatt = <92000>;
+ 		};
+ 		opp04 {
+ 			opp-hz = /bits/ 64 <1752000000>;
+ 			opp-level = <4>;
+ 			clock-latency-ns = <33000>;
++			opp-microwatt = <162000>;
+ 		};
+ 		opp05 {
+ 			opp-hz = /bits/ 64 <2004000000>;
+ 			opp-level = <5>;
+ 			clock-latency-ns = <38000>;
++			opp-microwatt = <214000>;
+ 		};
+ 		opp06 {
+ 			opp-hz = /bits/ 64 <2256000000>;
+ 			opp-level = <6>;
+ 			clock-latency-ns = <44000>;
++			opp-microwatt = <271000>;
+ 		};
+ 		opp07 {
+ 			opp-hz = /bits/ 64 <2424000000>;
+ 			opp-level = <7>;
+ 			clock-latency-ns = <48000>;
++			opp-microwatt = <331000>;
+ 		};
+ 	};
+ 
+@@ -304,88 +310,105 @@ opp01 {
+ 			opp-hz = /bits/ 64 <702000000>;
+ 			opp-level = <1>;
+ 			clock-latency-ns = <7400>;
++			opp-microwatt = <123000>;
+ 		};
+ 		opp02 {
+ 			opp-hz = /bits/ 64 <948000000>;
+ 			opp-level = <2>;
+ 			clock-latency-ns = <18000>;
++			opp-microwatt = <184000>;
+ 		};
+ 		opp03 {
+ 			opp-hz = /bits/ 64 <1188000000>;
+ 			opp-level = <3>;
+ 			clock-latency-ns = <21000>;
++			opp-microwatt = <253000>;
+ 		};
+ 		opp04 {
+ 			opp-hz = /bits/ 64 <1452000000>;
+ 			opp-level = <4>;
+ 			clock-latency-ns = <24000>;
++			opp-microwatt = <358000>;
+ 		};
+ 		opp05 {
+ 			opp-hz = /bits/ 64 <1704000000>;
+ 			opp-level = <5>;
+ 			clock-latency-ns = <28000>;
++			opp-microwatt = <469000>;
+ 		};
+ 		opp06 {
+ 			opp-hz = /bits/ 64 <1968000000>;
+ 			opp-level = <6>;
+ 			clock-latency-ns = <31000>;
++			opp-microwatt = <620000>;
+ 		};
+ 		opp07 {
+ 			opp-hz = /bits/ 64 <2208000000>;
+ 			opp-level = <7>;
+ 			clock-latency-ns = <33000>;
++			opp-microwatt = <775000>;
+ 		};
+ 		opp08 {
+ 			opp-hz = /bits/ 64 <2400000000>;
+ 			opp-level = <8>;
+ 			clock-latency-ns = <45000>;
++			opp-microwatt = <927000>;
+ 		};
+ 		opp09 {
+ 			opp-hz = /bits/ 64 <2568000000>;
+ 			opp-level = <9>;
+ 			clock-latency-ns = <47000>;
++			opp-microwatt = <1083000>;
+ 		};
+ 		opp10 {
+ 			opp-hz = /bits/ 64 <2724000000>;
+ 			opp-level = <10>;
+ 			clock-latency-ns = <50000>;
++			opp-microwatt = <1275000>;
+ 		};
+ 		opp11 {
+ 			opp-hz = /bits/ 64 <2868000000>;
+ 			opp-level = <11>;
+ 			clock-latency-ns = <52000>;
++			opp-microwatt = <1467000>;
+ 		};
+ 		opp12 {
+ 			opp-hz = /bits/ 64 <3000000000>;
+ 			opp-level = <12>;
+ 			clock-latency-ns = <57000>;
++			opp-microwatt = <1701000>;
+ 		};
+ 		opp13 {
+ 			opp-hz = /bits/ 64 <3132000000>;
+ 			opp-level = <13>;
+ 			clock-latency-ns = <60000>;
++			opp-microwatt = <1933000>;
+ 		};
+ 		opp14 {
+ 			opp-hz = /bits/ 64 <3264000000>;
+ 			opp-level = <14>;
+ 			clock-latency-ns = <64000>;
++			opp-microwatt = <2216000>;
+ 		};
+ 		opp15 {
+ 			opp-hz = /bits/ 64 <3360000000>;
+ 			opp-level = <15>;
+ 			clock-latency-ns = <64000>;
++			opp-microwatt = <2299000>;
+ 			turbo-mode;
+ 		};
+ 		opp16 {
+ 			opp-hz = /bits/ 64 <3408000000>;
+ 			opp-level = <16>;
+ 			clock-latency-ns = <64000>;
++			opp-microwatt = <2340000>;
+ 			turbo-mode;
+ 		};
+ 		opp17 {
+ 			opp-hz = /bits/ 64 <3504000000>;
+ 			opp-level = <17>;
+ 			clock-latency-ns = <64000>;
++			opp-microwatt = <2424000>;
+ 			turbo-mode;
+ 		};
+ 	};
+diff --git a/tools/aurora-sep/t6020-cpu-em.py b/tools/aurora-sep/t6020-cpu-em.py
+new file mode 100755
+index 000000000000..27291de02e31
+--- /dev/null
++++ b/tools/aurora-sep/t6020-cpu-em.py
+@@ -0,0 +1,158 @@
++#!/usr/bin/env python3
++"""Derive opp-microwatt for the T602x (M2 Pro/Max) CPU OPP tables.
++
++  t6020-cpu-em.py [--write]
++
++Without an energy model the scheduler's energy-aware placement (EAS) is
++off: on T602x the CPU OPP tables have no opp-microwatt, while T8103, T600x,
++T8112 and T8140 have measured ones. T8112 (M2) has the same cores as T602x,
++Blizzard and Avalanche, on the same process, so its measurements carry over
++once the voltage of each OPP is taken into account.
++
++T8112's per-OPP power (its opp-microwatt, measured with the SMC's cluster
++power meter) is fitted to P = (a + b f) V^2 f per core type, where V is
++T6020's voltage for that frequency: a switching capacitance that grows
++slowly with frequency, which absorbs leakage and temperature at the top.
++A T8112 point gets the voltage of the lowest T6020 OPP at or above its
++frequency (an upper bound when the two tables differ); points outside
++T6020's range are left out, since their voltage is unknown. The fitted
++model then gives T6020's OPPs: within 6% rms of T8112's measurements for
++both core types.
++
++Its energy per cycle, (a + b f) V^2, rises from each OPP to the next, so
++the energy model marks no OPP inefficient and cpufreq keeps choosing among
++all of them as it does today; only the scheduler's placement changes.
++
++The voltages are those of a J414s (M2 Pro, 10 cores), from the ADT's
++/arm-io/pmgr voltage-states1 (E cluster) and voltage-states5 (P cluster 0;
++cluster 1's voltage-states13 is within 6 mV), whose cells are pairs of
++(65536000 / MHz, mV). Prints the fit and each table's values; --write
++puts them into t602x-common.dtsi as each OPP's opp-microwatt.
++"""
++import argparse
++from pathlib import Path
++import re
++import sys
++
++ROOT = Path(__file__).resolve().parents[2]
++T8112 = ROOT / 'arch/arm64/boot/dts/apple/t8112.dtsi'
++T602X = ROOT / 'arch/arm64/boot/dts/apple/t602x-common.dtsi'
++
++# (MHz, mV) for each T6020 OPP, in the order of t602x-common.dtsi.
++T6020_E = [(912, 612), (1284, 681), (1752, 775), (2004, 834), (2256, 887), (2424, 946)]
++T6020_P = [(702, 600), (948, 625), (1188, 646), (1452, 687), (1704, 718), (1968, 759),
++           (2208, 793), (2400, 825), (2568, 856), (2724, 896), (2868, 931), (3000, 975),
++           (3132, 1012), (3264, 1056), (3360, 1056), (3408, 1056), (3504, 1056)]
++TABLES = {'blizzard_opp': ('ecluster_opp', T6020_E), 'avalanche_opp': ('pcluster_opp', T6020_P)}
++
++
++def opp_table(source, label):
++    """[(MHz, opp-microwatt or None)] of the OPP table with that label."""
++    start = source.index(f'{label}: ')
++    body = source[start:source.index('\n\t};', start)]
++    rows = []
++    for node in re.findall(r'opp\d+ \{(.*?)\}', body, re.S):
++        hz = re.search(r'opp-hz = /bits/ 64 <(\d+)>', node)
++        uw = re.search(r'opp-microwatt = <(\d+)>', node)
++        rows.append((int(hz.group(1)) // 1000000, int(uw.group(1)) if uw else None))
++    return rows
++
++
++def points(measured, volts):
++    """(MHz, mV, uW) for each measured OPP in T6020's range, at the voltage of the next
++    T6020 OPP up."""
++    out = []
++    for mhz, uw in measured:
++        above = [mv for f, mv in volts if f >= mhz]
++        if above and mhz >= volts[0][0]:
++            out.append((mhz, above[0], uw))
++    return out
++
++
++def fit(data):
++    """(a, b) of P = (a + b f) V^2 f, least squares on the relative error."""
++    rows = [(v * v * f / p, v * v * f * f / p) for f, v, p in ((f, v / 1000, p) for f, v, p in data)]
++    s11 = sum(x * x for x, _ in rows)
++    s12 = sum(x * y for x, y in rows)
++    s22 = sum(y * y for _, y in rows)
++    t1 = sum(x for x, _ in rows)
++    t2 = sum(y for _, y in rows)
++    det = s11 * s22 - s12 * s12
++    return (t1 * s22 - t2 * s12) / det, (s11 * t2 - s12 * t1) / det
++
++
++def model(coef, mhz, mv):
++    a, b = coef
++    v = mv / 1000
++    return (a + b * mhz) * v * v * mhz
++
++
++def microwatts(coef, volts):
++    """opp-microwatt for each OPP, rounded to the milliwatt."""
++    return [(mhz, round(model(coef, mhz, mv) / 1000) * 1000) for mhz, mv in volts]
++
++
++def inefficient(table):
++    """The OPPs the energy model would mark inefficient (see em_compute_costs())."""
++    out, prev = [], float('inf')
++    for mhz, uw in reversed(table):
++        if uw / mhz >= prev:
++            out.append(mhz)
++        else:
++            prev = uw / mhz
++    return sorted(out)
++
++
++def derive(source):
++    """{T6020 label: (coef, rms relative error, [(MHz, uW)])}."""
++    out = {}
++    for label, (t8112_label, volts) in TABLES.items():
++        data = points(opp_table(source, t8112_label), volts)
++        coef = fit(data)
++        rms = (sum(((model(coef, f, v) - p) / p) ** 2 for f, v, p in data) / len(data)) ** 0.5
++        out[label] = coef, rms, microwatts(coef, volts)
++    return out
++
++
++def apply(source, derived):
++    """The T602x source with each CPU OPP's opp-microwatt set to the derived value."""
++    for label, (_, _, table) in derived.items():
++        start = source.index(f'{label}: ')
++        end = source.index('\n\t};', start)
++        body = source[start:end]
++        values = iter(table)
++
++        def node(match):
++            text = re.sub(r'\n\t\t\topp-microwatt = <\d+>;', '', match.group(0))
++            mhz, uw = next(values)
++            hz = int(re.search(r'opp-hz = /bits/ 64 <(\d+)>', text).group(1))
++            if hz != mhz * 1000000:
++                raise ValueError(f'{label}: OPP {hz} Hz, expected {mhz} MHz')
++            return re.sub(r'(\n\t\t\tclock-latency-ns = <\d+>;)',
++                          rf'\1\n\t\t\topp-microwatt = <{uw}>;', text, count=1)
++
++        body = re.sub(r'\t\topp\d+ \{.*?\n\t\t\};', node, body, flags=re.S)
++        if next(values, None) is not None:
++            raise ValueError(f'{label}: fewer OPPs than derived')
++        source = source[:start] + body + source[end:]
++    return source
++
++
++def main():
++    parser = argparse.ArgumentParser(description=__doc__,
++                                     formatter_class=argparse.RawDescriptionHelpFormatter)
++    parser.add_argument('--write', action='store_true', help=f'update {T602X.name}')
++    args = parser.parse_args()
++    derived = derive(T8112.read_text())
++    for label, (coef, rms, table) in derived.items():
++        print(f'{label}: a={coef[0]:.1f} b={coef[1]:.5f} rms {rms * 100:.1f}% '
++              f'inefficient {inefficient(table) or "none"}')
++        for mhz, uw in table:
++            print(f'  {mhz} MHz: {uw} uW')
++    if args.write:
++        T602X.write_text(apply(T602X.read_text(), derived))
++    return 0
++
++
++if __name__ == '__main__':
++    sys.exit(main())
+diff --git a/tools/aurora-sep/tests/test_t6020_cpu_em.py b/tools/aurora-sep/tests/test_t6020_cpu_em.py
+new file mode 100644
+index 000000000000..d9c0156d9e0e
+--- /dev/null
++++ b/tools/aurora-sep/tests/test_t6020_cpu_em.py
+@@ -0,0 +1,70 @@
++"""t6020-cpu-em.py and the T602x CPU energy model (opp-microwatt) it derives."""
++
++from pathlib import Path
++import importlib.util
++import unittest
++
++
++ROOT = Path(__file__).resolve().parents[1]
++SPEC = importlib.util.spec_from_file_location("cpu_em", ROOT / "t6020-cpu-em.py")
++cpu_em = importlib.util.module_from_spec(SPEC)
++SPEC.loader.exec_module(cpu_em)
++
++# capacity-dmips-mhz of the two core types in t602x-common.dtsi.
++CAPACITY = {"blizzard_opp": 756, "avalanche_opp": 1024}
++
++
++class T6020CpuEmTest(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        cls.t8112 = cpu_em.T8112.read_text()
++        cls.t602x = cpu_em.T602X.read_text()
++        cls.derived = cpu_em.derive(cls.t8112)
++
++    def test_the_tree_carries_the_derived_values(self):
++        self.assertEqual(cpu_em.apply(self.t602x, self.derived), self.t602x)
++
++    def test_every_cpu_opp_has_a_power_that_rises_with_frequency(self):
++        for label, volts in (("blizzard_opp", cpu_em.T6020_E), ("avalanche_opp", cpu_em.T6020_P)):
++            with self.subTest(label=label):
++                table = cpu_em.opp_table(self.t602x, label)
++                self.assertEqual([mhz for mhz, _ in table], [mhz for mhz, _ in volts])
++                powers = [uw for _, uw in table]
++                self.assertNotIn(None, powers)
++                self.assertEqual(powers, sorted(set(powers)))
++
++    def test_no_opp_is_inefficient(self):
++        # An inefficient OPP is skipped by cpufreq: the model must not change
++        # which frequencies schedutil can pick.
++        for label in CAPACITY:
++            with self.subTest(label=label):
++                self.assertEqual(cpu_em.inefficient(cpu_em.opp_table(self.t602x, label)), [])
++        self.assertEqual(cpu_em.inefficient([(1, 10), (2, 15), (3, 40)]), [1])
++
++    def test_the_fit_follows_the_t8112_measurements(self):
++        for label, (coef, rms, _) in self.derived.items():
++            with self.subTest(label=label):
++                self.assertLess(rms, 0.07)
++                self.assertGreater(coef[0], 0)
++
++    def test_e_cores_are_cheaper_per_unit_of_capacity_at_the_bottom(self):
++        cost = {}
++        for label, scale in CAPACITY.items():
++            table = cpu_em.opp_table(self.t602x, label)
++            mhz, uw = table[0]
++            cost[label] = uw / (scale * mhz)
++        self.assertLess(cost["blizzard_opp"] * 2, cost["avalanche_opp"])
++
++    def test_points_use_the_next_t6020_voltage_and_stay_in_range(self):
++        volts = [(700, 600), (900, 650), (1000, 700)]
++        measured = [(600, 1), (700, 2), (800, 3), (1000, 4), (1100, 5)]
++        self.assertEqual(cpu_em.points(measured, volts), [(700, 600, 2), (800, 650, 3), (1000, 700, 4)])
++
++    def test_apply_refuses_a_table_that_does_not_match(self):
++        broken = self.t602x.replace("<912000000>", "<600000000>", 1)
++        with self.assertRaisesRegex(ValueError, "blizzard_opp"):
++            cpu_em.apply(broken, self.derived)
++
++
++if __name__ == "__main__":
++    unittest.main()
+-- 
+2.55.0
+

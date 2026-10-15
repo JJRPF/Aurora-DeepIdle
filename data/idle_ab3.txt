@@ -1,0 +1,17 @@
+Total System Power:
+  setting        mean W   PD %  WFI %   paired difference from default
+  default         14.35    0.1   69.7
+  pd-always       11.80   71.9    0.0   -2.547 W (sd 3.22, se 0.929, lower in 10 of 12)
+AC Input Power:
+  setting        mean W   PD %  WFI %   paired difference from default
+  default         14.47    0.1   69.7
+  pd-always       11.81   71.9    0.0   -2.659 W (sd 3.25, se 0.938, lower in 10 of 12)
+3.8 V Rail Power:
+  setting        mean W   PD %  WFI %   paired difference from default
+  default          0.00    0.1   69.7
+  pd-always        0.00   71.9    0.0   +0.000 W (sd 0.00, se 0.000, lower in 0 of 12)
+Heatpipe Power:
+  setting        mean W   PD %  WFI %   paired difference from default
+  default          9.08    0.1   69.7
+  pd-always        7.04   71.9    0.0   -2.032 W (sd 3.29, se 0.949, lower in 9 of 12)
+exit 0

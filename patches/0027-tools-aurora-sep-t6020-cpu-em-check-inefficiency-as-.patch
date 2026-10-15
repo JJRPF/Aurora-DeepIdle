@@ -1,0 +1,71 @@
+From 09b3d78ec11fb8463bd412970f862d2ed796d0b1 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 22:51:52 -0400
+Subject: [PATCH 27/37] tools/aurora-sep: t6020-cpu-em: check inefficiency as
+ the kernel computes it
+
+em_compute_costs() works in integers, cost = power * 10 / performance
+with performance scaled to the CPU's capacity, and the top P OPPs are
+within 1% of each other, so check with the same arithmetic and the
+J414s's capacities (561 and 1024).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AuzUDcEeRJQ6RCdWW2XWLb
+---
+ tools/aurora-sep/t6020-cpu-em.py            | 14 +++++++++-----
+ tools/aurora-sep/tests/test_t6020_cpu_em.py | 10 +++++++---
+ 2 files changed, 16 insertions(+), 8 deletions(-)
+
+diff --git a/tools/aurora-sep/t6020-cpu-em.py b/tools/aurora-sep/t6020-cpu-em.py
+index 27291de02e31..1aa9e9c0e948 100755
+--- a/tools/aurora-sep/t6020-cpu-em.py
++++ b/tools/aurora-sep/t6020-cpu-em.py
+@@ -92,14 +92,18 @@ def microwatts(coef, volts):
+     return [(mhz, round(model(coef, mhz, mv) / 1000) * 1000) for mhz, mv in volts]
+ 
+ 
+-def inefficient(table):
+-    """The OPPs the energy model would mark inefficient (see em_compute_costs())."""
+-    out, prev = [], float('inf')
++def inefficient(table, capacity=1024):
++    """The OPPs the energy model would mark inefficient, in em_compute_costs()'s integer
++    arithmetic: cost = power * 10 / performance, performance = capacity * f / fmax, an OPP
++    being inefficient when its cost is not below that of every faster one."""
++    fmax = table[-1][0]
++    out, prev = [], None
+     for mhz, uw in reversed(table):
+-        if uw / mhz >= prev:
++        cost = uw * 10 // (capacity * mhz // fmax)
++        if prev is not None and cost >= prev:
+             out.append(mhz)
+         else:
+-            prev = uw / mhz
++            prev = cost
+     return sorted(out)
+ 
+ 
+diff --git a/tools/aurora-sep/tests/test_t6020_cpu_em.py b/tools/aurora-sep/tests/test_t6020_cpu_em.py
+index d9c0156d9e0e..3095392423b0 100644
+--- a/tools/aurora-sep/tests/test_t6020_cpu_em.py
++++ b/tools/aurora-sep/tests/test_t6020_cpu_em.py
+@@ -36,10 +36,14 @@ class T6020CpuEmTest(unittest.TestCase):
+     def test_no_opp_is_inefficient(self):
+         # An inefficient OPP is skipped by cpufreq: the model must not change
+         # which frequencies schedutil can pick.
+-        for label in CAPACITY:
++        # cpu_capacity reads 561 for the E cores and 1024 for the P cores on a J414s.
++        for label, capacity in (("blizzard_opp", 561), ("avalanche_opp", 1024)):
+             with self.subTest(label=label):
+-                self.assertEqual(cpu_em.inefficient(cpu_em.opp_table(self.t602x, label)), [])
+-        self.assertEqual(cpu_em.inefficient([(1, 10), (2, 15), (3, 40)]), [1])
++                table = cpu_em.opp_table(self.t602x, label)
++                self.assertEqual(cpu_em.inefficient(table, capacity), [])
++        self.assertEqual(cpu_em.inefficient([(100, 10000), (200, 15000), (300, 40000)]), [100])
++        # Equal cost per cycle at two OPPs: the slower one is inefficient.
++        self.assertEqual(cpu_em.inefficient([(512, 1000), (1024, 2000)]), [512])
+ 
+     def test_the_fit_follows_the_t8112_measurements(self):
+         for label, (coef, rms, _) in self.derived.items():
+-- 
+2.55.0
+

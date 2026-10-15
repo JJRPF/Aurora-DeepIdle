@@ -1,0 +1,229 @@
+From a49a9e25e7ad0260d6b6e64181960b9e4502fa91 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 22:37:27 -0400
+Subject: [PATCH 17/37] tools/aurora-sep: idle-ab: add no-eas, restore only
+ what was written
+
+no-eas runs a window with kernel.sched_energy_aware=0, so a kernel with
+a CPU energy model can measure what energy-aware scheduling saves, paired
+with default in the same boot. Each write of the sysctl rebuilds the
+scheduler domains, so it is written only by a run that uses no-eas, and
+on exit only the knobs the run wrote are put back.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AuzUDcEeRJQ6RCdWW2XWLb
+---
+ tools/aurora-sep/idle-ab.py            | 47 +++++++++++++++------
+ tools/aurora-sep/tests/test_idle_ab.py | 56 +++++++++++++++++++++-----
+ 2 files changed, 80 insertions(+), 23 deletions(-)
+
+diff --git a/tools/aurora-sep/idle-ab.py b/tools/aurora-sep/idle-ab.py
+index 3a4d67a8b81e..11dafa697c20 100755
+--- a/tools/aurora-sep/idle-ab.py
++++ b/tools/aurora-sep/idle-ab.py
+@@ -9,6 +9,9 @@ Each SETTING is one of
+   pd-always    WFI disabled, so every idle entry is CPU PD
+   res=US       both states enabled, CPU PD target residency US microseconds
+                (needs cpuidle_apple.pd_residency_us)
++  no-eas       both states enabled, energy-aware scheduling off
++               (kernel.sched_energy_aware=0; needs a CPU energy model,
++               so compare it with default to see what EAS saves)
+ 
+ wfi-only and pd-always take a CPU list, as in pd-always@4-9 or
+ wfi-only@0,2: the listed CPUs get the setting and the others both states,
+@@ -26,8 +29,9 @@ time (all CPUs, from /proc/stat) and each cpufreq policy's mean frequency,
+ to show whether a setting changed the work done or the clocks rather than
+ only the idle power.
+ 
+-It writes only the cpuidle 'disable' files and pd_residency_us, as root, and
+-puts every one back as it found it on exit, also on an error or Ctrl-C.
++It writes only the cpuidle 'disable' files, pd_residency_us and
++sched_energy_aware, as root, and puts every one back as it found it on
++exit, also on an error or Ctrl-C.
+ """
+ import argparse
+ import json
+@@ -39,6 +43,7 @@ import time
+ CPUS = 'sys/devices/system/cpu'
+ HWMON = 'sys/class/hwmon'
+ RESIDENCY = 'sys/module/cpuidle_apple/parameters/pd_residency_us'
++EAS = 'proc/sys/kernel/sched_energy_aware'
+ POWER_LABEL = 'Total System Power'
+ POLICIES = 'sys/devices/system/cpu/cpufreq'
+ STAT = 'proc/stat'
+@@ -57,13 +62,16 @@ def parse_cpus(text):
+ 
+ 
+ def parse_setting(text):
+-    """(state0 disable, state1 disable, residency or None, CPUs or None) for a SETTING."""
++    """(state0 disable, state1 disable, residency or None, CPUs or None, EAS or None)
++    for a SETTING."""
+     fixed = {'default': (0, 0), 'wfi-only': (0, 1), 'pd-always': (1, 0)}
+     name, at, cpus = text.partition('@')
+     if name in fixed and not (at and name == 'default'):
+-        return (*fixed[name], None, parse_cpus(cpus) if at else None)
++        return (*fixed[name], None, parse_cpus(cpus) if at else None, None)
+     if text.startswith('res=') and text[4:].isdigit() and int(text[4:]) > 0:
+-        return 0, 0, int(text[4:]), None
++        return 0, 0, int(text[4:]), None, None
++    if text == 'no-eas':
++        return 0, 0, None, None, 0
+     raise ValueError(f'unknown setting {text!r}')
+ 
+ 
+@@ -89,34 +97,49 @@ class Machine:
+             raise FileNotFoundError('no cpuidle states')
+         self.sensors = power_sensors(root)
+         self.residency = root / RESIDENCY
++        self.eas = root / EAS
+         self.policies = sorted((root / POLICIES).glob('policy[0-9]*'),
+                                key=lambda path: int(path.name[6:]))
+         self.saved = {path: path.read_text() for path in self.knobs()}
++        self.written = set()
+ 
+     def knobs(self):
+         paths = [cpu / f'state{i}/disable' for cpu in self.cpus for i in (0, 1)]
+-        return paths + ([self.residency] if self.residency.exists() else [])
++        return paths + [path for path in (self.residency, self.eas) if path.exists()]
+ 
+     def apply(self, setting):
+-        d0, d1, residency, only = setting
++        d0, d1, residency, only, eas = setting
++        if eas is not None:
++            if not self.eas.exists():
++                raise FileNotFoundError(f'{EAS} is missing')
++            self.write(self.eas, f'{eas}\n')
++        elif self.eas in self.written:
++            # Each write rebuilds the scheduler domains; leave it alone until used.
++            self.write(self.eas, self.saved[self.eas])
+         if residency is not None:
+             if not self.residency.exists():
+                 raise FileNotFoundError(f'{RESIDENCY} is missing: this kernel has no '
+                                         'pd_residency_us')
+-            self.residency.write_text(f'{residency}\n')
++            self.write(self.residency, f'{residency}\n')
+         elif self.residency in self.saved:
+-            self.residency.write_text(self.saved[self.residency])
++            self.write(self.residency, self.saved[self.residency])
+         for number, cpu in zip(self.numbers(), self.cpus):
+             mine = only is None or number in only
+-            (cpu / 'state0/disable').write_text(f'{d0 if mine else 0}\n')
+-            (cpu / 'state1/disable').write_text(f'{d1 if mine else 0}\n')
++            self.write(cpu / 'state0/disable', f'{d0 if mine else 0}\n')
++            self.write(cpu / 'state1/disable', f'{d1 if mine else 0}\n')
++
++    def write(self, path, value):
++        self.written.add(path)
++        path.write_text(value)
+ 
+     def numbers(self):
+         return [int(cpu.parent.name[3:]) for cpu in self.cpus]
+ 
+     def restore(self):
++        """Put back every knob this run wrote."""
+         for path, value in self.saved.items():
+-            path.write_text(value)
++            if path in self.written:
++                path.write_text(value)
+ 
+     def residency_us(self):
+         """Time in WFI and in CPU PD of each CPU, in microseconds."""
+diff --git a/tools/aurora-sep/tests/test_idle_ab.py b/tools/aurora-sep/tests/test_idle_ab.py
+index 501434ed3599..15672d968ed7 100644
+--- a/tools/aurora-sep/tests/test_idle_ab.py
++++ b/tools/aurora-sep/tests/test_idle_ab.py
+@@ -34,7 +34,8 @@ def fake_machine(root, residency=True, cpus=2):
+     for policy, mhz in (("policy0", 912000), ("policy4", 3264000)):
+         (root / idle_ab.POLICIES / policy).mkdir(parents=True)
+         (root / idle_ab.POLICIES / policy / "scaling_cur_freq").write_text(f"{mhz}\n")
+-    (root / "proc").mkdir()
++    (root / "proc/sys/kernel").mkdir(parents=True)
++    (root / idle_ab.EAS).write_text("1\n")
+     (root / idle_ab.STAT).write_text("cpu  9 0 0 9 0 0 0 0 0 0\n"
+                                      "cpu0 3 0 1 4 2 0 0 0 0 0\ncpu1 1 0 0 9 0 0 0 0 0 0\nintr 5\n")
+     if residency:
+@@ -45,14 +46,15 @@ def fake_machine(root, residency=True, cpus=2):
+ 
+ class IdleAbTest(unittest.TestCase):
+     def test_settings(self):
+-        self.assertEqual(idle_ab.parse_setting("default"), (0, 0, None, None))
+-        self.assertEqual(idle_ab.parse_setting("wfi-only"), (0, 1, None, None))
+-        self.assertEqual(idle_ab.parse_setting("pd-always"), (1, 0, None, None))
+-        self.assertEqual(idle_ab.parse_setting("res=500"), (0, 0, 500, None))
+-        self.assertEqual(idle_ab.parse_setting("pd-always@4-6,9"), (1, 0, None, {4, 5, 6, 9}))
+-        self.assertEqual(idle_ab.parse_setting("wfi-only@1"), (0, 1, None, {1}))
++        self.assertEqual(idle_ab.parse_setting("default"), (0, 0, None, None, None))
++        self.assertEqual(idle_ab.parse_setting("wfi-only"), (0, 1, None, None, None))
++        self.assertEqual(idle_ab.parse_setting("pd-always"), (1, 0, None, None, None))
++        self.assertEqual(idle_ab.parse_setting("res=500"), (0, 0, 500, None, None))
++        self.assertEqual(idle_ab.parse_setting("pd-always@4-6,9"), (1, 0, None, {4, 5, 6, 9}, None))
++        self.assertEqual(idle_ab.parse_setting("wfi-only@1"), (0, 1, None, {1}, None))
++        self.assertEqual(idle_ab.parse_setting("no-eas"), (0, 0, None, None, 0))
+         for bad in ("res=0", "res=", "res=x", "fast", "default@1", "pd-always@", "pd-always@3-1",
+-                    "pd-always@a", "pd-always@1,", "res=5@1"):
++                    "pd-always@a", "pd-always@1,", "res=5@1", "no-eas@1", "eas"):
+             with self.subTest(bad=bad), self.assertRaises(ValueError):
+                 idle_ab.parse_setting(bad)
+ 
+@@ -86,8 +88,9 @@ class IdleAbTest(unittest.TestCase):
+             self.assertEqual(rows[0]["busy_pct"], 0.0)
+             self.assertEqual(rows[0]["sensors"], {"Total System Power": 6.55,
+                                                   "Heatpipe Power": 1.25})
+-            for path in machine.saved:
+-                self.assertIn(path.read_text(), ("0\n", "10000\n"))
++            self.assertEqual(sorted({p.read_text() for p in machine.saved}), ["0\n", "1\n", "10000\n"])
++            for path, value in machine.saved.items():
++                self.assertEqual(path.read_text(), value)
+             self.assertEqual((root / idle_ab.RESIDENCY).read_text(), "10000\n")
+ 
+     def test_a_cpu_list_sets_only_those_cpus(self):
+@@ -113,7 +116,9 @@ class IdleAbTest(unittest.TestCase):
+             self.assertEqual(states[1], ["0", "1", "0", "1"] + ["0"] * 18)
+             self.assertEqual(sorted(rows[0]["pd_pct_by_cpu"]), list(range(11)))
+             for path in machine.saved:
+-                self.assertEqual(path.read_text(), "0\n" if "disable" in str(path) else "10000\n")
++                expected = "0\n" if "disable" in str(path) else "1\n" if path == root / idle_ab.EAS \
++                    else "10000\n"
++                self.assertEqual(path.read_text(), expected)
+ 
+     def test_a_missing_cpu_is_refused_before_anything_is_written(self):
+         with tempfile.TemporaryDirectory() as temp:
+@@ -125,6 +130,35 @@ class IdleAbTest(unittest.TestCase):
+                 idle_ab.run(machine, ["default", "pd-always@1-2"], 1, 1, 0)
+             machine.apply.assert_not_called()
+ 
++    def test_no_eas_turns_eas_off_only_for_its_window(self):
++        with tempfile.TemporaryDirectory() as temp:
++            root = Path(temp)
++            fake_machine(root)
++            machine = idle_ab.Machine(root)
++            seen = []
++            real_apply = machine.apply
++
++            def apply(setting):
++                real_apply(setting)
++                seen.append((root / idle_ab.EAS).read_text())
++            machine.apply = apply
++            with mock.patch.object(idle_ab.time, "sleep"), \
++                    mock.patch.object(idle_ab.time, "monotonic", side_effect=range(1000)):
++                idle_ab.run(machine, ["default", "no-eas", "pd-always"], 1, 2, 0)
++            self.assertEqual(seen, ["1\n", "0\n", "1\n"])
++            self.assertEqual((root / idle_ab.EAS).read_text(), "1\n")
++
++    def test_eas_is_not_written_unless_a_setting_uses_it(self):
++        with tempfile.TemporaryDirectory() as temp:
++            root = Path(temp)
++            fake_machine(root)
++            (root / idle_ab.EAS).chmod(0o444)
++            machine = idle_ab.Machine(root)
++            with mock.patch.object(idle_ab.time, "sleep"), \
++                    mock.patch.object(idle_ab.time, "monotonic", side_effect=range(1000)):
++                idle_ab.run(machine, ["default", "pd-always"], 2, 2, 0)
++            self.assertNotIn(root / idle_ab.EAS, machine.written)
++
+     def test_restores_after_an_error(self):
+         with tempfile.TemporaryDirectory() as temp:
+             root = Path(temp)
+-- 
+2.55.0
+

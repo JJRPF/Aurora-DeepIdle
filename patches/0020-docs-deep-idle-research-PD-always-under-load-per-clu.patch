@@ -1,0 +1,53 @@
+From 6290c6569a7cd5c4fb5bf0c086ddf76adca234e8 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 22:44:18 -0400
+Subject: [PATCH 20/37] docs: deep-idle research: PD always under load, per
+ cluster, with busy time
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AuzUDcEeRJQ6RCdWW2XWLb
+---
+ docs/deep-idle-research.md | 27 +++++++++++++++++++++++++++
+ 1 file changed, 27 insertions(+)
+
+diff --git a/docs/deep-idle-research.md b/docs/deep-idle-research.md
+index 3e292ee257e5..8a6476a25050 100644
+--- a/docs/deep-idle-research.md
++++ b/docs/deep-idle-research.md
+@@ -266,6 +266,33 @@ power-off only on the way into system sleep (`src/utils.c` 270-277). So the
+ core-level idle state already matches macOS; the governor's choice did
+ not.
+ 
++Later runs, on the same machine under heavier load from other work, with
++every SMC power sensor and, in the last, each setting's busy time and
++clocks (`idle-ab.py`, paired by round):
++
++```
++load    rounds  setting         Total System     Heatpipe (SoC)    lower in
++~14 W   12      PD always       -2.55 W (0.93)   -2.03 W (0.95)    10 / 12
++~32 W   10      PD always       -6.57 W (2.38)   -5.29 W (2.14)     7 / 10
++~32 W   10      PD on E only    +0.21 W (0.99)   +0.10 W (0.90)     6 / 10
++~32 W   10      PD on P only    -4.37 W (1.60)   -3.81 W (1.54)     8 / 10
++~32 W   10      PD on P0 only   -2.98 W (1.78)   -2.12 W (1.68)     9 / 10
++~17 W   12      PD always       -1.34 W (0.91)   -1.88 W (0.77)     9 / 12
++~17 W   12      PD on P only    -0.49 W (1.22)   -0.82 W (1.07)     7 / 12
++                                (standard errors in brackets)
++```
++
++Three things follow. The saving is in the SoC package (Heatpipe Power
++moves with Total System Power), and it grows with load: a core idling in
++WFI is still powered at its cluster's current voltage, so its leakage
++rises with the cluster's clock; CPU PD cuts it off. Most of it is in the P
++clusters; the E cores show none, within the noise. And it is not bought by
++doing less: in the last run the busy time was 28.4% with the default and
++30.4% with PD always, and the mean clocks were 1337/2015/1977 MHz (E, P0,
++P1) against 1362/2128/1992 MHz, so the work and the clocks did not drop.
++What these runs do not give is energy per unit of work on a fixed
++workload, which needs a machine nobody else is using.
++
+ Until a lower residency is in a kernel,
+ `echo 1 | sudo tee /sys/devices/system/cpu/cpu*/cpuidle/state0/disable`
+ reproduces "PD always" at runtime, and `echo 0` undoes it; it does not
+-- 
+2.55.0
+

@@ -1,0 +1,99 @@
+// SPDX-License-Identifier: GPL-2.0+ OR MIT
+/*
+ * MacBook Pro (14-inch, M2 Pro, 2023), without the external display DCPs
+ *
+ * target-type: J414s
+ *
+ * Opt-in test variant of t6020-j414s.dts for measuring what the two
+ * external display coprocessors cost: they are started at boot and kept
+ * powered through suspend (the DCP driver marks itself a wakeup path) even
+ * with nothing connected. HDMI and USB-C display output do not work with
+ * this tree; the internal display does.
+ *
+ * Without the dcpext aliases m1n1 leaves both DCPs alone (it enables, and
+ * carves out memory for, only the DCPs that have an alias). With the DCPs,
+ * their DARTs and mailboxes disabled, nothing uses the dispext power
+ * domains, so they are powered off as unused. The display subsystem keeps
+ * only the internal display's DART: an iommus entry for a disabled DART
+ * fails the whole IOMMU setup of the node. The DCPs' Type-C routes are
+ * disabled too: they are the mode-switch providers the USB-C controllers
+ * look up through the graph, which checks only the route node's own status,
+ * so an enabled route under a disabled DCP would keep the controllers'
+ * probe deferred waiting for a mux nobody registers.
+ *
+ * It is left out of the Makefile on purpose: it has the same compatible as
+ * t6020-j414s.dtb, and m1n1 boots the last DTB that matches. Build it by
+ * name and bundle it into m1n1's stage 2 instead of t6020-j414s.dtb to test
+ * it.
+ *
+ * Copyright The Asahi Linux Contributors
+ */
+
+#include "t6020-j414s.dts"
+
+/ {
+	aliases {
+		/delete-property/ dcpext0;
+		/delete-property/ dcpext1;
+	};
+};
+
+&display {
+	iommus = <&disp0_dart 0>;
+};
+
+&dcpext0 {
+	status = "disabled";
+};
+
+&dcpext0_dart {
+	status = "disabled";
+};
+
+&dcpext0_mbox {
+	status = "disabled";
+};
+
+&dispext0_dart {
+	status = "disabled";
+};
+
+&dcpext1 {
+	status = "disabled";
+};
+
+&dcpext1_dart {
+	status = "disabled";
+};
+
+&dcpext1_mbox {
+	status = "disabled";
+};
+
+&dispext1_dart {
+	status = "disabled";
+};
+
+&{/soc/dcp@289c00000/typec-routes/route@0} {
+	status = "disabled";
+};
+
+&{/soc/dcp@289c00000/typec-routes/route@1} {
+	status = "disabled";
+};
+
+&{/soc/dcp@289c00000/typec-routes/route@2} {
+	status = "disabled";
+};
+
+&{/soc/dcp@315c00000/typec-routes/route@0} {
+	status = "disabled";
+};
+
+&{/soc/dcp@315c00000/typec-routes/route@1} {
+	status = "disabled";
+};
+
+&{/soc/dcp@315c00000/typec-routes/route@2} {
+	status = "disabled";
+};

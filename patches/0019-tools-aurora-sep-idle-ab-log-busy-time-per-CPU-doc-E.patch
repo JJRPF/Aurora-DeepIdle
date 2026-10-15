@@ -1,0 +1,124 @@
+From c6f776d04716a2187d07689fb076671c15b0f137 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 22:38:16 -0400
+Subject: [PATCH 19/37] tools/aurora-sep: idle-ab: log busy time per CPU; doc:
+ E6 procedure
+
+E6 boots the energy-model image and pairs EAS on against EAS off;
+moving light work from the P clusters to the E cluster shows in each
+CPU's busy time, which each window's log line now carries.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AuzUDcEeRJQ6RCdWW2XWLb
+---
+ docs/deep-idle-research.md             | 14 ++++++++++++++
+ tools/aurora-sep/idle-ab.py            | 17 ++++++++++-------
+ tools/aurora-sep/tests/test_idle_ab.py | 20 +++++++++++++++++++-
+ 3 files changed, 43 insertions(+), 8 deletions(-)
+
+diff --git a/docs/deep-idle-research.md b/docs/deep-idle-research.md
+index 2dddc70f4295..3e292ee257e5 100644
+--- a/docs/deep-idle-research.md
++++ b/docs/deep-idle-research.md
+@@ -489,6 +489,20 @@ a few percent.
+   then Wi-Fi's (`0000:01:00.0`), and measure with E2: the gain is tens of
+   mW at most, invisible in an awake A/B. The pcie-apple driver disables link
+   power states only for M3's MediaTek radios (`pcie-apple.c` around 2582).
++* **E6, energy-aware scheduling** (needs a reboot; owner's go-ahead).
++  Boot `boot.bin.em-test` the way E1 boots its image (same kernel; only the
++  DTB changes). Check that the energy model registered: `sudo ls
++  /sys/kernel/debug/energy_model` lists three performance domains (cpu0,
++  cpu4, cpu7), and `sudo cat
++  /sys/kernel/debug/energy_model/cpu0/ps:912000/power` reads 53000. Then,
++  with the machine as quiet as it gets (EAS stands aside while any CPU is
++  overutilized), `sudo tools/aurora-sep/idle-ab.py --rounds 20 --window 20
++  default no-eas` pairs EAS on against EAS off in the same boot, and
++  `pd-always` can join the same run. Expect light background work to move
++  from the P clusters to the E cluster (busy time per cluster in the log)
++  and Total System Power to drop when idle-ish; under load nothing changes.
++  Rollback is the same as E1's, or at runtime `echo 0 | sudo tee
++  /proc/sys/kernel/sched_energy_aware`.
+ * **E3, does a raw-mode SoC wake reach m1n1?** This is the experiment that
+   decides raw vs Mach-O for the wake path. It needs a second machine and USB
+   m1n1 proxy, and is not for the daily driver without a plan. From the m1n1
+diff --git a/tools/aurora-sep/idle-ab.py b/tools/aurora-sep/idle-ab.py
+index 11dafa697c20..4747e22f604e 100755
+--- a/tools/aurora-sep/idle-ab.py
++++ b/tools/aurora-sep/idle-ab.py
+@@ -146,15 +146,14 @@ class Machine:
+         return [[int((cpu / f'state{i}/time').read_text()) for i in (0, 1)] for cpu in self.cpus]
+ 
+     def busy(self):
+-        """(busy, total) jiffies over all CPUs: everything but idle and iowait."""
+-        busy = total = 0
++        """{CPU number: (busy, total)} jiffies, busy being all but idle and iowait."""
++        out = {}
+         for line in (self.root / STAT).read_text().splitlines():
+             fields = line.split()
+             if fields and fields[0].startswith('cpu') and fields[0][3:].isdigit():
+                 ticks = [int(x) for x in fields[1:]]
+-                busy += sum(ticks) - ticks[3] - ticks[4]
+-                total += sum(ticks)
+-        return busy, total
++                out[int(fields[0][3:])] = (sum(ticks) - ticks[3] - ticks[4], sum(ticks))
++        return out
+ 
+     def mhz(self):
+         """{policy name: current MHz}."""
+@@ -184,7 +183,9 @@ def run(machine, names, rounds, window, settle, log=None):
+                     clocks.append(machine.mhz())
+                     time.sleep(1)
+                 after, elapsed = machine.residency_us(), time.monotonic() - start
+-                ticks = [b - a for a, b in zip(ticks, machine.busy())]
++                ticks = {cpu: [b - a for a, b in zip(ticks[cpu], now)]
++                         for cpu, now in machine.busy().items() if cpu in ticks}
++                busy, jiffies = (sum(t[i] for t in ticks.values()) for i in (0, 1))
+                 spent = [[a - b for a, b in zip(*pair)] for pair in zip(after, before)]
+                 total = elapsed * 1e6 * len(machine.cpus)
+                 row = {'round': n, 'setting': name,
+@@ -195,7 +196,9 @@ def run(machine, names, rounds, window, settle, log=None):
+                        'pd_pct': 100 * sum(cpu[1] for cpu in spent) / total,
+                        'pd_pct_by_cpu': {number: round(100 * cpu[1] / (elapsed * 1e6), 1)
+                                          for number, cpu in zip(machine.numbers(), spent)},
+-                       'busy_pct': 100 * ticks[0] / ticks[1] if ticks[1] else 0.0,
++                       'busy_pct': 100 * busy / jiffies if jiffies else 0.0,
++                       'busy_pct_by_cpu': {cpu: round(100 * b / t, 1) if t else 0.0
++                                           for cpu, (b, t) in ticks.items()},
+                        'mhz': {name: statistics.mean(clock[name] for clock in clocks)
+                                for name in clocks[0]}}
+                 rows.append(row)
+diff --git a/tools/aurora-sep/tests/test_idle_ab.py b/tools/aurora-sep/tests/test_idle_ab.py
+index 15672d968ed7..ba9f34dab090 100644
+--- a/tools/aurora-sep/tests/test_idle_ab.py
++++ b/tools/aurora-sep/tests/test_idle_ab.py
+@@ -84,8 +84,26 @@ class IdleAbTest(unittest.TestCase):
+             self.assertEqual(seen[4], ("1\n", "0\n", "10000\n"))
+             self.assertEqual(rows[0]["watts"], 6.55)
+             self.assertEqual(rows[0]["mhz"], {"policy0": 912, "policy4": 3264})
+-            self.assertEqual(machine.busy(), (5, 20))
++            self.assertEqual(machine.busy(), {0: (4, 10), 1: (1, 10)})
+             self.assertEqual(rows[0]["busy_pct"], 0.0)
++            self.assertEqual(rows[0]["busy_pct_by_cpu"], {0: 0.0, 1: 0.0})
++
++    def test_busy_time_is_the_difference_over_the_window(self):
++        with tempfile.TemporaryDirectory() as temp:
++            root = Path(temp)
++            fake_machine(root)
++            machine = idle_ab.Machine(root)
++            stat = root / idle_ab.STAT
++
++            def sleep(seconds):
++                if seconds == 1:  # a sampling sleep, after the window's first snapshot
++                        stat.write_text("cpu0 9 0 1 4 2 0 0 0 0 0\ncpu1 1 0 0 19 0 0 0 0 0 0\n")
++            with mock.patch.object(idle_ab.time, "sleep", side_effect=sleep), \
++                    mock.patch.object(idle_ab.time, "monotonic", side_effect=range(1000)):
++                rows = idle_ab.run(machine, ["default"], 1, 2, 0)
++            # cpu0: 6 more busy jiffies of 6; cpu1: none of 10.
++            self.assertEqual(rows[0]["busy_pct_by_cpu"], {0: 100.0, 1: 0.0})
++            self.assertEqual(rows[0]["busy_pct"], 37.5)
+             self.assertEqual(rows[0]["sensors"], {"Total System Power": 6.55,
+                                                   "Heatpipe Power": 1.25})
+             self.assertEqual(sorted({p.read_text() for p in machine.saved}), ["0\n", "1\n", "10000\n"])
+-- 
+2.55.0
+

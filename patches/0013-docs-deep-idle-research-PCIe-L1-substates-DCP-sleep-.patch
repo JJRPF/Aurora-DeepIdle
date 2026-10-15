@@ -1,0 +1,67 @@
+From f22760c6e99037e98034f021c729ed6459bb775f Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 22:07:40 -0400
+Subject: [PATCH 13/37] docs: deep-idle research: PCIe L1 substates, DCP sleep
+ path, VLPM
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AuzUDcEeRJQ6RCdWW2XWLb
+---
+ docs/deep-idle-research.md | 27 ++++++++++++++++++++++++++-
+ 1 file changed, 26 insertions(+), 1 deletion(-)
+
+diff --git a/docs/deep-idle-research.md b/docs/deep-idle-research.md
+index 4be16ebbd0b3..42725d9af5fc 100644
+--- a/docs/deep-idle-research.md
++++ b/docs/deep-idle-research.md
+@@ -363,6 +363,19 @@ Sensors usable for measurements: SMC "Total System Power" (hwmon
+   display output gone. If the saving is real, the fix is in the DCP driver:
+   start an external DCP only when a display is attached, and power it down
+   when the last one leaves.
++* **E5, PCIe L1 substates** (no reboot, but owner's go-ahead: a failed
++  link drops Wi-Fi until reboot). ASPM L1 is on for the Wi-Fi/Bluetooth
++  link (00:00.0 -> 01:00.0/1) and the SD reader link (00:01.0 -> 02:00.0),
++  but L1.1 and L1.2 are off on all of them although both ends support ASPM
++  L1.1 and L1.2 (`lspci -vv` L1SubCap). The ASPM policy is `default`, which
++  keeps what the boot firmware set up. In s2idle the Wi-Fi function sits in
++  D3 with its radio off (brcmfmac disassociates and sets MPC when there is
++  no WoWLAN, and this chip has none) and the link idles in L1, not L1.2. Try
++  the SD reader first, which nothing uses (its link has its own root port):
++  `echo 1 | sudo tee /sys/bus/pci/devices/0000:02:00.0/link/l1_2_aspm`,
++  then Wi-Fi's (`0000:01:00.0`), and measure with E2: the gain is tens of
++  mW at most, invisible in an awake A/B. The pcie-apple driver disables link
++  power states only for M3's MediaTek radios (`pcie-apple.c` around 2582).
+ * **E3, does a raw-mode SoC wake reach m1n1?** This is the experiment that
+   decides raw vs Mach-O for the wake path. It needs a second machine and USB
+   m1n1 proxy, and is not for the daily driver without a plan. From the m1n1
+@@ -430,7 +443,11 @@ DCP only when a display is attached. Not built yet, for three reasons:
+    attach funnels into `dcp_dptx_connect()`, which is the right hook: start
+    the processor there, return `-EAGAIN` the way the M3 path does
+    (`external_native`), and replay the connect once it runs.
+-3. **Suspend has to change with it.** A never-started DCP need not be a
++3. **Suspend has to change with it.** The firmware's own sleep sequence
++   exists in the driver (`iomfb_sleep()`: abort swaps, last client close,
++   `setPowerState(0)`) but is unused (`dcp_sleep()` is `__maybe_unused`),
++   because resuming from it did not work; it would not power the domains
++   off in any case. A never-started DCP need not be a
+    wakeup path, so its domains could go off in s2idle, which is the same
+    power-cycle question as (1). Once started it stays as today, since the
+    firmware cannot be restarted.
+@@ -453,6 +470,14 @@ tables.
+ 
+ ## Unknowns
+ 
++* What the PMP's `vlpm-threshold`, `vlpm-timer-limit` and
++  `disable-vlpm-feature` (0) tunables control. The other PMP tunables are
++  bandwidth thresholds for fabric (`afr-*`, `afnc*`), memory controller
++  (`dcs-*`), GPU and ANE DVFS, so VLPM is plausibly a very-low-power mode
++  of the memory or the SoC that the PMP enters when bandwidth stays low.
++  No Linux code manages memory controller power states on Apple; if the
++  PMP owns them, the PMP (E1) matters for s2idle as well as idle.
++
+ * Whether iBoot arms the wake path (reconfig engine, boot CPU RVBAR) for a
+   raw image as it does for a kernelcache.
+ * The SMC/PMGR/PMP/AOP sleep handshake; macOS's sleep drain on this machine.
+-- 
+2.55.0
+

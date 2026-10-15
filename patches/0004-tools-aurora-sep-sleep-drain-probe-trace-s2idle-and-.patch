@@ -1,0 +1,429 @@
+From 916c4a24762b052fa8f17c3ca2c7dface79271a5 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 21:06:47 -0400
+Subject: [PATCH 04/37] tools/aurora-sep: sleep-drain-probe: trace s2idle and
+ list domains left on
+
+Add arm/report/disarm, for a suspend taken any way (lid, menu). arm
+snapshots the counters and starts a tracefs instance of its own that
+triggers turn on at machine_suspend begin and off at the first device
+resume callback, so it holds only what ran while suspended. report counts
+the whole-SoC wakes (timekeeping_freeze ends), names the interrupt or IPI
+that woke the first CPU each time, and tallies interrupts, IPIs, softirqs,
+timers and work items per wake.
+
+Snapshots now also record each power domain's power-off count (debugfs
+pm_genpd) and the device tree's apple,always-on labels, and the report
+lists the domains the kernel may power off that stayed on through a
+suspend.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AuzUDcEeRJQ6RCdWW2XWLb
+---
+ tools/aurora-sep/sleep-drain-probe.py         | 242 +++++++++++++++++-
+ .../tests/test_sleep_drain_probe.py           |  69 ++++-
+ 2 files changed, 308 insertions(+), 3 deletions(-)
+
+diff --git a/tools/aurora-sep/sleep-drain-probe.py b/tools/aurora-sep/sleep-drain-probe.py
+index e638b8cda457..812b0f94b234 100755
+--- a/tools/aurora-sep/sleep-drain-probe.py
++++ b/tools/aurora-sep/sleep-drain-probe.py
+@@ -5,6 +5,11 @@
+   compare A B     report drain and wake activity between two snapshots
+   around [FILE]   snapshot, suspend through systemd, snapshot after resume,
+                   compare (and keep both snapshots in FILE if given)
++  arm             snapshot into STATE and start the s2idle trace; then suspend
++                  any way you like (lid, menu, systemctl)
++  report          after resume: snapshot, compare with STATE, print the trace
++                  analysis and stop the trace (--keep leaves it running)
++  disarm          stop and remove the s2idle trace
+ 
+ Counters: the battery's energy (macsmc), the time spent suspended
+ (CLOCK_BOOTTIME - CLOCK_MONOTONIC), each CPU's s2idle entries per cpuidle
+@@ -12,12 +17,29 @@ state, /proc/interrupts and, as root, the wakeup sources in debugfs. In
+ s2idle each CPU re-enters its idle state once per interrupt it takes, so
+ entries per suspended second measure how often the SoC woke.
+ 
+-It only reads, except that 'around' asks systemd to suspend. Run on battery:
+-on AC the battery does not discharge and the drain is meaningless.
++As root it also records each power domain's power-off count (debugfs
++pm_genpd), so the report lists the domains the kernel may power off (not
++apple,always-on in the device tree) that stayed on through a suspend.
++
++The s2idle trace is a tracefs instance of its own (INSTANCE). Triggers turn
++it on when the machine enters suspend-to-idle and off at the first device
++resume callback, so it holds only what happened while suspended: the
++timekeeping freezes (each one a wake of the whole SoC), the interrupt that
++woke the first CPU each time, and the interrupts, IPIs, timers and work that
++ran. The trace clock stops while every CPU sleeps, so it orders events but
++does not time the gaps between wakes.
++
++It only reads, except that 'around' asks systemd to suspend and 'arm',
++'report' and 'disarm' create, configure and remove the tracefs instance. Run
++on battery: on AC the battery does not discharge and the drain is
++meaningless.
+ """
+ import argparse
++from collections import Counter
+ import json
++import os
+ from pathlib import Path
++import re
+ import subprocess
+ import sys
+ import time
+@@ -25,6 +47,29 @@ import time
+ BATTERY = 'sys/class/power_supply/macsmc-battery'
+ CPUS = 'sys/devices/system/cpu'
+ WAKEUP_SOURCES = 'sys/kernel/debug/wakeup_sources'
++GENPD = 'sys/kernel/debug/pm_genpd'
++PMGR = 'sys/firmware/devicetree/base/soc'
++TRACING = 'sys/kernel/tracing'
++INSTANCE = 'sleep-drain-probe'
++STATE = Path('/var/tmp/sleep-drain-probe.json')
++
++TRACE_EVENTS = (
++    'power/suspend_resume',
++    'power/wakeup_source_activate',
++    'irq/irq_handler_entry',
++    'irq/softirq_entry',
++    'ipi/ipi_entry',
++    'timer/hrtimer_expire_entry',
++    'timer/timer_expire_entry',
++    'workqueue/workqueue_execute_start',
++)
++# An event takes one traceon/traceoff trigger, so the trace stops at the
++# first device callback after suspend-to-idle (system sleep callbacks are
++# the only ones this event traces; the ones before it find the trace off).
++TRACE_TRIGGERS = (
++    ('power/suspend_resume', 'traceon if action == "machine_suspend" && start == 1'),
++    ('power/device_pm_callback_start', 'traceoff'),
++)
+ 
+ 
+ def read(path, default=None):
+@@ -67,6 +112,31 @@ def wakeup_sources(text):
+     return sources
+ 
+ 
++def genpd(root):
++    """Power-off count (all idle states' usage) and state of each domain."""
++    base = root / GENPD
++    try:
++        names = sorted(path.name for path in base.iterdir())
++    except OSError:
++        return None
++    domains = {}
++    for name in names:
++        rows = (read(base / name / 'idle_states') or '').splitlines()[1:]
++        usage = [row.split() for row in rows]
++        domains[name] = {
++            'off': sum(int(f[2]) for f in usage if len(f) > 2 and f[2].isdigit()),
++            'state': (read(base / name / 'current_state') or '?').split('-')[0],
++        }
++    return domains
++
++
++def always_on(root):
++    """Labels of the PMGR power states the device tree keeps always on."""
++    return sorted(read(node / 'label', '').rstrip('\0')
++                  for node in (root / PMGR).glob('power-management@*/power-controller@*')
++                  if (node / 'apple,always-on').exists())
++
++
+ def snapshot(root=Path('/')):
+     cpus = {}
+     for cpu in sorted((root / CPUS).glob('cpu[0-9]*')):
+@@ -90,6 +160,8 @@ def snapshot(root=Path('/')):
+         'wakeup_sources': wakeup_sources(sources) if sources else None,
+         'suspend_success': read_int(root / 'sys/power/suspend_stats/success'),
+         'mem_sleep': read(root / 'sys/power/mem_sleep'),
++        'genpd': genpd(root),
++        'always_on': always_on(root),
+     }
+ 
+ 
+@@ -153,9 +225,141 @@ def compare(a, b, top=12):
+             out.append('  none')
+     else:
+         out.append('wakeup sources: not read (run as root)')
++
++    suspends = (b['suspend_success'] or 0) - (a['suspend_success'] or 0)
++    if a.get('genpd') and b.get('genpd') and suspends > 0:
++        fixed = set(b.get('always_on') or ())
++        stayed = sorted(name for name, now in b['genpd'].items()
++                        if name in a['genpd'] and name not in fixed
++                        and 'on' in (a['genpd'][name]['state'], now['state'])
++                        and now['off'] - a['genpd'][name]['off'] < suspends)
++        out.append(f'power domains not always-on that stayed on through a suspend '
++                   f'({len(stayed)}; {len(fixed)} always-on domains not listed):')
++        out.append('  ' + (' '.join(stayed) or 'none'))
++    elif suspends > 0:
++        out.append('power domains: not read (run as root)')
+     return out
+ 
+ 
++TRACE_LINE = re.compile(r'^\s*.+?-\d+\s+\[(?P<cpu>\d+)\]\s+(?:\S+\s+)?[\d.]+:\s+'
++                        r'(?P<event>\w+):\s+(?P<body>.*)$')
++TRACE_KEYS = {
++    'irq_handler_entry': re.compile(r'name=(\S+)'),
++    'ipi_entry': re.compile(r'\((.*)\)'),
++    'softirq_entry': re.compile(r'action=(\w+)'),
++    'hrtimer_expire_entry': re.compile(r'function=(\S+)'),
++    'timer_expire_entry': re.compile(r'function=(\S+)'),
++    'workqueue_execute_start': re.compile(r'function (\S+)'),
++    'wakeup_source_activate': re.compile(r'^(\S+)'),
++}
++TRACE_NAMES = {
++    'irq_handler_entry': 'interrupts',
++    'ipi_entry': 'IPIs',
++    'softirq_entry': 'softirqs',
++    'hrtimer_expire_entry': 'hrtimers',
++    'timer_expire_entry': 'timers',
++    'workqueue_execute_start': 'work items',
++    'wakeup_source_activate': 'wakeup sources activated',
++}
++
++
++def analyse_trace(text, top=10):
++    """Report on an s2idle trace, as lines of text.
++
++    Each 'timekeeping_freeze[N] end' marks CPU N leaving a state in which
++    every CPU slept; the next interrupt or IPI that CPU takes is what woke
++    the SoC.
++    """
++    freezes, woken, counts = 0, Counter(), {event: Counter() for event in TRACE_KEYS}
++    waiting = set()
++    written = None
++    for line in text.splitlines():
++        if line.startswith('#'):
++            match = re.search(r'entries-in-buffer/entries-written: (\d+)/(\d+)', line)
++            if match:
++                written = tuple(int(n) for n in match.groups())
++            continue
++        match = TRACE_LINE.match(line)
++        if not match:
++            continue
++        cpu, event, body = int(match['cpu']), match['event'], match['body']
++        if event == 'suspend_resume':
++            if body.startswith('timekeeping_freeze[') and body.endswith(' end'):
++                freezes += 1
++                waiting.add(cpu)
++            continue
++        key = TRACE_KEYS.get(event)
++        if not key:
++            continue
++        found = key.search(body)
++        name = found.group(1) if found else body
++        counts[event][name] += 1
++        # An IPI also enters as an interrupt named IPI; its ipi_entry names it.
++        if cpu in waiting and (event == 'ipi_entry' or
++                               event == 'irq_handler_entry' and name != 'IPI'):
++            waiting.discard(cpu)
++            woken[f'{"IPI " if event == "ipi_entry" else ""}{name}'] += 1
++
++    out = [f's2idle trace: {freezes} whole-SoC wakes']
++    if written and written[1] > written[0]:
++        out.append(f'warning: the trace buffer filled: kept the first {written[0]} of '
++                   f'{written[1]} events (arm with a larger --buffer-kb)')
++    if freezes:
++        out.append('what woke the SoC (first interrupt on the waking CPU):')
++        out.extend(f'  {count:8d} {100 * count / freezes:5.1f}%  {name}'
++                   for name, count in woken.most_common(top))
++        unknown = freezes - sum(woken.values())
++        if unknown:
++            out.append(f'  {unknown:8d} {100 * unknown / freezes:5.1f}%  (no interrupt traced)')
++    for event, title in TRACE_NAMES.items():
++        if counts[event]:
++            per = ', per wake' if freezes else ''
++            out.append(f'{title} while suspended (count{per}):')
++            out.extend(f'  {count:8d}' + (f' {count / freezes:7.2f}' if freezes else '')
++                       + f'  {name}' for name, count in counts[event].most_common(top))
++    return out
++
++
++def write(path, value):
++    path.write_text(value + '\n')
++
++
++def arm_trace(root=Path('/'), buffer_kb=8192):
++    instance = root / TRACING / 'instances' / INSTANCE
++    instance.mkdir()
++    try:
++        write(instance / 'tracing_on', '0')
++        write(instance / 'buffer_size_kb', str(buffer_kb))
++        # Keep the first events of a long sleep rather than the last.
++        write(instance / 'options/overwrite', '0')
++        for event in TRACE_EVENTS:
++            write(instance / 'events' / event / 'enable', '1')
++        for event, trigger in TRACE_TRIGGERS:
++            write(instance / 'events' / event / 'trigger', trigger)
++    except OSError:
++        disarm_trace(root)
++        raise
++
++
++def disarm_trace(root=Path('/')):
++    instance = root / TRACING / 'instances' / INSTANCE
++    if not instance.exists():
++        return False
++    write(instance / 'tracing_on', '0')
++    for event, trigger in TRACE_TRIGGERS:
++        try:
++            write(instance / 'events' / event / 'trigger', '!' + trigger)
++        except OSError:
++            pass
++    for event in TRACE_EVENTS:
++        try:
++            write(instance / 'events' / event / 'enable', '0')
++        except OSError:
++            pass
++    instance.rmdir()
++    return True
++
++
+ def around(wait_for_suspend=120, settle=5):
+     before = snapshot()
+     subprocess.run(['systemctl', 'suspend'], check=True)
+@@ -184,8 +388,42 @@ def main():
+     diff.add_argument('after', type=Path)
+     wrap = sub.add_parser('around')
+     wrap.add_argument('file', type=Path, nargs='?')
++    arm = sub.add_parser('arm')
++    arm.add_argument('--buffer-kb', type=int, default=8192,
++                     help='trace buffer per CPU (default 8192)')
++    report = sub.add_parser('report')
++    report.add_argument('--keep', action='store_true',
++                        help='leave the trace running for another suspend')
++    sub.add_parser('disarm')
+     args = parser.parse_args()
+ 
++    if args.command in ('arm', 'report', 'disarm') and os.geteuid() != 0:
++        parser.error(f'{args.command} needs root (tracefs and debugfs)')
++    if args.command == 'arm':
++        if (Path('/') / TRACING / 'instances' / INSTANCE).exists():
++            parser.error('already armed: run report or disarm first')
++        STATE.write_text(json.dumps({'before': snapshot()}))
++        arm_trace(buffer_kb=args.buffer_kb)
++        print(f'armed: counters in {STATE}, trace in {TRACING}/instances/{INSTANCE}.\n'
++              'Suspend as usual, on battery; after resume run: report')
++        return 0
++    if args.command == 'disarm':
++        print('disarmed' if disarm_trace() else 'not armed')
++        return 0
++    if args.command == 'report':
++        a = json.loads(STATE.read_text())['before']
++        b = snapshot()
++        STATE.write_text(json.dumps({'before': a, 'after': b}))
++        print('\n'.join(compare(a, b)))
++        trace = read(Path('/') / TRACING / 'instances' / INSTANCE / 'trace')
++        if trace is None:
++            print('s2idle trace: not armed')
++        else:
++            print('\n'.join(analyse_trace(trace)))
++            if not args.keep:
++                disarm_trace()
++        return 0
++
+     if args.command == 'snapshot':
+         args.file.write_text(json.dumps(snapshot()))
+         return 0
+diff --git a/tools/aurora-sep/tests/test_sleep_drain_probe.py b/tools/aurora-sep/tests/test_sleep_drain_probe.py
+index 4ef3d169a35f..8b7fd4864a72 100644
+--- a/tools/aurora-sep/tests/test_sleep_drain_probe.py
++++ b/tools/aurora-sep/tests/test_sleep_drain_probe.py
+@@ -25,7 +25,24 @@ macsmc-battery\t137\t\t387\t\t0\t\t0
+ """
+ 
+ 
+-def snap(boottime, monotonic, energy, pd, timer, status="Discharging"):
++TRACE = """\
++# tracer: nop
++#
++# entries-in-buffer/entries-written: 9/9   #P:10
++#
++          <idle>-0       [000] d..1. 100.000001: suspend_resume: timekeeping_freeze[0] begin
++          <idle>-0       [004] d..1. 100.000002: suspend_resume: timekeeping_freeze[4] end
++          <idle>-0       [004] d.h1. 100.000003: irq_handler_entry: irq=103 name=nvme-apple
++          <idle>-0       [004] d.h1. 100.000004: hrtimer_expire_entry: hrtimer=00000000 function=tick_nohz_handler now=1
++          <idle>-0       [000] d.h1. 100.000005: irq_handler_entry: irq=36 name=arch_timer
++          <idle>-0       [006] d..1. 100.000006: suspend_resume: timekeeping_freeze[6] end
++          <idle>-0       [006] d.h1. 100.000007: irq_handler_entry: irq=1 name=IPI
++          <idle>-0       [006] d.h1. 100.000008: ipi_entry: (Function call interrupts)
++    kworker/6:1-90       [006] ..... 100.000009: workqueue_execute_start: work struct 00000000: function vmstat_update
++"""
++
++
++def snap(boottime, monotonic, energy, pd, timer, status="Discharging", genpd=None):
+     return {
+         "wall": 0, "monotonic": monotonic, "boottime": boottime,
+         "battery": {"status": status, "energy_uwh": energy, "capacity": 80},
+@@ -33,6 +50,7 @@ def snap(boottime, monotonic, energy, pd, timer, status="Discharging"):
+         "interrupts": {"36 AIC-FIQ 0 Level arch_timer": timer},
+         "wakeup_sources": {"macsmc-input": {"events": 3, "wakeups": 0}},
+         "suspend_success": 1, "mem_sleep": "[s2idle]",
++        "genpd": genpd, "always_on": ["afi"],
+     }
+ 
+ 
+@@ -67,8 +85,57 @@ class ProbeTest(unittest.TestCase):
+         self.assertEqual(taken["battery"]["energy_uwh"], 47731800)
+         self.assertEqual(taken["cpus"], {"cpu0": {"CPU PD": 506937}})
+         self.assertIsNone(taken["wakeup_sources"])
++        self.assertIsNone(taken["genpd"])
+         self.assertEqual(len(taken["interrupts"]), 3)
+ 
++    def test_genpd_counts_power_offs_and_dt_marks_always_on(self):
++        with tempfile.TemporaryDirectory() as temp:
++            root = Path(temp)
++            for name, usage, state in (("gfx", "4", "off-0"), ("disp0_cpu0", "0", "on")):
++                domain = root / probe.GENPD / name
++                domain.mkdir(parents=True)
++                (domain / "idle_states").write_text(
++                    "State  Time(ms)       Usage      Rejected   Above      Below      S2idle\n"
++                    f"S0     0              {usage}          0          0          0          0\n")
++                (domain / "current_state").write_text(state + "\n")
++            pmgr = root / probe.PMGR / "power-management@28e080000"
++            for reg, label, fixed in (("100", "afi", True), ("200", "gfx", False)):
++                node = pmgr / f"power-controller@{reg}"
++                node.mkdir(parents=True)
++                (node / "label").write_text(label + "\0")
++                if fixed:
++                    (node / "apple,always-on").write_text("")
++            self.assertEqual(probe.genpd(root), {
++                "disp0_cpu0": {"off": 0, "state": "on"},
++                "gfx": {"off": 4, "state": "off"},
++            })
++            self.assertEqual(probe.always_on(root), ["afi"])
++
++    def test_report_lists_domains_that_stayed_on_through_the_suspend(self):
++        before = {"gfx": {"off": 3, "state": "on"}, "disp0_cpu0": {"off": 0, "state": "on"},
++                  "afi": {"off": 0, "state": "on"}, "isp_sys": {"off": 1, "state": "off"}}
++        after = {"gfx": {"off": 4, "state": "on"}, "disp0_cpu0": {"off": 0, "state": "on"},
++                 "afi": {"off": 0, "state": "on"}, "isp_sys": {"off": 1, "state": "off"}}
++        a = snap(1000, 1000, 50_000_000, 0, 0, genpd=before)
++        b = snap(37000, 1060, 41_000_000, 35940, 71880, genpd=after)
++        b["suspend_success"] = 2
++        report = "\n".join(probe.compare(a, b))
++        self.assertIn("stayed on through a suspend (1; 1 always-on domains not listed):\n"
++                      "  disp0_cpu0", report)
++
++    def test_trace_names_what_woke_the_soc(self):
++        report = "\n".join(probe.analyse_trace(TRACE))
++        self.assertIn("s2idle trace: 2 whole-SoC wakes", report)
++        self.assertIn("       1  50.0%  nvme-apple", report)
++        self.assertIn("       1  50.0%  IPI Function call interrupts", report)
++        self.assertIn("       1    0.50  vmstat_update", report)
++        self.assertNotIn("arch_timer\n", report.split("interrupts while")[0])
++        self.assertNotIn("buffer filled", report)
++
++    def test_trace_warns_when_the_buffer_filled(self):
++        report = "\n".join(probe.analyse_trace(TRACE.replace("9/9", "9/50")))
++        self.assertIn("kept the first 9 of 50 events", report)
++
+     def test_report_gives_drain_and_wakes_per_suspended_second(self):
+         # 10 h window, 10 h minus 60 s suspended; 9 Wh used; 36000 wakes.
+         a = snap(boottime=1000, monotonic=1000, energy=50_000_000, pd=0, timer=0)
+-- 
+2.55.0
+

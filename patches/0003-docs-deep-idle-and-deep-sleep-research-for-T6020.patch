@@ -1,0 +1,366 @@
+From ec3ee06fe0a4f3051ea51487bb85c9071e5fb414 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 19:12:43 -0400
+Subject: [PATCH 03/37] docs: deep idle and deep sleep research for T6020
+
+What idle and sleep states exist on the M2 Pro, what Linux reaches today
+(CPU deep WFI with retention, s2idle only), what macOS does (XNU), why raw
+boot mode is enough for the CPU side on M1-M3 but not M4+, what blocks SoC
+sleep, the measurements behind it, the hv tracing plan, and the PMP test
+procedure with rollback.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AuzUDcEeRJQ6RCdWW2XWLb
+---
+ docs/deep-idle-research.md | 339 +++++++++++++++++++++++++++++++++++++
+ 1 file changed, 339 insertions(+)
+ create mode 100644 docs/deep-idle-research.md
+
+diff --git a/docs/deep-idle-research.md b/docs/deep-idle-research.md
+new file mode 100644
+index 000000000000..52d1bd32c96e
+--- /dev/null
++++ b/docs/deep-idle-research.md
+@@ -0,0 +1,339 @@
++# Deep idle and deep sleep on the M2 Pro (T6020, J414s)
++
++Research notes, 2026-10-14. Machine: MacBook Pro 14" M2 Pro (`apple,j414s`),
++kernel `7.1.12-2-11.35-sep-ARCH+`, m1n1 stage 2 `v1.6.1-29-gc6498e6e`, stage 1
++`v1.5.2`, system firmware 26.0, OS firmware 13.5. Sources are pinned: XNU
++`xnu-12377.1.9`, AsahiLinux/m1n1 `94395adc` (main, 2026-10-13), AsahiLinux/docs
++`0d1f891`. Kernel paths are relative to this tree. Anything not verified on this
++machine or in source is marked as an unknown.
++
++## Answers in brief
++
++* **CPU deep idle already works.** Asahi's downstream `apple_idle` driver
++  ([cpuidle-apple.c](../drivers/cpuidle/cpuidle-apple.c)) runs here with two
++  states: WFI (clock gated) and "CPU PD", Apple's deep WFI with state
++  retention. Every CPU uses it, and s2idle uses only CPU PD. What is missing
++  is everything below the cores: cluster power-off without retention, and
++  SoC-level sleep.
++* **Raw boot mode is enough for the CPU side on T6020; dj is right there.**
++  m1n1 marks M1, M2 and M3 cores, M2 Pro included, as having Apple's system
++  registers unlocked in raw boot mode. It writes CYC_OVRD and ACC_OVRD
++  itself, including the ACC deep-sleep bits. The registers lock from M4 / A18
++  Pro on, which is where "needs Mach-O mode" applies (Ryan). Whether iBoot
++  sets up the *wake* path the same way for a raw image is not known; nobody
++  has slept and woken an Apple SoC from raw mode.
++* **What blocks deep sleep (S2R) is the SoC sleep protocol, not the CPU.** No
++  public source describes how macOS asks PMGR, SMC, PMP and AOP to put the SoC
++  to sleep, or how the PMGR "reconfig engine" restarts the boot CPU on wake.
++  That is the macOS-under-hypervisor work. One concrete obstacle sits in
++  m1n1's hypervisor: it refuses the CYC_OVRD write XNU makes on its way into
++  system sleep.
++* **The workable improvement now is the PMP.** The PMP coprocessor is not
++  booted on this machine: the DT is built without `APPLE_USE_PMP`. Asahi
++  measured about 0.5 W (about 20%) idle saving from booting it on an M1 Pro.
++  The T602x DT nodes and report offsets exist, and the running m1n1 already
++  supports it, so turning it on for J414s is a DTB-only change. It is built and
++  staged ([below](#what-was-built)), not yet booted.
++* **s2idle wakes the whole SoC about 4 times a second**, from a source not yet
++  identified. A probe that measures it and the drain is included.
++
++## Idle and sleep states on T6020
++
++| Level | Mechanism | Who drives it | Linux on J414s today |
++|---|---|---|---|
++| Core clock gating | `wfi`, CYC_OVRD WFI_MODE default | kernel | `apple_idle` state 0, "WFI" |
++| Core power-down, state kept | `wfi` with CYC_OVRD WFI_MODE=3, retention left on | kernel | `apple_idle` state 1, "CPU PD": every CPU, and every s2idle entry |
++| Core power-down, state lost | CYC_OVRD `ok2pwrdn_force_down` + `disWfiRetn`; restart through PMGR CPU-start and RVBAR | kernel + firmware | **missing**: spin-table has no `cpu_die`; m1n1's PSCI branch returns NOT_SUPPORTED for CPU_OFF |
++| Cluster / SoC deep sleep | ACC_OVRD `enDeepSleep`, `ok2PwrDnSRM`, `ok2TrDnLnk`, `ok2PwrDnCPM`, L2 flush; all CPUs off first | kernel, then PMGR/SMC/PMP | **missing** |
++| SoC sleep (S2R) | PMGR + SMC + PMP + AOP sequence; wake by the PMGR reconfig engine at the boot CPU's RVBAR | macOS kexts (closed) | **unknown protocol**; Linux offers only `s2idle` (`/sys/power/mem_sleep` = `[s2idle]`) |
++
++Register layout from m1n1 (`src/cpu_regs.h` 531-562): CYC_OVRD is
++`s3_5_c15_c5_0`, with WFI_MODE in bits 25:24 and DISABLE_WFI_RET in bit 0;
++ACC_OVRD is `s3_5_c15_c6_0`. The cpuidle driver sets bits 25:24 (WFI_MODE=3)
++and never sets bit 0, so its deep WFI keeps state
++([cpuidle-apple.c](../drivers/cpuidle/cpuidle-apple.c) lines 33-46).
++
++## What macOS does (XNU, read only)
++
++* **Idle.** On cores with `HAS_RETENTION_STATE` (H14 = M2 family,
++  `pexpert/pexpert/arm64/H14.h` line 41), `cpu_idle()` executes
++  `arm64_retention_wfi()` (`osfmk/arm64/cpu.c` line 595). That WFI may lose
++  every GPR except sp and pc, and then resumes through `cpu_idle_exit()`
++  (`machine_routines_asm.s`, `arm64_retention_wfi`). Which state each idle
++  entry uses is chosen through `cpu_idle_notify`, a closed platform callback.
++  So macOS's idle-state policy and break-even times are not public.
++* **Sleep.** `arm64_prepare_for_sleep()` (`machine_routines_asm.s` from line
++  1000) masks IRQ/FIQ in CYC_OVRD for non-final CPUs. On the deep-sleep path
++  it sets ACC_OVRD's deep-sleep fields (line 1056), then CYC_OVRD
++  `ok2pwrdn_force_down` and `disWfiRetn` (lines 1098-1100), and loops in WFI.
++  `__ARM_GLOBAL_SLEEP_BIT__` (H14.h line 86) makes the ACC deep-sleep bit
++  global: secondaries stall until CPU0 releases `arm64_stall_sleep`, because a
++  normal idle WFI hangs once it is set (`cpu.c`, `ml_arm_sleep`).
++* **Wake.** `ml_arm_sleep()` (`cpu.c` lines 1033-1040): "Newer SoC do not go
++  through SecureROM/iBoot on the warm boot path. The reconfig engine script
++  brings the CPU out of reset at the kernel's reset vector which points to the
++  warm boot initialization code." `WITH_CLASSIC_S2R` (the iBoot sleep-token
++  path) is not defined for H14 in the public headers. Every core comes back at
++  its RVBAR with state lost.
++
++## What constrains Linux in raw boot mode
++
++* **Sysregs.** m1n1's per-core feature table sets `apple_sysregs_unlocked`
++  for M2 Pro Avalanche and Blizzard (`src/chickens.c` 82-85, 144-145), and
++  leaves it unset for M4 and later (line 112). m1n1 writes ACC_OVRD's
++  deep-sleep bits in `cpu_sleep(deep)` (`src/utils.c` 249-277), and
++  `run_guest.py` uses that path on every hypervisor boot
++  (`smp_stop_secondaries(True)`, line 158). On this machine the kernel writes
++  CYC_OVRD on every CPU PD entry (millions of times this boot, below) without
++  faulting. T8140 is the exception that proves the rule: there the same
++  write is undefined, so this tree limits it to WFI
++  ([cpuidle-apple.c](../drivers/cpuidle/cpuidle-apple.c) probe).
++* **Reset vector.** iBoot "sets and locks the RVBAR of the boot CPU to be the
++  top of the page that the entrypoint lives in. ... presumably after a resume
++  from deep sleep, the boot CPU will start executing code here"
++  (asahi-docs `docs/fw/macho-boot-protocol.md` line 84). Secondary RVBARs are
++  free to change (`docs/hw/cpu/smp.md` line 46). m1n1 writes them and clears
++  their lock (`src/smp.c` 185). The next m1n1 stage overwrites m1n1 in place
++  (macho-boot-protocol line 126), and kboot reserves m1n1 in the FDT, so the
++  locked vector lands in resident, reserved m1n1 code. A wake would therefore
++  enter m1n1, which must then hand back to Linux. Sven Peter's
++  [PSCI-via-EFI RFC](https://ratatoskr.run/b4-sent/2026/07/17228962/t)
++  ([m1n1 branch `psci-via-efi`](https://github.com/AsahiLinux/m1n1/tree/psci-via-efi))
++  already keeps m1n1 resident as a PSCI provider and handles RVBAR re-entry
++  by MPIDR. Its CPU_SUSPEND covers WFI (0) and deep WFI (1); CPU_OFF returns
++  NOT_SUPPORTED; there is no SYSTEM_SUSPEND; the only board wired up is
++  T8103.
++* **Mach-O mode.** Ryan's statement that deep sleep needs Mach-O boot (and
++  Aurora's internal bootloader rework) is consistent with this for M4 and
++  later, where raw mode locks the sysregs. For T6020 the remaining unknown is
++  iBoot's side: whether it programs the reconfig engine's wake script and
++  RVBAR for a raw image as it does for a kernelcache. **Unknown**; only a
++  sleep-and-wake attempt will tell (experiment E3 below).
++
++## Measurements on this machine (read only)
++
++Idle residency over 30 s at the desktop, on AC, with browser media and agent
++processes running (`/sys/devices/system/cpu/cpu*/cpuidle`):
++
++```
++cpu0 WFI  93.1% (1090/s)  PD   1.7% (7/s, above 96%)  busy   5.2%
++cpu3 WFI  88.3% (763/s)   PD   6.8% (11/s, above 79%)  busy   4.8%
++cpu9 WFI  90.6% (885/s)   PD   5.7% (14/s, above 85%)  busy   3.6%
++avg Total System Power (SMC PSTR): 6.55 W
++```
++
++The CPUs are about 95% idle, but only 2-7% of the time is CPU PD: each CPU
++wakes about 1000 times a second, and the CPU PD state's target residency is
++10 ms ([cpuidle-apple.c](../drivers/cpuidle/cpuidle-apple.c) line 114). The
++wakes were IPI1 at about 700/s per CPU and the arch timer at about 630/s per
++CPU (`/proc/interrupts`, 10 s). The `csd` tracepoint (2 s) put about 99% of
++the IPIs on `sched_ttwu_pending`, i.e. remote wakeups of browser media threads
++and node processes. This is workload, not a platform defect. The 10 ms
++residency is a conservative guess; Sven's RFC uses the same value for
++`cpu-deep-wfi`, and nobody has measured its break-even.
++
++s2idle, from this boot's counters (`cpuidle/state1/s2idle/usage`): four
++successful suspends, three of them long (9.7 h, 12 h and 16.8 h, about
++38.5 h in all). Each CPU logged 0.5-0.7 million CPU PD entries in s2idle and
++none in WFI. Four CPUs (0, 4, 6, 7) logged 506,937-506,991, almost the same
++number, so most entries are system-wide wakes: about 3.7 per second of
++sleep. In that time the debugfs
++wakeup sources counted only a few hundred events, so most of these wakes are
++not wakeup-source events; the source is **unknown**. (The s2idle time
++counters read about 60 s, because the clock they use stops in s2idle, so only
++the entry counts mean anything.)
++
++Power domains while awake (`pm_genpd_summary`): the `pmp` and `pms*`
++domains are on but the PMP driver is not bound. The `pmp_report` entries
++exist as genpd domains with no consumers. The DCP sits on
++`ps_disp0_cpu0`, not `pmp_report_disp0`. The live `pmp` node is `disabled`,
++with no `apple,tunable-*` properties: m1n1's `dt_set_pmp` (kboot.c 2089-2128)
++fills those in only when the DT has a `pmp` alias, which only
++`APPLE_USE_PMP` adds.
++
++Sensors usable for measurements: SMC "Total System Power" (hwmon
++`macsmc_hwmon` power1), "Heatpipe Power" (power4), and the battery's
++`energy_now` (`macsmc-battery`).
++
++## What was built
++
++1. **`arch/arm64/boot/dts/apple/t6020-j414s-pmp.dts`**: `#define
++   APPLE_USE_PMP` and the J414s board. The define adds the `pmp` alias and
++   moves the DCP, both dcpext, AVD and ISP DART power domains onto their PMP
++   report entries. It is deliberately not in the Makefile: it has the same
++   compatible as `t6020-j414s.dtb`, and m1n1 boots the last DTB that matches,
++   so packaging both would turn the PMP on for every J414s.
++   `tools/aurora-sep/tests/test_t6020_pmp.py` compiles both boards and checks
++   that the only source differences are the alias and the five
++   power-domains lines. It also checks that the PMP node stays disabled until
++   m1n1 fills it in, and that the Makefile does not list the variant.
++2. **`tools/aurora-sep/sleep-drain-probe.py`**: snapshots the battery
++   energy, time suspended (CLOCK_BOOTTIME - CLOCK_MONOTONIC), per-CPU s2idle
++   entries, `/proc/interrupts` and, as root, wakeup sources. It compares two
++   snapshots, or wraps one `systemctl suspend`. It reports drain in W, wakes
++   per suspended second, and the interrupts that fired. It only reads, except
++   that `around` asks systemd to suspend. Tests:
++   `tools/aurora-sep/tests/test_sleep_drain_probe.py`.
++3. **Staged, not installed**: `~/Work/deep-idle-build/boot.bin.pmp-test` is
++   the current `/boot/m1n1/boot.bin` with its one J414s DTB (DTB #31 of 113,
++   byte-identical to release 11.35's) replaced by the PMP variant, built from
++   release 11.35 (`1caa9fdc3745`) to match the running kernel. The m1n1 code
++   before it and everything after it, U-Boot included, are byte-identical.
++   `~/Work/deep-idle-build/boot.bin.before-pmp-test` is a copy of the current
++   image (sha256 `3630adc3...`).
++
++## Experiments, smallest first
++
++* **E1, PMP on J414s** (needs a reboot; owner's go-ahead). Procedure below.
++  This is the only change with an expected battery gain today.
++* **E2, find the s2idle wake source** (needs a suspend; owner's go-ahead).
++  Run `sudo tools/aurora-sep/sleep-drain-probe.py around /tmp/s2.json` on
++  battery, close the lid for at least 30 minutes, then open it. The interrupt
++  line growing at about 3.7 per suspended second is the culprit (SMC
++  mailbox, Wi-Fi, NVMe, a timer, or IPIs from `wake_up_all_idle_cpus`). Run
++  it once on the stock DTB and once with E1, so the drain figures compare.
++* **E3, does a raw-mode SoC wake reach m1n1?** This is the experiment that
++  decides raw vs Mach-O for the wake path. It needs a second machine and USB
++  m1n1 proxy, and is not for the daily driver without a plan. From the m1n1
++  proxy: `p.smp_stop_secondaries(True)`, then `p.sleep(True)` on the boot CPU
++  (the ACC deep-sleep path), then press the power key or open the lid. If m1n1
++  logs "RVBAR entry on primary CPU" (`src/startup.c`), the reset path works in
++  raw mode. Measure power externally (USB-C meter) to see whether the SoC
++  actually dropped or only the CPUs did. No reply means the wake script was
++  never armed, which is either the missing SMC/PMGR handshake or the raw/Mach-O
++  difference. This probably needs the hv trace below to tell those apart.
++
++## Unblocking deep sleep: what to trace with macOS under m1n1 hv
++
++1. **The CYC_OVRD veto.** m1n1 refuses a guest CYC_OVRD write with
++   DISABLE_WFI_RET or the FIQ mask ("don't let macOS disable WFI ret (when
++   going into systemwide sleep), since that breaks things", `src/hv/hv_exc.c`
++   344-350). That is the first write of XNU's `arm64_prepare_for_sleep`
++   above. Log it with the vCPU number instead of failing, then let the
++   physical core power off. On wake, catch the RVBAR entry in m1n1 (the boot
++   CPU's locked RVBAR points there), restore EL2 state and chicken bits, and
++   restart the guest at its own reset vector (the RVBAR it saw).
++2. **ACC_OVRD / ACC_CFG** writes on each CPU around sleep, to confirm the
++   per-cluster deep-sleep fields on T6020 (XNU `machine_routines_asm.s`
++   1049-1092).
++3. **PMGR MMIO** (`proxyclient/hv/trace_pmgr.py`): PS register writes during
++   the sleep transition, the CPU-start block (offset 0x28000 on M2 Pro/Max,
++   asahi-docs `hw/cpu/smp.md`), and any writes that look like a reconfig
++   sequence. Record what is programmed before sleep and what fires on wake.
++4. **SMC** (`trace_smc.py`): the keys written in the last seconds before
++   sleep and the first after wake (system state, sleep request, wake reason),
++   and which SMC events are wake sources.
++5. **PMP** (`trace_pmp.py`): messages and report-SRAM changes across sleep and
++   wake. This goes with E1: the PMP is part of the sleep sequence and is not
++   running under Linux today.
++6. **AOP and the CPU secondaries' RVBAR writes** (cpu-impl-reg MMIO), so the
++   Linux side knows where each core restarts.
++
++What the owner could contribute without new tooling: run E1 and E2 and post
++the numbers, measure macOS's own sleep drain on this machine for a baseline
++(the macOS install is still on nvme0n1p2), and, once E1 works, the
++`trace_pmp.py` output of a macOS boot under hv on a T6020, which nobody has
++posted.
++
++## Overlap with hibernation (#50)
++
++The missing CPU lifecycle is shared. Hibernation needs CPUs that can leave
++the kernel (`cpu_die`). Deep sleep needs the same non-retention power-off,
++plus a restart at RVBAR through code that reapplies chicken bits (m1n1 does
++this on RVBAR entry: `_cpu_reset_c`, then `init_cpu`). The natural home for
++both is PSCI CPU_OFF in Sven's resident m1n1, not a Linux-only
++spin-table hack: m1n1 already owns the reset vector and the chicken-bit
++tables.
++
++## Unknowns
++
++* Whether iBoot arms the wake path (reconfig engine, boot CPU RVBAR) for a
++  raw image as it does for a kernelcache.
++* The SMC/PMGR/PMP/AOP sleep handshake; macOS's sleep drain on this machine.
++* The source of the ~3.7 wakes per second in s2idle.
++* CPU PD's real break-even residency; macOS chooses its idle state in closed
++  code.
++* Whether the T6020 PMP firmware acknowledges every report ID in the DT (see
++  the E1 checks).
++* Whether the boot CPU's RVBAR is actually locked in raw mode on this
++  machine; m1n1 checks before writing (`src/smp.c` 445-448). It is readable
++  through cpu-impl-reg, but that address is only in the ADT, which this boot
++  does not expose.
++
++## E1 test procedure and rollback
++
++Before (stock), on battery, screen on at a fixed brightness, desktop idle:
++average SMC power over 5 minutes:
++
++```
++for i in $(seq 300); do cat /sys/class/hwmon/hwmon1/power1_input; sleep 1; done |
++  awk '{s+=$1} END {printf "%.3f W\n", s/NR/1e6}'
++```
++
++Then run E2 once, on the stock DTB.
++
++Install (touches `/boot`; the owner runs it):
++
++```
++sudo cp /boot/m1n1/boot.bin /boot/m1n1/boot.bin.before-pmp-test
++sudo cp ~/Work/deep-idle-build/boot.bin.pmp-test /boot/m1n1/boot.bin
++sync
++```
++
++Note: `update-m1n1` (run by kernel package upgrades) rebuilds `boot.bin`
++from the packaged DTBs and silently undoes this. Do not upgrade the kernel
++during the test.
++
++After reboot, check:
++
++```
++journalctl -k -b | grep -iE 'pmp|pmp_report|dcp' | head -50
++ls /sys/bus/platform/drivers/apple_pmp/         # expect 28e700000.pmp
++ls /sys/firmware/devicetree/base/soc/pmp@28e700000/ | grep tunable
++sudo cat /sys/kernel/debug/pm_genpd/pm_genpd_summary | grep -A3 pmp-disp0
++```
++
++Watch for `-ETIMEDOUT` from a PMP report entry. That means the PMP is up but
++does not acknowledge that ID; the display or video decoder on that entry
++would fail. Then repeat the power average and E2, and test the internal
++display, an external display, video playback and lid sleep/wake.
++
++Rollback:
++
++* Booted, any problem: `sudo cp /boot/m1n1/boot.bin.before-pmp-test
++  /boot/m1n1/boot.bin && sync`, then reboot.
++* m1n1 does not boot Linux (for example, `dt_set_pmp` cannot find the
++  PMP's ADT node and kboot bails): hold the power key, open Options, and in
++  recoveryOS's Terminal mount the ESP (`diskutil list`, then `diskutil mount`
++  the `EFI - OMARC` partition, nvme0n1p4 under Linux). Copy
++  `m1n1/boot.bin.before-pmp-test` over `m1n1/boot.bin`. Booting macOS works
++  as well.
++
++The fallback kernels share `boot.bin`, so they get the PMP DTB too: they are
++not a fallback for this test. The fallback is the `boot.bin` copy.
++
++## Sources
++
++* Asahi progress report, Linux 7.0 (PMP, about 0.5 W):
++  https://asahilinux.org/2026/04/progress-report-7-0/
++* Asahi progress report, Linux 7.2 (retention, PSCI conduit, M4 locking):
++  https://asahilinux.org/2026/08/progress-report-7-2/
++* Sven Peter, "[PATCH RFC 0/6] PSCI-via-EFI ...", 2026-07-08:
++  https://ratatoskr.run/b4-sent/2026/07/17228962/t ;
++  http://lists.infradead.org/pipermail/linux-arm-kernel/2026-July/1146599.html
++* AsahiLinux/docs `0d1f891`: `docs/fw/macho-boot-protocol.md`,
++  `docs/hw/cpu/smp.md`, `docs/platform/feature-support/m2.md` ("cpuidle
++  situation")
++* AsahiLinux/m1n1 `94395adc`: `src/chickens.c`, `src/smp.c`, `src/utils.c`,
++  `src/kboot.c`, `src/hv/hv_exc.c`, `src/cpu_regs.h`,
++  `proxyclient/tools/run_guest.py`, `proxyclient/hv/trace_*.py`; branch
++  `psci-via-efi` (`src/psci.c`)
++* apple-oss-distributions/xnu `xnu-12377.1.9`: `osfmk/arm64/cpu.c`,
++  `osfmk/arm64/machine_routines_asm.s`, `osfmk/arm64/start.s`,
++  `pexpert/pexpert/arm64/H14.h`
++* This tree: [cpuidle-apple.c](../drivers/cpuidle/cpuidle-apple.c),
++  [pmp-report.c](../drivers/pmdomain/apple/pmp-report.c),
++  [pmp.rs](../drivers/soc/apple/pmp.rs),
++  [t602x-die0.dtsi](../arch/arm64/boot/dts/apple/t602x-die0.dtsi),
++  [HIBERNATION.md](../tools/aurora-sep/HIBERNATION.md); issues #50, #24, #59,
++  #85
+-- 
+2.55.0
+

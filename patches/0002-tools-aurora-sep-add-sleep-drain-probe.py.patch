@@ -1,0 +1,333 @@
+From 71ff287e67193a510ad6b2f1e6b9fd2c4980aaf1 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 19:12:43 -0400
+Subject: [PATCH 02/37] tools/aurora-sep: add sleep-drain-probe.py
+
+s2idle on J414s wakes the whole SoC about 3.7 times per second of sleep
+(per-CPU s2idle entry counts), and the source is not a wakeup source.
+The probe snapshots the battery energy, the time suspended
+(CLOCK_BOOTTIME - CLOCK_MONOTONIC), each CPU's s2idle entries,
+/proc/interrupts and, as root, the wakeup sources, and reports the drain
+in W, wakes per suspended second and the interrupts that fired, between
+two snapshots or around one systemctl suspend. It only reads, except
+that 'around' asks systemd to suspend.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AuzUDcEeRJQ6RCdWW2XWLb
+---
+ tools/aurora-sep/sleep-drain-probe.py         | 203 ++++++++++++++++++
+ .../tests/test_sleep_drain_probe.py           |  92 ++++++++
+ 2 files changed, 295 insertions(+)
+ create mode 100755 tools/aurora-sep/sleep-drain-probe.py
+ create mode 100644 tools/aurora-sep/tests/test_sleep_drain_probe.py
+
+diff --git a/tools/aurora-sep/sleep-drain-probe.py b/tools/aurora-sep/sleep-drain-probe.py
+new file mode 100755
+index 000000000000..e638b8cda457
+--- /dev/null
++++ b/tools/aurora-sep/sleep-drain-probe.py
+@@ -0,0 +1,203 @@
++#!/usr/bin/env python3
++"""Measure s2idle battery drain and what wakes the SoC while it sleeps.
++
++  snapshot FILE   record the counters below in FILE (JSON)
++  compare A B     report drain and wake activity between two snapshots
++  around [FILE]   snapshot, suspend through systemd, snapshot after resume,
++                  compare (and keep both snapshots in FILE if given)
++
++Counters: the battery's energy (macsmc), the time spent suspended
++(CLOCK_BOOTTIME - CLOCK_MONOTONIC), each CPU's s2idle entries per cpuidle
++state, /proc/interrupts and, as root, the wakeup sources in debugfs. In
++s2idle each CPU re-enters its idle state once per interrupt it takes, so
++entries per suspended second measure how often the SoC woke.
++
++It only reads, except that 'around' asks systemd to suspend. Run on battery:
++on AC the battery does not discharge and the drain is meaningless.
++"""
++import argparse
++import json
++from pathlib import Path
++import subprocess
++import sys
++import time
++
++BATTERY = 'sys/class/power_supply/macsmc-battery'
++CPUS = 'sys/devices/system/cpu'
++WAKEUP_SOURCES = 'sys/kernel/debug/wakeup_sources'
++
++
++def read(path, default=None):
++    try:
++        return path.read_text().strip()
++    except OSError:
++        return default
++
++
++def read_int(path):
++    value = read(path)
++    return int(value) if value is not None and value.lstrip('-').isdigit() else None
++
++
++def interrupts(text):
++    """Total count per interrupt line of /proc/interrupts, keyed 'irq name'."""
++    lines = text.splitlines()
++    if not lines:
++        return {}
++    ncpus = len(lines[0].split())
++    counts = {}
++    for line in lines[1:]:
++        irq, _, rest = line.partition(':')
++        fields = rest.split()
++        cells = [int(f) for f in fields[:ncpus] if f.isdigit()]
++        if not cells:
++            continue
++        name = ' '.join(fields[len(cells):])
++        counts[f'{irq.strip()} {name}'.strip()] = sum(cells)
++    return counts
++
++
++def wakeup_sources(text):
++    rows = text.splitlines()
++    sources = {}
++    for row in rows[1:]:
++        fields = row.split()
++        if len(fields) >= 4 and fields[2].isdigit() and fields[3].isdigit():
++            sources[fields[0]] = {'events': int(fields[2]), 'wakeups': int(fields[3])}
++    return sources
++
++
++def snapshot(root=Path('/')):
++    cpus = {}
++    for cpu in sorted((root / CPUS).glob('cpu[0-9]*')):
++        states = {}
++        for state in sorted((cpu / 'cpuidle').glob('state[0-9]*')):
++            states[read(state / 'name', state.name)] = read_int(state / 's2idle' / 'usage')
++        cpus[cpu.name] = states
++    battery = root / BATTERY
++    sources = read(root / WAKEUP_SOURCES)
++    return {
++        'wall': time.time(),
++        'monotonic': time.clock_gettime(time.CLOCK_MONOTONIC),
++        'boottime': time.clock_gettime(time.CLOCK_BOOTTIME),
++        'battery': {
++            'status': read(battery / 'status'),
++            'energy_uwh': read_int(battery / 'energy_now'),
++            'capacity': read_int(battery / 'capacity'),
++        },
++        'cpus': cpus,
++        'interrupts': interrupts(read(root / 'proc/interrupts', '')),
++        'wakeup_sources': wakeup_sources(sources) if sources else None,
++        'suspend_success': read_int(root / 'sys/power/suspend_stats/success'),
++        'mem_sleep': read(root / 'sys/power/mem_sleep'),
++    }
++
++
++def compare(a, b, top=12):
++    """The report between snapshots a and b, as lines of text."""
++    suspended = max(0.0, (b['boottime'] - b['monotonic']) - (a['boottime'] - a['monotonic']))
++    awake = b['monotonic'] - a['monotonic']
++    total = b['boottime'] - a['boottime']
++    out = [f'window {total / 3600:.2f} h: suspended {suspended / 3600:.2f} h, '
++           f'awake {awake / 60:.1f} min; suspends '
++           f'{(b["suspend_success"] or 0) - (a["suspend_success"] or 0)}; '
++           f'mem_sleep {b["mem_sleep"]}']
++
++    ea, eb = a['battery']['energy_uwh'], b['battery']['energy_uwh']
++    if ea is None or eb is None:
++        out.append('battery: no energy reading')
++    else:
++        used = (ea - eb) / 1e6
++        out.append(f'battery: {ea / 1e6:.2f} -> {eb / 1e6:.2f} Wh ({used:.3f} Wh used), '
++                   f'status {a["battery"]["status"]} -> {b["battery"]["status"]}')
++        if total > 0:
++            out.append(f'average drain over the window: {used / (total / 3600):.3f} W')
++        if 'Discharging' not in (a['battery']['status'], b['battery']['status']):
++            out.append('warning: the battery was not discharging; this drain is not the '
++                       'sleep drain (run on battery)')
++        if suspended > 0 and awake > 0.05 * total:
++            out.append('note: the awake time is more than 5% of the window, so the '
++                       'average overstates the sleep drain')
++
++    if suspended > 1:
++        out.append('s2idle entries per suspended second (each is one wake of that CPU):')
++        for cpu, states in b['cpus'].items():
++            before = a['cpus'].get(cpu, {})
++            deltas = {name: (count or 0) - (before.get(name) or 0)
++                      for name, count in states.items()}
++            entries = sum(deltas.values())
++            detail = ', '.join(f'{name} {count}' for name, count in deltas.items() if count)
++            out.append(f'  {cpu}: {entries / suspended:8.2f}/s  ({detail or "none"})')
++
++    deltas = sorted(((b['interrupts'][irq] - a['interrupts'].get(irq, 0), irq)
++                     for irq in b['interrupts']), reverse=True)
++    out.append(f'interrupts over the window (top {top}; includes the awake time):')
++    for count, irq in deltas[:top]:
++        if count <= 0:
++            break
++        rate = f' ({count / suspended:.2f} per suspended s)' if suspended > 1 else ''
++        out.append(f'  {count:10d} {irq}{rate}')
++
++    if a['wakeup_sources'] is not None and b['wakeup_sources'] is not None:
++        changed = []
++        for name, now in b['wakeup_sources'].items():
++            then = a['wakeup_sources'].get(name, {'events': 0, 'wakeups': 0})
++            events = now['events'] - then['events']
++            wakeups = now['wakeups'] - then['wakeups']
++            if events or wakeups:
++                changed.append((events, wakeups, name))
++        out.append('wakeup sources (events, wakeups):')
++        out.extend(f'  {events:6d} {wakeups:6d} {name}'
++                   for events, wakeups, name in sorted(changed, reverse=True)[:top])
++        if not changed:
++            out.append('  none')
++    else:
++        out.append('wakeup sources: not read (run as root)')
++    return out
++
++
++def around(wait_for_suspend=120, settle=5):
++    before = snapshot()
++    subprocess.run(['systemctl', 'suspend'], check=True)
++    offset = before['boottime'] - before['monotonic']
++    deadline = time.monotonic() + wait_for_suspend
++    while time.monotonic() < deadline:
++        time.sleep(1)
++        if time.clock_gettime(time.CLOCK_BOOTTIME) - \
++                time.clock_gettime(time.CLOCK_MONOTONIC) - offset > 2:
++            break
++    else:
++        print(f'warning: no suspend seen within {wait_for_suspend} s', file=sys.stderr)
++    # The SMC updates the battery reading a few seconds after resume.
++    time.sleep(settle)
++    return before, snapshot()
++
++
++def main():
++    parser = argparse.ArgumentParser(description=__doc__,
++                                     formatter_class=argparse.RawDescriptionHelpFormatter)
++    sub = parser.add_subparsers(dest='command', required=True)
++    take = sub.add_parser('snapshot')
++    take.add_argument('file', type=Path)
++    diff = sub.add_parser('compare')
++    diff.add_argument('before', type=Path)
++    diff.add_argument('after', type=Path)
++    wrap = sub.add_parser('around')
++    wrap.add_argument('file', type=Path, nargs='?')
++    args = parser.parse_args()
++
++    if args.command == 'snapshot':
++        args.file.write_text(json.dumps(snapshot()))
++        return 0
++    if args.command == 'compare':
++        a, b = (json.loads(path.read_text()) for path in (args.before, args.after))
++    else:
++        a, b = around()
++        if args.file:
++            args.file.write_text(json.dumps({'before': a, 'after': b}))
++    print('\n'.join(compare(a, b)))
++    return 0
++
++
++if __name__ == '__main__':
++    sys.exit(main())
+diff --git a/tools/aurora-sep/tests/test_sleep_drain_probe.py b/tools/aurora-sep/tests/test_sleep_drain_probe.py
+new file mode 100644
+index 000000000000..4ef3d169a35f
+--- /dev/null
++++ b/tools/aurora-sep/tests/test_sleep_drain_probe.py
+@@ -0,0 +1,92 @@
++"""sleep-drain-probe.py: counter parsing and the drain report."""
++
++from pathlib import Path
++import importlib.util
++import tempfile
++import unittest
++
++
++ROOT = Path(__file__).resolve().parents[1]
++SPEC = importlib.util.spec_from_file_location("probe", ROOT / "sleep-drain-probe.py")
++probe = importlib.util.module_from_spec(SPEC)
++SPEC.loader.exec_module(probe)
++
++INTERRUPTS = """\
++           CPU0       CPU1
++ 36:        100        200   AIC-FIQ   0 Level     arch_timer
++103:          5          0   AIC2 67368 Level     nvme-apple
++IPI1:        10         20   Function call interrupts
++"""
++
++SOURCES = """\
++name\t\tactive_count\tevent_count\twakeup_count\texpire_count
++macsmc-input\t10\t\t10\t\t0\t\t0
++macsmc-battery\t137\t\t387\t\t0\t\t0
++"""
++
++
++def snap(boottime, monotonic, energy, pd, timer, status="Discharging"):
++    return {
++        "wall": 0, "monotonic": monotonic, "boottime": boottime,
++        "battery": {"status": status, "energy_uwh": energy, "capacity": 80},
++        "cpus": {"cpu0": {"WFI": 0, "CPU PD": pd}},
++        "interrupts": {"36 AIC-FIQ 0 Level arch_timer": timer},
++        "wakeup_sources": {"macsmc-input": {"events": 3, "wakeups": 0}},
++        "suspend_success": 1, "mem_sleep": "[s2idle]",
++    }
++
++
++class ProbeTest(unittest.TestCase):
++    def test_interrupts_sum_each_line_over_cpus(self):
++        self.assertEqual(probe.interrupts(INTERRUPTS), {
++            "36 AIC-FIQ 0 Level arch_timer": 300,
++            "103 AIC2 67368 Level nvme-apple": 5,
++            "IPI1 Function call interrupts": 30,
++        })
++
++    def test_wakeup_sources_keep_event_and_wakeup_counts(self):
++        self.assertEqual(probe.wakeup_sources(SOURCES), {
++            "macsmc-input": {"events": 10, "wakeups": 0},
++            "macsmc-battery": {"events": 387, "wakeups": 0},
++        })
++
++    def test_snapshot_reads_a_sysfs_tree(self):
++        with tempfile.TemporaryDirectory() as temp:
++            root = Path(temp)
++            battery = root / probe.BATTERY
++            battery.mkdir(parents=True)
++            (battery / "status").write_text("Discharging\n")
++            (battery / "energy_now").write_text("47731800\n")
++            state = root / probe.CPUS / "cpu0/cpuidle/state1"
++            (state / "s2idle").mkdir(parents=True)
++            (state / "name").write_text("CPU PD\n")
++            (state / "s2idle/usage").write_text("506937\n")
++            (root / "proc").mkdir()
++            (root / "proc/interrupts").write_text(INTERRUPTS)
++            taken = probe.snapshot(root)
++        self.assertEqual(taken["battery"]["energy_uwh"], 47731800)
++        self.assertEqual(taken["cpus"], {"cpu0": {"CPU PD": 506937}})
++        self.assertIsNone(taken["wakeup_sources"])
++        self.assertEqual(len(taken["interrupts"]), 3)
++
++    def test_report_gives_drain_and_wakes_per_suspended_second(self):
++        # 10 h window, 10 h minus 60 s suspended; 9 Wh used; 36000 wakes.
++        a = snap(boottime=1000, monotonic=1000, energy=50_000_000, pd=0, timer=0)
++        b = snap(boottime=37000, monotonic=1060, energy=41_000_000, pd=35940, timer=71880)
++        report = "\n".join(probe.compare(a, b))
++        self.assertIn("suspended 9.98 h", report)
++        self.assertIn("average drain over the window: 0.900 W", report)
++        self.assertIn("cpu0:     1.00/s", report)
++        self.assertIn("(2.00 per suspended s)", report)
++        self.assertNotIn("warning", report)
++
++    def test_report_warns_when_on_ac(self):
++        a = snap(1000, 1000, 50_000_000, 0, 0, status="Not charging")
++        b = snap(2000, 1500, 50_000_000, 0, 0, status="Not charging")
++        report = "\n".join(probe.compare(a, b))
++        self.assertIn("warning: the battery was not discharging", report)
++        self.assertIn("note: the awake time", report)
++
++
++if __name__ == "__main__":
++    unittest.main()
+-- 
+2.55.0
+

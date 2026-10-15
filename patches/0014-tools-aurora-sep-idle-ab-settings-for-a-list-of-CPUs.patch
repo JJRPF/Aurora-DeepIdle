@@ -1,0 +1,221 @@
+From c22260b0b983516fdd53c31dcf50b7de24cfbc4b Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 22:09:12 -0400
+Subject: [PATCH 14/37] tools/aurora-sep: idle-ab: settings for a list of CPUs
+
+pd-always@4-9 and wfi-only@0-3 apply the setting to the listed CPUs and
+leave the others with both states, to tell the E cores' share of the
+saving from the P cores' or one cluster's. Each window's log line gets
+every CPU's CPU PD residency. A CPU that does not exist is refused
+before anything is written.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AuzUDcEeRJQ6RCdWW2XWLb
+---
+ tools/aurora-sep/idle-ab.py            | 57 +++++++++++++++++++-------
+ tools/aurora-sep/tests/test_idle_ab.py | 52 +++++++++++++++++++----
+ 2 files changed, 87 insertions(+), 22 deletions(-)
+
+diff --git a/tools/aurora-sep/idle-ab.py b/tools/aurora-sep/idle-ab.py
+index 3ca0dd5f46ab..bc86e9cbc495 100755
+--- a/tools/aurora-sep/idle-ab.py
++++ b/tools/aurora-sep/idle-ab.py
+@@ -10,6 +10,10 @@ Each SETTING is one of
+   res=US       both states enabled, CPU PD target residency US microseconds
+                (needs cpuidle_apple.pd_residency_us)
+ 
++wfi-only and pd-always take a CPU list, as in pd-always@4-9 or
++wfi-only@0,2: the listed CPUs get the setting and the others both states,
++to tell the E cores' share from the P cores' or one cluster's.
++
+ Every round runs each setting for --window seconds, after --settle seconds,
+ alternating the order from round to round, and samples every SMC power
+ sensor once a second (Total System Power, and Heatpipe Power, the SoC
+@@ -36,13 +40,25 @@ POWER_LABEL = 'Total System Power'
+ HWMON_NAME = 'macsmc_hwmon'
+ 
+ 
++def parse_cpus(text):
++    """The set of CPU numbers in a list such as 0-3,7."""
++    cpus = set()
++    for part in text.split(','):
++        first, _, last = part.partition('-')
++        if not first.isdigit() or not (last or first).isdigit() or int(first) > int(last or first):
++            raise ValueError(f'bad CPU list {text!r}')
++        cpus.update(range(int(first), int(last or first) + 1))
++    return frozenset(cpus)
++
++
+ def parse_setting(text):
+-    """(state0 disable, state1 disable, residency or None) for a SETTING."""
+-    fixed = {'default': (0, 0, None), 'wfi-only': (0, 1, None), 'pd-always': (1, 0, None)}
+-    if text in fixed:
+-        return fixed[text]
++    """(state0 disable, state1 disable, residency or None, CPUs or None) for a SETTING."""
++    fixed = {'default': (0, 0), 'wfi-only': (0, 1), 'pd-always': (1, 0)}
++    name, at, cpus = text.partition('@')
++    if name in fixed and not (at and name == 'default'):
++        return (*fixed[name], None, parse_cpus(cpus) if at else None)
+     if text.startswith('res=') and text[4:].isdigit() and int(text[4:]) > 0:
+-        return 0, 0, int(text[4:])
++        return 0, 0, int(text[4:]), None
+     raise ValueError(f'unknown setting {text!r}')
+ 
+ 
+@@ -62,7 +78,8 @@ def power_sensors(root):
+ class Machine:
+     def __init__(self, root=Path('/')):
+         self.root = root
+-        self.cpus = sorted((root / CPUS).glob('cpu[0-9]*/cpuidle'))
++        self.cpus = sorted((root / CPUS).glob('cpu[0-9]*/cpuidle'),
++                           key=lambda path: int(path.parent.name[3:]))
+         if not self.cpus:
+             raise FileNotFoundError('no cpuidle states')
+         self.sensors = power_sensors(root)
+@@ -74,7 +91,7 @@ class Machine:
+         return paths + ([self.residency] if self.residency.exists() else [])
+ 
+     def apply(self, setting):
+-        d0, d1, residency = setting
++        d0, d1, residency, only = setting
+         if residency is not None:
+             if not self.residency.exists():
+                 raise FileNotFoundError(f'{RESIDENCY} is missing: this kernel has no '
+@@ -82,18 +99,21 @@ class Machine:
+             self.residency.write_text(f'{residency}\n')
+         elif self.residency in self.saved:
+             self.residency.write_text(self.saved[self.residency])
+-        for cpu in self.cpus:
+-            (cpu / 'state0/disable').write_text(f'{d0}\n')
+-            (cpu / 'state1/disable').write_text(f'{d1}\n')
++        for number, cpu in zip(self.numbers(), self.cpus):
++            mine = only is None or number in only
++            (cpu / 'state0/disable').write_text(f'{d0 if mine else 0}\n')
++            (cpu / 'state1/disable').write_text(f'{d1 if mine else 0}\n')
++
++    def numbers(self):
++        return [int(cpu.parent.name[3:]) for cpu in self.cpus]
+ 
+     def restore(self):
+         for path, value in self.saved.items():
+             path.write_text(value)
+ 
+     def residency_us(self):
+-        """Total time in WFI and in CPU PD, over all CPUs, in microseconds."""
+-        return [sum(int((cpu / f'state{i}/time').read_text()) for cpu in self.cpus)
+-                for i in (0, 1)]
++        """Time in WFI and in CPU PD of each CPU, in microseconds."""
++        return [[int((cpu / f'state{i}/time').read_text()) for i in (0, 1)] for cpu in self.cpus]
+ 
+     def watts(self):
+         """{label: watts} for every sensor."""
+@@ -101,6 +121,10 @@ class Machine:
+ 
+ 
+ def run(machine, names, rounds, window, settle, log=None):
++    for name in names:
++        only = parse_setting(name)[3]
++        if only is not None and not only <= set(machine.numbers()):
++            raise ValueError(f'{name}: no CPU {min(only - set(machine.numbers()))}')
+     rows = []
+     try:
+         for n in range(rounds):
+@@ -112,13 +136,16 @@ def run(machine, names, rounds, window, settle, log=None):
+                     samples.append(machine.watts())
+                     time.sleep(1)
+                 after, elapsed = machine.residency_us(), time.monotonic() - start
++                spent = [[a - b for a, b in zip(*pair)] for pair in zip(after, before)]
+                 total = elapsed * 1e6 * len(machine.cpus)
+                 row = {'round': n, 'setting': name,
+                        'watts': statistics.mean(sample[POWER_LABEL] for sample in samples),
+                        'sensors': {label: statistics.mean(sample[label] for sample in samples)
+                                    for label in samples[0]},
+-                       'wfi_pct': 100 * (after[0] - before[0]) / total,
+-                       'pd_pct': 100 * (after[1] - before[1]) / total}
++                       'wfi_pct': 100 * sum(cpu[0] for cpu in spent) / total,
++                       'pd_pct': 100 * sum(cpu[1] for cpu in spent) / total,
++                       'pd_pct_by_cpu': {number: round(100 * cpu[1] / (elapsed * 1e6), 1)
++                                         for number, cpu in zip(machine.numbers(), spent)}}
+                 rows.append(row)
+                 if log:
+                     print(json.dumps(row), file=log, flush=True)
+diff --git a/tools/aurora-sep/tests/test_idle_ab.py b/tools/aurora-sep/tests/test_idle_ab.py
+index 0a1208961d58..f3b7a2db26be 100644
+--- a/tools/aurora-sep/tests/test_idle_ab.py
++++ b/tools/aurora-sep/tests/test_idle_ab.py
+@@ -13,8 +13,8 @@ idle_ab = importlib.util.module_from_spec(SPEC)
+ SPEC.loader.exec_module(idle_ab)
+ 
+ 
+-def fake_machine(root, residency=True):
+-    for n in range(2):
++def fake_machine(root, residency=True, cpus=2):
++    for n in range(cpus):
+         for i in range(2):
+             state = root / idle_ab.CPUS / f"cpu{n}/cpuidle/state{i}"
+             state.mkdir(parents=True)
+@@ -39,11 +39,14 @@ def fake_machine(root, residency=True):
+ 
+ class IdleAbTest(unittest.TestCase):
+     def test_settings(self):
+-        self.assertEqual(idle_ab.parse_setting("default"), (0, 0, None))
+-        self.assertEqual(idle_ab.parse_setting("wfi-only"), (0, 1, None))
+-        self.assertEqual(idle_ab.parse_setting("pd-always"), (1, 0, None))
+-        self.assertEqual(idle_ab.parse_setting("res=500"), (0, 0, 500))
+-        for bad in ("res=0", "res=", "res=x", "fast"):
++        self.assertEqual(idle_ab.parse_setting("default"), (0, 0, None, None))
++        self.assertEqual(idle_ab.parse_setting("wfi-only"), (0, 1, None, None))
++        self.assertEqual(idle_ab.parse_setting("pd-always"), (1, 0, None, None))
++        self.assertEqual(idle_ab.parse_setting("res=500"), (0, 0, 500, None))
++        self.assertEqual(idle_ab.parse_setting("pd-always@4-6,9"), (1, 0, None, {4, 5, 6, 9}))
++        self.assertEqual(idle_ab.parse_setting("wfi-only@1"), (0, 1, None, {1}))
++        for bad in ("res=0", "res=", "res=x", "fast", "default@1", "pd-always@", "pd-always@3-1",
++                    "pd-always@a", "pd-always@1,", "res=5@1"):
+             with self.subTest(bad=bad), self.assertRaises(ValueError):
+                 idle_ab.parse_setting(bad)
+ 
+@@ -78,6 +81,41 @@ class IdleAbTest(unittest.TestCase):
+                 self.assertIn(path.read_text(), ("0\n", "10000\n"))
+             self.assertEqual((root / idle_ab.RESIDENCY).read_text(), "10000\n")
+ 
++    def test_a_cpu_list_sets_only_those_cpus(self):
++        with tempfile.TemporaryDirectory() as temp:
++            root = Path(temp)
++            fake_machine(root, cpus=11)
++            machine = idle_ab.Machine(root)
++            self.assertEqual(machine.numbers(), list(range(11)))
++            states = []
++            real_apply = machine.apply
++
++            def apply(setting):
++                real_apply(setting)
++                states.append([(root / idle_ab.CPUS / f"cpu{n}/cpuidle/state{i}/disable")
++                               .read_text().strip() for n in range(11) for i in (0, 1)])
++            machine.apply = apply
++            with mock.patch.object(idle_ab.time, "sleep"), \
++                    mock.patch.object(idle_ab.time, "monotonic", side_effect=range(1000)):
++                rows = idle_ab.run(machine, ["pd-always@1,10", "wfi-only@0-1"], 1, 2, 0)
++            pd = ["0"] * 22
++            pd[2] = pd[20] = "1"
++            self.assertEqual(states[0], pd)
++            self.assertEqual(states[1], ["0", "1", "0", "1"] + ["0"] * 18)
++            self.assertEqual(sorted(rows[0]["pd_pct_by_cpu"]), list(range(11)))
++            for path in machine.saved:
++                self.assertEqual(path.read_text(), "0\n" if "disable" in str(path) else "10000\n")
++
++    def test_a_missing_cpu_is_refused_before_anything_is_written(self):
++        with tempfile.TemporaryDirectory() as temp:
++            root = Path(temp)
++            fake_machine(root)
++            machine = idle_ab.Machine(root)
++            machine.apply = mock.Mock()
++            with self.assertRaisesRegex(ValueError, "no CPU 2"):
++                idle_ab.run(machine, ["default", "pd-always@1-2"], 1, 1, 0)
++            machine.apply.assert_not_called()
++
+     def test_restores_after_an_error(self):
+         with tempfile.TemporaryDirectory() as temp:
+             root = Path(temp)
+-- 
+2.55.0
+

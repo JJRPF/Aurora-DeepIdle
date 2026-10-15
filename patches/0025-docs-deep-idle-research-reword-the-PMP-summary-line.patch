@@ -1,0 +1,27 @@
+From 2e278b3b9a66f2d4823a18e0f803bee7be4e47cd Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 22:49:57 -0400
+Subject: [PATCH 25/37] docs: deep-idle research: reword the PMP summary line
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AuzUDcEeRJQ6RCdWW2XWLb
+---
+ docs/deep-idle-research.md | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/docs/deep-idle-research.md b/docs/deep-idle-research.md
+index f15950a02f19..279ecfaf1048 100644
+--- a/docs/deep-idle-research.md
++++ b/docs/deep-idle-research.md
+@@ -40,7 +40,7 @@ machine or in source is marked as an unknown.
+   `opp-microwatt`, so no energy model registers. Values derived from M2's
+   measurements at this machine's voltages are committed and staged as a
+   DTB-only image (E6), not yet booted.
+-* **The workable improvement now is the PMP.** The PMP coprocessor is not
++* **The other DTB-only improvement is the PMP.** The PMP coprocessor is not
+   booted on this machine: the DT is built without `APPLE_USE_PMP`. Asahi
+   measured about 0.5 W (about 20%) idle saving from booting it on an M1 Pro.
+   The T602x DT nodes and report offsets exist, and the running m1n1 already
+-- 
+2.55.0
+

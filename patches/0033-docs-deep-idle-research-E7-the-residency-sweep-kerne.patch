@@ -1,0 +1,50 @@
+From 2db1d09c2f7d15a1321e3b58b475b73132861150 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 22:57:58 -0400
+Subject: [PATCH 33/37] docs: deep-idle research: E7, the residency sweep
+ kernel
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AuzUDcEeRJQ6RCdWW2XWLb
+---
+ docs/deep-idle-research.md | 24 ++++++++++++++++++++++++
+ 1 file changed, 24 insertions(+)
+
+diff --git a/docs/deep-idle-research.md b/docs/deep-idle-research.md
+index 40d13fae30e1..22a743a6a9d9 100644
+--- a/docs/deep-idle-research.md
++++ b/docs/deep-idle-research.md
+@@ -569,6 +569,30 @@ domains. It only reads.
+   and Total System Power to drop when idle-ish; under load nothing changes.
+   Rollback is the same as E1's, or at runtime `echo 0 | sudo tee
+   /proc/sys/kernel/sched_energy_aware`.
++* **E7, where CPU PD breaks even** (needs a reboot into a test kernel;
++  owner's go-ahead). `~/Work/deepidle-11.35/` holds release 11.35's
++  source (`git archive 1caa9fdc3745`, the running kernel) with only the
++  `pd_residency_us` patch, built with the running config and
++  `LOCALVERSION=-deepidle` (release `7.1.12-2-11.35-sep-ARCH-deepidle`), and
++  `43_deepidle`, an opt-in GRUB entry modelled on `42_aurora_sep_previous`.
++  Installing it touches `/boot` and `/lib/modules`, so the owner runs:
++
++  ```
++  cd ~/Work/deepidle-11.35/src
++  sudo make O=../build LOCALVERSION=-deepidle modules_install
++  sudo cp ../build/arch/arm64/boot/Image /boot/vmlinuz-deepidle-test
++  sudo mkinitcpio -k 7.1.12-2-11.35-sep-ARCH-deepidle -g /boot/initramfs-deepidle-test.img
++  sudo install -m 755 ../43_deepidle /etc/grub.d/43_deepidle
++  sudo grub-mkconfig -o /boot/grub/grub.cfg
++  ```
++
++  `GRUB_DEFAULT=0` still boots "Omarchy Linux"; pick "Deep idle test" by
++  hand, so a failed boot needs only a reboot. In the test kernel, the
++  sweep is one paired run: `sudo tools/aurora-sep/idle-ab.py --rounds 20
++  --window 20 default res=2000 res=500 res=100 pd-always`, plus
++  `wakelat` at the chosen value. Removal: delete the two `/boot` files,
++  `/etc/grub.d/43_deepidle` and `/lib/modules/7.1.12-2-11.35-sep-ARCH-deepidle`,
++  then `grub-mkconfig` again. No other kernel, nor `boot.bin`, is touched.
+ * **E3, does a raw-mode SoC wake reach m1n1?** This is the experiment that
+   decides raw vs Mach-O for the wake path. It needs a second machine and USB
+   m1n1 proxy, and is not for the daily driver without a plan. From the m1n1
+-- 
+2.55.0
+
