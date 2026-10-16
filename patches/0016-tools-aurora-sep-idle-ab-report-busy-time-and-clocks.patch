@@ -1,7 +1,7 @@
 From bede1ac0dd2025eb35e385639f661cbce4df9a0c Mon Sep 17 00:00:00 2001
 From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
 Date: Wed, 14 Oct 2026 22:29:30 -0400
-Subject: [PATCH 16/37] tools/aurora-sep: idle-ab: report busy time and clocks
+Subject: [PATCH 16/44] tools/aurora-sep: idle-ab: report busy time and clocks
  per setting
 
 Under heavy load a setting could lower power by changing the work done

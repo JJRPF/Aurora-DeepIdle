@@ -109,3 +109,144 @@ Nothing here installs, reboots, or writes hardware registers. Times are local.
 - Total System -0.92 W (se 0.12), lower 20/20. AC Input -0.91 W. Heatpipe -0.82 W (se 0.12), 18/20.
 - Busy 6.7% vs 7.4%; clocks 984/871/829 vs 986/861/810 MHz. Work and clocks unchanged.
 - All cpuidle disable files 0 after the run.
+## 2026-10-15: moved to its own repo
+- https://github.com/JJRPF/Aurora-DeepIdle (public, standalone: JJRPF/linux is already this account's one fork in the
+  linux-aurora network). Commit 423826d: docs, worklog, tools+tests, dts, data, patches/ (37 format-patch commits on
+  integration/aurora cadfb30a; applied in a sparse worktree, tree identical to the branch).
+- Branch commit 4b97e612e91f added AURORA_TREE so tools/tests run from the copy (skip without a tree).
+- SSH push failed (agent signing refused); pushed once over HTTPS with gh's credential helper, no git config changed.
+- grove add-repo: ~/dev/Aurora-DeepIdle/main, local config.json entry (personal, github tracker, default quick).
+
+## 2026-10-15 18:1x: unattended test harness installed (owner allowed reboots)
+- LUKS: owner added /crypto_keyfile.bin (own keyslot) + FILES via /etc/mkinitcpio.conf.d/deepidle-keyfile.conf; verified with
+  cryptsetup --test-passphrase; in initramfs-linux-aurora.img and initramfs-deepidle-test.img.
+- Root runner /usr/local/lib/deepidle/runner.sh via deepidle-runner.service (WantedBy graphical.target, only while
+  /var/lib/deepidle/plan exists). One plan step per boot: restore stock boot.bin first, clear grub next_entry, check,
+  settle 180 s, idle-ab 15 rounds x 20 s, wakelat per setting, arm next step, wait <=30 min for ack, reboot.
+  A step that started but never finished is skipped (no loops). `touch ~/.local/state/deepidle/stop` aborts + restores stock.
+- Plan: 0 stock | 1 em (boot.bin.em-test) | 2 kernel (deepidle-test-kernel, res sweep) | 3 pmp | 4 nodcpext | 5 final stock.
+- Test kernel installed: /lib/modules/7.1.12-2-11.35-sep-ARCH-deepidle, /boot/vmlinuz-deepidle-test, initramfs-deepidle-test.img.
+- GRUB: /etc/grub.d/43_deepidle (ids deepidle-test-kernel, deepidle-stock-panic; both panic=10); default entry unchanged
+  (diffed), backup /boot/grub/grub.cfg.before-deepidle; grubenv writable (probe set/unset).
+- Watchdog: /etc/systemd/system.conf.d/90-deepidle-watchdog.conf (RuntimeWatchdogSec=60s), active from next boot.
+- Resume: ~/.config/hypr/autostart.lua -> ~/.local/bin/deepidle-resume (only while ~/.local/state/deepidle/resume exists)
+  -> ghostty: claude --continue --permission-mode bypassPermissions "<prompt.txt>". Launch path probed OK.
+- Harness sources: ~/Work/deepidle-harness/ (autostart.lua.before = original).
+
+## 2026-10-15 18:13-18:28: campaign step 0 (stock), run by the root runner without a reboot
+- Added deepidle-early-restore.service (sysinit, after /boot mounts): records the booted boot.bin sha in
+  /run/deepidle-booted-sha and puts stock back at once, so a test DTB that freezes later in boot (watchdog reset)
+  or needs a power cycle does not boot again. Stock copy at /var/lib/deepidle/boot.bin.stock (3630adc3).
+  apple_pmp is built in (=y) and probes before the root fs: a freeze there still needs recoveryOS (doc E1
+  rollback), so pmp moved to step 4, after nodcpext. Plan: 0 stock 1 em 2 kernel 3 nodcpext 4 pmp 5 final.
+- Step 0, 15 rounds x 20 s, default vs pd-always, desktop idle with this session waiting:
+  Total System 8.61 -> 7.53 W, -1.080 W (se 0.215), lower in 15/15; Heatpipe -0.698 W (se 0.160), 13/15.
+  PD residency 4.7% -> 92.6%; busy 6.7 / 6.6%; clocks 980/796/826 vs 1018/857/883 MHz.
+- wakelat p50 default -> pd-always: timer E cpu1 8.2 -> 26.5, timer P cpu9 7.8 -> 22.3, ipi E1->E2 8.1 -> 17.6,
+  ipi E1->P6 12.0 -> 21.6 us. IPIs match the earlier run (+9.5); timers cost more this time (+14..18 vs +8..10).
+- Step 1 (em) armed: boot.bin 462a289d, grub next_entry=deepidle-stock-panic.
+
+## 2026-10-15 18:29-18:51: campaign step 1 (E6 energy model, boot.bin.em-test), first unattended reboot
+- Reboot, early restore (booted 462a289d -> stock at 18:29:50), runner and the resumed session all worked.
+- check: 23 CPU opp-microwatt, energy model domains cpu0 cpu4 cpu7, sched_energy_aware 1. No EM errors in dmesg.
+- 15 rounds x 20 s, default (EAS on) vs no-eas vs pd-always. Fresh boot, much quieter than step 0:
+  Total System default 6.58 W; no-eas +0.061 W (se 0.012, higher in 15/15); pd-always -0.075 W (se 0.007, 15/15).
+  Heatpipe: no-eas -0.024 (se 0.069, noise), pd-always -0.085 (se 0.058).
+  Busy E/P cluster: default 1.35/0.11%, no-eas 0.92/0.39%, pd-always 1.39/0.12%: EAS moves light work from P to E.
+  PD residency default 88.9% (step 0: 4.7%): with this few wakes menu already picks CPU PD, so PD always gains little.
+- So PD always's ~1 W (step 0, earlier runs) needs the busier desktop (6.7% busy, ~1,500 wakes/CPU/s); its value
+  scales with the wake rate. The final stock step (5) is a fresh boot too and gives the like-for-like baseline.
+- wakelat p50 default/no-eas/pd-always: timer E 7.0/7.0/20.0, timer P 7.2/7.0/19.6, ipi E-E 7.3/7.5/16.7, ipi E-P 11.5/12.3/18.7.
+- Step 2 (kernel, residency sweep) armed: stock boot.bin, grub next_entry=deepidle-test-kernel.
+
+## 2026-10-15 18:52-21:48: steps 2-5 broke the Aurora kernel's modules (incident)
+- Owner: after the step 2 reboot the machine came up without Wi-Fi, Bluetooth, full GPU; owner booted the Asahi
+  fallback (7.1.13-3-2-ARCH) at 21:48.
+- Cause: kernel-modules-hook's linux-modules-cleanup.service (WantedBy basic.target) moves every
+  /usr/lib/modules/<rel> that is neither the running kernel nor owned by pacman into /usr/lib/modules/.old, and
+  its tmpfiles rule `R! /usr/lib/modules/.old/*` deletes that at the next boot. 7.1.12-2-11.35-sep-ARCH+ is
+  hand-installed (no package). Booting the test kernel (step 2, 18:53:46) moved it; the step 3 boot deleted it.
+  The test kernel's tree is gone too. Every later boot of the Aurora kernel had no modules: no nls -> /boot did not
+  mount, no macsmc-hwmon -> idle-ab failed, no brcmfmac -> no network -> the resumed sessions could not run and
+  never acked; the runner's 30 min timeout then rebooted through steps 3-5 blind.
+- Nothing on the ESP changed after step 1: with /boot unmounted the runner could not copy test images
+  (boot.bin is stock 3630adc3, next_entry empty). Steps 2-5 have no measurements (check.txt only). Step 1 is valid.
+- The same cleanup would have removed the 11.35 tree the first time any other kernel booted (the Asahi fallback
+  included): the owner's aurora-sep-fallback-modules.service protects only the Asahi tree.
+- Recovery staged (no sudo now): ~/Work/aurora-linux is the exact build of the running 11.35 kernel (UTS #8
+  Sun Oct 4 09:26:13, Image.gz byte-identical to /boot/vmlinuz-linux-aurora; apple-sep.ko rebuilt 12:43:58, just
+  before the 12:44 install). `make modules_install INSTALL_MOD_PATH=~/Work/aurora-modules-restore` (no signing,
+  no compression, no rebuild): 1871 modules, 2.0 GB.
+- ~/Work/deepidle-harness/recover.sh (owner, sudo): copies it back, marks it .keep, installs
+  linux-modules-cleanup.service.d/keep-pinned.conf (same loop plus `[[ -e $i/.keep ]]`; its exact ExecStart was
+  run as a user unit on scratch dirs: running and .keep trees kept, a stray tree moved).
+- Runner hardened (installed by rearm.sh): stops on an unhealthy boot (/boot, module tree or SMC power sensor
+  missing) and stops instead of rebooting when no ack comes within 30 min.
+- ~/Work/deepidle-harness/rearm.sh (optional, after recover.sh): reinstalls the test kernel's tree with .keep and
+  re-arms: 0 baseline, 1 kernel, 2 nodcpext, 3 pmp, 4 final.
+
+## 2026-10-15 22:1x: Asahi stock kernel 7.1.13-3-2-ARCH, read only (no sudo; recover.sh not run yet)
+- Same apple_idle driver and menu governor, WFI 1/1 us, CPU PD 10/10000 us; no pd_residency_us; schedutil.
+- 20 s: WFI 88.3%, CPU PD 7.2%. 60 s on battery, desktop with this session: Total System 6.93 W, Heatpipe 3.70 W,
+  busy 3.4%, 995 idle entries/CPU/s. Same picture as Aurora: PD seldom chosen at ~1,000 wakes/s.
+- 22:14 owner ran recover.sh + rearm.sh (pkexec): 11.35 tree back (1871 modules, .keep), deepidle tree back (.keep), drop-in active, plan re-armed (0 baseline 1 kernel 2 nodcpext 3 pmp 4 final). Rebooting into default.
+
+## 2026-10-15 22:15-22:30: run 2 step 0 (baseline, stock, fresh boot, on battery)
+- Healthy boot (Wi-Fi, modules; the Asahi tree moved aside as the owner's design expects).
+- Total System 7.81 W default; pd-always -0.142 W (se 0.007, 15/15). Heatpipe +0.002 (noise). Busy 0.6%.
+  PD residency 89.8% default -> 99.3%. Clocks 926/710/804 vs 938/719/825.
+- wakelat p50 default -> pd-always: timer E 7.3 -> 24.0, timer P 7.3 -> 19.7, ipi E-E 7.3 -> 16.5, ipi E-P 10.6 -> 18.9.
+- Agrees with run 1 step 1: on a fresh, quiet desktop menu already uses PD ~90%, so forcing it buys 0.1 W.
+
+## 2026-10-15 22:31-23:04: run 2 step 1 (E7 residency sweep, test kernel 11.35-deepidle, stock boot.bin)
+- Booted the test kernel with all three module trees intact (.keep drop-in worked); pd_residency_us 10000.
+- 15 rounds x 20 s, Total System, paired vs default (6.83 W, PD 89.8%, busy 0.7%):
+  res=2000 -0.086 (se 0.018, 13/15, PD 95.7%); res=500 -0.147 (se 0.014, 15/15, PD 98.9%);
+  res=100 -0.158 (se 0.014, 15/15); pd-always -0.157 (se 0.016, 15/15). Heatpipe -0.07..-0.09 (se ~0.06).
+- wakelat p50 (timer E/P, ipi E-E/E-P): default 7.4/7.3/7.4/10.8; res=2000 7.4/7.1/7.3/18.1;
+  res=500 22.4/16.6/16.5/18.8; res=100 and pd-always ~24.5/19.4/16.6/18.9. The probe sleeps 1-2 ms, so
+  intervals under the threshold stay in WFI and pay nothing; the cost appears once the threshold is under them.
+- On a quiet desktop, 500 us captures ~93% of PD always. The busy-desktop case (run 1 step 0: ~1 W) is not
+  swept yet; it needs a reproducible wake load (next idea: a synthetic ~1,500 wakes/CPU/s load under each setting).
+
+## 2026-10-15 23:05-23:20: run 2 step 2 (E4 no external DCPs, boot.bin.nodcpext-test)
+- Took effect: no dcpext aliases; dispext0/1 _cpu0/_fe/_sys all off-0. Internal DCP (389c00000) up as usual.
+- Same-boot: default 6.71 W, pd-always -0.143 (se 0.017, 15/15); Heatpipe -0.127 (se 0.035).
+- Across fresh boots (default setting, ~0.7% busy, on battery): Heatpipe 2.00 (stock), 2.01 (test kernel),
+  2.08 (nodcpext); Total System 7.81, 6.83, 6.71. Total varies ~1 W between boots, Heatpipe ~0.1 W: E4 shows
+  no SoC saving beyond that, so the external DCPs idle cheaply when nothing is attached. Not worth the
+  on-demand DCP start (design in the doc) for idle power; it may still matter for s2idle (E2, not testable here).
+
+## 2026-10-15 23:21 -> 2026-10-16 17:29: run 2 step 3 (E1 PMP, boot.bin.pmp-test): boot hang
+- Rebooted into the PMP image at 23:21 (next_entry deepidle-stock-panic = Aurora 11.35 + panic=10). No journal
+  entry at all for that boot: it hung before the root fs mounted (apple_pmp is built in, probes early; no
+  watchdog that early; no panic, or panic=10 would have rebooted). Sat hung until the owner intervened.
+- Owner, recoveryOS, 2026-10-16 13:25: renamed the ESP's boot.bin to boot.bin.pmp-broken (f09e39a9 = the PMP
+  image) and copied boot.bin.old (062e1579, Oct 3) to boot.bin. Then 17:27 a boot of 7.1.9-aurora-sep+ (/boot
+  failed, forced power-off), 17:29 the aurora-sep-previous entry (Asahi 7.1.13-3-2-ARCH) with 062e1579; the early
+  unit replaced that with stock 3630adc3. boot.bin.old is untouched on the ESP.
+- My miss: the doc's recoveryOS rollback names m1n1/boot.bin.before-pmp-test on the ESP, but the campaign kept the
+  stock copy in /var/lib/deepidle and ~/Work only. Any future boot.bin test should first put the stock copy on the
+  ESP under that name.
+- Result E1: booting the PMP on J414s with this tree (pmp.rs, apple,t6000-pmp-v2, built in) hangs the boot. It
+  needs a serial/m1n1 proxy console to see where; not something to retry unattended.
+- Campaign stopped (stop file). The runner's step 3 is measuring on the Asahi kernel with stock boot.bin: a
+  default vs pd-always A/B on the Asahi kernel, then it finishes without a reboot.
+
+## 2026-10-16 17:3x: what the PMP boot actually did (owner's photo of the screen)
+- It was m1n1 stage 2, not the kernel: "FDT: GPU: AFR leakage table: 161.000 / FDT: failed to transfer pmp
+  tunableFailed to prepare FDT! / No valid payload found / ... Running proxy...". m1n1's own dt_set_pmp
+  (src/kboot.c 2116-2157; runs because the PMP DTB has the pmp alias) copies every property of the ADT's
+  /arm-io/pmp/iop-pmp-nub into the pmp node as apple,tunable-*, and bails on the first fdt_setprop error; then
+  kboot refuses the payload and m1n1 sits in USB proxy mode. m1n1 was stock (~/Work/m1n1 clean at c6498e6e,
+  m1n1.bin built 2026-09-29): an external assistant's guess that m1n1 was edited or update-m1n1 run is wrong.
+- Likeliest error: -FDT_ERR_NOSPACE. kboot gives the DT 96 KiB of headroom (dt_bufsize += 6 * SZ_16K) and the
+  T6020 PMP nub has many properties (thresholds and DVFS filters per client, MC counters, die temp loop). Not
+  confirmed: reading the ADT again needs root. My pre-check confirmed the properties exist, not that they fit.
+- Draft fix (not applied): ~/Work/deep-idle-build/m1n1-pmp-tunable-nonfatal.patch prints the property, the libfdt
+  error and the free bytes, and leaves the pmp disabled instead of failing the boot. Builds clean (scratch copy).
+  With it, a PMP test boot can only lose the PMP, and its message says whether to raise the headroom.
+- Asahi kernel 7.1.13-3-2-ARCH, stock boot.bin, runner step "3-pmp" (in fact an Asahi A/B), 2.8% busy:
+  Total System 7.96 W, pd-always -0.535 W (se 0.181, 15/15); Heatpipe -0.301 (se 0.126, 12/15). PD residency
+  75.6% -> 97.3%. wakelat timer p50 7.5/7.3 -> 24.4/19.9. PD always helps on the Asahi kernel too.
+- Campaign over: runner FINISHED (stop), plan and resume marker removed, boot.bin stock, next_entry empty.

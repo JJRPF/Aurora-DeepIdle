@@ -1,7 +1,7 @@
 From 288486335566a9496b76f10a1b5fe0f825987a87 Mon Sep 17 00:00:00 2001
 From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
 Date: Wed, 14 Oct 2026 23:19:08 -0400
-Subject: [PATCH 34/37] docs: deep-idle research: E7 installs from the staged
+Subject: [PATCH 34/44] docs: deep-idle research: E7 installs from the staged
  build
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>

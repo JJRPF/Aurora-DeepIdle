@@ -1,0 +1,36 @@
+Total System Power:
+  setting        mean W   PD %  WFI %   paired difference from default
+  default          6.83   89.8    9.5
+  res=2000         6.74   95.7    3.6   -0.086 W (sd 0.07, se 0.018, lower in 13 of 15)
+  res=500          6.68   98.9    0.4   -0.147 W (sd 0.06, se 0.014, lower in 15 of 15)
+  res=100          6.67   99.1    0.1   -0.158 W (sd 0.05, se 0.014, lower in 15 of 15)
+  pd-always        6.67   99.3    0.0   -0.157 W (sd 0.06, se 0.016, lower in 15 of 15)
+AC Input Power:
+  setting        mean W   PD %  WFI %   paired difference from default
+  default          0.12   89.8    9.5
+  res=2000         0.12   95.7    3.6   +0.000 W (sd 0.00, se 0.000, lower in 6 of 15)
+  res=500          0.12   98.9    0.4   +0.000 W (sd 0.00, se 0.000, lower in 2 of 15)
+  res=100          0.12   99.1    0.1   +0.000 W (sd 0.00, se 0.000, lower in 4 of 15)
+  pd-always        0.12   99.3    0.0   +0.000 W (sd 0.00, se 0.000, lower in 3 of 15)
+3.8 V Rail Power:
+  setting        mean W   PD %  WFI %   paired difference from default
+  default          0.00   89.8    9.5
+  res=2000         0.00   95.7    3.6   +0.000 W (sd 0.00, se 0.000, lower in 0 of 15)
+  res=500          0.00   98.9    0.4   +0.000 W (sd 0.00, se 0.000, lower in 0 of 15)
+  res=100          0.00   99.1    0.1   +0.000 W (sd 0.00, se 0.000, lower in 0 of 15)
+  pd-always        0.00   99.3    0.0   +0.000 W (sd 0.00, se 0.000, lower in 0 of 15)
+Heatpipe Power:
+  setting        mean W   PD %  WFI %   paired difference from default
+  default          2.01   89.8    9.5
+  res=2000         1.94   95.7    3.6   -0.069 W (sd 0.23, se 0.058, lower in 11 of 15)
+  res=500          1.92   98.9    0.4   -0.092 W (sd 0.23, se 0.060, lower in 11 of 15)
+  res=100          1.93   99.1    0.1   -0.084 W (sd 0.26, se 0.067, lower in 11 of 15)
+  pd-always        1.92   99.3    0.0   -0.089 W (sd 0.25, se 0.064, lower in 11 of 15)
+Busy time and clocks:
+  setting      busy %   policy0   policy4   policy7
+  default         0.7       933       783       712
+  res=2000        0.7       933       806       704
+  res=500         0.7       923       791       712
+  res=100         0.6       936       794       715
+  pd-always       0.7       936       793       722
+exit 0

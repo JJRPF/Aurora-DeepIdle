@@ -625,6 +625,96 @@ domains. It only reads.
   never armed, which is either the missing SMC/PMGR handshake or the raw/Mach-O
   difference. This probably needs the hv trace below to tell those apart.
 
+## Unattended campaign (2026-10-15)
+
+With the owner's go-ahead for reboots, a root runner
+(`deepidle-runner.service`, sources in `~/Work/deepidle-harness/`) runs one
+step per boot: it records `deep-idle-check.py`, the kernel log and the power
+domains, settles for 180 s, runs `idle-ab.py` (15 rounds of 20 s) and
+`wakelat` for the step's settings, arms the next step (m1n1 image and GRUB
+`next_entry`), and reboots once the session acknowledges it. An early unit
+(`deepidle-early-restore.service`) puts the stock `boot.bin` back right
+after `/boot` mounts, so each test image boots only once. The order is
+stock, E6 energy model, E7 residency kernel, E4 no external DCPs, E1 PMP
+(the riskiest, since `apple_pmp` is built in and probes before any
+watchdog), then stock again.
+
+* **Step 0, stock** (run in place, no reboot): PD always saved 1.080 W
+  of Total System Power (8.61 to 7.53 W, standard error 0.215), lower in
+  15 of 15 rounds; Heatpipe 0.70 W. Busy time 6.7% and 6.6%. The
+  wake-up probe repeated the IPI cost (+9.5 us p50); timer wakes cost
+  more this time (+14 to +18 us p50, against +8 to +10 before).
+
+* **Step 1, E6 energy model** (`boot.bin.em-test`): the energy model
+  registered (23 CPU `opp-microwatt` entries; performance domains cpu0,
+  cpu4 and cpu7), with no errors. EAS on against off: 61 mW lower
+  (standard error 12 mW, lower in 15 of 15), with P-cluster busy time
+  0.11% against 0.39% and E-cluster 1.35% against 0.92%, so light work
+  moved to the E cores as expected. The fresh boot was much quieter than
+  step 0 (6.58 W, 0.6% busy against 8.61 W and 6.7%), and at that wake
+  rate menu already picks CPU PD 89% of the time, so PD always saved only
+  75 mW (standard error 7 mW). PD always's saving scales with the wake
+  rate: about 1 W on a busy desktop, almost nothing on a quiet one.
+
+* **Steps 2 to 5 did not measure.** Booting the test kernel let
+  `kernel-modules-hook`'s `linux-modules-cleanup.service` move aside the
+  hand-installed Aurora 11.35 module tree, since pacman owns neither it
+  nor the test kernel's; its tmpfiles rule deleted both trees at the next
+  boot. Later boots had no modules, so `/boot` did not mount, the SMC
+  sensors were missing and there was no network, and no step measured.
+  The ESP was not touched after step 1. The tree was rebuilt from the
+  kernel's own build directory, and a drop-in now makes the cleanup skip
+  trees marked `.keep`. Any other hand-installed kernel is exposed to the
+  same cleanup whenever a different kernel boots.
+
+* **Run 2, step 0, stock baseline** (fresh boot, on battery, after the
+  modules were restored): 7.81 W at 0.6% busy, CPU PD 90% of idle time
+  under menu, and PD always 142 mW lower (standard error 7 mW, 15 of 15).
+  This is the same picture as step 1: forcing PD pays when wakes are
+  frequent, not on a quiet desktop.
+
+* **Run 2, step 1, E7 residency sweep** (test kernel): against menu's
+  default 10 ms, Total System Power was 86 mW lower at 2,000 us (standard
+  error 18 mW), 147 mW lower at 500 us, 158 mW at 100 us and 157 mW with
+  PD always (all 15 of 15), at 6.83 W and 0.7% busy. The wake-up cost
+  follows the threshold: the probe's 1 to 2 ms sleeps stay in WFI at
+  2,000 us (no cost), and pay the 10 to 15 us PD exit at 500 us and below.
+  On a quiet desktop 500 us gets 93% of the saving. The busy desktop,
+  where PD always saved about 1 W, still needs the same sweep under a
+  reproducible wake load.
+
+* **Run 2, step 2, E4 no external DCPs** (`boot.bin.nodcpext-test`): it
+  took effect (no `dcpext` aliases, all six `dispext0/1` domains off).
+  It can only be compared across boots: Heatpipe (SoC) power was 2.08 W,
+  against 2.00 W and 2.01 W in the stock and test-kernel boots, and Total
+  System Power moves about 1 W between fresh boots. So idle external DCPs
+  cost nothing measurable here (at most about 0.1 W). Starting them on
+  demand is not worth it for awake idle power; s2idle is untested.
+
+* **Run 2, step 3, E1 PMP** (`boot.bin.pmp-test`): **the boot stopped in
+  m1n1**, before GRUB. Stage 2 printed `FDT: failed to transfer pmp
+  tunable`, `Failed to prepare FDT!` and `No valid payload found`, then sat
+  in USB proxy mode until the owner restored a `boot.bin` from recoveryOS.
+  This is m1n1's own `dt_set_pmp` (`src/kboot.c`), which the PMP DTB's
+  `pmp` alias switches on. It copies every property of the ADT's
+  `/arm-io/pmp/iop-pmp-nub` into the `pmp` node as `apple,tunable-*` and
+  fails the whole boot on the first `fdt_setprop` error. The likeliest
+  error is running out of DT space: kboot leaves 96 KiB of headroom and the
+  T6020 PMP nub is large. That is not confirmed, since reading the ADT
+  needs root. A draft m1n1 change (`m1n1-pmp-tunable-nonfatal.patch` in
+  the build directory; it builds) prints the property, the libfdt error
+  and the free space, and leaves the PMP disabled instead, so a retry can
+  only lose the PMP. The PMP's 0.5 W stays unmeasured on T602x.
+* **Asahi kernel** (7.1.13-3-2-ARCH, the boot after the PMP hang, stock
+  image): PD always was 535 mW lower (standard error 181 mW, 15 of 15) at
+  2.8% busy, with PD residency 76% under menu. The effect is the same
+  outside Aurora.
+* **Lessons for the harness.** A hand-installed kernel's modules need
+  the `.keep` drop-in before any other kernel boots. An unattended step
+  must stop, not continue, when a boot is unhealthy or the session does
+  not return. And a `boot.bin` test needs the stock copy on the ESP
+  itself, where recoveryOS can reach it.
+
 ## Unblocking deep sleep: what to trace with macOS under m1n1 hv
 
 1. **The CYC_OVRD veto.** m1n1 refuses a guest CYC_OVRD write with
@@ -813,8 +903,10 @@ Rollback:
   the PMP driver would look the same): hold the power key, open Options, and in
   recoveryOS's Terminal mount the ESP (`diskutil list`, then `diskutil mount`
   the `EFI - OMARC` partition, nvme0n1p4 under Linux). Copy
-  `m1n1/boot.bin.before-pmp-test` over `m1n1/boot.bin`. Booting macOS works
-  as well.
+  `m1n1/boot.bin.before-pmp-test` over `m1n1/boot.bin`; that copy must have
+  been made on the ESP first (the install step above does it). This is the
+  path the 2026-10-15 test needed: m1n1 stopped at `failed to transfer pmp
+  tunable` and ran its USB proxy. Booting macOS works as well.
 
 The fallback kernels share `boot.bin`, so they get the PMP DTB too: they are
 not a fallback for this test. The fallback is the `boot.bin` copy.

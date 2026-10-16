@@ -1,0 +1,18 @@
+Traceback (most recent call last):
+  File "/usr/local/lib/deepidle/apply-setting.py", line 12, in <module>
+    machine = m.Machine()
+  File "/usr/local/lib/deepidle/idle-ab.py", line 98, in __init__
+    self.sensors = power_sensors(root)
+                   ~~~~~~~~~~~~~^^^^^^
+  File "/usr/local/lib/deepidle/idle-ab.py", line 87, in power_sensors
+    raise FileNotFoundError(f'no hwmon sensor labelled {POWER_LABEL!r}')
+FileNotFoundError: no hwmon sensor labelled 'Total System Power'
+Traceback (most recent call last):
+  File "/usr/local/lib/deepidle/apply-setting.py", line 12, in <module>
+    machine = m.Machine()
+  File "/usr/local/lib/deepidle/idle-ab.py", line 98, in __init__
+    self.sensors = power_sensors(root)
+                   ~~~~~~~~~~~~~^^^^^^
+  File "/usr/local/lib/deepidle/idle-ab.py", line 87, in power_sensors
+    raise FileNotFoundError(f'no hwmon sensor labelled {POWER_LABEL!r}')
+FileNotFoundError: no hwmon sensor labelled 'Total System Power'

@@ -1,0 +1,34 @@
+From ce556920c015d9ebdcb2942fbfdfd1dad1dd1356 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Thu, 15 Oct 2026 23:21:02 -0400
+Subject: [PATCH 43/44] docs: deep-idle research: campaign run 2, no external
+ DCPs
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AuzUDcEeRJQ6RCdWW2XWLb
+---
+ docs/deep-idle-research.md | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/docs/deep-idle-research.md b/docs/deep-idle-research.md
+index 6ded05ee044e..c7cea9479939 100644
+--- a/docs/deep-idle-research.md
++++ b/docs/deep-idle-research.md
+@@ -680,6 +680,14 @@ watchdog), then stock again.
+   where PD always saved about 1 W, still needs the same sweep under a
+   reproducible wake load.
+ 
++* **Run 2, step 2, E4 no external DCPs** (`boot.bin.nodcpext-test`): it
++  took effect (no `dcpext` aliases, all six `dispext0/1` domains off).
++  It can only be compared across boots: Heatpipe (SoC) power was 2.08 W,
++  against 2.00 W and 2.01 W in the stock and test-kernel boots, and Total
++  System Power moves about 1 W between fresh boots. So idle external DCPs
++  cost nothing measurable here (at most about 0.1 W). Starting them on
++  demand is not worth it for awake idle power; s2idle is untested.
++
+ ## Unblocking deep sleep: what to trace with macOS under m1n1 hv
+ 
+ 1. **The CYC_OVRD veto.** m1n1 refuses a guest CYC_OVRD write with
+-- 
+2.55.0
+

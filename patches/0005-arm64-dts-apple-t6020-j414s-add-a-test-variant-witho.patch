@@ -1,7 +1,7 @@
 From ea12e73afdcb40e85a7d2a7763e5ba60cface9b6 Mon Sep 17 00:00:00 2001
 From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
 Date: Wed, 14 Oct 2026 21:17:13 -0400
-Subject: [PATCH 05/37] arm64: dts: apple: t6020-j414s: add a test variant
+Subject: [PATCH 05/44] arm64: dts: apple: t6020-j414s: add a test variant
  without external DCPs
 
 Both external display coprocessors are started at boot and, because the

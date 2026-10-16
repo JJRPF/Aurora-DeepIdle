@@ -1,0 +1,13 @@
+[Unit]
+Description=Deep idle campaign: restore the stock m1n1 image early in boot
+DefaultDependencies=no
+RequiresMountsFor=/boot /var/lib/deepidle
+ConditionPathExists=/var/lib/deepidle/plan
+Before=sysinit.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/deepidle/early-restore.sh
+
+[Install]
+WantedBy=sysinit.target

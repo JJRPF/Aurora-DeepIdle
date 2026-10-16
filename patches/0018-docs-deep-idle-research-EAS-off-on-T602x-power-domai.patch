@@ -1,7 +1,7 @@
 From 0740ef03c9d464585b6aaa84769a25a95d26e485 Mon Sep 17 00:00:00 2001
 From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
 Date: Wed, 14 Oct 2026 22:37:27 -0400
-Subject: [PATCH 18/37] docs: deep-idle research: EAS off on T602x, power
+Subject: [PATCH 18/44] docs: deep-idle research: EAS off on T602x, power
  domains held on while awake
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>

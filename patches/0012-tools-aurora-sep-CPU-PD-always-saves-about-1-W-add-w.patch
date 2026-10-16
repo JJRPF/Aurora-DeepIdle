@@ -1,7 +1,7 @@
 From 8c24afae476be09fe14574f6fb97847d003cd62f Mon Sep 17 00:00:00 2001
 From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
 Date: Wed, 14 Oct 2026 22:00:08 -0400
-Subject: [PATCH 12/37] tools/aurora-sep: CPU PD always saves about 1 W; add
+Subject: [PATCH 12/44] tools/aurora-sep: CPU PD always saves about 1 W; add
  wakelat.c and an opt-in rule
 
 30 paired rounds on a busy M2 Pro: disabling WFI, so every idle entry is

@@ -1,0 +1,26 @@
+#!/bin/sh
+# Opt-in entries for unattended deep-idle testing (Aurora-DeepIdle). Never the default:
+# the runner picks one for a single boot with grub-editenv next_entry. panic=10 turns a
+# kernel panic into a reboot, which then boots the normal default entry.
+cat <<'MENU'
+menuentry 'Deep idle test kernel (7.1.12-2-11.35-sep-ARCH-deepidle)' --class omarchy --class gnu-linux --id deepidle-test-kernel {
+    load_video
+    set gfxpayload=keep
+    insmod part_gpt
+    insmod fat
+    insmod btrfs
+    search --no-floppy --fs-uuid --set=root 6407-ED7C
+    linux /vmlinuz-deepidle-test  root=UUID=725346d2-f127-47bc-b464-9dd46155e8d6 rw rootflags=subvol=@ cryptdevice=UUID=4604ccf8-656d-4a22-8178-395cdb242503:root:allow-discards loglevel=3 quiet splash panic=10
+    initrd /initramfs-deepidle-test.img
+}
+menuentry 'Deep idle DTB test (default kernel, panic=10)' --class omarchy --class gnu-linux --id deepidle-stock-panic {
+    load_video
+    set gfxpayload=keep
+    insmod part_gpt
+    insmod fat
+    insmod btrfs
+    search --no-floppy --fs-uuid --set=root 6407-ED7C
+    linux /vmlinuz-linux-aurora  root=UUID=725346d2-f127-47bc-b464-9dd46155e8d6 rw rootflags=subvol=@ cryptdevice=UUID=4604ccf8-656d-4a22-8178-395cdb242503:root:allow-discards loglevel=3 quiet splash panic=10
+    initrd /initramfs-linux-aurora.img
+}
+MENU

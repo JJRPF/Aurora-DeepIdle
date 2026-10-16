@@ -1,0 +1,41 @@
+2026-10-15 18:13:00 step 0 stock: booted boot.bin 3630adc3b3be173c kernel 7.1.12-2-11.35-sep-ARCH+
+2026-10-15 18:13:07 step 0 stock: settling 180 s
+2026-10-15 18:16:07 step 0 stock: measuring (default,pd-always)
+2026-10-15 18:27:54 step 0 stock: done
+2026-10-15 18:27:54 step 1 em armed: boot.bin 462a289d4ba0a2df, grub next_entry=deepidle-stock-panic; waiting for ack-0
+2026-10-15 18:29:04 rebooting into step 1 em
+2026-10-15 18:29:50 early: booted 462a289d4ba0a2df, restored stock (3630adc3b3be173c)
+2026-10-15 18:29:54 step 1 em: booted boot.bin 462a289d4ba0a2df kernel 7.1.12-2-11.35-sep-ARCH+
+2026-10-15 18:29:59 step 1 em: settling 180 s
+2026-10-15 18:32:59 step 1 em: measuring (default,no-eas,pd-always)
+2026-10-15 18:50:41 step 1 em: done
+2026-10-15 18:50:41 step 2 kernel armed: boot.bin 3630adc3b3be173c, grub next_entry=deepidle-test-kernel; waiting for ack-1
+2026-10-15 18:51:41 rebooting into step 2 kernel
+2026-10-15 18:54:16 step 2 kernel: booted boot.bin  kernel 7.1.12-2-11.35-sep-ARCH-deepidle
+2026-10-15 18:54:16 restored stock boot.bin ()
+2026-10-15 18:54:21 step 2 kernel: settling 180 s
+2026-10-15 18:57:21 step 2 kernel: measuring (default,res=2000,res=500,res=100,pd-always)
+2026-10-15 18:57:21 step 2 kernel: done
+2026-10-15 18:57:21 step 3 nodcpext armed: boot.bin , grub next_entry=deepidle-stock-panic; waiting for ack-2
+2026-10-15 19:27:22 rebooting into step 3 nodcpext
+2026-10-15 19:29:57 step 3 nodcpext: booted boot.bin  kernel 7.1.12-2-11.35-sep-ARCH+
+2026-10-15 19:29:57 restored stock boot.bin ()
+2026-10-15 19:30:03 step 3 nodcpext: settling 180 s
+2026-10-15 19:33:03 step 3 nodcpext: measuring (default,pd-always)
+2026-10-15 19:33:03 step 3 nodcpext: done
+2026-10-15 19:33:03 step 4 pmp armed: boot.bin , grub next_entry=deepidle-stock-panic; waiting for ack-3
+2026-10-15 20:03:03 rebooting into step 4 pmp
+2026-10-15 20:05:38 step 4 pmp: booted boot.bin  kernel 7.1.12-2-11.35-sep-ARCH+
+2026-10-15 20:05:38 restored stock boot.bin ()
+2026-10-15 20:05:43 step 4 pmp: settling 180 s
+2026-10-15 20:08:43 step 4 pmp: measuring (default,pd-always)
+2026-10-15 20:08:44 step 4 pmp: done
+2026-10-15 20:08:44 step 5 final armed: boot.bin , grub next_entry=default; waiting for ack-4
+2026-10-15 20:38:44 rebooting into step 5 final
+2026-10-15 20:41:19 step 5 final: booted boot.bin  kernel 7.1.12-2-11.35-sep-ARCH+
+2026-10-15 20:41:19 restored stock boot.bin ()
+2026-10-15 20:41:24 step 5 final: settling 180 s
+2026-10-15 20:44:24 step 5 final: measuring (default,pd-always)
+2026-10-15 20:44:25 step 5 final: done
+2026-10-15 20:44:25 restored stock boot.bin ()
+2026-10-15 20:44:25 FINISHED: plan done after step 5

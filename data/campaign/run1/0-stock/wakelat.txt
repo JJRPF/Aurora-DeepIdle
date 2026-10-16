@@ -1,0 +1,8 @@
+default timer 1 1000 2000: p50 8.2 p90 9.3 p99 11.4 max 17.8
+default timer 9 1000 2000: p50 7.8 p90 9.1 p99 11.1 max 76.6
+default ipi 1 2 1000 2000: p50 8.1 p90 9.2 p99 18.6 max 26.6
+default ipi 1 6 1000 2000: p50 12.0 p90 12.7 p99 22.2 max 29.5
+pd-always timer 1 1000 2000: p50 26.5 p90 33.1 p99 37.2 max 42.2
+pd-always timer 9 1000 2000: p50 22.3 p90 26.1 p99 30.3 max 41.7
+pd-always ipi 1 2 1000 2000: p50 17.6 p90 20.5 p99 25.8 max 37.1
+pd-always ipi 1 6 1000 2000: p50 21.6 p90 24.9 p99 29.3 max 32.9

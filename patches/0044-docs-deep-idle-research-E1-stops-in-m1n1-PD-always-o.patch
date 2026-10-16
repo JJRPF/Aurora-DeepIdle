@@ -1,0 +1,63 @@
+From 3346d90e78910899a8fec6d333cd1e0a30ed3fad Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Fri, 16 Oct 2026 17:46:44 -0400
+Subject: [PATCH 44/44] docs: deep-idle research: E1 stops in m1n1, PD always
+ on the Asahi kernel
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AuzUDcEeRJQ6RCdWW2XWLb
+---
+ docs/deep-idle-research.md | 30 ++++++++++++++++++++++++++++--
+ 1 file changed, 28 insertions(+), 2 deletions(-)
+
+diff --git a/docs/deep-idle-research.md b/docs/deep-idle-research.md
+index c7cea9479939..d690b912ca5e 100644
+--- a/docs/deep-idle-research.md
++++ b/docs/deep-idle-research.md
+@@ -688,6 +688,30 @@ watchdog), then stock again.
+   cost nothing measurable here (at most about 0.1 W). Starting them on
+   demand is not worth it for awake idle power; s2idle is untested.
+ 
++* **Run 2, step 3, E1 PMP** (`boot.bin.pmp-test`): **the boot stopped in
++  m1n1**, before GRUB. Stage 2 printed `FDT: failed to transfer pmp
++  tunable`, `Failed to prepare FDT!` and `No valid payload found`, then sat
++  in USB proxy mode until the owner restored a `boot.bin` from recoveryOS.
++  This is m1n1's own `dt_set_pmp` (`src/kboot.c`), which the PMP DTB's
++  `pmp` alias switches on. It copies every property of the ADT's
++  `/arm-io/pmp/iop-pmp-nub` into the `pmp` node as `apple,tunable-*` and
++  fails the whole boot on the first `fdt_setprop` error. The likeliest
++  error is running out of DT space: kboot leaves 96 KiB of headroom and the
++  T6020 PMP nub is large. That is not confirmed, since reading the ADT
++  needs root. A draft m1n1 change (`m1n1-pmp-tunable-nonfatal.patch` in
++  the build directory; it builds) prints the property, the libfdt error
++  and the free space, and leaves the PMP disabled instead, so a retry can
++  only lose the PMP. The PMP's 0.5 W stays unmeasured on T602x.
++* **Asahi kernel** (7.1.13-3-2-ARCH, the boot after the PMP hang, stock
++  image): PD always was 535 mW lower (standard error 181 mW, 15 of 15) at
++  2.8% busy, with PD residency 76% under menu. The effect is the same
++  outside Aurora.
++* **Lessons for the harness.** A hand-installed kernel's modules need
++  the `.keep` drop-in before any other kernel boots. An unattended step
++  must stop, not continue, when a boot is unhealthy or the session does
++  not return. And a `boot.bin` test needs the stock copy on the ESP
++  itself, where recoveryOS can reach it.
++
+ ## Unblocking deep sleep: what to trace with macOS under m1n1 hv
+ 
+ 1. **The CYC_OVRD veto.** m1n1 refuses a guest CYC_OVRD write with
+@@ -876,8 +900,10 @@ Rollback:
+   the PMP driver would look the same): hold the power key, open Options, and in
+   recoveryOS's Terminal mount the ESP (`diskutil list`, then `diskutil mount`
+   the `EFI - OMARC` partition, nvme0n1p4 under Linux). Copy
+-  `m1n1/boot.bin.before-pmp-test` over `m1n1/boot.bin`. Booting macOS works
+-  as well.
++  `m1n1/boot.bin.before-pmp-test` over `m1n1/boot.bin`; that copy must have
++  been made on the ESP first (the install step above does it). This is the
++  path the 2026-10-15 test needed: m1n1 stopped at `failed to transfer pmp
++  tunable` and ran its USB proxy. Booting macOS works as well.
+ 
+ The fallback kernels share `boot.bin`, so they get the PMP DTB too: they are
+ not a fallback for this test. The fallback is the `boot.bin` copy.
+-- 
+2.55.0
+

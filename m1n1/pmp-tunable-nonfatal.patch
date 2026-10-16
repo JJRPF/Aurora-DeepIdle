@@ -1,0 +1,21 @@
+--- a/src/kboot.c	2026-10-16 17:36:25.919206946 -0400
++++ b/src/kboot.c	2026-10-16 17:36:25.936749350 -0400
+@@ -2148,8 +2148,16 @@
+             continue;
+         char prop_name[128];
+         snprintf(prop_name, sizeof(prop_name), "apple,tunable-%s", prop->name);
+-        if (fdt_setprop(dt, pmp_node, prop_name, prop->value, prop->size))
+-            bail("FDT: failed to transfer pmp tunable");
++        int ret = fdt_setprop(dt, pmp_node, prop_name, prop->value, prop->size);
++        if (ret) {
++            /*
++             * The pmp node stays disabled: boot without the PMP rather than not at all.
++             * -FDT_ERR_NOSPACE (-3) means the tunables outgrew the DT buffer headroom.
++             */
++            printf("FDT: failed to transfer pmp tunable %s (%d, %u bytes free), pmp left disabled\n",
++                   prop_name, ret, dt_bufsize - fdt_totalsize(dt));
++            return 0;
++        }
+     }
+     pmp_node = fdt_path_offset(dt, "pmp");
+     fdt_setprop_string(dt, pmp_node, "status", "okay");

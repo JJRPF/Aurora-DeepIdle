@@ -1,7 +1,7 @@
 From f098b4d2eb9feee01b07ddd12fadb97a819f0ab6 Mon Sep 17 00:00:00 2001
 From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
 Date: Wed, 14 Oct 2026 21:34:28 -0400
-Subject: [PATCH 07/37] arm64: dts: apple: t6020-j414s-nodcpext: disable the
+Subject: [PATCH 07/44] arm64: dts: apple: t6020-j414s-nodcpext: disable the
  DCPs' Type-C routes
 
 The routes inside the external DCPs are the mode-switch providers the

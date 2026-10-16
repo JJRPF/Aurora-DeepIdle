@@ -1,0 +1,18 @@
+kernel: 7.1.12-2-11.35-sep-ARCH+
+boot.bin: 3630adc3b3be173c stock (boot.bin.before-pmp-test)
+device tree:
+  CPU opp-microwatt entries: 0 (23 with the energy model, 0 stock)
+  pmp alias: no
+  dcpext aliases: dcpext0 dcpext1
+energy model:
+  sched_energy_aware: 1
+  energy model domains: none
+PMP:
+  apple_pmp bound: nothing
+cpuidle:
+  WFI: disable 0 on 10 CPUs
+  CPU PD: disable 0 on 10 CPUs
+  pd_residency_us: not in this kernel
+  time over 5s: WFI 83.9%, CPU PD 2.7%
+domains:
+  power domains: dispext0_cpu0=on dispext0_fe=on dispext0_sys=on atc3_usb=on atc2_usb=on atc1_usb=on atc0_usb=on disp0_cpu0=on disp0_fe=on disp0_sys=on ane_set4=off-0 ane_set3=off-0 ane_set2=off-0 ane_set1=off-0 ane_base=off-0 ane_td=off-0 ane_sys_mpm=off-0 ane_cpu=on pmp=on dispext1_cpu0=on dispext1_fe=on ane_sys=on dispext1_sys=on

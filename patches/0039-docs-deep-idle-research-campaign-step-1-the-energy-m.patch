@@ -1,0 +1,37 @@
+From ed048204b03147b53f9d4fd74b9442b617a8bf88 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Thu, 15 Oct 2026 18:51:39 -0400
+Subject: [PATCH 39/44] docs: deep-idle research: campaign step 1, the energy
+ model booted
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AuzUDcEeRJQ6RCdWW2XWLb
+---
+ docs/deep-idle-research.md | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/docs/deep-idle-research.md b/docs/deep-idle-research.md
+index 55508577ec27..88c5b3cbed11 100644
+--- a/docs/deep-idle-research.md
++++ b/docs/deep-idle-research.md
+@@ -642,6 +642,17 @@ watchdog), then stock again.
+   wake-up probe repeated the IPI cost (+9.5 us p50); timer wakes cost
+   more this time (+14 to +18 us p50, against +8 to +10 before).
+ 
++* **Step 1, E6 energy model** (`boot.bin.em-test`): the energy model
++  registered (23 CPU `opp-microwatt` entries; performance domains cpu0,
++  cpu4 and cpu7), with no errors. EAS on against off: 61 mW lower
++  (standard error 12 mW, lower in 15 of 15), with P-cluster busy time
++  0.11% against 0.39% and E-cluster 1.35% against 0.92%, so light work
++  moved to the E cores as expected. The fresh boot was much quieter than
++  step 0 (6.58 W, 0.6% busy against 8.61 W and 6.7%), and at that wake
++  rate menu already picks CPU PD 89% of the time, so PD always saved only
++  75 mW (standard error 7 mW). PD always's saving scales with the wake
++  rate: about 1 W on a busy desktop, almost nothing on a quiet one.
++
+ ## Unblocking deep sleep: what to trace with macOS under m1n1 hv
+ 
+ 1. **The CYC_OVRD veto.** m1n1 refuses a guest CYC_OVRD write with
+-- 
+2.55.0
+
