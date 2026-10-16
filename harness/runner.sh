@@ -35,7 +35,7 @@ finish() {
 n=$(cat $VAR/current 2>/dev/null || echo 0)
 line=$(sed -n "$((n + 1))p" $VAR/plan)
 [ -n "$line" ] || finish "plan done"
-read -r name image entry settings <<< "$line"
+read -r name image entry settings load <<< "$line"
 dir=$VAR/results/$n-$name
 mkdir -p $dir
 
@@ -69,14 +69,27 @@ python3 -I $LIB/deep-idle-check.py --seconds 5 > $dir/check.txt 2>&1
 journalctl -k -b > $dir/dmesg.txt 2>&1
 cat /proc/cmdline > $dir/cmdline.txt
 cp /sys/kernel/debug/pm_genpd/pm_genpd_summary $dir/genpd.txt 2>/dev/null
+# What m1n1 left for the PMP (the diagnostic m1n1 records its tunable copy in /chosen).
+DTB=/sys/firmware/devicetree/base
+{ for f in $DTB/chosen/asahi,pmp-tunables-*; do [ -e "$f" ] && { echo "== ${f##*/}"; od -An -tx1 "$f"; }; done
+  echo "== pmp node"; ls $DTB/soc/pmp@28e700000/ 2>&1; cat $DTB/soc/pmp@28e700000/status 2>/dev/null; echo
+  echo "== tunable bytes: $(cat $DTB/soc/pmp@28e700000/apple,tunable-* 2>/dev/null | wc -c)"; } > $dir/pmp-dt.txt 2>&1
 
 log "step $n $name: settling 180 s"
 sleep 180
 log "step $n $name: measuring ($settings)"
 IFS=, read -r -a args <<< "$settings"
+loadpid=""
+if [ -n "${load:-}" ]; then
+    $LIB/wakeload ${load//:/ } &
+    loadpid=$!
+    echo "wakeload ${load//:/ }" > $dir/load.txt
+    sleep 5
+fi
 nice -n 19 python3 -I $LIB/idle-ab.py --rounds ${ROUNDS:-15} --window 20 --log $dir/idle-ab.jsonl "${args[@]}" \
     > $dir/idle-ab.txt 2>&1
 echo "exit $?" >> $dir/idle-ab.txt
+[ -n "$loadpid" ] && kill $loadpid
 if [ -e $VAR/wakelat ]; then
     for s in "${args[@]}"; do
         python3 -I $LIB/apply-setting.py "$s" && for t in "timer 1 1000 2000" "timer 9 1000 2000" "ipi 1 2 1000 2000" "ipi 1 6 1000 2000"; do

@@ -23,11 +23,15 @@ machine and what it showed.
   already picks CPU PD 90% of the time and the gain is only 0.1-0.15 W.
   The Asahi kernel behaves the same (0.54 W at 2.8% busy). The cost is
   10-15 us of extra wake-up latency.
-* **A residency of 500 us gets most of it.** With the
-  `cpuidle_apple.pd_residency_us` patch, 500 us captured 93% of PD
-  always's saving on a quiet desktop. Idle intervals shorter than the
-  threshold stay in WFI and pay no latency. The busy-desktop sweep is
-  still to do.
+* **A target residency of 100 us gets nearly all of it.** With the
+  `cpuidle_apple.pd_residency_us` patch and a synthetic busy-desktop wake
+  load (`harness/wakeload.c`, 5-6% busy, about 1,700 wakes per CPU per
+  second), the saving grows with the share of idle time in CPU PD: 2 ms
+  saves 53 mW, 500 us 330 mW, 200 us 526 mW, 100 us 591 mW and PD always
+  628 mW. Wake latency rises to about 20-25 us p50 as soon as PD is used
+  at all and does not depend on the threshold (p99 at most 37 us), so
+  100 us is the recommended default: 94% of the saving, with WFI kept for
+  idles predicted shorter than that. The quiet-desktop sweep agrees.
 * **Energy-aware scheduling is off on T602x.** The CPU OPP tables have no
   `opp-microwatt`, so no energy model registers, and upstream Asahi has
   the same gap. This repo derives values from M2's (T8112, same cores)
@@ -35,11 +39,14 @@ machine and what it showed.
   ADT. Booted: the model registers, EAS moves light work from the P to the
   E cores, and idle power is 61 mW lower (15 of 15 rounds).
 * **The PMP is not booted on J414s, and turning it on stops the boot in
-  m1n1.** The PMP is the fabric and memory DVFS controller; Asahi measured
-  about 0.5 W saved by booting it on an M1 Pro. With the PMP DTB, m1n1's
-  `dt_set_pmp` fails to copy the ADT's PMP tunables into the DT (likely
-  out of DT space) and refuses to boot. `m1n1/pmp-tunable-nonfatal.patch`
-  makes that failure name its cause and boot without the PMP.
+  m1n1, because the DT runs out of space.** The PMP is the fabric and
+  memory DVFS controller; Asahi measured about 0.5 W saved by booting it
+  on an M1 Pro. With the PMP DTB, m1n1's `dt_set_pmp` copies the ADT's 81
+  PMP tunables into the DT. They need 15,850 bytes, and only 12,936 of
+  m1n1's 96 KiB DT headroom are left by then (measured with
+  `m1n1/pmp-diag.patch`). The copy fails and m1n1 refuses to boot.
+  Upstream m1n1 is the same. `m1n1/pmp-tunable-nonfatal.patch` makes that
+  failure name its cause and boot without the PMP.
 * **Power domains stay on for nothing.** In s2idle, every display
   coprocessor's domains stay on, the external ones included with nothing
   attached. Awake, the Neural Engine's domains stay on because its DARTs
@@ -54,6 +61,7 @@ machine and what it showed.
 
 The energy model (E6), the residency kernel (E7), the no-external-DCP DTB
 (E4) and the PMP DTB (E1) were all booted in an unattended campaign
+(three runs, 2026-10-15/16)
 (`harness/`, results in `data/campaign/`). The write-up has each result,
 and what went wrong on the way.
 

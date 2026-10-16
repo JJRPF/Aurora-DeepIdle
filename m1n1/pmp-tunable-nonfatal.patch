@@ -13,7 +13,7 @@
 +             * -FDT_ERR_NOSPACE (-3) means the tunables outgrew the DT buffer headroom.
 +             */
 +            printf("FDT: failed to transfer pmp tunable %s (%d, %u bytes free), pmp left disabled\n",
-+                   prop_name, ret, dt_bufsize - fdt_totalsize(dt));
++                   prop_name, ret, fdt_totalsize(dt) - fdt_off_dt_strings(dt) - fdt_size_dt_strings(dt));
 +            return 0;
 +        }
      }

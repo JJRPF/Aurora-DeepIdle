@@ -1,8 +1,5 @@
 # Deep idle work log (GH-1-DeepIdle)
 
-Copied from the machine's `~/Work/deep-idle-build/WORKLOG.md`. Paths under `~/Work` are
-that machine's build and staging directories; `idle_ab*` files are in `data/`.
-
 Running log of what was run on the live machine, what it changed, and results.
 Nothing here installs, reboots, or writes hardware registers. Times are local.
 
@@ -250,3 +247,67 @@ Nothing here installs, reboots, or writes hardware registers. Times are local.
   Total System 7.96 W, pd-always -0.535 W (se 0.181, 15/15); Heatpipe -0.301 (se 0.126, 12/15). PD residency
   75.6% -> 97.3%. wakelat timer p50 7.5/7.3 -> 24.4/19.9. PD always helps on the Asahi kernel too.
 - Campaign over: runner FINISHED (stop), plan and resume marker removed, boot.bin stock, next_entry empty.
+
+## 2026-10-16 18:0x-18:2x: run 3 prepared (owner: "clear to continue and reboot")
+- Busy-desktop residency sweep needs a reproducible load: ~/Work/deepidle-harness/wakeload.c (threads sleep an
+  exponential time, then spin). 10 threads, mean 650 us, 15 us work: 5.8% busy, 1,722 idle entries/CPU/s
+  (busy desktop of run 1 step 0: 6.7%, ~1,500). Idle machine: 1.3%, 275/CPU/s. Runner: optional 5th plan field.
+- PMP diagnosis without risk to Linux: m1n1 rebuilt from ~/Work/m1n1 (unpatched rebuild is byte-identical to the
+  installed m1n1.bin) with m1n1-pmp-diag.patch: dt_set_pmp measures the tunables (count, flagged sizes with the ADT
+  high bit, max size, bytes needed, free DT space before/after), copies them only if they fit with 16K spare,
+  records it all in /chosen asahi,pmp-tunables-diag (+ -failed), and never enables the PMP.
+  DTB: rel-11.35 t6020-j414s plus only `aliases { pmp = &pmp; }` (dtc diff: that one line); the stock recipe
+  (cpp + kernel dtc, no -@) reproduces t6020-j414s.dtb byte for byte. boot.bin.pmpdiag-test 225043d007b0cbc2 =
+  diag m1n1 + stock chain with DTB #31 swapped (113 DTBs, U-Boot tail unchanged).
+- Found while writing it: in an opened libfdt tree fdt_totalsize() is the buffer size, so the free space is
+  totalsize - off_dt_strings - size_dt_strings; the earlier draft's "bytes free" would always print 0 (fixed below).
+- rearm3.sh also copies the stock image to the ESP as m1n1/boot.bin.before-pmp-test (recoveryOS fallback).
+- 2026-10-16 18:25:07 run 3 armed by owner (rearm3.sh via pkexec); ESP has m1n1/boot.bin.before-pmp-test (3630adc3). Rebooting into default.
+
+## 2026-10-16 18:25-18:41: run 3 step 0 calib (Aurora 11.35, stock image, wakeload 10:650:15)
+- Healthy boot (booted-sha 3630adc3, module tree, SMC hwmon, /boot mounted). Owner started using the machine
+  during the measurement (round 7: 14-17% busy, both settings; round 8 slightly busy); the rest ran at 4-6%.
+- Total System: default 7.94 W, pd-always 7.23 W, paired -0.713 W (sd 0.51, se 0.133, lower in 15/15);
+  median -0.594. Rounds 9-14 (quiet owner): -0.55 to -0.64 each. Heatpipe (SoC) -0.600 (se 0.096, 14/15).
+- Under the synthetic wake load menu picks PD only 8.2% of idle (WFI 85.7%), against ~90% on a quiet boot:
+  that is why PD always saves ~0.6-0.7 W here and ~0.15 W idle. The load reproduces the busy-desktop result.
+- Busy 5.2% -> 6.3% (WFI exit is cheaper, so the same work shows as more busy time in PD). Clocks barely move.
+- wakelat p50 timer 1: 7.4 -> 24.3 us; ipi 1->6: 12.0 -> 19.5; p99 at most 37 us.
+- Owner (18:3x): "I am going to start actively using the computer, so DO NOT REBOOT! Send me a notification via
+  agent-notify". Notified at 18:41 (agent-notify send). No ack-0: if none by 19:10:44 the runner FINISHES (restores
+  stock, unsets next_entry=deepidle-test-kernel, no reboot) and step 1/2 need a re-arm.
+- 18:42 owner: "Good to reboot!" (one-time). Resume prompt step 4 now requires an agent-notify + owner go before each ack. ack-0 touched.
+
+## 2026-10-16 18:42-19:21: run 3 step 1 loadsweep (test kernel 7.1.12-2-11.35-sep-ARCH-deepidle, stock image, wakeload 10:650:15)
+- Healthy boot. Rounds 0, 1, 9 had owner activity (max busy 8-14%); the other 12 ran at 5.3-5.6%.
+- Total System, paired vs default (all 15 rounds mean / quiet 12 rounds median):
+  res=2000 +0.079 / -0.053 (PD 19%); res=500 -0.307 / -0.330 (PD 57%); res=200 -0.291 / -0.526 (PD 80%);
+  res=100 -0.362 / -0.591 (PD 88%); pd-always -0.433 / -0.628 (PD 93%). Default: 8.68 W, PD 10.7%.
+- Heatpipe (SoC), quiet median: -0.04, -0.27, -0.48, -0.55, -0.56. Cleaner than Total System (se 0.07-0.09).
+- Saving ~ linear in PD residency: about 7 mW per percentage point of idle moved from WFI to PD at this load.
+- wakelat timer-1 p50: default 7.4, res=2000 7.6, res=500 21.3, res=200 20.3, res=100 24.4, pd-always 24.6 us;
+  p99 at most 37 us everywhere. ipi p50 rises to 16-20 us from res=2000 on. Latency cost is the same for any
+  residency <= 500 us, so it does not argue for a longer one.
+- Busy 4.5 -> 6.1% (PD exit costs show up as busy time); clocks flat.
+- Recommendation: pd_residency 100 us. It gets 94% of PD always on quiet rounds (-0.59 vs -0.63 W), the same
+  latency as PD always, and keeps WFI for predicted idles below 100 us. 2000 us (an earlier candidate) does nothing
+  under load. Run 2's quiet sweep agrees (res=100 -158 mW vs PD always -157).
+- 19:21 step 2 pmpdiag armed (ESP boot.bin = 225043d0, next_entry=deepidle-stock-panic). Owner notified 19:21;
+  waiting for their go before ack-1. Deadline 19:51 (runner then restores stock, no reboot).
+- 19:27 owner: "Good to reboot!" (one-time). ack-1 touched -> step 2 pmpdiag.
+- 19:31 owner: "After this test, commit your findings to the GH repo, and start doing that whenever you have significant findings. you can now reboot as needed without asking."
+
+## 2026-10-16 19:28-19:43: run 3 step 2 pmpdiag (diag m1n1 + pmp-alias DTB, Aurora kernel via deepidle-stock-panic)
+- Booted 225043d0 (early restore put stock back), healthy; check.txt: pmp alias yes, apple_pmp bound nothing,
+  pmp node status "disabled", no apple,tunable-* properties (as designed: the diag build never enables the PMP).
+- /chosen asahi,pmp-tunables-diag: ret 1 (skipped), 81 properties, 0 with the ADT high-bit flag, largest 3,348
+  bytes, 0 written, need 15,850 bytes, free 12,936 before and after. No -failed property (nothing attempted).
+- So E1's m1n1 stop is confirmed as DT space: the 81 tunables need 15,850 bytes and only 12,936 of the 96 KiB
+  headroom are left when dt_set_pmp runs (dt_set_display, _gpu, _sep etc. run first and use the rest). The stock
+  loop failed with -FDT_ERR_NOSPACE about 80% of the way through. Upstream AsahiLinux/m1n1 main (fetched
+  2026-10-16) and aurora/main have the same 6 * SZ_16K headroom and the same bail: still unfixed.
+- Fix: raise the headroom (10 * SZ_16K) and keep the copy non-fatal. pmpfix build next.
+- Quiet A/B on this boot (owner using the machine, 3.0% busy, default PD 73%): pd-always -0.449 W (se 0.174,
+  14/15), Heatpipe -0.495 (se 0.164, 15/15). wakelat p50 timer 7.3 -> 23.7 us.
+- Runner FINISHED (plan done after step 2); ESP boot.bin stock 3630adc3, next_entry unset.
+- Owner 19:3x: reboots allowed as needed again; commit findings to the GitHub repo whenever significant.

@@ -1,0 +1,67 @@
+diff --git i/src/kboot.c w/src/kboot.c
+index 5eee48a6..7449a9ee 100644
+--- i/src/kboot.c
++++ w/src/kboot.c
+@@ -2142,17 +2142,58 @@ static int dt_set_pmp(void)
+         fdt_setprop_u32(dt, pmp_node, "apple,dram-capacity", dram_capacity))
+         bail("FDT: failed to set dram capacity\n");
+ 
++    /*
++     * Deep idle diagnostic build: measure what the tunables need, copy them only if they fit
++     * with 16K to spare, record the outcome in /chosen and never enable the PMP.
++     */
++    u32 count = 0, flagged = 0, need = 0, max_size = 0, written = 0;
+     ADT_FOREACH_PROPERTY(adt, pmp_iop_anode, prop)
+     {
+         if (skip_pmp_prop(prop->name))
+             continue;
+         char prop_name[128];
+         snprintf(prop_name, sizeof(prop_name), "apple,tunable-%s", prop->name);
+-        if (fdt_setprop(dt, pmp_node, prop_name, prop->value, prop->size))
+-            bail("FDT: failed to transfer pmp tunable");
++        u32 size = prop->size & 0x7fffffff;
++        if (prop->size & 0x80000000)
++            flagged++;
++        if (size > max_size)
++            max_size = size;
++        need += sizeof(struct fdt_property) + ALIGN_UP(size, 4) + strlen(prop_name) + 1;
++        count++;
++    }
++    u32 free_before = fdt_totalsize(dt) - fdt_off_dt_strings(dt) - fdt_size_dt_strings(dt);
++    int ret = 1; /* 1: skipped, would not fit or a size is flagged */
++    char failed[128] = "";
++    if (!flagged && need + SZ_16K <= free_before) {
++        ret = 0;
++        ADT_FOREACH_PROPERTY(adt, pmp_iop_anode, prop)
++        {
++            if (skip_pmp_prop(prop->name))
++                continue;
++            char prop_name[128];
++            snprintf(prop_name, sizeof(prop_name), "apple,tunable-%s", prop->name);
++            ret = fdt_setprop(dt, pmp_node, prop_name, prop->value, prop->size);
++            if (ret) {
++                strcpy(failed, prop_name);
++                break;
++            }
++            written++;
++        }
++    }
++    u32 free_after = fdt_totalsize(dt) - fdt_off_dt_strings(dt) - fdt_size_dt_strings(dt);
++    printf("FDT: pmp tunables: ret %d, %u props (%u flagged, max %u bytes), %u written, need %u, "
++           "free %u -> %u%s%s\n",
++           ret, count, flagged, max_size, written, need, free_before, free_after,
++           failed[0] ? ", failed at " : "", failed);
++    fdt32_t diag[8] = {cpu_to_fdt32(ret),        cpu_to_fdt32(count),       cpu_to_fdt32(flagged),
++                       cpu_to_fdt32(max_size),   cpu_to_fdt32(written),     cpu_to_fdt32(need),
++                       cpu_to_fdt32(free_before), cpu_to_fdt32(free_after)};
++    int chosen = fdt_path_offset(dt, "/chosen");
++    if (chosen >= 0) {
++        fdt_setprop(dt, chosen, "asahi,pmp-tunables-diag", diag, sizeof(diag));
++        if (failed[0])
++            fdt_setprop_string(dt, chosen, "asahi,pmp-tunables-failed", failed);
+     }
+-    pmp_node = fdt_path_offset(dt, "pmp");
+-    fdt_setprop_string(dt, pmp_node, "status", "okay");
+     return 0;
+ }
+ 
