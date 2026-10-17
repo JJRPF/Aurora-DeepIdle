@@ -56,16 +56,28 @@ machine or in source is marked as an unknown.
   domains on and the same wake latency. Together with PD always, the busy
   desktop went from 7.52 to 5.69 W. Asahi measured 0.5 W on an M1 Pro.
   Tested as a module loaded after boot, about 15 minutes per boot; booting
-  it built in, suspend and long runs are not tested yet.
-* **The s2idle drain is power left on, not wakes.** s2idle wakes every CPU
-  about 3.7 times a second, but all of that awake time adds up to about 60 s
-  in 38.5 h of suspend, which is milliwatts. What stays on is visible in this
-  boot's power-domain counters: the internal display and both external
-  display pipelines (DCP CPU, front end and system domains) never powered off
-  in any of four suspends, because the DCP driver marks itself a wakeup path
-  to keep its domains on ("we do not support full shutdown properly yet").
-  Both external DCPs stay up with nothing plugged in. The probe now traces
-  the wake source and lists the domains left on, for the next lid close.
+  it built in and long runs are not tested yet. Suspend and resume with it
+  work (one night).
+* **s2idle drains about 1.4 W on this machine, with or without the PMP.**
+  One night with the PMP running (9.6 h suspended) used 13.98 Wh, 1.39-1.46
+  W; a stock suspend on battery from 2026-10-10 (1.7 h, from the owner's
+  `mac-power-telemetry` log) drained 1.41 W. That is 23% of the battery's
+  60.5 Wh a night, about 1.7 days from full to empty with the lid closed.
+  The PMP's 0.9 W awake saving does not carry into s2idle (the driver has
+  no suspend hook, so the PMP is never told the system is asleep). The
+  0.9 W quoted here before was a J415 figure from elsewhere, not this
+  machine.
+* **What wakes s2idle is the AOP; the drain is power left on, not wakes.**
+  The SoC woke 3.2 times a second, 61% of the time from the AOP's mailbox
+  (`2a6408000`, the always-on processor serving the ambient-light and
+  lid-angle sensors and the microphones) and 39% from function-call IPIs that
+  its RTKit receive work sends to other CPUs. All that awake time is
+  milliwatts. What stays on through every suspend is 13 power domains that
+  the kernel may power off: the internal display and both external display
+  pipelines (DCP CPU, front end and system domains), because the DCP driver
+  marks itself a wakeup path to keep its domains on ("we do not support full
+  shutdown properly yet"), even with nothing plugged in, plus PCIe, `afr` and
+  `sio`.
 * **Awake, four groups of power domains stay on for nothing.** The Neural
   Engine's (its DARTs are pinned by a blanket runtime-PM link to a device
   with no driver), all four USB-C ports' USB blocks with nothing plugged
@@ -182,8 +194,10 @@ which stops only while every CPU sleeps (`tick_freeze()` suspends
 timekeeping when the last CPU freezes, `kernel/time/tick-common.c` 519-547).
 So a CPU's s2idle time is the time some CPU was awake while it slept: 40-66 s
 per CPU over 38.5 h, about 0.05%, or about 130 us per wake. Even at 5 W while
-awake that is a few mW on average. **The 0.9 W drain is power left on during
-the sleep, not the wakes.**
+awake that is a few mW on average. **Whatever the drain is, it is power left
+on during the sleep, not the wakes.** (An earlier version of this note called
+it 0.9 W; that was a J415 figure from elsewhere. The first measurement on this
+machine is under the campaign below: 1.46 W with the PMP running.)
 
 What is left on: each power domain's debugfs `idle_states` usage counts its
 power-offs. GPU, ANE, NVMe (`ans2`), audio, the USB controllers, SIO's CPU
@@ -815,9 +829,72 @@ watchdog), then stock again.
   warnings, and the desktop, Wi-Fi and this session kept working.
 
   Not covered yet: the PMP built in and enabled from boot (as it would be
-  by default), s2idle and resume with the PMP, the full E1 DTB with the
-  display and media power domains moved onto PMP report entries, and runs
-  longer than about 25 minutes.
+  by default), the full E1 DTB with the display and media power domains
+  moved onto PMP report entries, and runs longer than about 25 minutes.
+
+### Overnight s2idle with the PMP (2026-10-17)
+
+The boot of run 4's step 3 (test kernel, `boot.bin.pmpfix-test`, `modprobe
+pmp` done) stayed up after the campaign. After 1.7 h awake, the owner
+unplugged the charger, ran `sleep-drain-probe.py arm` and closed the lid
+overnight; `report` the next morning
+(`~/Work/deep-idle-build/s2idle-pmp-night1.txt`):
+
+| | |
+|---|---|
+| Window | 9.58 h, of it 9.56 h suspended, one suspend |
+| Battery | 48.19 → 34.21 Wh, 13.98 Wh used |
+| Average drain | **1.458 W** |
+| Whole-SoC wakes | 111,238 (3.2 per second) |
+| First interrupt of a wake | AOP mailbox `2a6408000` 61.3%, function-call IPI 38.5% |
+| Wakeup-source events | battery 6, AC 6, USB-C PD 2, SMC input 2; none woke the machine |
+
+Suspend and resume worked with the PMP running: the machine woke on lid
+open, the display, Wi-Fi and the session came back, and the PMP was still
+bound. The 1.46 W includes the 1.5 min awake around the lid close, and
+the window began on AC (status "Not charging" at arm), so if anything the
+suspended drain is slightly higher.
+
+The wakes come from the AOP, the always-on coprocessor. Its mailbox fires
+about 6 times a second awake and 3.6 times a second in s2idle, and each
+message runs `apple_rtkit_rx_work`, which then wakes another CPU with a
+function-call IPI. The AOP serves the ambient-light sensor (the driver
+arms it at a 200 ms report interval, `aop_als.rs`), the lid-angle sensor
+and the microphones, and none of these drivers, nor `aop.rs`, has a
+suspend hook, so the sensors keep reporting through the night. At about
+130 µs per wake this is milliwatts, not the drain; stopping the reports
+in suspend is a small, cheap fix.
+
+The same 13 power domains stayed on as in the earlier counters: the three
+DCPs (`disp0_*`, `dispext0_*`, `dispext1_*`), `apcie_gp`,
+`apcie_gpshr_sys`, `afr` and `sio`. That makes E4 (external DCPs off) the
+next lead for the drain.
+
+Stock, for comparison: the owner's `mac-power-telemetry` timer
+(`~/.local/bin/mac-power-telemetry`, every 3 minutes, battery energy
+from sysfs) logs every suspend. Most of them were on AC and show nothing.
+Two stock suspends on the Aurora kernel and stock `boot.bin` were on
+battery:
+
+| Suspend (journal) | Hours | Energy | Drain |
+|---|---|---|---|
+| 2026-10-10 14:17-16:01 | 1.74 | 36.64 → 33.98 Wh, less ~0.2 Wh awake before the lid closed | **1.41 W** |
+| 2026-10-10 22:55 - 10-11 08:36 | 9.68 | 47.76 → 44.32 Wh, ended on AC ("Not charging") | ≥ 0.35 W (charger plugged in at an unknown time) |
+| 2026-10-16 23:06 - 10-17 08:40, PMP | 9.56 | 48.19 → 34.21 Wh (probe) | **1.39-1.46 W** |
+
+So the PMP does not change the s2idle drain, as far as one short stock
+sample can say: about 1.4 W either way. The gauge updates slowly after a
+resume (two readings a second apart differ by 0.08 Wh), so short windows
+carry an error of a few hundred mW. The PMP's awake saving does not
+carry over: whatever it trims while awake is already idle in s2idle, or the
+PMP does not act because nothing tells it the system is suspended.
+
+What 1.4 W is made of is not known. The next lid close stacks every
+optional block off (`~/Work/deepidle-harness/s2idle-alloff.sh`: Wi-Fi and
+Bluetooth blocked, the AOP sensor drivers unloaded, the SD reader removed)
+to bound what driver work could reach; if that stays near 1.4 W, the
+floor is the SoC itself (CPUs in retention, fabric and DRAM awake), which
+only the SoC sleep protocol (S2R) can lower.
 
 ## Unblocking deep sleep: what to trace with macOS under m1n1 hv
 

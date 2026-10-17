@@ -1,0 +1,82 @@
+window 9.58 h: suspended 9.56 h, awake 1.5 min; suspends 1; mem_sleep [s2idle]
+battery: 48.19 -> 34.21 Wh (13.976 Wh used), status Not charging -> Discharging
+average drain over the window: 1.458 W
+s2idle entries per suspended second (each is one wake of that CPU):
+  cpu0:     3.62/s  (CPU PD 124607)
+  cpu1:     6.37/s  (CPU PD 219315)
+  cpu2:     4.43/s  (CPU PD 152454)
+  cpu3:     3.64/s  (CPU PD 125385)
+  cpu4:     3.62/s  (CPU PD 124603)
+  cpu5:     3.62/s  (CPU PD 124615)
+  cpu6:     3.62/s  (CPU PD 124601)
+  cpu7:     3.62/s  (CPU PD 124604)
+  cpu8:     3.62/s  (CPU PD 124606)
+  cpu9:     3.62/s  (CPU PD 124613)
+interrupts over the window (top 12; includes the awake time):
+      342530 36 AIC-FIQ 0 Level arch_timer (9.95 per suspended s)
+      255995 IPI1 Function call interrupts (7.44 per suspended s)
+      124943 56 AIC2 66152 Level 2a6408000.mbox-recv (3.63 per suspended s)
+        7300 96 AIC2 66471 Level 389c08000.mbox-recv (0.21 per suspended s)
+        5747 117 AIC2 66743 Level 39b108000.spi (0.17 per suspended s)
+        4302 103 AIC2 67368 Level nvme-apple (0.13 per suspended s)
+        4008 IPI0 Rescheduling interrupts (0.12 per suspended s)
+        3276 62 AIC2 66682 Level 406408000.mbox-recv (0.10 per suspended s)
+        2434 54 AIC2 66401 Level 2a2408000.mbox-recv (0.07 per suspended s)
+        2098 124 dockchannel-irqc 3 Edge apple-dockchannel-rx (0.06 per suspended s)
+        1193 143 PCI-MSI-0000:01:00.0 0 Edge brcmf_pcie_intr (0.03 per suspended s)
+          99 119 AIC2 66756 Level pasemi_apple_i2c (0.00 per suspended s)
+wakeup sources (events, wakeups):
+       6      0 macsmc-battery
+       6      0 macsmc-ac
+       2      0 tps6598x-source-psy-0-003a
+       2      0 macsmc-input
+power domains not always-on that stayed on through a suspend (13; 80 always-on domains not listed):
+  afr apcie_gp apcie_gpshr_sys disp0_cpu0 disp0_fe disp0_sys dispext0_cpu0 dispext0_fe dispext0_sys dispext1_cpu0 dispext1_fe dispext1_sys sio
+s2idle trace: 111238 whole-SoC wakes
+what woke the SoC (first interrupt on the waking CPU):
+     68148  61.3%  2a6408000.mbox-recv
+     42856  38.5%  IPI Function call interrupts
+        36   0.0%  2a2408000.mbox-recv
+       198   0.2%  (no interrupt traced)
+interrupts while suspended (count, per wake):
+    184034    1.65  arch_timer
+     89370    0.80  IPI
+     68325    0.61  2a6408000.mbox-recv
+        36    0.00  2a2408000.mbox-recv
+IPIs while suspended (count, per wake):
+     89354    0.80  Function call interrupts
+        16    0.00  Rescheduling interrupts
+softirqs while suspended (count, per wake):
+     49792    0.45  SCHED
+       811    0.01  TIMER
+        33    0.00  RCU
+hrtimers while suspended (count, per wake):
+    184008    1.65  tick_nohz_handler
+        45    0.00  watchdog_timer_fn
+        26    0.00  dl_task_timer
+        16    0.00  inactive_task_timer
+         6    0.00  timerfd_tmrproc
+         1    0.00  posix_timer_fn
+         1    0.00  hrtimer_wakeup
+timers while suspended (count, per wake):
+       340    0.00  mix_interrupt_randomness
+       229    0.00  delayed_work_timer_fn
+       194    0.00  tcp_orphan_update
+        38    0.00  writeout_period
+        22    0.00  tcp_keepalive_timer
+        19    0.00  tcp_write_timer
+        12    0.00  poll_timer_fn
+         4    0.00  blk_stat_timer_fn
+         4    0.00  process_timeout
+         2    0.00  blk_rq_timed_out_timer
+work items while suspended (count, per wake):
+    111237    1.00  timerfd_resume_work
+     88609    0.80  apple_rtkit_rx_work
+       132    0.00  psi_avgs_work
+        29    0.00  do_cache_clean
+        28    0.00  vmstat_update
+        13    0.00  macsmc_power_critical_work
+        11    0.00  vmstat_shepherd
+        10    0.00  flush_memcg_stats_dwork
+         8    0.00  neigh_managed_work
+         7    0.00  wb_workfn

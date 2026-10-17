@@ -376,3 +376,15 @@ Nothing here installs, reboots, or writes hardware registers. Times are local.
 - PD always + PMP: 7.52 -> 5.69 W (-1.82 W, -24%). Additive.
 - wakelat p50 unchanged except ipi 1->6 default 12.3 -> 14.2 (step 1: 10.9 -> 14.5; pd-always 18.8-19.1 -> 21.2).
 - FINISHED: plan done after step 3. ESP boot.bin stock 3630adc3, next_entry unset, plan removed.
+
+## 2026-10-17 s2idle night 1 (PMP running)
+
+- Boot of run 4 step 3 kept (test kernel, pmpfix-test image, pmp bound). Owner: probe arm 23:05, lid closed 23:05:57, opened 08:39:55; report in `s2idle-pmp-night1.txt`.
+- 9.58 h window, 9.56 h suspended; 48.19 -> 34.21 Wh; 1.458 W (telemetry log: 48.188 -> 34.667 over 9.61 h incl. ~2.5 min awake, ~1.39 W suspended).
+- Wakes 111,238 (3.2/s): first irq AOP mbox 2a6408000 61.3%, IPI function call 38.5%. apple_rtkit_rx_work 0.8/wake. AOP mbox awake 6/s. aop_als arms a 200 ms interval; aop_als/aop_las/aop.rs have no suspend hooks.
+- Domains on through suspend: same 13 (disp0_*, dispext0_*, dispext1_*, apcie_gp, apcie_gpshr_sys, afr, sio).
+- Resume fine: pmp still bound, Wi-Fi reconnected. Bluetooth "hci0: command 0x0c01 tx timeout" x2 on resume; also seen on 5 of 24 earlier boots with resumes (stock), so not the PMP.
+- Correction: the 0.9 W s2idle figure was a J415 number from elsewhere, not this machine.
+- Stock comparison from ~/.local/share/mac-power-telemetry/sleep.jsonl (3-min sysfs energy ticks): 2026-10-10 14:17-16:01 (Aurora kernel, stock image, on battery) 36.64 -> 33.98 Wh, ~1.41 W after the awake minute. 10-10 night 22:55-08:36 ended on AC: >= 0.35 W only. Others on AC.
+- => PMP does not change s2idle drain (~1.4 W either way). macsmc-rtc has no wakealarm: suspend tests need lid closes.
+- Next: harness/s2idle-alloff.sh (rfkill all, rmmod aop_als aop_las, remove SD reader 02:00.0) for one lid close.

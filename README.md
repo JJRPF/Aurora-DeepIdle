@@ -25,6 +25,14 @@ machine and what it showed.
   wake latency did not change, and nothing logged a warning. With PD
   always as well, the busy desktop went from 7.52 to 5.69 W (24% less).
   A control boot with nothing loaded drifted at most 80 mW.
+* **s2idle drains about 1.4 W, and the PMP does not change it.** One
+  night with the PMP running (9.6 h, `data/s2idle/`) drained 1.39-1.46 W,
+  and a stock suspend on battery 1.41 W: 23% of the battery a night, about
+  1.7 days from full with the lid closed. Suspend and resume work with
+  the PMP. The 3.2 wakes a second come from the AOP (ambient-light and
+  lid-angle sensor reports; those drivers have no suspend hooks) and cost
+  milliwatts; the drain is power left on. `harness/s2idle-alloff.sh`
+  bounds how much of it driver work could reach.
 * **CPU PD on every idle entry saves up to about 1 W, depending on the
   wake rate.** The `apple_idle` driver's "CPU PD" state (deep WFI with
   retention, the state macOS idles in) has a 10 ms target residency, so on
@@ -77,7 +85,7 @@ and what went wrong on the way.
    fit (`m1n1/pmp-tunable-nonfatal.patch`). An upstream issue.
 2. J414s (and likely the other T602x boards): enable the PMP in the DT,
    once 1 is in. Still to test: the PMP enabled from boot with the driver
-   built in, s2idle and resume, and long runs.
+   built in, and long runs. s2idle and resume work (one night).
 3. `cpuidle-apple`: a CPU PD target residency of 100 us instead of 10 ms.
 4. The T602x CPU energy model (`opp-microwatt`), so EAS runs: 61 mW at
    idle, more for light loads.
