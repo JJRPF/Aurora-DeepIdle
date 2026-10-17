@@ -33,6 +33,16 @@ machine and what it showed.
   lid-angle sensor reports; those drivers have no suspend hooks) and cost
   milliwatts; the drain is power left on. `harness/s2idle-alloff.sh`
   bounds how much of it driver work could reach.
+* **macOS tells the PMP when the system sleeps; Linux never does.** Read
+  from the public macOS 13.5 J414s kernelcache (symbols intact) and device
+  tree: the full order of the platform sleep and quiesce actions, the SMC's
+  `MBSE` handshake (`slpw`, `slpa`, wake `waka` with an `MBSW` wake bitmap),
+  PMGR's last step (a write to an always-on PMGR block Linux does not map),
+  and the PMP's whole sleep action: RTKit IDLE (0x201), then INIT on wake,
+  which is Linux's unused `apple_rtkit_idle()`. `deepidle2`
+  (`patches/deepidle2-pmp-s2idle-idle.patch`, `harness/deepidle2/`) adds that
+  to s2idle; built, not yet booted. Tools in `tools/macos-re/` (no Apple
+  files in this repo).
 * **CPU PD on every idle entry saves up to about 1 W, depending on the
   wake rate.** The `apple_idle` driver's "CPU PD" state (deep WFI with
   retention, the state macOS idles in) has a 10 ms target residency, so on
@@ -113,6 +123,8 @@ makes it persistent: copy it to `/etc/tmpfiles.d/`.
 | `tools/t6020-cpu-em.py` | Derives T602x CPU `opp-microwatt` from T8112's measurements, writes them into the DT |
 | `tools/cpuidle-pd-always.tmpfiles.conf` | Opt-in rule for "PD always" at boot |
 | `tools/tests/` | Unit tests for all of the above |
+| `tools/mac-power-telemetry` | The owner's battery telemetry, now logging every suspend (logind delay lock, coulomb counter); `tools/mac-power-telemetry-watch.service` |
+| `tools/macos-re/` | Reading a public macOS kernelcache: remote IPSW extraction, IM4P, chained-pointer fixups, fileset kexts, vtables, Ghidra headless scripts |
 | `dts/` | The opt-in J414s variants: PMP on, and no external DCPs (copies; they live in the kernel tree) |
 | `patches/` | The kernel tree changes as a `git format-patch` series |
 | `data/` | Raw A/B and latency runs (JSON lines and reports), see `data/README.md`; `data/campaign/` holds the booted experiments |

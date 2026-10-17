@@ -388,3 +388,17 @@ Nothing here installs, reboots, or writes hardware registers. Times are local.
 - Stock comparison from ~/.local/share/mac-power-telemetry/sleep.jsonl (3-min sysfs energy ticks): 2026-10-10 14:17-16:01 (Aurora kernel, stock image, on battery) 36.64 -> 33.98 Wh, ~1.41 W after the awake minute. 10-10 night 22:55-08:36 ended on AC: >= 0.35 W only. Others on AC.
 - => PMP does not change s2idle drain (~1.4 W either way). macsmc-rtc has no wakealarm: suspend tests need lid closes.
 - Next: harness/s2idle-alloff.sh (rfkill all, rmmod aop_als aop_las, remove SD reader 02:00.0) for one lid close.
+
+## 2026-10-17 macOS 13.5 sleep path (static) and deepidle2 (PMP s2idle hook)
+- Telemetry: ~/.local/bin/mac-power-telemetry now has `watch` (mac-power-telemetry-watch.service, logind delay
+  lock): pre/post-suspend snapshots, coulomb counter (charge_counter is mA*s), suspended time, context, top IRQs.
+  /etc/systemd/system-sleep hooks never run on systemd 261 (only /usr/lib/systemd/system-sleep).
+- Policy: Aurora Silicon (not Asahi): decompiling public macOS OK; never contact upstream.
+- macOS 13.5 22G74 J414s files in ~/Work/macos-re (local only). Kexts have symtabs. Tools: rzip.py, im4p.py,
+  kcfixups.py (chained ptrs), fileset.py, kdis.py, vtable.py; Ghidra 12.1.4 (decompiler built for arm64),
+  light project gproj3 + ghidra-run3.sh.
+- Findings in docs: sleep/quiesce action order; SMC slpw/WKTP/slpa/waka + MBSW; PMP = RTKit IDLE 0x201 / INIT
+  0x220 (= apple_rtkit_idle/wake, unused for PMP in Linux); PMGR quiesceHW ends with MPMGR_AON(0x29e5c0000)+0x4000=1.
+- deepidle2 built (~/Work/deepidle-11.35, LOCALVERSION=-deepidle2, patch pmp-s2idle-idle.patch), staged in
+  staging-deepidle2. Owner installs: sudo bash ~/Work/deepidle-harness/deepidle2/install.sh (arms one boot with
+  boot.bin.pmpfix-test + next_entry; early unit restores stock; smoke unit runs 3 pm_test=platform cycles).
