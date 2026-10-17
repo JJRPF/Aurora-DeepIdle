@@ -1,0 +1,11 @@
+[Unit]
+Description=deepidle2 test: PMP s2idle hook smoke test (once)
+After=graphical.target
+ConditionPathExists=/var/lib/deepidle/deepidle2-armed
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/deepidle/deepidle2-smoke.sh
+
+[Install]
+WantedBy=graphical.target

@@ -1,0 +1,223 @@
+--- a/drivers/soc/apple/pmp.rs	2026-10-17 10:37:13.295839950 -0400
++++ b/drivers/soc/apple/pmp.rs	2026-10-17 10:38:14.820585321 -0400
+@@ -396,9 +396,46 @@
+     }
+ }
+ 
++/// s2idle hook (pmp-sleep.c): put the PMP's RTKit into IDLE, as macOS does
++/// while the system sleeps.
++unsafe extern "C" fn pmp_sleep_idle(ctx: *mut core::ffi::c_void) -> core::ffi::c_int {
++    // SAFETY: `ctx` is the `PmpData` registered in probe; PmpDriver unregisters
++    // it before the Arc can drop.
++    let data = unsafe { &*(ctx as *const PmpData) };
++    let mut guard = data.rtkit.lock();
++    match guard.as_mut().as_pin_mut() {
++        Some(rtk) => match rtk.idle() {
++            Ok(()) => 0,
++            Err(e) => e.to_errno(),
++        },
++        None => -(bindings::ENODEV as core::ffi::c_int),
++    }
++}
++
++/// s2idle hook: wake the PMP's RTKit again (IOP INIT, then AP ON).
++unsafe extern "C" fn pmp_sleep_wake(ctx: *mut core::ffi::c_void) -> core::ffi::c_int {
++    // SAFETY: as in `pmp_sleep_idle`.
++    let data = unsafe { &*(ctx as *const PmpData) };
++    let mut guard = data.rtkit.lock();
++    match guard.as_mut().as_pin_mut() {
++        Some(rtk) => match rtk.wake() {
++            Ok(()) => 0,
++            Err(e) => e.to_errno(),
++        },
++        None => -(bindings::ENODEV as core::ffi::c_int),
++    }
++}
++
+ #[allow(dead_code)]
+ struct PmpDriver(Arc<PmpData>);
+ 
++impl Drop for PmpDriver {
++    fn drop(&mut self) {
++        // SAFETY: Unregistering a context that is not registered is a no-op.
++        unsafe { bindings::apple_pmp_sleep_unregister(Arc::as_ptr(&self.0) as *mut _) };
++    }
++}
++
+ kernel::of_device_table!(
+     OF_TABLE,
+     MODULE_OF_TABLE,
+@@ -437,6 +474,17 @@
+         *data.rtkit.lock() = Some(rtkit);
+         data.start_cpu(pdev)?;
+         data.start()?;
++        // SAFETY: PmpDriver keeps the Arc alive and unregisters it on drop.
++        let ret = unsafe {
++            bindings::apple_pmp_sleep_register(
++                Arc::as_ptr(&data) as *mut _,
++                Some(pmp_sleep_idle),
++                Some(pmp_sleep_wake),
++            )
++        };
++        if ret != 0 {
++            dev_warn!(dev, "s2idle hook not registered ({})", ret);
++        }
+         Ok(PmpDriver(data))
+     }
+ }
+--- a/drivers/soc/apple/Makefile	2026-10-17 10:37:13.295839950 -0400
++++ b/drivers/soc/apple/Makefile	2026-10-17 10:37:59.898065063 -0400
+@@ -30,3 +30,6 @@
+ 		pm_shim.o diag_shim.o
+ 
+ obj-$(CONFIG_APPLE_PMP) += pmp.o
++ifneq ($(CONFIG_APPLE_PMP),)
++obj-$(CONFIG_PM_SLEEP) += pmp-sleep.o
++endif
+--- a/rust/kernel/soc/apple/rtkit.rs	2026-10-17 10:37:13.296839968 -0400
++++ b/rust/kernel/soc/apple/rtkit.rs	2026-10-17 10:37:59.898455946 -0400
+@@ -276,6 +276,14 @@
+         to_result(unsafe { bindings::apple_rtkit_wake(self.rtk) })
+     }
+ 
++    /// Puts the coprocessor into the IDLE power state (0x201): sleeping with its
++    /// state kept, as macOS does for the PMP while the system sleeps. Undo with
++    /// [`RtKit::wake`].
++    pub fn idle(self: Pin<&mut Self>) -> Result {
++        // SAFETY: `rtk` is valid per the type invariant.
++        to_result(unsafe { bindings::apple_rtkit_idle(self.rtk) })
++    }
++
+     /// Waits for the RTKit coprocessor to finish booting.
+     pub fn boot(self: Pin<&mut Self>) -> Result {
+         // SAFETY: `rtk` is valid per the type invariant.
+--- a/rust/bindings/bindings_helper.h	2026-10-17 10:37:13.298840005 -0400
++++ b/rust/bindings/bindings_helper.h	2026-10-17 10:37:59.898317068 -0400
+@@ -99,6 +99,7 @@
+ #include <linux/security.h>
+ #include <linux/slab.h>
+ #include <linux/soc/apple/mailbox.h>
++#include <linux/soc/apple/pmp-sleep.h>
+ #include <linux/soc/apple/rtkit.h>
+ #include <linux/sys_soc.h>
+ #include <linux/task_work.h>
+--- /dev/null	2026-10-16 21:21:05.345041086 -0400
++++ b/drivers/soc/apple/pmp-sleep.c	2026-10-17 10:37:59.897576554 -0400
+@@ -0,0 +1,106 @@
++// SPDX-License-Identifier: GPL-2.0-only OR MIT
++/*
++ * Tell the PMP when the system is in s2idle.
++ *
++ * macOS puts the PMP's RTKit into IOP power state IDLE (0x201, state kept)
++ * as a platform sleep action after every device driver has powered down, and
++ * back to INIT (0x220) on wake (ApplePMP, IOPlatformSleepAction 610). Linux's
++ * s2idle never told the PMP anything. This hooks the same point: the s2idle
++ * platform prepare() runs after every device's suspend_late and before the
++ * noirq phase, so the mailbox interrupt still works; restore() runs after
++ * resume_noirq.
++ *
++ * Built in (s2idle_set_ops is not exported) whenever the PMP driver is built.
++ * Disable with apple_pmp_sleep.s2idle_idle=0 on the command line, or at run
++ * time through /sys/module/apple_pmp_sleep/parameters/s2idle_idle.
++ */
++#include <linux/ktime.h>
++#include <linux/module.h>
++#include <linux/mutex.h>
++#include <linux/printk.h>
++#include <linux/soc/apple/pmp-sleep.h>
++#include <linux/suspend.h>
++
++#undef MODULE_PARAM_PREFIX
++#define MODULE_PARAM_PREFIX "apple_pmp_sleep."
++
++static bool s2idle_idle = true;
++module_param(s2idle_idle, bool, 0644);
++MODULE_PARM_DESC(s2idle_idle, "Put the PMP into RTKit IDLE during s2idle");
++
++static DEFINE_MUTEX(pmp_sleep_lock);
++static void *pmp_ctx;
++static int (*pmp_idle)(void *ctx);
++static int (*pmp_wake)(void *ctx);
++static bool pmp_idled;
++
++static int pmp_s2idle_prepare(void)
++{
++	ktime_t t0 = ktime_get();
++	int ret;
++
++	guard(mutex)(&pmp_sleep_lock);
++	if (!s2idle_idle || !pmp_ctx)
++		return 0;
++	ret = pmp_idle(pmp_ctx);
++	if (ret) {
++		/* Never block the suspend over this; the PMP just stays on. */
++		pr_warn("apple-pmp-sleep: idle failed (%d), PMP left running\n", ret);
++		return 0;
++	}
++	pmp_idled = true;
++	pr_info("apple-pmp-sleep: PMP idle in %lld us\n",
++		ktime_us_delta(ktime_get(), t0));
++	return 0;
++}
++
++static void pmp_s2idle_restore(void)
++{
++	ktime_t t0 = ktime_get();
++	int ret;
++
++	guard(mutex)(&pmp_sleep_lock);
++	if (!pmp_idled)
++		return;
++	pmp_idled = false;
++	ret = pmp_wake(pmp_ctx);
++	if (ret)
++		pr_err("apple-pmp-sleep: wake failed (%d)\n", ret);
++	else
++		pr_info("apple-pmp-sleep: PMP awake in %lld us\n",
++			ktime_us_delta(ktime_get(), t0));
++}
++
++static const struct platform_s2idle_ops pmp_s2idle_ops = {
++	.prepare = pmp_s2idle_prepare,
++	.restore = pmp_s2idle_restore,
++};
++
++int apple_pmp_sleep_register(void *ctx, int (*idle)(void *), int (*wake)(void *))
++{
++	guard(mutex)(&pmp_sleep_lock);
++	if (pmp_ctx)
++		return -EBUSY;
++	pmp_ctx = ctx;
++	pmp_idle = idle;
++	pmp_wake = wake;
++	s2idle_set_ops(&pmp_s2idle_ops);
++	pr_info("apple-pmp-sleep: s2idle hook registered (s2idle_idle=%d)\n", s2idle_idle);
++	return 0;
++}
++EXPORT_SYMBOL_GPL(apple_pmp_sleep_register);
++
++void apple_pmp_sleep_unregister(void *ctx)
++{
++	guard(mutex)(&pmp_sleep_lock);
++	if (pmp_ctx != ctx)
++		return;
++	s2idle_set_ops(NULL);
++	pmp_ctx = NULL;
++	pmp_idle = NULL;
++	pmp_wake = NULL;
++	pmp_idled = false;
++}
++EXPORT_SYMBOL_GPL(apple_pmp_sleep_unregister);
++
++MODULE_LICENSE("Dual MIT/GPL");
+--- /dev/null	2026-10-16 21:21:05.345041086 -0400
++++ b/include/linux/soc/apple/pmp-sleep.h	2026-10-17 10:37:46.351441928 -0400
+@@ -0,0 +1,8 @@
++/* SPDX-License-Identifier: GPL-2.0-only OR MIT */
++#ifndef _LINUX_SOC_APPLE_PMP_SLEEP_H_
++#define _LINUX_SOC_APPLE_PMP_SLEEP_H_
++
++int apple_pmp_sleep_register(void *ctx, int (*idle)(void *ctx), int (*wake)(void *ctx));
++void apple_pmp_sleep_unregister(void *ctx);
++
++#endif

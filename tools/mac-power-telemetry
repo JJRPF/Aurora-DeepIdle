@@ -1,0 +1,607 @@
+#!/usr/bin/env python3
+"""
+mac-power-telemetry: Ultra-lightweight battery, sleep, and process power profiler
+Designed specifically for Apple Silicon (Asahi Linux / Omarchy).
+
+  tick    every 3 min from the user timer: active (on-battery) snapshots, and a
+          fallback sleep record from the gap between ticks when 'watch' is not running
+  watch   long-running (mac-power-telemetry-watch.service): logs every suspend
+          through logind's PrepareForSleep, with a delay lock so the pre-sleep
+          reading is taken right before the suspend, not at the last tick
+  report  human-readable summary
+"""
+
+import sys
+import os
+import json
+import time
+import subprocess
+from datetime import datetime, timezone
+from pathlib import Path
+
+DATA_DIR = Path.home() / ".local/share/mac-power-telemetry"
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+ACTIVE_LOG = DATA_DIR / "active.jsonl"
+SLEEP_LOG = DATA_DIR / "sleep.jsonl"
+LAST_STATE_FILE = DATA_DIR / "last_state.json"
+RUN_DIR = Path(os.environ.get("XDG_RUNTIME_DIR") or "/tmp") / "mac-power-telemetry"
+WATCH_PID_FILE = RUN_DIR / "watch.pid"
+
+BAT_SYSFS = Path("/sys/class/power_supply/macsmc-battery")
+AC_SYSFS = Path("/sys/class/power_supply/macsmc-ac")
+BL_SYSFS = Path("/sys/class/backlight/apple-panel-bl")
+SD_READER = Path("/sys/bus/pci/devices/0000:02:00.0")
+
+# After resume the gauge needs a few seconds to catch up (two readings 1.5 s
+# apart differed by 0.08 Wh), so the end reading is taken this long after
+# resume, with the energy used meanwhile added back.
+SETTLE_S = 30
+SETTLE_STEP_S = 5
+
+def read_file(path):
+    try:
+        with open(path, "r") as f:
+            return f.read().strip()
+    except Exception:
+        return None
+
+def read_int(path):
+    v = read_file(path)
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
+
+def get_battery_info(with_profile=True):
+    if not BAT_SYSFS.exists():
+        return None
+
+    status = read_file(BAT_SYSFS / "status") or "Unknown"
+    capacity = int(read_file(BAT_SYSFS / "capacity") or 0)
+
+    # Energy in micro-Wh -> Wh
+    energy_raw = read_file(BAT_SYSFS / "energy_now")
+    energy_wh = float(energy_raw) / 1e6 if energy_raw else 0.0
+
+    energy_full_raw = read_file(BAT_SYSFS / "energy_full")
+    energy_full_wh = float(energy_full_raw) / 1e6 if energy_full_raw else 60.0
+
+    # Power in micro-Watts -> Watts
+    power_raw = read_file(BAT_SYSFS / "power_now")
+    power_w = abs(float(power_raw)) / 1e6 if power_raw else 0.0
+
+    voltage_raw = read_file(BAT_SYSFS / "voltage_now")
+    voltage_v = float(voltage_raw) / 1e6 if voltage_raw else 0.0
+
+    temp_raw = read_file(BAT_SYSFS / "temp")
+    temp_c = float(temp_raw) / 10.0 if temp_raw else 0.0
+
+    # Brightness
+    brightness_pct = 0
+    if BL_SYSFS.exists():
+        b_now = read_file(BL_SYSFS / "brightness")
+        b_max = read_file(BL_SYSFS / "max_brightness")
+        if b_now and b_max and int(b_max) > 0:
+            brightness_pct = int(round(int(b_now) * 100.0 / int(b_max)))
+
+    # Profile
+    profile = "balanced"
+    if with_profile:
+        try:
+            profile = subprocess.check_output(["powerprofilesctl", "get"], stderr=subprocess.DEVNULL).decode().strip()
+        except Exception:
+            pass
+
+    return {
+        "timestamp": time.time(),
+        "iso_time": datetime.now().astimezone().isoformat(),
+        "status": status,
+        "capacity": capacity,
+        "energy_wh": round(energy_wh, 3),
+        "energy_full_wh": round(energy_full_wh, 3),
+        "power_w": round(power_w, 2),
+        "voltage_v": round(voltage_v, 2),
+        "temp_c": round(temp_c, 1),
+        "brightness_pct": brightness_pct,
+        "profile": profile
+    }
+
+def get_top_processes(n=5):
+    try:
+        out = subprocess.check_output(
+            ["ps", "-eo", "pid,%cpu,comm", "--sort=-%cpu"],
+            stderr=subprocess.DEVNULL
+        ).decode("utf-8", errors="ignore")
+        lines = out.strip().split("\n")[1:]
+        procs = []
+        for line in lines:
+            parts = line.strip().split(None, 2)
+            if len(parts) == 3:
+                pid, cpu, comm = parts
+                if comm in ["ps", "mac-power-tele", "python3"]:
+                    continue
+                try:
+                    cpu_f = float(cpu)
+                    if cpu_f > 0.1:
+                        procs.append({"pid": int(pid), "cpu": cpu_f, "comm": comm})
+                except ValueError:
+                    continue
+            if len(procs) >= n:
+                break
+        return procs
+    except Exception:
+        return []
+
+def prune_file(path, max_lines=5000):
+    if not path.exists():
+        return
+    try:
+        with open(path, "r") as f:
+            lines = f.readlines()
+        if len(lines) > max_lines:
+            with open(path, "w") as f:
+                f.writelines(lines[-max_lines:])
+    except Exception:
+        pass
+
+def append_sleep(record):
+    with open(SLEEP_LOG, "a") as f:
+        f.write(json.dumps(record) + "\n")
+
+# ---------------------------------------------------------------------------
+# Sleep watcher
+
+def read_irqs():
+    """Total count per interrupt line, summed over CPUs."""
+    counts = {}
+    try:
+        with open("/proc/interrupts") as f:
+            ncpu = len(f.readline().split())
+            for line in f:
+                parts = line.split()
+                if not parts or not parts[0].endswith(":"):
+                    continue
+                nums = []
+                for p in parts[1:1 + ncpu]:
+                    if not p.isdigit():
+                        break
+                    nums.append(int(p))
+                if not nums:
+                    continue
+                rest = parts[1 + len(nums):]
+                name = parts[0][:-1]
+                if rest:
+                    # IPIs: a description; others: chip, hwirq, type, then the device name(s)
+                    ipi = not name.isdigit()
+                    name += " " + " ".join(rest if ipi or len(rest) <= 3 else rest[3:])
+                counts[name] = sum(nums)
+    except Exception:
+        pass
+    return counts
+
+def sleep_context():
+    """What was on at suspend, so records can be grouped by configuration."""
+    ctx = {"kernel": os.uname().release}
+    ms = read_file("/sys/power/mem_sleep") or ""
+    sel = [w.strip("[]") for w in ms.split() if w.startswith("[")]
+    ctx["mem_sleep"] = sel[0] if sel else ms
+    pmp = Path("/sys/bus/platform/drivers/apple_pmp")
+    ctx["pmp_bound"] = pmp.exists() and any(p.is_symlink() and p.name != "module" for p in pmp.iterdir())
+    ctx["aop_sensors"] = [m for m in ("aop_als", "aop_las") if Path("/sys/module", m).exists()]
+    rf = {}
+    for d in sorted(Path("/sys/class/rfkill").glob("rfkill*")):
+        rf[read_file(d / "name") or d.name] = "blocked" if read_file(d / "soft") == "1" else "on"
+    ctx["radios"] = rf
+    ctx["sd_reader"] = SD_READER.exists()
+    return ctx
+
+def snapshot():
+    s = {
+        "wall": time.time(),
+        "iso": datetime.now().astimezone().isoformat(),
+        "boottime": time.clock_gettime(time.CLOCK_BOOTTIME),
+        "monotonic": time.clock_gettime(time.CLOCK_MONOTONIC),
+        "status": read_file(BAT_SYSFS / "status") or "Unknown",
+        "ac_online": read_file(AC_SYSFS / "online") == "1",
+        "capacity": read_int(BAT_SYSFS / "capacity"),
+        "energy_uwh": read_int(BAT_SYSFS / "energy_now"),
+        # BAAC accumulated charge; it counts in mA*s (mC), whatever sysfs says
+        "charge_counter": read_int(BAT_SYSFS / "charge_counter"),
+        "voltage_uv": read_int(BAT_SYSFS / "voltage_now"),
+        "power_uw": read_int(BAT_SYSFS / "power_now"),
+        "temp_dc": read_int(BAT_SYSFS / "temp"),
+        "suspend_ok": read_int("/sys/power/suspend_stats/success"),
+        "suspend_fail": read_int("/sys/power/suspend_stats/fail"),
+    }
+    return s
+
+def build_record(pre, post, settle, pre_ctx, pre_irqs, post_irqs):
+    """settle: list of snapshots taken after resume (may be empty)."""
+    last = settle[-1] if settle else post
+    wall_s = post["wall"] - pre["wall"]
+    suspended_s = (post["boottime"] - pre["boottime"]) - (post["monotonic"] - pre["monotonic"])
+    dur_hr = wall_s / 3600.0
+
+    # Energy used while awake between resume and the settled reading
+    awake_wh = 0.0
+    seq = [post] + settle
+    for a, b in zip(seq, seq[1:]):
+        p = ((a["power_uw"] or 0) + (b["power_uw"] or 0)) / 2 / 1e6
+        awake_wh += abs(p) * (b["wall"] - a["wall"]) / 3600.0
+
+    start_wh = (pre["energy_uwh"] or 0) / 1e6
+    end_wh_resume = (post["energy_uwh"] or 0) / 1e6
+    end_wh = (last["energy_uwh"] or 0) / 1e6 + awake_wh
+    drain_wh = start_wh - end_wh
+    rate_w = drain_wh / dur_hr if dur_hr > 0 else 0.0
+
+    # Coulomb counter: independent of the gauge's state-of-charge model
+    cc_wh = None
+    if pre["charge_counter"] is not None and last["charge_counter"] is not None:
+        dq_as = (last["charge_counter"] - pre["charge_counter"]) / 1000.0
+        v = ((pre["voltage_uv"] or 0) + (last["voltage_uv"] or 0)) / 2 / 1e6
+        cc_wh = -dq_as * v / 3600.0 - awake_wh
+
+    drain_pct = (pre["capacity"] or 0) - (last["capacity"] or 0)
+    on_battery = not pre["ac_online"] and not post["ac_online"] and not last["ac_online"]
+
+    irq_delta = {k: post_irqs.get(k, 0) - v for k, v in pre_irqs.items()}
+    irq_top = sorted(((k, d) for k, d in irq_delta.items() if d > 0), key=lambda x: -x[1])[:6]
+
+    return {
+        # Fields the report (and older records) use
+        "sleep_time": pre["iso"],
+        "wake_time": post["iso"],
+        "duration_hours": round(dur_hr, 3),
+        "duration_min": int(round(wall_s / 60.0)),
+        "start_pct": pre["capacity"],
+        "end_pct": last["capacity"],
+        "drain_pct": max(0, drain_pct),
+        "start_wh": round(start_wh, 3),
+        "end_wh": round(end_wh, 3),
+        "drain_wh": round(max(0.0, drain_wh), 3),
+        "rate_w": round(max(0.0, rate_w), 3),
+        "rate_pct_hr": round(max(0, drain_pct) / dur_hr, 2) if dur_hr > 0 else 0.0,
+        # v2
+        "v": 2,
+        "source": "logind",
+        "on_battery": on_battery,
+        "status_start": pre["status"],
+        "status_end": last["status"],
+        "suspended_hours": round(suspended_s / 3600.0, 3),
+        "end_wh_at_resume": round(end_wh_resume, 3),
+        "settle_s": round(last["wall"] - post["wall"], 1),
+        "awake_wh": round(awake_wh, 4),
+        "drain_wh_signed": round(drain_wh, 3),
+        "rate_w_signed": round(rate_w, 3),
+        "cc_drain_wh": round(cc_wh, 3) if cc_wh is not None else None,
+        "cc_rate_w": round(cc_wh / dur_hr, 3) if cc_wh is not None and dur_hr > 0 else None,
+        "temp_c_start": (pre["temp_dc"] or 0) / 10.0,
+        "temp_c_end": (last["temp_dc"] or 0) / 10.0,
+        "suspend_ok": (post["suspend_ok"] or 0) - (pre["suspend_ok"] or 0),
+        "suspend_fail": (post["suspend_fail"] or 0) - (pre["suspend_fail"] or 0),
+        "irq_total": sum(d for d in irq_delta.values() if d > 0),
+        "irq_top": irq_top,
+        **pre_ctx,
+    }
+
+def watch():
+    import signal
+    import dbus
+    from dbus.mainloop.glib import DBusGMainLoop
+    from gi.repository import GLib
+
+    DBusGMainLoop(set_as_default=True)
+    bus = dbus.SystemBus()
+    login1 = bus.get_object("org.freedesktop.login1", "/org/freedesktop/login1")
+    mgr = dbus.Interface(login1, "org.freedesktop.login1.Manager")
+
+    RUN_DIR.mkdir(parents=True, exist_ok=True)
+    WATCH_PID_FILE.write_text(str(os.getpid()))
+
+    st = {"fd": None, "pre": None, "ctx": None, "irqs": None,
+          "post": None, "post_irqs": None, "settle": [], "timer": None}
+    loop = GLib.MainLoop()
+
+    def log(msg):
+        print(msg, flush=True)
+
+    def take_lock():
+        if st["fd"] is None:
+            try:
+                st["fd"] = mgr.Inhibit("sleep", "mac-power-telemetry",
+                                       "Record battery state before suspend", "delay").take()
+            except Exception as e:
+                log(f"inhibit failed: {e}")
+
+    def release_lock():
+        if st["fd"] is not None:
+            os.close(st["fd"])
+            st["fd"] = None
+
+    def flush():
+        """Write the pending record with whatever settle readings exist."""
+        if st["timer"] is not None:
+            GLib.source_remove(st["timer"])
+            st["timer"] = None
+        if st["pre"] is None or st["post"] is None:
+            return
+        try:
+            rec = build_record(st["pre"], st["post"], st["settle"], st["ctx"],
+                               st["irqs"], st["post_irqs"])
+            append_sleep(rec)
+            prune_file(SLEEP_LOG, 2000)
+            log(f"sleep {rec['sleep_time']} {rec['suspended_hours']} h suspended, "
+                f"{rec['drain_wh']} Wh, {rec['rate_w']} W (cc {rec['cc_rate_w']} W), "
+                f"on_battery={rec['on_battery']}")
+        except Exception as e:
+            log(f"record failed: {e}")
+        st.update(pre=None, post=None, settle=[], ctx=None, irqs=None, post_irqs=None)
+
+    def settle_step():
+        st["settle"].append(snapshot())
+        if st["settle"][-1]["wall"] - st["post"]["wall"] >= SETTLE_S - SETTLE_STEP_S / 2:
+            st["timer"] = None
+            flush()
+            return False
+        return True
+
+    def on_prepare(start):
+        if start:
+            flush()  # a resume whose settle window was cut short by this suspend
+            st["irqs"] = read_irqs()
+            st["ctx"] = sleep_context()
+            st["pre"] = snapshot()
+            release_lock()
+        else:
+            if st["pre"] is None:
+                take_lock()
+                return
+            st["post"] = snapshot()
+            st["post_irqs"] = read_irqs()
+            take_lock()
+            st["timer"] = GLib.timeout_add_seconds(SETTLE_STEP_S, settle_step)
+
+    def on_term():
+        flush()
+        release_lock()
+        loop.quit()
+        return False
+
+    bus.add_signal_receiver(on_prepare, signal_name="PrepareForSleep",
+                            dbus_interface="org.freedesktop.login1.Manager",
+                            bus_name="org.freedesktop.login1",
+                            path="/org/freedesktop/login1")
+    try:
+        from gi.repository import GLibUnix
+        sig_add = GLibUnix.signal_add
+    except ImportError:
+        sig_add = GLib.unix_signal_add
+    sig_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, on_term)
+    sig_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, on_term)
+    take_lock()
+    log(f"watching PrepareForSleep, delay lock {'held' if st['fd'] is not None else 'NOT held'}")
+    try:
+        loop.run()
+    finally:
+        WATCH_PID_FILE.unlink(missing_ok=True)
+
+def watcher_running():
+    try:
+        pid = int(WATCH_PID_FILE.read_text())
+        os.kill(pid, 0)
+        return True
+    except Exception:
+        return False
+
+# ---------------------------------------------------------------------------
+
+def on_sleep():
+    # Kept for callers such as omarchy-lid-wake; the watcher does this now.
+    pass
+
+def on_wake():
+    pass
+
+def tick():
+    info = get_battery_info()
+    if not info:
+        return
+
+    # Fallback when the watcher is not running: a gap of more than 300 s
+    # between ticks was a sleep. This window includes up to two tick periods
+    # awake, so it overstates the sleep drain.
+    if LAST_STATE_FILE.exists() and not watcher_running():
+        try:
+            with open(LAST_STATE_FILE, "r") as f:
+                prev = json.load(f)
+            elapsed = info["timestamp"] - prev.get("timestamp", 0)
+            if elapsed > 300:
+                dur_hr = elapsed / 3600.0
+                drain_wh = max(0.0, prev["energy_wh"] - info["energy_wh"])
+                drain_pct = max(0, prev["capacity"] - info["capacity"])
+                rate_w = drain_wh / dur_hr if dur_hr > 0 else 0.0
+                rate_pct_hr = drain_pct / dur_hr if dur_hr > 0 else 0.0
+
+                record = {
+                    "sleep_time": prev.get("iso_time", ""),
+                    "wake_time": info["iso_time"],
+                    "duration_hours": round(dur_hr, 2),
+                    "duration_min": int(round(elapsed / 60.0)),
+                    "start_pct": prev["capacity"],
+                    "end_pct": info["capacity"],
+                    "drain_pct": drain_pct,
+                    "start_wh": prev["energy_wh"],
+                    "end_wh": info["energy_wh"],
+                    "drain_wh": round(drain_wh, 2),
+                    "rate_w": round(rate_w, 2),
+                    "rate_pct_hr": round(rate_pct_hr, 2),
+                    "source": "tick-gap",
+                    "on_battery": prev.get("status", "").lower() == "discharging"
+                                  and info["status"].lower() == "discharging",
+                }
+                append_sleep(record)
+        except Exception:
+            pass
+
+    # Save last state
+    with open(LAST_STATE_FILE, "w") as f:
+        json.dump(info, f)
+
+    # Only log active snapshots if discharging (or first snapshot)
+    if info["status"].lower() == "discharging":
+        procs = get_top_processes(5)
+        record = {
+            "time": info["iso_time"],
+            "pct": info["capacity"],
+            "wh": info["energy_wh"],
+            "rate_w": info["power_w"],
+            "brightness": info["brightness_pct"],
+            "temp_c": info["temp_c"],
+            "procs": procs
+        }
+        with open(ACTIVE_LOG, "a") as f:
+            f.write(json.dumps(record) + "\n")
+
+    # Keep log file size bounded
+    prune_file(ACTIVE_LOG, 5000)
+    prune_file(SLEEP_LOG, 2000)
+
+def sleep_on_battery(s):
+    """True for records that measure battery drain (older records: guess from the numbers)."""
+    if "on_battery" in s:
+        return s["on_battery"]
+    return s.get("end_wh", 0) < s.get("start_wh", 0) and s.get("drain_pct", 0) > 0
+
+def generate_report():
+    info = get_battery_info()
+    print("=" * 76)
+    print("           APPLE SILICON (M2 PRO) POWER & BATTERY TELEMETRY REPORT          ")
+    print("=" * 76)
+
+    if info:
+        status_icon = "⚡" if info["status"].lower() == "charging" else "🔋"
+        print(f"\n{status_icon} CURRENT STATUS")
+        print(f"  Battery:     {info['capacity']}% ({info['status']})  |  Energy: {info['energy_wh']} / {info['energy_full_wh']} Wh")
+        print(f"  Live Draw:   {info['power_w']} W  |  Voltage: {info['voltage_v']} V  |  Temp: {info['temp_c']}°C")
+        print(f"  Display:     {info['brightness_pct']}% Brightness @ 120Hz  |  Profile: {info['profile']}")
+        if info['power_w'] > 0 and info['status'].lower() == "discharging":
+            rem_hrs = info['energy_wh'] / info['power_w']
+            h = int(rem_hrs)
+            m = int((rem_hrs - h) * 60)
+            print(f"  Estimated:   ~{h}h {m}m remaining at current active load")
+
+    # Sleep telemetry analysis
+    print(f"\n🌙 SLEEP & STANDBY HISTORY (on battery)")
+    sleeps = []
+    if SLEEP_LOG.exists():
+        try:
+            with open(SLEEP_LOG, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        sleeps.append(json.loads(line))
+        except Exception:
+            pass
+    # Older versions logged some sleeps twice (lid-wake hook and tick); keep the first
+    seen = set()
+    sleeps = [s for s in sleeps if sleep_on_battery(s)
+              and not (s.get("sleep_time") in seen or seen.add(s.get("sleep_time")))]
+    print(f"  Sleep watcher: {'running' if watcher_running() else 'NOT running (systemctl --user enable --now mac-power-telemetry-watch)'}")
+
+    if not sleeps:
+        print("  No completed sleep sessions on battery recorded yet.")
+        print("  (Telemetry will automatically log sleep sessions when the lid is closed/opened).")
+    else:
+        print(f"  {'Start Time':<17} {'Duration':<10} {'% Change':<14} {'Energy Lost':<13} {'Standby Rate':<15}")
+        print(f"  {'-'*16} {'-'*9} {'-'*13} {'-'*12} {'-'*14}")
+        total_drain_wh = 0.0
+        total_hours = 0.0
+        for s in sleeps[-8:]:  # show up to last 8
+            st = s.get("sleep_time", "")
+            if "T" in st:
+                st_fmt = st.split("T")[0][5:] + " " + st.split("T")[1][:5]
+            else:
+                st_fmt = st[:16]
+            dur_str = f"{s.get('duration_min', 0)}m" if s.get('duration_hours', 0) < 1.0 else f"{s.get('duration_hours', 0):.1f}h"
+            pct_str = f"{s.get('start_pct')}% -> {s.get('end_pct')}% (-{s.get('drain_pct')}%)"
+            wh_str = f"-{s.get('drain_wh', 0):.2f} Wh"
+            rate_str = f"{s.get('rate_w', 0):.2f} W ({s.get('rate_pct_hr', 0):.1f}%/h)"
+            print(f"  {st_fmt:<17} {dur_str:<10} {pct_str:<14} {wh_str:<13} {rate_str:<15}")
+        # Short sleeps are mostly gauge noise (it jumps by ~0.3 Wh), so the
+        # average weights by duration over every sleep of at least an hour.
+        for s in sleeps:
+            if s.get("duration_hours", 0) >= 1.0:
+                total_drain_wh += s.get("drain_wh", 0)
+                total_hours += s.get("duration_hours", 0)
+
+        if total_hours > 0:
+            avg_w = total_drain_wh / total_hours
+            print(f"\n  Average Standby Draw: {avg_w:.2f} Watts over {total_hours:.0f} h of sleeps of 1 h or more")
+
+    # Active discharge analysis
+    print(f"\n⚡ ACTIVE (SCREEN-ON) USAGE & TOP PROCESSES")
+    active_records = []
+    if ACTIVE_LOG.exists():
+        try:
+            with open(ACTIVE_LOG, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        active_records.append(json.loads(line))
+        except Exception:
+            pass
+
+    if not active_records:
+        print("  Collecting active usage data in the background (updates every 3 minutes)...")
+    else:
+        rates = [r.get("rate_w", 0) for r in active_records if r.get("rate_w", 0) > 0]
+        if rates:
+            avg_rate = sum(rates) / len(rates)
+            min_rate = min(rates)
+            max_rate = max(rates)
+            full_wh = info["energy_full_wh"] if info else 60.0
+            full_runtime = full_wh / avg_rate if avg_rate > 0 else 0
+            fr_h = int(full_runtime)
+            fr_m = int((full_runtime - fr_h) * 60)
+            print(f"  Average Active Draw:  {avg_rate:.2f} W (Min: {min_rate:.2f} W, Max: {max_rate:.2f} W)")
+            print(f"  Expected 100% Battery: ~{fr_h} hours {fr_m} mins of active screen-on time at 120Hz")
+
+        # Top processes by aggregate CPU score
+        proc_cpu = {}
+        proc_samples = {}
+        for r in active_records:
+            for p in r.get("procs", []):
+                comm = p.get("comm")
+                cpu = p.get("cpu", 0)
+                proc_cpu[comm] = proc_cpu.get(comm, 0) + cpu
+                proc_samples[comm] = proc_samples.get(comm, 0) + 1
+
+        if proc_cpu:
+            total_cpu_score = sum(proc_cpu.values()) or 1.0
+            sorted_procs = sorted(proc_cpu.items(), key=lambda x: x[1], reverse=True)[:6]
+            print(f"\n  Top Culprit Processes While on Battery:")
+            for rank, (comm, score) in enumerate(sorted_procs, 1):
+                share = (score / total_cpu_score) * 100
+                print(f"    {rank}. {comm:<22} ~{share:4.1f}% of active drain workload")
+
+    print("\n" + "=" * 76)
+    print("  Tip: Run 'mac-power-report' anytime to inspect battery health & drain trends.")
+    print("=" * 76)
+
+if __name__ == "__main__":
+    action = sys.argv[1] if len(sys.argv) > 1 else "report"
+    if action == "tick":
+        tick()
+    elif action == "watch":
+        watch()
+    elif action == "on-sleep":
+        on_sleep()
+    elif action == "on-wake":
+        on_wake()
+    elif action == "report":
+        generate_report()
+    else:
+        print(f"Usage: mac-power-telemetry [tick|watch|report]")
+        sys.exit(1)

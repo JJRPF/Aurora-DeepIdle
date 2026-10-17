@@ -33,6 +33,20 @@ machine and what it showed.
   lid-angle sensor reports; those drivers have no suspend hooks) and cost
   milliwatts; the drain is power left on. `harness/s2idle-alloff.sh`
   bounds how much of it driver work could reach.
+* **macOS tells the PMP when the system sleeps; Linux never does.** Read
+  from the public macOS 13.5 J414s kernelcache (symbols intact) and device
+  tree: the full order of the platform sleep and quiesce actions, the SMC's
+  `MBSE` handshake (`slpw`, `slpa`, wake `waka` with an `MBSW` wake bitmap),
+  PMGR's last step (a write to an always-on PMGR block Linux does not map),
+  and the PMP's sleep action: RTKit IDLE (0x201), which is Linux's unused
+  `apple_rtkit_idle()`. `deepidle2`
+  (`patches/deepidle2-pmp-s2idle-idle.patch`, `harness/deepidle2/`) adds it
+  to s2idle. Smoke test (`data/deepidle2/`): the PMP acks IDLE in 399 us but
+  never answers again, because Linux's INIT wake is macOS's wake-from-QUIESCED
+  path. macOS wakes the PMP from IDLE by restarting its CPU
+  (`AppleA7IOPV4PMP::_runCPU`), through a register not yet identified. The
+  hook must stay off until then. Tools in `tools/macos-re/` (no Apple files
+  in this repo).
 * **CPU PD on every idle entry saves up to about 1 W, depending on the
   wake rate.** The `apple_idle` driver's "CPU PD" state (deep WFI with
   retention, the state macOS idles in) has a 10 ms target residency, so on
@@ -106,13 +120,19 @@ makes it persistent: copy it to `/etc/tmpfiles.d/`.
 |---|---|
 | `docs/deep-idle-research.md` | The research: states, what macOS does, measurements, designs, experiments, unknowns |
 | `docs/worklog.md` | Session log: every live run, its settings and results |
-| `tools/idle-ab.py` | Paired A/B of cpuidle settings by SMC power (all sensors), with busy time and clocks; settings `default`, `wfi-only`, `pd-always[@cpus]`, `res=US`, `no-eas` |
+| `tools/idle-ab.py` | Paired A/B of cpuidle settings by SMC power (all sensors), with busy time and clocks; settings `default`, `wfi-only`, `pd-always[@cpus]`, `res=US`, `no-eas`, `set:PATH=VALUE[,...]` (any sysfs knob for the window) |
 | `tools/wakelat.c` | Wake-up latency probe (timer overshoot, cross-CPU futex wake), SCHED_FIFO |
 | `tools/sleep-drain-probe.py` | s2idle drain, wake sources (tracefs), domains left on through a suspend |
 | `tools/deep-idle-check.py` | Read-only check after booting a test image: which image, EM, PMP, cpuidle, domains |
 | `tools/t6020-cpu-em.py` | Derives T602x CPU `opp-microwatt` from T8112's measurements, writes them into the DT |
 | `tools/cpuidle-pd-always.tmpfiles.conf` | Opt-in rule for "PD always" at boot |
 | `tools/tests/` | Unit tests for all of the above |
+| `tools/mac-power-telemetry` | The owner's battery telemetry, now logging every suspend (logind delay lock, coulomb counter); `tools/mac-power-telemetry-watch.service` |
+| `tools/macos-sleep-test.sh` | macOS sleep-drain baseline on the same battery gauge: `curl -fsSL https://raw.githubusercontent.com/JJRPF/Aurora-DeepIdle/main/tools/macos-sleep-test.sh \| bash -s -- arm`, close the lid at least 4 h (overnight is better), then the same with `report`, which opens an issue with the result (`gh`) |
+| `tools/macos-agent-prompt.md` | Prompt for an agent on macOS: PMP device memory, SMC power switches and wake keys (read only), awake idle power, power states, then the sleep test; opens one issue with all of it when the owner says so |
+| `harness/hdmi-power/` | HDMI rails A/B: `smc-pwr-test.ko` (test only) switches `hdmi-pwren` (SMC GPIO 23, gP17) and `dp2hdmi-pwren` (6, gP06), which the DCP driver keeps on, off at run time; `run.sh` measures them with `idle-ab.py` |
+| `harness/pmp-run/toggle.sh` | Probe of macOS's PMP run store (`AppleA7IOPV4PMP::_runCPU`, 0x28e700000+0): SRAM or a run register; restores the word |
+| `tools/macos-re/` | Reading a public macOS kernelcache: remote IPSW extraction, IM4P, chained-pointer fixups, fileset kexts, vtables, Ghidra headless scripts |
 | `dts/` | The opt-in J414s variants: PMP on, and no external DCPs (copies; they live in the kernel tree) |
 | `patches/` | The kernel tree changes as a `git format-patch` series |
 | `data/` | Raw A/B and latency runs (JSON lines and reports), see `data/README.md`; `data/campaign/` holds the booted experiments |

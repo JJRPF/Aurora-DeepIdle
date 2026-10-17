@@ -1,0 +1,10 @@
+[Unit]
+Description=Apple Silicon sleep telemetry (logs every suspend via logind)
+
+[Service]
+ExecStart=%h/.local/bin/mac-power-telemetry watch
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

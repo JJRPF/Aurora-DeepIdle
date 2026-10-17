@@ -1,0 +1,8 @@
+Oct 17 11:23:04 omarchy-mac kernel: apple_pmp 28e700000.pmp: RTKit: Initializing (protocol version 12)
+Oct 17 11:23:04 omarchy-mac kernel: apple-pmp-sleep: s2idle hook registered (s2idle_idle=1)
+Oct 17 11:23:04 omarchy-mac kernel: apple_pmp 28e700000.pmp: unknown property "apple,tunable-fast-die-ctrl-ce-map"
+Oct 17 11:23:04 omarchy-mac kernel: apple_pmp 28e700000.pmp: RTKit: syslog message: io.cpp:41: PMP started
+Oct 17 11:23:42 omarchy-mac kernel: apple-pmp-sleep: PMP idle in 399 us
+Oct 17 11:23:42 omarchy-mac kernel: apple-pmp-sleep: wake failed (-62)
+Oct 17 11:23:59 omarchy-mac kernel: apple-pmp-sleep: idle failed (-62), PMP left running
+Oct 17 11:24:17 omarchy-mac kernel: apple-pmp-sleep: idle failed (-62), PMP left running

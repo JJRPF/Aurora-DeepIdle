@@ -896,6 +896,134 @@ to bound what driver work could reach; if that stays near 1.4 W, the
 floor is the SoC itself (CPUs in retention, fabric and DRAM awake), which
 only the SoC sleep protocol (S2R) can lower.
 
+## What macOS 13.5 does to sleep the SoC (static analysis, 2026-10-17)
+
+Source: the public macOS 13.5 (22G74) restore image for Mac14,9 (J414s),
+the release whose coprocessor firmware this machine runs (OS firmware 13.5).
+Only `kernelcache.release.mac14j`, `DeviceTree.j414sap` and the PMP and AOP
+firmware were fetched, by HTTP range request. The kexts in this kernelcache
+keep their symbol tables (241,499 symbols), so functions are named. Read
+with Ghidra and objdump under Aurora Silicon's policy, which allows
+decompiling public macOS releases. Apple's files stay local
+(`~/Work/macos-re`, never committed); everything below is a description.
+The kernel side of sleep is in XNU's open source (`xnu-8796.141.3`:
+`IOCPU.cpp`, `IOPlatformActions.cpp`, `osfmk/arm64/cpu.c`).
+
+**The order.** `IOCPUSleepKernel` runs, after every driver's
+`setPowerState(0)`: the platform *sleep* actions, lowest priority first;
+then it halts the secondary CPUs; then the boot CPU's `haltCPU` runs the
+*quiesce* actions, lowest first, and `ml_arm_sleep`. Wake runs the *active*
+and *wake* actions highest first. The priorities, from the kexts'
+`IOPlatform*Action` properties, for the drivers that match T6020:
+
+| Sleep actions | Quiesce actions (boot CPU, last) |
+|---|---|
+| 100 AVD, ProRes | 250 SoC hot sensor |
+| 200 AppleSMCPMU, 300 AppleSMC (`MBSE` = `slpa`) | 1000 GPIO |
+| 350 watchdog | 4000 PCIe (`apcie`, `apcie-ge`) |
+| 400 Dialog SPMI PMU | 80000 watchdog, SmartIO (SIO) |
+| 500 CLPC | 88000 SoC tuner, 89000 MCC, error handler |
+| 590 SmartIO (SIO) | 89999 SEP |
+| 600 PMGR (freezes perf-state changes) | 90000 PMGR `quiesceHW` |
+| 610 PMP (RTKit IDLE) | 97000 AIC |
+| 80000 DART | 98000 Dialog SPMI PMU |
+
+**SMC.** `MBSE` is written `slpw` when the system leaves full capability on
+its way to sleep (`AppleSMCPMU::handleSystemPowerStateChange`; `offw` and
+`rest` for power off and restart, as Linux's macsmc-reboot already does).
+`AppleSMC::setPowerState(0)` writes `WKTP` = 2 (1 byte) where enabled. The
+sleep action waits for the SMC to go idle, writes `MBSE` = `slpa` (`hiba`
+when hibernating) and sends nothing more. On wake it reads `MBSE` (a wake
+result byte) and `MBSW` (8 bytes, a wake-source bitmap), then writes `MBSE` =
+`waka`. Linux's driver comment lists `susp`; macOS 13.5 does not write it on
+this path.
+
+**PMP.** The PMP's sleep action is one call, `RTBuddy::setPowerState(0)`,
+which sends the RTKit IOP power state `0x201` (IDLE, state kept) with the AP
+power state `0x201`. The v2 driver's own power-state handler does nothing. In
+Linux s2idle the PMP is never told the system sleeps, which fits the PMP
+saving nothing in s2idle (above). Wake is not a message (corrected after
+deepidle2, below). `RTBuddy::_setManagedStateGated` for sleep: request the
+state, wait for the ack, `enableMailboxInterrupts(false)`, then the provider's
+`stopCPU()`. For wake it calls the provider's `startCPUWithOptions(fw,
+wasQuiesced)` and sends IOP `0x220` (INIT, `RTBMgmt_wakeQuiesced`) only when
+the previous state was QUIESCED. After IDLE, the IOP reports its own state
+once its CPU runs again, and RTBuddy then signals AP `0x20` (ON). The provider
+is `AppleA7IOPV4PMP`. Its one override that matters is `_runCPU(bool)`, a
+single 32-bit store of 0 or 1 to offset 0 of `_pmsCSRMappedRegs` (device
+memory index 2 of the PMP nub). In place of that, the generic `AppleA7IOPV4`
+toggles ASC `CPU_CONTROL` (0x44) bit 4, which is what Linux's `pmp.rs` sets at
+probe. In the static ADT, `reg` index 2 is 0x28e700000 (1 MiB), the region
+Linux maps as `pmp`. Its word 0 reads 0x14000095, the first instruction of the
+PMP firmware's `__TEXT` (loaded at IOP address 0x1000000). So either the live
+ADT orders `reg` differently, or the firmware reuses word 0 as a run flag
+once it has booted. Not settled; nothing has been written there.
+
+**PMGR.** `quiesceHW` (T6020) quiesces the GPU's PMGR (`AGX_PMGR` + 0x100),
+gates clocks in `PMGR_SOC_EAST` and the SoC clock generator, sets PLL-off
+modes, and last calls `startS2RTimer`: one write of 1 to `MPMGR_AON` +
+0x4000. `MPMGR_AON` is PMGR `reg` index 38, 0x29e5c0000 (0x14000 long),
+absent from Linux's device tree and m1n1. `setSOCSleepState` is an empty stub
+on T6020. The device tree's PMGR `events` name the system states the
+reconfig engine knows: `SLP_DDR`, `AWAKE`, `SLP_S2R`, `DEEP_WAIT`,
+`SYS_AWAKE`, `SYS_S2R_AOP`, `SYS_SLP_DDR`, `DDR_WK_TIME`, `S2R_WK_TIME`.
+
+**Wake sources** (PMGR `ap-wake-sources`): `AOP.GPIO.IRQ4/6`,
+`AOP.OutboxNotEmpty`, `AOP.CPUWakeupAP`, `NUB.WakeupAP`, `NUB.GPIO.IRQ2`,
+`NUB.APWatchdog`, `NUB.APWakeupTime`, `NUB.SPMI0Sw0/1/3IRQ`,
+`SMC.CPUWakeupAP`, `SMC.OutboxNotEmpty`, `MTP.DOCK.CHANNELS.AP0.IRQ` (keyboard
+and trackpad), and `ATC0-3.CIOWakeup/USBWakeup`. In S2R the application
+processor is off and PMGR restarts it on one of these.
+
+**Device tree platform functions** that matter for sleep: the PMU's
+`function-external_standby` is an SMC write of `MBSE`; its
+`function-suspend_helper` is PMGR's `S2RT` (start the S2R timer); PMGR's
+`function-mcc_ctrl` goes to the memory cache controller; both PCIe bridges
+carry `manual-enable-s2r`. Some power switches are plain SMC GPIO keys,
+usable from Linux awake or asleep: SD reader power `gP16`, DP-to-HDMI
+converter power `gP06` and HDMI power `gP17`, Wi-Fi `reg_on` `gP0d`.
+
+**What this changes for Linux.** Three pieces can be tried now, in s2idle,
+without the S2R wake path: (1) tell the PMP (RTKit IDLE in the s2idle
+platform prepare, wake in restore; built as `deepidle2`, below); (2) the SMC
+`slpw`/`slpa`/`waka` handshake, whose effect in s2idle is unknown and risky
+(the SMC may expect the SoC to go down); (3) SMC GPIO power-off of the unused
+SD reader and HDMI converter. Real S2R additionally needs every quiesce
+action above, the CPUs powered off (CPU_OFF), and m1n1 to hand the boot CPU's
+reset-vector wake back to Linux (`_cpu_reset_c` re-enters `m1n1_main` today).
+
+### deepidle2: the PMP told about s2idle (booted: idle works, wake does not)
+
+`pmp-sleep.c` (built in) registers `platform_s2idle_ops`: `prepare`, which
+runs after every device's `suspend_late` with interrupts still on, calls
+`apple_rtkit_idle()` on the PMP; `restore`, after `resume_noirq`, calls
+`apple_rtkit_wake()`. A failure is logged and never blocks the suspend.
+`apple_pmp_sleep.s2idle_idle=0` turns it off. `rust/kernel/soc/apple/rtkit.rs`
+gains `idle()`; `pmp.rs` registers the two callbacks at probe. Patch:
+`~/Work/deepidle-11.35/pmp-s2idle-idle.patch` (Aurora-DeepIdle
+`patches/`). Release `7.1.12-2-11.35-sep-ARCH-deepidle2`, its own GRUB entry
+(never the default). The first boot runs a smoke test: three s2idle cycles
+with `pm_test=platform`, which run the hooks without sleeping. Then one lid
+close on battery compares against the 1.46 W PMP night.
+
+**Result (2026-10-17, smoke test).** All three cycles suspended and resumed
+(about 7.5 s each). Cycle 1: the PMP acked AP and IOP IDLE in 399 us. The wake
+in `restore` then timed out after 1 s (`-ETIME`, -62) waiting for the IOP's
+power-state ack to INIT. Cycles 2 and 3: the AP IDLE request itself timed out.
+After IDLE the PMP answers nothing, and it stays that way until a reboot. No
+RTKit crash was reported, nothing hung, and the boot.bin restore and the
+one-boot arming worked. `ps_pmp` is `apple,always-on`, so genpd does not cut
+the PMP's power in noirq. The cause is the wake method: Linux's
+`apple_rtkit_wake()` (INIT, then wait for the boot handshake) is macOS's
+wake-from-QUIESCED path. macOS wakes the PMP from IDLE by restarting its CPU
+(`_runCPU(1)`, above) and sends no INIT. Nothing else in Linux uses
+`apple_rtkit_idle()`, so this path was untested. The lid-close test is
+dropped: with the PMP stuck in IDLE it would measure the PMP-off case. Next:
+identify the real `_pmsCSR` range (the live ADT through m1n1, or the
+firmware's IDLE loop). Then wake with `_runCPU(1)`, wait for the IOP's own
+state report, and set AP ON. Until then the hook must stay off: as built it
+loses the PMP's awake saving after the first suspend.
+
 ## Unblocking deep sleep: what to trace with macOS under m1n1 hv
 
 1. **The CYC_OVRD veto.** m1n1 refuses a guest CYC_OVRD write with
@@ -965,7 +1093,7 @@ Order: run E4 for the upper bound. If it is worth it, answer (1) with the
 smallest experiment: let the domains power off, then power them on and
 start one DCP, from a debug module or the m1n1 proxy. Only then write the
 driver change, against the branch HEAD, test it with HDMI and USB-C
-displays and a dock, and offer it to whoever maintains the DCP fabric code.
+displays and a dock, and carry it in Aurora's tree (Aurora Silicon policy: nothing goes upstream).
 
 ## Overlap with hibernation (#50)
 
@@ -1011,7 +1139,10 @@ tables.
 
 * Whether iBoot arms the wake path (reconfig engine, boot CPU RVBAR) for a
   raw image as it does for a kernelcache.
-* The SMC/PMGR/PMP/AOP sleep handshake; macOS's sleep drain on this machine.
+* The SMC/PMGR/PMP/AOP sleep handshake: the order, the SMC keys and the PMP
+  message are now known from macOS 13.5 (above). Still unknown: what the
+  reconfig engine runs on `SLP_S2R`, what each quiesce action writes, and
+  macOS's sleep drain on this machine.
 * The source of the ~3.7 wakes per second in s2idle (cheap, but unknown).
 * How much the display domains left on in s2idle draw, and whether a DCP
   with nothing connected (both dcpext) can be shut down and restarted.
