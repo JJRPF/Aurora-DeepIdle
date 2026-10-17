@@ -129,6 +129,7 @@ makes it persistent: copy it to `/etc/tmpfiles.d/`.
 | `tools/tests/` | Unit tests for all of the above |
 | `tools/mac-power-telemetry` | The owner's battery telemetry, now logging every suspend (logind delay lock, coulomb counter); `tools/mac-power-telemetry-watch.service` |
 | `tools/macos-sleep-test.sh` | macOS sleep-drain baseline on the same battery gauge: `curl -fsSL https://raw.githubusercontent.com/JJRPF/Aurora-DeepIdle/quick-Campaign/tools/macos-sleep-test.sh \| bash -s -- arm`, close the lid at least 4 h (overnight is better), then the same with `report`, which posts the result to PR #2 with `gh` |
+| `tools/macos-agent-prompt.md` | Prompt for an agent on macOS: PMP device memory, SMC power switches and wake keys (read only), awake idle power, power states, then the sleep test; posts one combined comment to PR #2 when the owner says so |
 | `harness/hdmi-power/` | HDMI rails A/B: `smc-pwr-test.ko` (test only) switches `hdmi-pwren` (SMC GPIO 23, gP17) and `dp2hdmi-pwren` (6, gP06), which the DCP driver keeps on, off at run time; `run.sh` measures them with `idle-ab.py` |
 | `harness/pmp-run/toggle.sh` | Probe of macOS's PMP run store (`AppleA7IOPV4PMP::_runCPU`, 0x28e700000+0): SRAM or a run register; restores the word |
 | `tools/macos-re/` | Reading a public macOS kernelcache: remote IPSW extraction, IM4P, chained-pointer fixups, fileset kexts, vtables, Ghidra headless scripts |
