@@ -12,6 +12,10 @@ Each SETTING is one of
   no-eas       both states enabled, energy-aware scheduling off
                (kernel.sched_energy_aware=0; needs a CPU energy model,
                so compare it with default to see what EAS saves)
+  set:PATH=VALUE[,PATH=VALUE...]
+               both states enabled, and each sysfs or procfs PATH given
+               VALUE for the window; every other setting gets the value
+               found at the start (for example a module parameter)
 
 wfi-only and pd-always take a CPU list, as in pd-always@4-9 or
 wfi-only@0,2: the listed CPUs get the setting and the others both states,
@@ -29,8 +33,8 @@ time (all CPUs, from /proc/stat) and each cpufreq policy's mean frequency,
 to show whether a setting changed the work done or the clocks rather than
 only the idle power.
 
-It writes only the cpuidle 'disable' files, pd_residency_us and
-sched_energy_aware, as root, and puts every one back as it found it on
+It writes only the cpuidle 'disable' files, pd_residency_us,
+sched_energy_aware and the set: paths, as root, and puts every one back as it found it on
 exit, also on an error or Ctrl-C.
 """
 import argparse
@@ -72,7 +76,22 @@ def parse_setting(text):
         return 0, 0, int(text[4:]), None, None
     if text == 'no-eas':
         return 0, 0, None, None, 0
+    if parse_writes(text):
+        return 0, 0, None, None, None
     raise ValueError(f'unknown setting {text!r}')
+
+
+def parse_writes(text):
+    """{absolute path: value} of a set: SETTING, {} for any other."""
+    if not text.startswith('set:'):
+        return {}
+    writes = {}
+    for part in text[4:].split(','):
+        path, eq, value = part.partition('=')
+        if not path.startswith('/') or not eq or not value or path in writes:
+            raise ValueError(f'bad set: entry {part!r} (want /PATH=VALUE)')
+        writes[path] = value
+    return writes
 
 
 def power_sensors(root):
@@ -102,13 +121,29 @@ class Machine:
                                key=lambda path: int(path.name[6:]))
         self.saved = {path: path.read_text() for path in self.knobs()}
         self.written = set()
+        self.extra = set()
 
     def knobs(self):
         paths = [cpu / f'state{i}/disable' for cpu in self.cpus for i in (0, 1)]
         return paths + [path for path in (self.residency, self.eas) if path.exists()]
 
-    def apply(self, setting):
+    def track(self, paths):
+        """Save the current value of each set: path, before anything is written."""
+        for path in paths:
+            full = self.root / path.lstrip('/')
+            if not full.exists():
+                raise FileNotFoundError(f'{path} is missing')
+            self.saved.setdefault(full, full.read_text())
+            self.extra.add(full)
+
+    def apply(self, setting, writes=None):
         d0, d1, residency, only, eas = setting
+        mine = {self.root / path.lstrip('/'): value for path, value in (writes or {}).items()}
+        for full in sorted(self.extra):
+            if full in mine:
+                self.write(full, f'{mine[full]}\n')
+            elif full in self.written:
+                self.write(full, self.saved[full])
         if eas is not None:
             if not self.eas.exists():
                 raise FileNotFoundError(f'{EAS} is missing')
@@ -170,11 +205,12 @@ def run(machine, names, rounds, window, settle, log=None):
         only = parse_setting(name)[3]
         if only is not None and not only <= set(machine.numbers()):
             raise ValueError(f'{name}: no CPU {min(only - set(machine.numbers()))}')
+    machine.track({path for name in names for path in parse_writes(name)})
     rows = []
     try:
         for n in range(rounds):
             for name in (names if n % 2 == 0 else names[::-1]):
-                machine.apply(parse_setting(name))
+                machine.apply(parse_setting(name), parse_writes(name))
                 time.sleep(settle)
                 before, start, samples = machine.residency_us(), time.monotonic(), []
                 ticks, clocks = machine.busy(), []
@@ -211,19 +247,20 @@ def run(machine, names, rounds, window, settle, log=None):
 
 def report(rows, names):
     out = []
+    width = max([12] + [len(name) for name in names])
     labels = list(rows[0].get('sensors') or {POWER_LABEL: None}) if rows else []
     for label in labels:
         def watts(row):
             return row['sensors'][label] if 'sensors' in row else row['watts']
         out.append(f'{label}:')
-        out.append(f'  {"setting":12} {"mean W":>8} {"PD %":>6} {"WFI %":>6}   '
+        out.append(f'  {"setting":{width}} {"mean W":>8} {"PD %":>6} {"WFI %":>6}   '
                    f'paired difference from {names[0]}')
         base = {row['round']: watts(row) for row in rows if row['setting'] == names[0]}
         for name in names:
             mine = [row for row in rows if row['setting'] == name]
             if not mine:
                 continue
-            line = (f'  {name:12} {statistics.mean(watts(r) for r in mine):8.2f} '
+            line = (f'  {name:{width}} {statistics.mean(watts(r) for r in mine):8.2f} '
                     f'{statistics.mean(r["pd_pct"] for r in mine):6.1f} '
                     f'{statistics.mean(r["wfi_pct"] for r in mine):6.1f}')
             diffs = [watts(r) - base[r['round']] for r in mine if r['round'] in base]
@@ -236,11 +273,11 @@ def report(rows, names):
     if rows and 'busy_pct' in rows[0]:
         out.append('Busy time and clocks:')
         policies = list(rows[0]['mhz'])
-        out.append(f'  {"setting":12} {"busy %":>6} ' + ' '.join(f'{name:>9}' for name in policies))
+        out.append(f'  {"setting":{width}} {"busy %":>6} ' + ' '.join(f'{name:>9}' for name in policies))
         for name in names:
             mine = [row for row in rows if row['setting'] == name]
             if mine:
-                out.append(f'  {name:12} {statistics.mean(r["busy_pct"] for r in mine):6.1f} ' +
+                out.append(f'  {name:{width}} {statistics.mean(r["busy_pct"] for r in mine):6.1f} ' +
                            ' '.join(f'{statistics.mean(r["mhz"][p] for r in mine):9.0f}'
                                     for p in policies))
     return out

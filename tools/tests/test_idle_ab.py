@@ -58,6 +58,48 @@ class IdleAbTest(unittest.TestCase):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 idle_ab.parse_setting(bad)
 
+    def test_set_settings(self):
+        name = "set:/sys/module/m/parameters/a=0,/sys/module/m/parameters/b=off"
+        self.assertEqual(idle_ab.parse_setting(name), (0, 0, None, None, None))
+        self.assertEqual(idle_ab.parse_writes(name), {"/sys/module/m/parameters/a": "0",
+                                                      "/sys/module/m/parameters/b": "off"})
+        self.assertEqual(idle_ab.parse_writes("default"), {})
+        for bad in ("set:", "set:x=1", "set:/a", "set:/a=", "set:/a=1,/a=2", "set:/a=1,"):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                idle_ab.parse_setting(bad)
+
+    def test_set_writes_only_its_window_and_restores(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            fake_machine(root)
+            knob = root / "sys/module/m/parameters/a"
+            knob.parent.mkdir(parents=True)
+            knob.write_text("1\n")
+            machine = idle_ab.Machine(root)
+            seen = []
+            real_apply = machine.apply
+
+            def apply(setting, writes=None):
+                real_apply(setting, writes)
+                seen.append(knob.read_text())
+            machine.apply = apply
+            with mock.patch.object(idle_ab.time, "sleep"), \
+                    mock.patch.object(idle_ab.time, "monotonic", side_effect=range(1000)):
+                rows = idle_ab.run(machine, ["default", "set:/sys/module/m/parameters/a=0"], 2, 2, 0)
+            self.assertEqual(seen, ["1\n", "0\n", "0\n", "1\n"])
+            self.assertEqual(knob.read_text(), "1\n")
+            self.assertIn("set:/sys/module/m/parameters/a=0", "\n".join(idle_ab.report(
+                rows, ["default", "set:/sys/module/m/parameters/a=0"])))
+
+    def test_a_missing_set_path_is_refused_before_anything_is_written(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            fake_machine(root)
+            machine = idle_ab.Machine(root)
+            with self.assertRaises(FileNotFoundError):
+                idle_ab.run(machine, ["default", "set:/sys/module/none/parameters/a=0"], 1, 1, 0)
+            self.assertEqual(machine.written, set())
+
     def test_run_applies_each_setting_and_restores_everything(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -67,8 +109,8 @@ class IdleAbTest(unittest.TestCase):
             seen = []
             real_apply = machine.apply
 
-            def apply(setting):
-                real_apply(setting)
+            def apply(setting, writes=None):
+                real_apply(setting, writes)
                 seen.append(((root / idle_ab.CPUS / "cpu1/cpuidle/state0/disable").read_text(),
                              (root / idle_ab.CPUS / "cpu1/cpuidle/state1/disable").read_text(),
                              (root / idle_ab.RESIDENCY).read_text()))
@@ -120,8 +162,8 @@ class IdleAbTest(unittest.TestCase):
             states = []
             real_apply = machine.apply
 
-            def apply(setting):
-                real_apply(setting)
+            def apply(setting, writes=None):
+                real_apply(setting, writes)
                 states.append([(root / idle_ab.CPUS / f"cpu{n}/cpuidle/state{i}/disable")
                                .read_text().strip() for n in range(11) for i in (0, 1)])
             machine.apply = apply
@@ -156,8 +198,8 @@ class IdleAbTest(unittest.TestCase):
             seen = []
             real_apply = machine.apply
 
-            def apply(setting):
-                real_apply(setting)
+            def apply(setting, writes=None):
+                real_apply(setting, writes)
                 seen.append((root / idle_ab.EAS).read_text())
             machine.apply = apply
             with mock.patch.object(idle_ab.time, "sleep"), \
