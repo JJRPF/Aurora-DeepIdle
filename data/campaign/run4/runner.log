@@ -13,3 +13,21 @@
 2026-10-16 20:37:22 step 1 pmpload: 1 pmp device(s) bound after modprobe
 2026-10-16 20:49:09 step 1 pmpload: done
 2026-10-16 20:49:10 step 2 pmpload2 armed: boot.bin db84dd49f4095e96, grub next_entry=deepidle-test-kernel; waiting for ack-1
+2026-10-16 20:51:20 rebooting into step 2 pmpload2
+2026-10-16 20:51:56 early: booted db84dd49f4095e96, restored stock (3630adc3b3be173c)
+2026-10-16 20:51:59 step 2 pmpload2: booted boot.bin db84dd49f4095e96 kernel 7.1.12-2-11.35-sep-ARCH-deepidle
+2026-10-16 20:52:04 step 2 pmpload2: settling 180 s
+2026-10-16 20:55:04 step 2 pmpload2: measuring (default,pd-always)
+2026-10-16 21:06:52 step 2 pmpload2: modprobe pmp
+2026-10-16 21:07:52 step 2 pmpload2: 1 pmp device(s) bound after modprobe
+2026-10-16 21:19:39 step 2 pmpload2: done
+2026-10-16 21:19:39 step 3 pmpbusy armed: boot.bin db84dd49f4095e96, grub next_entry=deepidle-test-kernel; waiting for ack-2
+2026-10-16 21:20:29 rebooting into step 3 pmpbusy
+2026-10-16 21:21:06 early: booted db84dd49f4095e96, restored stock (3630adc3b3be173c)
+2026-10-16 21:21:09 step 3 pmpbusy: booted boot.bin db84dd49f4095e96 kernel 7.1.12-2-11.35-sep-ARCH-deepidle
+2026-10-16 21:21:14 step 3 pmpbusy: settling 180 s
+2026-10-16 21:24:14 step 3 pmpbusy: measuring (default,pd-always)
+2026-10-16 21:36:06 step 3 pmpbusy: modprobe pmp
+2026-10-16 21:37:06 step 3 pmpbusy: 1 pmp device(s) bound after modprobe
+2026-10-16 21:48:59 step 3 pmpbusy: done
+2026-10-16 21:48:59 FINISHED: plan done after step 3

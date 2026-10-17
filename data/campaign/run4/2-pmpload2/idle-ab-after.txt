@@ -1,0 +1,21 @@
+Total System Power:
+  setting        mean W   PD %  WFI %   paired difference from default
+  default          5.61   89.6    9.7
+  pd-always        5.47   99.1    0.0   -0.138 W (sd 0.03, se 0.008, lower in 15 of 15)
+AC Input Power:
+  setting        mean W   PD %  WFI %   paired difference from default
+  default          5.60   89.6    9.7
+  pd-always        5.47   99.1    0.0   -0.137 W (sd 0.03, se 0.007, lower in 15 of 15)
+3.8 V Rail Power:
+  setting        mean W   PD %  WFI %   paired difference from default
+  default          0.00   89.6    9.7
+  pd-always        0.00   99.1    0.0   +0.000 W (sd 0.00, se 0.000, lower in 0 of 15)
+Heatpipe Power:
+  setting        mean W   PD %  WFI %   paired difference from default
+  default          1.41   89.6    9.7
+  pd-always        1.14   99.1    0.0   -0.269 W (sd 0.29, se 0.075, lower in 15 of 15)
+Busy time and clocks:
+  setting      busy %   policy0   policy4   policy7
+  default         0.7       945       731       707
+  pd-always       0.8       943       745       721
+exit 0

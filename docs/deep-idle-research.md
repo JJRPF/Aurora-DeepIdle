@@ -29,24 +29,34 @@ machine or in source is marked as an unknown.
   That is the macOS-under-hypervisor work. One concrete obstacle sits in
   m1n1's hypervisor: it refuses the CYC_OVRD write XNU makes on its way into
   system sleep.
-* **The biggest measured win is CPU PD on every idle entry.** The driver's
-  10 ms target residency means menu almost never picks CPU PD here.
-  Disabling WFI (so every idle entry is CPU PD) lowered system power by
-  1.0 W at a 6.7 W desktop and 1.3-2.5 W under moderate load, in paired
-  A/B runs, with the work done and the clocks unchanged; the saving is in
-  the P clusters. It costs about 10 us per wake-up. It is a runtime
-  switch today; `cpuidle_apple.pd_residency_us` (built, not booted) is for
-  finding the right threshold.
+* **CPU PD on every idle entry saves 0.15-1 W; a 100 µs residency gets
+  nearly all of it.** The driver's 10 ms target residency means menu
+  almost never picks CPU PD on a busy desktop. Disabling WFI (so every
+  idle entry is CPU PD) lowered system power by 0.6-1.1 W at a 6-9 W
+  desktop and 1.3-2.5 W under moderate load, in paired A/B runs, with the
+  work done and the clocks unchanged; the saving is in the P clusters. On
+  a quiet, freshly booted desktop menu already picks CPU PD about 90% of
+  the time and the gain is 0.15 W. It costs 10-15 µs per wake-up. With
+  `cpuidle_apple.pd_residency_us`, booted in the campaign, a residency of
+  100 µs got 94% of the PD always saving under a busy-desktop wake load,
+  at the same latency: that is the recommended default.
 * **Energy-aware scheduling is off on T602x.** The CPU OPP tables have no
-  `opp-microwatt`, so no energy model registers. Values derived from M2's
-  measurements at this machine's voltages are committed and staged as a
-  DTB-only image (E6), not yet booted.
-* **The other DTB-only improvement is the PMP.** The PMP coprocessor is not
-  booted on this machine: the DT is built without `APPLE_USE_PMP`. Asahi
-  measured about 0.5 W (about 20%) idle saving from booting it on an M1 Pro.
-  The T602x DT nodes and report offsets exist, and the running m1n1 already
-  supports it, so turning it on for J414s is a DTB-only change. It is built and
-  staged ([below](#what-was-built)), not yet booted.
+  `opp-microwatt`, so no energy model registers. With values derived from
+  M2's measurements at this machine's voltages (E6, booted), the model
+  registers, EAS moves light work from the P to the E cores, and idle
+  power is 61 mW lower.
+* **The largest win is the PMP: 0.9-1.15 W.** The PMP coprocessor (fabric
+  and memory power management) is not booted on this machine: the DT is
+  built without `APPLE_USE_PMP`. Turning it on stops the boot in m1n1,
+  because its 81 tunables need 15,850 bytes of DT space and only 12,936
+  bytes of m1n1's headroom are left (upstream m1n1 too). With 160 KiB of
+  headroom the boot works, and loading the PMP driver lowered idle power
+  by 0.90 W (battery) and 1.06 W (AC, measured at the wall) on a quiet
+  desktop, and by 1.15 W under a busy-desktop load, with the same power
+  domains on and the same wake latency. Together with PD always, the busy
+  desktop went from 7.52 to 5.69 W. Asahi measured 0.5 W on an M1 Pro.
+  Tested as a module loaded after boot, about 15 minutes per boot; booting
+  it built in, suspend and long runs are not tested yet.
 * **The s2idle drain is power left on, not wakes.** s2idle wakes every CPU
   about 3.7 times a second, but all of that awake time adds up to about 60 s
   in 38.5 h of suspend, which is milliwatts. What stays on is visible in this
@@ -787,6 +797,27 @@ watchdog), then stock again.
   switched off. PD always still saves another 105 mW on top. Wake latency
   did not change. This is about 14% of idle system power, more than
   Asahi's 0.5 W on an M1 Pro.
+
+  Step 2 repeated it on another boot, this time on AC with the battery
+  held at its charge limit, so AC Input Power (measured at the wall side)
+  equals Total System Power and serves as an independent check. Before
+  and after the modprobe: AC Input 6.67 → 5.61 W (**−1.06 W**), SoC
+  2.11 → 1.41 W (−0.70 W) with menu, and 1.98 → 1.14 W (−0.83 W) with PD
+  always.
+
+  Step 3 did it again under the busy-desktop wake load (`wakeload 10 650
+  15`, 4-5% busy, on AC). AC Input with menu went from 7.52 to 6.36 W
+  (**−1.15 W**) and with PD always from 6.81 to 5.69 W (−1.11 W); SoC
+  power from 2.83 to 1.87 W and 2.26 to 1.28 W. The two savings add up:
+  PD always plus the PMP took this load from 7.52 to 5.69 W, 24% less.
+  Wake latency was unchanged in all three PMP boots (p50 within 0.5 µs,
+  except the E→P IPI, 2-4 µs slower), the driver logged no
+  warnings, and the desktop, Wi-Fi and this session kept working.
+
+  Not covered yet: the PMP built in and enabled from boot (as it would be
+  by default), s2idle and resume with the PMP, the full E1 DTB with the
+  display and media power domains moved onto PMP report entries, and runs
+  longer than about 25 minutes.
 
 ## Unblocking deep sleep: what to trace with macOS under m1n1 hv
 

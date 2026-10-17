@@ -12,6 +12,7 @@ starting point, not as an installer.
 | `deepidle-resume`, `prompt.txt` | Hyprland autostart hook that reopens the Claude Code session after each reboot |
 | `keep-pinned.conf` | `linux-modules-cleanup.service` drop-in: skip module trees marked `.keep` |
 | `recover.sh`, `rearm.sh`, `rearm3.sh`, `rearm4.sh`, `teardown.sh` | Restore the Aurora module tree; re-arm the plan; remove the harness |
+| `batlog.sh` | Battery gauge log every 10 s (power, current, voltage, energy) |
 | `wakeload.c` | Synthetic busy-desktop wake load: `wakeload THREADS MEAN_US WORK_US` (threads sleep an exponential time, then spin); a plan line's optional 5th field, e.g. `10:650:15` |
 
 What went wrong, so it does not again:

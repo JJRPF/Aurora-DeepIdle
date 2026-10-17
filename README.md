@@ -11,6 +11,20 @@ machine and what it showed.
 
 ## Findings
 
+* **Booting the PMP saves 0.9-1.15 W, the largest single win.** The PMP
+  is the fabric and memory power controller (Asahi measured about 0.5 W
+  on an M1 Pro). J414s does not boot it today, and enabling it stops the
+  boot in m1n1: `dt_set_pmp` copies the ADT's 81 PMP tunables, which need
+  15,850 bytes, and only 12,936 of m1n1's 96 KiB DT headroom are left by
+  then (measured with `m1n1/pmp-diag.patch`; upstream m1n1 is the same).
+  With 160 KiB of headroom (`m1n1/pmp-fix-test.patch`) every tunable fits
+  and Linux boots. Loading the PMP driver mid-boot lowered a quiet desktop
+  by 0.90 W (6.28 to 5.38 W, on battery) and 1.06 W (6.67 to 5.61 W, on
+  AC, measured at the wall), and a busy desktop by 1.15 W (7.52 to
+  6.36 W). SoC power fell 0.7-1.0 W. The same power domains stayed on,
+  wake latency did not change, and nothing logged a warning. With PD
+  always as well, the busy desktop went from 7.52 to 5.69 W (24% less).
+  A control boot with nothing loaded drifted at most 80 mW.
 * **CPU PD on every idle entry saves up to about 1 W, depending on the
   wake rate.** The `apple_idle` driver's "CPU PD" state (deep WFI with
   retention, the state macOS idles in) has a 10 ms target residency, so on
@@ -38,17 +52,6 @@ machine and what it showed.
   measured power at this machine's own per-OPP voltages, taken from the
   ADT. Booted: the model registers, EAS moves light work from the P to the
   E cores, and idle power is 61 mW lower (15 of 15 rounds).
-* **Booting the PMP saves about 0.9 W at idle.** The PMP is the fabric
-  and memory power controller (Asahi measured about 0.5 W on an M1 Pro).
-  J414s does not boot it today, and enabling it stops the boot in m1n1:
-  `dt_set_pmp` copies the ADT's 81 PMP tunables, which need 15,850 bytes,
-  and only 12,936 of m1n1's 96 KiB DT headroom are left by then (measured
-  with `m1n1/pmp-diag.patch`; upstream m1n1 is the same). With 160 KiB of
-  headroom (`m1n1/pmp-fix-test.patch`) every tunable fits and Linux boots.
-  Loading the PMP driver mid-boot then took a quiet desktop from 6.28 to
-  5.38 W Total System Power, and SoC power from 1.99 to 1.22 W, with the
-  same power domains on and no change in wake latency. The control boot
-  drifted at most 80 mW. A repeat and a busy-desktop run are in progress.
 * **Power domains stay on for nothing.** In s2idle, every display
   coprocessor's domains stay on, the external ones included with nothing
   attached. Awake, the Neural Engine's domains stay on because its DARTs
@@ -66,6 +69,18 @@ The energy model (E6), the residency kernel (E7), the no-external-DCP DTB
 (three runs, 2026-10-15/16)
 (`harness/`, results in `data/campaign/`). The write-up has each result,
 and what went wrong on the way.
+
+## Recommended changes
+
+1. m1n1: more DT headroom (160 KiB here), and a PMP tunable copy that
+   leaves the PMP disabled instead of failing the boot when it does not
+   fit (`m1n1/pmp-tunable-nonfatal.patch`). An upstream issue.
+2. J414s (and likely the other T602x boards): enable the PMP in the DT,
+   once 1 is in. Still to test: the PMP enabled from boot with the driver
+   built in, s2idle and resume, and long runs.
+3. `cpuidle-apple`: a CPU PD target residency of 100 us instead of 10 ms.
+4. The T602x CPU energy model (`opp-microwatt`), so EAS runs: 61 mW at
+   idle, more for light loads.
 
 ## Try the main result now (no reboot)
 

@@ -358,3 +358,21 @@ Nothing here installs, reboots, or writes hardware registers. Times are local.
 - Busy 0.6 -> 0.9% (RTKit traffic?). AC Input 0.12 (on battery: Total System comes from the battery side).
 - Unrelated, found here: aurora-fand.service fails every 5 s since at least 2026-10-03 (226/NAMESPACE: its
   ReadWritePaths=/run/aurora-fand does not exist; the unit needs RuntimeDirectory=aurora-fand). Not touched.
+- 20:51 pushed Aurora-DeepIdle 7503c29 (PR #1). batlog.sh added (battery gauge every 10 s) for steps 2-3. ack-1.
+
+## 2026-10-16 20:52-21:19: run 4 step 2 pmpload2 (repeat): replicated, on AC this time
+- Owner plugged in at ~20:52; battery at its 80% limit, "Not charging": AC Input Power == Total System Power
+  (wall-side SMC sensor), so the battery gauge log is useless here (killed) and AC Input is the independent check.
+- Same m1n1 record (81/81, free 78,472 -> 62,622), modprobe 21:06:52 exit 0, same three PMP log lines, bound.
+- before -> after, means: default Total 6.666 -> 5.606 (-1.06), AC Input 6.668 -> 5.605 (-1.06), Heatpipe
+  2.111 -> 1.413 (-0.70); pd-always Total 6.524 -> 5.468 (-1.06), Heatpipe 1.976 -> 1.144 (-0.83). Busy 0.65-0.77%.
+- Heatpipe per round is noisier after (1.18-2.21, mostly 1.2-1.35) than before (1.91-2.56): PMP DVFS moving.
+- Two boots, battery and AC: -0.90 and -1.06 W Total, -0.77 and -0.70/-0.83 W SoC. Control drift <= 0.08 W.
+
+## 2026-10-16 21:21-21:49: run 4 step 3 pmpbusy (PMP under wakeload 10:650:15, on AC): -1.15 W
+- Same m1n1 record, modprobe 21:36:06 exit 0, bound, same three log lines.
+- before -> after: default AC Input 7.516 -> 6.364 (-1.15), Heatpipe 2.833 -> 1.873 (-0.96); pd-always
+  6.807 -> 5.695 (-1.11), Heatpipe 2.256 -> 1.283 (-0.97). Busy 3.75/4.59 -> 3.86/4.72%; PD 7%/94%; clocks flat.
+- PD always + PMP: 7.52 -> 5.69 W (-1.82 W, -24%). Additive.
+- wakelat p50 unchanged except ipi 1->6 default 12.3 -> 14.2 (step 1: 10.9 -> 14.5; pd-always 18.8-19.1 -> 21.2).
+- FINISHED: plan done after step 3. ESP boot.bin stock 3630adc3, next_entry unset, plan removed.

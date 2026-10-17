@@ -20,4 +20,6 @@ the boot came from. Kernel logs are left out.
 * `run4/`: the PMP, on the test kernel rebuilt with `CONFIG_APPLE_PMP=m`. Each step measures
   twice in one boot (`*-before`, `*-after`). `0-pmpctl` loads nothing in between (drift);
   `1-pmpload` boots `pmpfix-test` (m1n1 with 160 KiB DT headroom) and runs `modprobe pmp` in
-  between (`modprobe.txt`, `dmesg-modprobe.txt`, `genpd-after.txt`).
+  between (`modprobe.txt`, `dmesg-modprobe.txt`, `genpd-after.txt`). `2-pmpload2` repeats it
+  (on AC), `3-pmpbusy` adds the wake load. `battery-2-pmpload2.log` is the battery gauge, unused
+  (the machine was on AC, not charging).
