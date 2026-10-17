@@ -38,15 +38,17 @@ machine and what it showed.
   measured power at this machine's own per-OPP voltages, taken from the
   ADT. Booted: the model registers, EAS moves light work from the P to the
   E cores, and idle power is 61 mW lower (15 of 15 rounds).
-* **The PMP is not booted on J414s, and turning it on stops the boot in
-  m1n1, because the DT runs out of space.** The PMP is the fabric and
-  memory DVFS controller; Asahi measured about 0.5 W saved by booting it
-  on an M1 Pro. With the PMP DTB, m1n1's `dt_set_pmp` copies the ADT's 81
-  PMP tunables into the DT. They need 15,850 bytes, and only 12,936 of
-  m1n1's 96 KiB DT headroom are left by then (measured with
-  `m1n1/pmp-diag.patch`). The copy fails and m1n1 refuses to boot.
-  Upstream m1n1 is the same. `m1n1/pmp-tunable-nonfatal.patch` makes that
-  failure name its cause and boot without the PMP.
+* **Booting the PMP saves about 0.9 W at idle.** The PMP is the fabric
+  and memory power controller (Asahi measured about 0.5 W on an M1 Pro).
+  J414s does not boot it today, and enabling it stops the boot in m1n1:
+  `dt_set_pmp` copies the ADT's 81 PMP tunables, which need 15,850 bytes,
+  and only 12,936 of m1n1's 96 KiB DT headroom are left by then (measured
+  with `m1n1/pmp-diag.patch`; upstream m1n1 is the same). With 160 KiB of
+  headroom (`m1n1/pmp-fix-test.patch`) every tunable fits and Linux boots.
+  Loading the PMP driver mid-boot then took a quiet desktop from 6.28 to
+  5.38 W Total System Power, and SoC power from 1.99 to 1.22 W, with the
+  same power domains on and no change in wake latency. The control boot
+  drifted at most 80 mW. A repeat and a busy-desktop run are in progress.
 * **Power domains stay on for nothing.** In s2idle, every display
   coprocessor's domains stay on, the external ones included with nothing
   attached. Awake, the Neural Engine's domains stay on because its DARTs

@@ -35,7 +35,9 @@ finish() {
 n=$(cat $VAR/current 2>/dev/null || echo 0)
 line=$(sed -n "$((n + 1))p" $VAR/plan)
 [ -n "$line" ] || finish "plan done"
-read -r name image entry settings load <<< "$line"
+read -r name image entry settings load hook <<< "$line"
+[ "${load:-}" = - ] && load=""
+hook=${hook:-}
 dir=$VAR/results/$n-$name
 mkdir -p $dir
 
@@ -44,6 +46,8 @@ mkdir -p $dir
 if [ -e $dir/started ] && [ ! -e $dir/done ]; then
     log "step $n $name did not finish on its last boot: skipped"
     echo "interrupted on an earlier boot" > $dir/done
+    # A step that loads a driver and then hung the machine must not be followed by another one.
+    case "$hook" in modprobe:*) finish "step $n $name hung after its modprobe: campaign stopped" ;; esac
     echo $((n + 1)) > $VAR/current
     restore_stock
     exec $0
@@ -79,25 +83,54 @@ log "step $n $name: settling 180 s"
 sleep 180
 log "step $n $name: measuring ($settings)"
 IFS=, read -r -a args <<< "$settings"
-loadpid=""
-if [ -n "${load:-}" ]; then
-    $LIB/wakeload ${load//:/ } &
-    loadpid=$!
-    echo "wakeload ${load//:/ }" > $dir/load.txt
-    sleep 5
-fi
-nice -n 19 python3 -I $LIB/idle-ab.py --rounds ${ROUNDS:-15} --window 20 --log $dir/idle-ab.jsonl "${args[@]}" \
-    > $dir/idle-ab.txt 2>&1
-echo "exit $?" >> $dir/idle-ab.txt
-[ -n "$loadpid" ] && kill $loadpid
-if [ -e $VAR/wakelat ]; then
-    for s in "${args[@]}"; do
-        python3 -I $LIB/apply-setting.py "$s" && for t in "timer 1 1000 2000" "timer 9 1000 2000" "ipi 1 2 1000 2000" "ipi 1 6 1000 2000"; do
-            echo "$s $t: $($LIB/wakelat $t)"
-        done
-    done > $dir/wakelat.txt 2>&1
-    python3 -I $LIB/apply-setting.py default
-fi
+# measure <suffix>: one idle-ab A/B over the step's settings (under its load, if any), then wakelat.
+measure() {
+    local t=$1 loadpid=""
+    if [ -n "${load:-}" ]; then
+        $LIB/wakeload ${load//:/ } &
+        loadpid=$!
+        echo "wakeload ${load//:/ }" > $dir/load.txt
+        sleep 5
+    fi
+    nice -n 19 python3 -I $LIB/idle-ab.py --rounds ${ROUNDS:-15} --window 20 --log $dir/idle-ab$t.jsonl "${args[@]}" \
+        > $dir/idle-ab$t.txt 2>&1
+    echo "exit $?" >> $dir/idle-ab$t.txt
+    [ -n "$loadpid" ] && kill $loadpid
+    if [ -e $VAR/wakelat ]; then
+        for s in "${args[@]}"; do
+            python3 -I $LIB/apply-setting.py "$s" && for w in "timer 1 1000 2000" "timer 9 1000 2000" "ipi 1 2 1000 2000" "ipi 1 6 1000 2000"; do
+                echo "$s $w: $($LIB/wakelat $w)"
+            done
+        done > $dir/wakelat$t.txt 2>&1
+        python3 -I $LIB/apply-setting.py default
+    fi
+}
+# Optional 6th plan field: "modprobe:<module>" measures, loads the module, waits 60 s and measures
+# again in the same boot; "control" does the same without loading anything (time drift).
+case "$hook" in
+modprobe:* | control)
+    measure -before
+    mod=${hook#modprobe:}
+    if [ "$hook" = control ]; then
+        log "step $n $name: control, nothing loaded"
+    else
+        log "step $n $name: modprobe $mod"
+        since=$(date '+%F %T')
+        timeout 120 modprobe $mod > $dir/modprobe.txt 2>&1
+        echo "exit $?" >> $dir/modprobe.txt
+        sleep 60
+        journalctl -k --since "$since" > $dir/dmesg-modprobe.txt 2>&1
+        { echo "== drivers/apple_pmp"; ls /sys/bus/platform/drivers/apple_pmp/ 2>&1
+          echo "== lsmod"; lsmod | grep -iE "^$mod |pmp" ; } >> $dir/modprobe.txt 2>&1
+        cp /sys/kernel/debug/pm_genpd/pm_genpd_summary $dir/genpd-after.txt 2>/dev/null
+        log "step $n $name: $(grep -c 28e700000 $dir/modprobe.txt) pmp device(s) bound after modprobe"
+    fi
+    measure -after
+    ;;
+*)
+    measure ""
+    ;;
+esac
 cat /sys/devices/system/cpu/cpu*/cpuidle/state*/disable | sort | uniq -c > $dir/disable-after.txt
 date '+%F %T' > $dir/done
 log "step $n $name: done"

@@ -17,3 +17,7 @@ the boot came from. Kernel logs are left out.
   ret, count, flagged, max size, written, need, free before, free after, big-endian u32).
   `load.txt` names the load, if any. The owner used the machine during a few rounds; see the
   research doc for the quiet-round figures.
+* `run4/`: the PMP, on the test kernel rebuilt with `CONFIG_APPLE_PMP=m`. Each step measures
+  twice in one boot (`*-before`, `*-after`). `0-pmpctl` loads nothing in between (drift);
+  `1-pmpload` boots `pmpfix-test` (m1n1 with 160 KiB DT headroom) and runs `modprobe pmp` in
+  between (`modprobe.txt`, `dmesg-modprobe.txt`, `genpd-after.txt`).

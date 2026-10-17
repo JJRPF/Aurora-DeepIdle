@@ -761,6 +761,33 @@ watchdog), then stock again.
   the boot. The idle A/B on this boot (3% busy, owner active) gave PD
   always −449 mW (standard error 174 mW, 14 of 15).
 
+* **Run 4, the PMP, loaded mid-boot.** To keep a PMP problem from
+  looping the boot, the test kernel was rebuilt with `CONFIG_APPLE_PMP=m`
+  and the module's autoload blacklisted. The runner measures, runs
+  `modprobe pmp`, waits 60 s and measures again in the same boot. The m1n1
+  build has 160 KiB of DT headroom and copies the tunables only when they
+  fit, enabling the PMP node only when all of them were copied. Step 0
+  (stock image, nothing loaded) measured the drift between the two
+  measurements: at most 80 mW (Total System) and 40 mW (SoC).
+
+  Step 1 (`boot.bin.pmpfix-test`): m1n1 copied all 81 tunables (62 KB of
+  the DT buffer still free) and Linux booted normally. The driver bound
+  (`RTKit: Initializing (protocol version 12)`, `PMP started`; it does
+  not know one tunable, `fast-die-ctrl-ce-map`), with no kernel warnings
+  afterwards. About 90 s after the PMP started, idle power stepped down
+  and stayed down:
+
+  | Quiet desktop, on battery | Before modprobe | After | Change |
+  |---|---|---|---|
+  | Total System Power | 6.28 W | 5.38 W | **−0.90 W** |
+  | SoC (Heatpipe) | 1.99 W | 1.22 W | **−0.77 W** |
+
+  The power domains were the same before and after (116 on), so this is
+  the PMP's own fabric and memory power management, not domains being
+  switched off. PD always still saves another 105 mW on top. Wake latency
+  did not change. This is about 14% of idle system power, more than
+  Asahi's 0.5 W on an M1 Pro.
+
 ## Unblocking deep sleep: what to trace with macOS under m1n1 hv
 
 1. **The CYC_OVRD veto.** m1n1 refuses a guest CYC_OVRD write with

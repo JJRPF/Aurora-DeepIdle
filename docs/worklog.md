@@ -311,3 +311,50 @@ Nothing here installs, reboots, or writes hardware registers. Times are local.
   14/15), Heatpipe -0.495 (se 0.164, 15/15). wakelat p50 timer 7.3 -> 23.7 us.
 - Runner FINISHED (plan done after step 2); ESP boot.bin stock 3630adc3, next_entry unset.
 - Owner 19:3x: reboots allowed as needed again; commit findings to the GitHub repo whenever significant.
+
+## 2026-10-16 19:45-20:0x: run 4 prepared (the PMP, safely)
+- GitHub: Aurora-DeepIdle quick-Campaign cb0d686 pushed, PR #1 (repo policy: no direct push).
+- m1n1-pmp-fix-test.patch (scratch build m1n1fix, m1n1.bin 5d4c3553): the diag patch plus 10 * SZ_16K DT headroom
+  (was 6), and `status = "okay"` only when every tunable was copied. boot.bin.pmpfix-test db84dd49f4095e96 =
+  that m1n1 + the pmp-alias-only J414s DTB (chain after m1n1 identical to pmpdiag-test).
+- The E1 DTB (t6020-j414s-pmp.dts) also moves the ISP, disp0, AVD and dispext0/1 power domains onto pmp-report
+  entries; left out for now (display risk). pmp_report@28e3c0000 is a separate node, unaffected by the alias.
+- PMP driver (drivers/soc/apple/pmp.rs) probe: patch_bootargs (BDID/DCAP/DVID), RtKit new, CPU_RUN, wake, start
+  endpoint. Built in (=y), it probes before early-restore can put stock back, so any hang there loops the PMP
+  image. So: test kernel rebuilt with CONFIG_APPLE_PMP=m (only config change; LOCALVERSION=-deepidle given on the
+  command line as before: the first rebuild without it produced 7.1.12-2-11.35-sep-ARCH and was redone), pmp.ko,
+  `blacklist pmp` in /etc/modprobe.d/deepidle-no-pmp.conf (also in the initramfs; pmp.ko itself is not in it).
+- Runner: optional 6th plan field. "modprobe:<mod>": idle-ab (-before), modprobe (timeout 120), 60 s, idle-ab
+  (-after), modprobe.txt/dmesg-modprobe.txt/genpd-after.txt. "control": the same without the modprobe. A load
+  field of "-" means none. An interrupted modprobe step stops the campaign. Dry-run with stubs: OK.
+- rearm4.sh (pkexec, owner typed the password 19:52): kernel overwritten in place (/boot 17M free), modules with
+  .keep, depmod, blacklist, mkinitcpio, runner, run3 results archived to /var/lib/deepidle/run3, plan:
+  0 pmpctl stock control; 1 pmpload pmpfix-test; 2 pmpload2 pmpfix-test; 3 pmpbusy pmpfix-test 10:650:15.
+  All on deepidle-test-kernel; next_entry set. Rebooting.
+
+## 2026-10-16 19:53-20:20: run 4 step 0 pmpctl (test kernel PMP=m, stock image, control: nothing loaded)
+- Healthy boot, very quiet (0.6-0.7% busy, default PD 89.5%).
+- before: Total 6.72 W default / 6.54 pd-always (-0.181, se 0.014, 15/15); Heatpipe 2.16 / 2.00.
+- after (12 min later): Total 6.64 / 6.49 (-0.150, 15/15); Heatpipe 2.14 / 1.96.
+- Drift after-before with nothing loaded: Total -0.08 (default) / -0.05 (pd-always) W; Heatpipe -0.02 / -0.04 W.
+  So a PMP effect has to be well beyond ~0.05-0.08 W to count.
+
+## 2026-10-16 20:21-20:49: run 4 step 1 pmpload (pmpfix-test image, test kernel PMP=m): THE PMP WORKS, ~0.9 W
+- m1n1 with 160K headroom: /chosen asahi,pmp-tunables-diag ret 0, 81/81 written, need 15,850, free 78,472 ->
+  62,622 (= 12,936 + 64 KiB, as expected). pmp status okay, 11,896 tunable value bytes. Boot normal.
+- Before modprobe: pmgr "sync_state() pending due to 28e700000.pmp" (the enabled node with no driver yet).
+- modprobe pmp 20:36:22: exit 0; "RTKit: Initializing (protocol version 12)", "unknown property
+  apple,tunable-fast-die-ctrl-ce-map", "RTKit: syslog message: io.cpp:41: PMP started". Bound 28e700000.pmp.
+  No kernel warnings or errors afterwards. Desktop, Wi-Fi and this session fine.
+- Quiet (0.6-1.0% busy), on battery. before -> after, mean of all rounds:
+  Total System 6.284 -> 5.381 W (-0.90 W); Heatpipe (SoC) 1.986 -> 1.217 W (-0.77 W).
+  default: Total 6.36 -> 5.43, Heatpipe 1.99 -> 1.24; pd-always: 6.21 -> 5.33, 1.98 -> 1.20.
+  Control (step 0) drift over the same interval: -0.08/-0.05 Total, -0.02/-0.04 Heatpipe.
+- Per round (default): before 6.28-6.55 every round; after round 0 6.15, rounds 1-14 5.35-5.43. The drop lands
+  ~80-100 s after "PMP started" and stays flat.
+- genpd: identical before/after (116 domains on), only the pmp device added. So it is the PMP's own fabric/memory
+  power management, not domains switched off by a sync_state.
+- PD always still helps on top (-0.105 W, 15/15). wakelat unchanged (p50 timer 7.4/7.5, ipi 1->6 10.9/14.5 default).
+- Busy 0.6 -> 0.9% (RTKit traffic?). AC Input 0.12 (on battery: Total System comes from the battery side).
+- Unrelated, found here: aurora-fand.service fails every 5 s since at least 2026-10-03 (226/NAMESPACE: its
+  ReadWritePaths=/run/aurora-fand does not exist; the unit needs RuntimeDirectory=aurora-fand). Not touched.

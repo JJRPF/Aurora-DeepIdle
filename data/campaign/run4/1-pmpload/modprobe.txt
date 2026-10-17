@@ -1,0 +1,9 @@
+exit 0
+== drivers/apple_pmp
+28e700000.pmp
+bind
+module
+uevent
+unbind
+== lsmod
+pmp                    49152  0

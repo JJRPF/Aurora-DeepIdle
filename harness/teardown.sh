@@ -7,6 +7,7 @@ set -u
 systemctl disable --now deepidle-runner.service deepidle-early-restore.service 2>/dev/null
 rm -f /etc/systemd/system/deepidle-runner.service /etc/systemd/system/deepidle-early-restore.service
 rm -f /etc/systemd/system.conf.d/90-deepidle-watchdog.conf
+rm -f /etc/modprobe.d/deepidle-no-pmp.conf
 rm -f /var/lib/deepidle/plan /var/lib/deepidle/boot.bin.stock
 rm -rf /usr/local/lib/deepidle
 # The test kernel: GRUB entries, image, initramfs, modules.
