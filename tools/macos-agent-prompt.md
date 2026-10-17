@@ -4,8 +4,8 @@ You are an agent on a MacBook Pro 14" M2 Pro (J414s, SoC T6020) booted into
 macOS. The owner works on Aurora Silicon's Linux for this machine. Linux's
 s2idle sleep drains about 1.4 W, and macOS sleeps far lower. Your job is to
 collect facts from the running macOS that static analysis of its kernelcache
-cannot give, then run an overnight sleep test, then post everything as one
-comment on PR #2 of `JJRPF/Aurora-DeepIdle`.
+cannot give, then run an overnight sleep test, then report everything in one
+new issue in `JJRPF/Aurora-DeepIdle`.
 
 The work has three phases. Phase 1 and 2 happen now. Phase 3 happens only
 when the owner wakes the Mac and tells you to post.
@@ -23,13 +23,14 @@ when the owner wakes the Mac and tells you to post.
   commit Apple binaries, firmware, kernelcaches, or large disassembly or
   decompiled listings; post findings, register addresses, property values
   and short log excerpts only. Never contact or post to upstream projects
-  (Asahi Linux, m1n1, kernel lists). The only place you post is PR #2.
+  (Asahi Linux, m1n1, kernel lists). The only thing you post is one new
+  issue in `JJRPF/Aurora-DeepIdle`; do not comment on existing issues or PRs.
 - **Privacy.** The repo is public. Never post full `ioreg`/`system_profiler`
   dumps. Before posting, remove serial numbers (`IOPlatformSerialNumber`,
   `serial-number`, `mlb-serial-number`), UUIDs, MAC addresses, Wi-Fi network
   names, user names, host names and Apple IDs. Grep your draft for them.
 - Keep all raw output in `~/Library/Logs/AuroraDeepIdle/agent/` (create it).
-  The comment carries a summary plus short excerpts in `<details>` blocks,
+  The issue carries a summary plus short excerpts in `<details>` blocks,
   under 50,000 characters.
 - If something is not available on this macOS version, say so and move on.
   Do not spend more than about an hour on phase 1.
@@ -111,7 +112,7 @@ now, so nothing is lost if the session ends.
 1. The owner must unplug the charger, USB devices and displays (and take any
    SD card out). Ask them to.
 2. Run
-   `curl -fsSL https://raw.githubusercontent.com/JJRPF/Aurora-DeepIdle/quick-Campaign/tools/macos-sleep-test.sh | bash -s -- arm`
+   `curl -fsSL https://raw.githubusercontent.com/JJRPF/Aurora-DeepIdle/main/tools/macos-sleep-test.sh | bash -s -- arm`
    It refuses while charging; fix that and rerun.
 3. Read `MBSE`, `MBSW` and `WKTP` once more and note the time.
 4. Tell the owner: close the lid now and leave it closed **at least 4 hours,
@@ -120,9 +121,9 @@ now, so nothing is lost if the session ends.
 
 ## Phase 3: when the owner says to post
 
-1. Run the report without its own comment, so everything goes in one:
-   `curl -fsSL https://raw.githubusercontent.com/JJRPF/Aurora-DeepIdle/quick-Campaign/tools/macos-sleep-test.sh | DEEPIDLE_PR=0 bash -s -- report`
-   (`DEEPIDLE_PR=0` goes on `bash`, not `curl`.) Keep its summary and the
+1. Run the report without its own issue, so everything goes in one:
+   `curl -fsSL https://raw.githubusercontent.com/JJRPF/Aurora-DeepIdle/main/tools/macos-sleep-test.sh | DEEPIDLE_POST=0 bash -s -- report`
+   (`DEEPIDLE_POST=0` goes on `bash`, not `curl`.) Keep its summary and the
    path of its full report.
 2. Read `MBSE`, `MBSW`, `WKTP` again (the wake bitmap after a real wake).
 3. Kernel messages around the first sleep entry and the final wake, from the
@@ -130,10 +131,10 @@ now, so nothing is lost if the session ends.
    --predicate 'process == "kernel"'`, filtered to lines about sleep, wake,
    PMP, RTBuddy, SMC, PMGR, AOP, DCP and PCIe. Report the order of events in
    the 30 s around the first sleep and the 30 s around the final wake, with
-   timestamps; at most about 80 lines in the comment.
-4. Write the comment to a file and post it:
-   `gh pr comment 2 -R JJRPF/Aurora-DeepIdle --body-file <file>`, then give
-   the owner the comment URL. Structure:
+   timestamps; at most about 80 lines in the issue.
+4. Write the issue body to a file and open the issue:
+   `gh issue create -R JJRPF/Aurora-DeepIdle --title "macOS findings: PMP device memory, SMC power switches, sleep <W> W (<date>)" --body-file <file>`,
+   then give the owner the issue URL. Body structure:
    - **Summary**: 5-10 bullets, the answers first: PMP device memory index 2,
      which `gP` switches macOS has off, awake PSTR/PHPC versus Linux's
      5.38 W / 1.22 W, sleep drain (W) versus Linux's 1.4 W.
@@ -147,3 +148,6 @@ now, so nothing is lost if the session ends.
    - **pmset settings** (in `<details>`).
    - **Not available / could not check**.
    - A last line: `Posted by an AI agent (tools/macos-agent-prompt.md).`
+
+If you cannot finish phase 1 or the sleep test, still open the issue with
+what you have, and say what is missing.

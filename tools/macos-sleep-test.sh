@@ -1,22 +1,21 @@
 #!/bin/bash
 # macOS sleep-drain baseline for the Aurora deep idle work (same battery and gauge Linux reads).
 #
-#   curl -fsSL https://raw.githubusercontent.com/JJRPF/Aurora-DeepIdle/quick-Campaign/tools/macos-sleep-test.sh | bash -s -- arm
+#   curl -fsSL https://raw.githubusercontent.com/JJRPF/Aurora-DeepIdle/main/tools/macos-sleep-test.sh | bash -s -- arm
 #     unplug the charger, close the lid, leave it closed (at least 4 h, ideally overnight)
-#   curl -fsSL https://raw.githubusercontent.com/JJRPF/Aurora-DeepIdle/quick-Campaign/tools/macos-sleep-test.sh | bash -s -- report
-#     right after opening the lid; posts the summary as a comment on the PR with gh
+#   curl -fsSL https://raw.githubusercontent.com/JJRPF/Aurora-DeepIdle/main/tools/macos-sleep-test.sh | bash -s -- report
+#     right after opening the lid; opens an issue with the result, with gh
 #
 # Reads only: ioreg AppleSmartBattery, pmset settings and log, sw_vers, sysctl. Changes no settings,
 # needs no sudo or Python. Keeps everything in ~/Library/Logs/AuroraDeepIdle/.
-# The comment goes to PR $DEEPIDLE_PR (default 2) of $DEEPIDLE_REPO (default JJRPF/Aurora-DeepIdle),
-# a public repo: battery figures, macOS version, model, pmset settings and sleep/wake log lines.
-# DEEPIDLE_PR=0 skips the comment.
+# The issue goes to $DEEPIDLE_REPO (default JJRPF/Aurora-DeepIdle), a public repo: battery figures,
+# macOS version, model, pmset settings and sleep/wake log lines. DEEPIDLE_POST=0 skips it.
 # Energy is the gauge's raw remaining capacity (mAh) times the mean battery voltage, the same
 # method Linux's mac-power-telemetry uses with the SMC coulomb counter.
 set -u
 DIR="$HOME/Library/Logs/AuroraDeepIdle"
 REPO="${DEEPIDLE_REPO:-JJRPF/Aurora-DeepIdle}"
-PR="${DEEPIDLE_PR:-2}"
+POST="${DEEPIDLE_POST:-1}"
 STATE="$DIR/sleep-test.state"
 
 [ "$(uname -s)" = Darwin ] || { echo "run this on macOS"; exit 1; }
@@ -107,12 +106,12 @@ report)
     rm -f "$DIR/.events" "$DIR/.events-since"
     sed -n '1,/^== sleep\/wake events/p' "$OUT" | sed '$d'
     echo "Full report: $OUT"
-    if [ "$PR" = 0 ]; then
-        echo "DEEPIDLE_PR=0: no PR comment."
+    if [ "$POST" = 0 ]; then
+        echo "DEEPIDLE_POST=0: no issue opened."
     elif ! command -v gh >/dev/null 2>&1; then
-        echo "gh not found: paste $OUT into $REPO PR #$PR by hand."
+        echo "gh not found: open an issue in $REPO with $OUT by hand."
     else
-        BODY="$DIR/sleep-test-comment.md"
+        BODY="$DIR/sleep-test-issue.md"
         {
             echo "**macOS sleep baseline** (\`tools/macos-sleep-test.sh report\`)"
             echo
@@ -129,10 +128,12 @@ report)
             echo
             echo "</details>"
         } > "$BODY"
-        if gh pr comment "$PR" -R "$REPO" --body-file "$BODY"; then
-            echo "Posted to $REPO PR #$PR."
+        watts=$(awk '/^mean power, asleep:/ { print $4; exit }' "$OUT")
+        TITLE="macOS sleep baseline: ${watts:-?} W asleep ($(date -r "$t0" +%Y-%m-%d), $(sysctl -n hw.model))"
+        if URL=$(gh issue create -R "$REPO" --title "$TITLE" --body-file "$BODY"); then
+            echo "Opened $URL"
         else
-            echo "Posting failed: paste $BODY into $REPO PR #$PR by hand (or rerun report)."
+            echo "Opening the issue failed: open one in $REPO with $BODY by hand (or rerun report)."
         fi
     fi
     ;;
