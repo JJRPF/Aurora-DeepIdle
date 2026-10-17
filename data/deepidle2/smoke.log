@@ -1,0 +1,8 @@
+2026-10-17 11:22:04 booted 7.1.12-2-11.35-sep-ARCH-deepidle2, m1n1 db84dd49f4095e96
+2026-10-17 11:23:04 modprobe pmp: exit 0
+2026-10-17 11:23:34 pmp bound: 1; s2idle_idle=Y
+2026-10-17 11:23:42 pm_test platform cycle 1: exit 0, 7.502682377 s
+2026-10-17 11:23:59 pm_test platform cycle 2: exit 0, 7.494218817 s
+2026-10-17 11:24:17 pm_test platform cycle 3: exit 0, 7.468657212 s
+2026-10-17 11:24:27 idle ok: 1, awake ok: 0, failures: 3
+2026-10-17 11:24:27 done

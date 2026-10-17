@@ -38,11 +38,15 @@ machine and what it showed.
   tree: the full order of the platform sleep and quiesce actions, the SMC's
   `MBSE` handshake (`slpw`, `slpa`, wake `waka` with an `MBSW` wake bitmap),
   PMGR's last step (a write to an always-on PMGR block Linux does not map),
-  and the PMP's whole sleep action: RTKit IDLE (0x201), then INIT on wake,
-  which is Linux's unused `apple_rtkit_idle()`. `deepidle2`
-  (`patches/deepidle2-pmp-s2idle-idle.patch`, `harness/deepidle2/`) adds that
-  to s2idle; built, not yet booted. Tools in `tools/macos-re/` (no Apple
-  files in this repo).
+  and the PMP's sleep action: RTKit IDLE (0x201), which is Linux's unused
+  `apple_rtkit_idle()`. `deepidle2`
+  (`patches/deepidle2-pmp-s2idle-idle.patch`, `harness/deepidle2/`) adds it
+  to s2idle. Smoke test (`data/deepidle2/`): the PMP acks IDLE in 399 us but
+  never answers again, because Linux's INIT wake is macOS's wake-from-QUIESCED
+  path. macOS wakes the PMP from IDLE by restarting its CPU
+  (`AppleA7IOPV4PMP::_runCPU`), through a register not yet identified. The
+  hook must stay off until then. Tools in `tools/macos-re/` (no Apple files
+  in this repo).
 * **CPU PD on every idle entry saves up to about 1 W, depending on the
   wake rate.** The `apple_idle` driver's "CPU PD" state (deep WFI with
   retention, the state macOS idles in) has a 10 ms target residency, so on

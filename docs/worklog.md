@@ -402,3 +402,16 @@ Nothing here installs, reboots, or writes hardware registers. Times are local.
 - deepidle2 built (~/Work/deepidle-11.35, LOCALVERSION=-deepidle2, patch pmp-s2idle-idle.patch), staged in
   staging-deepidle2. Owner installs: sudo bash ~/Work/deepidle-harness/deepidle2/install.sh (arms one boot with
   boot.bin.pmpfix-test + next_entry; early unit restores stock; smoke unit runs 3 pm_test=platform cycles).
+
+## 2026-10-17 11:22 deepidle2 smoke test: PMP idle works, wake does not
+- Booted 7.1.12-2-11.35-sep-ARCH-deepidle2 with boot.bin db84dd49 (PMP); early unit restored stock 3630adc3,
+  next_entry unset, armed flag gone. Smoke: 3 pm_test=platform cycles, all exit 0 (~7.5 s).
+- Cycle 1: "PMP idle in 399 us" (AP+IOP IDLE acked), then "wake failed (-62)": 1 s timeout (dmesg 107.10 -> 108.19)
+  waiting for the IOP ack to INIT 0x220. Cycles 2, 3: "idle failed (-62)" - AP IDLE unanswered. PMP silent after IDLE.
+  No crashlog. ps_pmp is apple,always-on (genpd not the cause). Hook turned off at runtime (s2idle_idle=0).
+- macOS (decomp/rtb.c, dis/a7iop.s): wake from IDLE = provider startCPUWithOptions -> AppleA7IOPV4PMP::_runCPU(1),
+  a 32-bit store of 1 to _pmsCSRMappedRegs+0 (provider device memory index 2); INIT 0x220 only from QUIESCED
+  (RTBMgmt_wakeQuiesced). Sleep = IDLE ack, enableMailboxInterrupts(0), stopCPU -> _runCPU(0).
+- Static ADT pmp reg[2] = 0x28e700000 (1 MiB) = Linux "pmp" region; word 0 reads 0x14000095 = the PMP firmware's
+  first __TEXT instruction (fw __TEXT vm 0x1000000). So the CSR is unresolved (live ADT order? fw reuses word 0?).
+  Nothing written. Lid-close test with deepidle2 dropped.
