@@ -128,6 +128,7 @@ makes it persistent: copy it to `/etc/tmpfiles.d/`.
 | `tools/cpuidle-pd-always.tmpfiles.conf` | Opt-in rule for "PD always" at boot |
 | `tools/tests/` | Unit tests for all of the above |
 | `tools/mac-power-telemetry` | The owner's battery telemetry, now logging every suspend (logind delay lock, coulomb counter); `tools/mac-power-telemetry-watch.service` |
+| `tools/macos-sleep-test.sh` | macOS sleep-drain baseline on the same battery gauge: `curl -fsSL https://raw.githubusercontent.com/JJRPF/Aurora-DeepIdle/quick-Campaign/tools/macos-sleep-test.sh \| bash -s -- arm`, close the lid at least 4 h (overnight is better), then the same with `report`, which posts the result to PR #2 with `gh` |
 | `tools/macos-re/` | Reading a public macOS kernelcache: remote IPSW extraction, IM4P, chained-pointer fixups, fileset kexts, vtables, Ghidra headless scripts |
 | `dts/` | The opt-in J414s variants: PMP on, and no external DCPs (copies; they live in the kernel tree) |
 | `patches/` | The kernel tree changes as a `git format-patch` series |
