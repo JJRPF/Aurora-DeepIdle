@@ -1,7 +1,7 @@
 From 4b97e612e91f29c14abd44ac671ea7172aaad3b2 Mon Sep 17 00:00:00 2001
 From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
 Date: Thu, 15 Oct 2026 17:25:44 -0400
-Subject: [PATCH 37/37] tools/aurora-sep: let the T602x tools and tests run
+Subject: [PATCH 37/44] tools/aurora-sep: let the T602x tools and tests run
  from a copy
 
 t6020-cpu-em.py and the T602x DT tests find the kernel tree by their

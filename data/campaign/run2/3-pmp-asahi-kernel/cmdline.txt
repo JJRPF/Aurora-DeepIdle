@@ -1,0 +1,1 @@
+BOOT_IMAGE=/vmlinuz-aurora-sep-previous root=UUID=725346d2-f127-47bc-b464-9dd46155e8d6 rw rootflags=subvol=@ cryptdevice=UUID=4604ccf8-656d-4a22-8178-395cdb242503:root:allow-discards loglevel=3 quiet splash

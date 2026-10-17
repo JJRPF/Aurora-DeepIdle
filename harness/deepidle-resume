@@ -1,0 +1,9 @@
+#!/bin/bash
+# Reopen the deep-idle Claude Code session after a test reboot (Aurora-DeepIdle).
+# Armed by ~/.local/state/deepidle/resume; the runner removes that file when the plan is done.
+STATE=$HOME/.local/state/deepidle
+[ -e "$STATE/resume" ] || exit 0
+echo "$(date '+%F %T') resume launched" >> "$STATE/resume.log"
+sleep 15
+exec xdg-terminal-exec --title="deep-idle (Claude)" --dir=/home/jjr/dev/linux-aurora/GH-1-DeepIdle -- \
+    bash -lc 'claude --continue --permission-mode bypassPermissions "$(cat ~/.local/state/deepidle/prompt.txt)"; echo "claude exited: $?"; exec bash'

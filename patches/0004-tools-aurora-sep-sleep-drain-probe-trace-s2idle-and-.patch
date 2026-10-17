@@ -1,7 +1,7 @@
 From 916c4a24762b052fa8f17c3ca2c7dface79271a5 Mon Sep 17 00:00:00 2001
 From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
 Date: Wed, 14 Oct 2026 21:06:47 -0400
-Subject: [PATCH 04/37] tools/aurora-sep: sleep-drain-probe: trace s2idle and
+Subject: [PATCH 04/44] tools/aurora-sep: sleep-drain-probe: trace s2idle and
  list domains left on
 
 Add arm/report/disarm, for a suspend taken any way (lid, menu). arm

@@ -1,0 +1,32 @@
+From 3efc2f8f1241a967cfc02744d12618bb7d1268b2 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Thu, 15 Oct 2026 22:30:55 -0400
+Subject: [PATCH 41/44] docs: deep-idle research: campaign run 2, stock
+ baseline
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AuzUDcEeRJQ6RCdWW2XWLb
+---
+ docs/deep-idle-research.md | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/docs/deep-idle-research.md b/docs/deep-idle-research.md
+index 0bc474a52dc3..42a760eb9c73 100644
+--- a/docs/deep-idle-research.md
++++ b/docs/deep-idle-research.md
+@@ -664,6 +664,12 @@ watchdog), then stock again.
+   trees marked `.keep`. Any other hand-installed kernel is exposed to the
+   same cleanup whenever a different kernel boots.
+ 
++* **Run 2, step 0, stock baseline** (fresh boot, on battery, after the
++  modules were restored): 7.81 W at 0.6% busy, CPU PD 90% of idle time
++  under menu, and PD always 142 mW lower (standard error 7 mW, 15 of 15).
++  This is the same picture as step 1: forcing PD pays when wakes are
++  frequent, not on a quiet desktop.
++
+ ## Unblocking deep sleep: what to trace with macOS under m1n1 hv
+ 
+ 1. **The CYC_OVRD veto.** m1n1 refuses a guest CYC_OVRD write with
+-- 
+2.55.0
+

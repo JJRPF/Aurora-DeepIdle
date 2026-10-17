@@ -1,0 +1,46 @@
+From f3312ade220dea0d42c13eddac3084a32ec29de3 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Thu, 15 Oct 2026 18:28:46 -0400
+Subject: [PATCH 38/44] docs: deep-idle research: unattended campaign, step 0
+ (stock)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AuzUDcEeRJQ6RCdWW2XWLb
+---
+ docs/deep-idle-research.md | 20 ++++++++++++++++++++
+ 1 file changed, 20 insertions(+)
+
+diff --git a/docs/deep-idle-research.md b/docs/deep-idle-research.md
+index a01d9a66896b..55508577ec27 100644
+--- a/docs/deep-idle-research.md
++++ b/docs/deep-idle-research.md
+@@ -622,6 +622,26 @@ domains. It only reads.
+   never armed, which is either the missing SMC/PMGR handshake or the raw/Mach-O
+   difference. This probably needs the hv trace below to tell those apart.
+ 
++## Unattended campaign (2026-10-15)
++
++With the owner's go-ahead for reboots, a root runner
++(`deepidle-runner.service`, sources in `~/Work/deepidle-harness/`) runs one
++step per boot: it records `deep-idle-check.py`, the kernel log and the power
++domains, settles for 180 s, runs `idle-ab.py` (15 rounds of 20 s) and
++`wakelat` for the step's settings, arms the next step (m1n1 image and GRUB
++`next_entry`), and reboots once the session acknowledges it. An early unit
++(`deepidle-early-restore.service`) puts the stock `boot.bin` back right
++after `/boot` mounts, so each test image boots only once. The order is
++stock, E6 energy model, E7 residency kernel, E4 no external DCPs, E1 PMP
++(the riskiest, since `apple_pmp` is built in and probes before any
++watchdog), then stock again.
++
++* **Step 0, stock** (run in place, no reboot): PD always saved 1.080 W
++  of Total System Power (8.61 to 7.53 W, standard error 0.215), lower in
++  15 of 15 rounds; Heatpipe 0.70 W. Busy time 6.7% and 6.6%. The
++  wake-up probe repeated the IPI cost (+9.5 us p50); timer wakes cost
++  more this time (+14 to +18 us p50, against +8 to +10 before).
++
+ ## Unblocking deep sleep: what to trace with macOS under m1n1 hv
+ 
+ 1. **The CYC_OVRD veto.** m1n1 refuses a guest CYC_OVRD write with
+-- 
+2.55.0
+

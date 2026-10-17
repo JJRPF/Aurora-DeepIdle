@@ -4,16 +4,13 @@ Research notes, 2026-10-14. Machine: MacBook Pro 14" M2 Pro (`apple,j414s`),
 kernel `7.1.12-2-11.35-sep-ARCH+`, m1n1 stage 2 `v1.6.1-29-gc6498e6e`, stage 1
 `v1.5.2`, system firmware 26.0, OS firmware 13.5. Sources are pinned: XNU
 `xnu-12377.1.9`, AsahiLinux/m1n1 `94395adc` (main, 2026-10-13), AsahiLinux/docs
-`0d1f891`. Kernel paths are relative to a linux-aurora tree (`integration/aurora`
-`cadfb30a`, with this repo's `patches/` applied); links go to that base commit.
-`tools/` here holds this repo's copies of the tools, which live in
-`tools/aurora-sep/` in the kernel tree. Anything not verified on this
+`0d1f891`. Kernel paths are relative to this tree. Anything not verified on this
 machine or in source is marked as an unknown.
 
 ## Answers in brief
 
 * **CPU deep idle already works.** Asahi's downstream `apple_idle` driver
-  ([cpuidle-apple.c](https://github.com/omacom/linux-aurora/blob/cadfb30a447f72cc8b10e0c6ef64cbdb6894fd05/drivers/cpuidle/cpuidle-apple.c)) runs here with two
+  ([cpuidle-apple.c](../drivers/cpuidle/cpuidle-apple.c)) runs here with two
   states: WFI (clock gated) and "CPU PD", Apple's deep WFI with state
   retention. Every CPU has both, and s2idle uses only CPU PD; awake, the
   governor almost never picks CPU PD (fourth point). What is missing
@@ -32,33 +29,55 @@ machine or in source is marked as an unknown.
   That is the macOS-under-hypervisor work. One concrete obstacle sits in
   m1n1's hypervisor: it refuses the CYC_OVRD write XNU makes on its way into
   system sleep.
-* **The biggest measured win is CPU PD on every idle entry.** The driver's
-  10 ms target residency means menu almost never picks CPU PD here.
-  Disabling WFI (so every idle entry is CPU PD) lowered system power by
-  1.0 W at a 6.7 W desktop and 1.3-2.5 W under moderate load, in paired
-  A/B runs, with the work done and the clocks unchanged; the saving is in
-  the P clusters. It costs about 10 us per wake-up. It is a runtime
-  switch today; `cpuidle_apple.pd_residency_us` (built, not booted) is for
-  finding the right threshold.
+* **CPU PD on every idle entry saves 0.15-1 W; a 100 µs residency gets
+  nearly all of it.** The driver's 10 ms target residency means menu
+  almost never picks CPU PD on a busy desktop. Disabling WFI (so every
+  idle entry is CPU PD) lowered system power by 0.6-1.1 W at a 6-9 W
+  desktop and 1.3-2.5 W under moderate load, in paired A/B runs, with the
+  work done and the clocks unchanged; the saving is in the P clusters. On
+  a quiet, freshly booted desktop menu already picks CPU PD about 90% of
+  the time and the gain is 0.15 W. It costs 10-15 µs per wake-up. With
+  `cpuidle_apple.pd_residency_us`, booted in the campaign, a residency of
+  100 µs got 94% of the PD always saving under a busy-desktop wake load,
+  at the same latency: that is the recommended default.
 * **Energy-aware scheduling is off on T602x.** The CPU OPP tables have no
-  `opp-microwatt`, so no energy model registers. Values derived from M2's
-  measurements at this machine's voltages are committed and staged as a
-  DTB-only image (E6), not yet booted.
-* **The other DTB-only improvement is the PMP.** The PMP coprocessor is not
-  booted on this machine: the DT is built without `APPLE_USE_PMP`. Asahi
-  measured about 0.5 W (about 20%) idle saving from booting it on an M1 Pro.
-  The T602x DT nodes and report offsets exist, and the running m1n1 already
-  supports it, so turning it on for J414s is a DTB-only change. It is built and
-  staged ([below](#what-was-built)), not yet booted.
-* **The s2idle drain is power left on, not wakes.** s2idle wakes every CPU
-  about 3.7 times a second, but all of that awake time adds up to about 60 s
-  in 38.5 h of suspend, which is milliwatts. What stays on is visible in this
-  boot's power-domain counters: the internal display and both external
-  display pipelines (DCP CPU, front end and system domains) never powered off
-  in any of four suspends, because the DCP driver marks itself a wakeup path
-  to keep its domains on ("we do not support full shutdown properly yet").
-  Both external DCPs stay up with nothing plugged in. The probe now traces
-  the wake source and lists the domains left on, for the next lid close.
+  `opp-microwatt`, so no energy model registers. With values derived from
+  M2's measurements at this machine's voltages (E6, booted), the model
+  registers, EAS moves light work from the P to the E cores, and idle
+  power is 61 mW lower.
+* **The largest win is the PMP: 0.9-1.15 W.** The PMP coprocessor (fabric
+  and memory power management) is not booted on this machine: the DT is
+  built without `APPLE_USE_PMP`. Turning it on stops the boot in m1n1,
+  because its 81 tunables need 15,850 bytes of DT space and only 12,936
+  bytes of m1n1's headroom are left (upstream m1n1 too). With 160 KiB of
+  headroom the boot works, and loading the PMP driver lowered idle power
+  by 0.90 W (battery) and 1.06 W (AC, measured at the wall) on a quiet
+  desktop, and by 1.15 W under a busy-desktop load, with the same power
+  domains on and the same wake latency. Together with PD always, the busy
+  desktop went from 7.52 to 5.69 W. Asahi measured 0.5 W on an M1 Pro.
+  Tested as a module loaded after boot, about 15 minutes per boot; booting
+  it built in and long runs are not tested yet. Suspend and resume with it
+  work (one night).
+* **s2idle drains about 1.4 W on this machine, with or without the PMP.**
+  One night with the PMP running (9.6 h suspended) used 13.98 Wh, 1.39-1.46
+  W; a stock suspend on battery from 2026-10-10 (1.7 h, from the owner's
+  `mac-power-telemetry` log) drained 1.41 W. That is 23% of the battery's
+  60.5 Wh a night, about 1.7 days from full to empty with the lid closed.
+  The PMP's 0.9 W awake saving does not carry into s2idle (the driver has
+  no suspend hook, so the PMP is never told the system is asleep). The
+  0.9 W quoted here before was a J415 figure from elsewhere, not this
+  machine.
+* **What wakes s2idle is the AOP; the drain is power left on, not wakes.**
+  The SoC woke 3.2 times a second, 61% of the time from the AOP's mailbox
+  (`2a6408000`, the always-on processor serving the ambient-light and
+  lid-angle sensors and the microphones) and 39% from function-call IPIs that
+  its RTKit receive work sends to other CPUs. All that awake time is
+  milliwatts. What stays on through every suspend is 13 power domains that
+  the kernel may power off: the internal display and both external display
+  pipelines (DCP CPU, front end and system domains), because the DCP driver
+  marks itself a wakeup path to keep its domains on ("we do not support full
+  shutdown properly yet"), even with nothing plugged in, plus PCIe, `afr` and
+  `sio`.
 * **Awake, four groups of power domains stay on for nothing.** The Neural
   Engine's (its DARTs are pinned by a blanket runtime-PM link to a device
   with no driver), all four USB-C ports' USB blocks with nothing plugged
@@ -80,7 +99,7 @@ Register layout from m1n1 (`src/cpu_regs.h` 531-562): CYC_OVRD is
 `s3_5_c15_c5_0`, with WFI_MODE in bits 25:24 and DISABLE_WFI_RET in bit 0;
 ACC_OVRD is `s3_5_c15_c6_0`. The cpuidle driver sets bits 25:24 (WFI_MODE=3)
 and never sets bit 0, so its deep WFI keeps state
-([cpuidle-apple.c](https://github.com/omacom/linux-aurora/blob/cadfb30a447f72cc8b10e0c6ef64cbdb6894fd05/drivers/cpuidle/cpuidle-apple.c) lines 33-46).
+([cpuidle-apple.c](../drivers/cpuidle/cpuidle-apple.c) lines 33-46).
 
 ## What macOS does (XNU, read only)
 
@@ -116,7 +135,7 @@ and never sets bit 0, so its deep WFI keeps state
   CYC_OVRD on every CPU PD entry (millions of times this boot, below) without
   faulting. T8140 is the exception that proves the rule: there the same
   write is undefined, so this tree limits it to WFI
-  ([cpuidle-apple.c](https://github.com/omacom/linux-aurora/blob/cadfb30a447f72cc8b10e0c6ef64cbdb6894fd05/drivers/cpuidle/cpuidle-apple.c) probe).
+  ([cpuidle-apple.c](../drivers/cpuidle/cpuidle-apple.c) probe).
 * **Reset vector.** iBoot "sets and locks the RVBAR of the boot CPU to be the
   top of the page that the entrypoint lives in. ... presumably after a resume
   from deep sleep, the boot CPU will start executing code here"
@@ -153,7 +172,7 @@ avg Total System Power (SMC PSTR): 6.55 W
 
 The CPUs are about 95% idle, but only 2-7% of the time is CPU PD: each CPU
 wakes about 1000 times a second, and the CPU PD state's target residency is
-10 ms ([cpuidle-apple.c](https://github.com/omacom/linux-aurora/blob/cadfb30a447f72cc8b10e0c6ef64cbdb6894fd05/drivers/cpuidle/cpuidle-apple.c) line 114). The
+10 ms ([cpuidle-apple.c](../drivers/cpuidle/cpuidle-apple.c) line 114). The
 wakes were IPI1 at about 700/s per CPU and the arch timer at about 630/s per
 CPU (`/proc/interrupts`, 10 s). The `csd` tracepoint (2 s) put about 99% of
 the IPIs on `sched_ttwu_pending`, i.e. remote wakeups of browser media threads
@@ -175,8 +194,10 @@ which stops only while every CPU sleeps (`tick_freeze()` suspends
 timekeeping when the last CPU freezes, `kernel/time/tick-common.c` 519-547).
 So a CPU's s2idle time is the time some CPU was awake while it slept: 40-66 s
 per CPU over 38.5 h, about 0.05%, or about 130 us per wake. Even at 5 W while
-awake that is a few mW on average. **The 0.9 W drain is power left on during
-the sleep, not the wakes.**
+awake that is a few mW on average. **Whatever the drain is, it is power left
+on during the sleep, not the wakes.** (An earlier version of this note called
+it 0.9 W; that was a J415 figure from elsewhere. The first measurement on this
+machine is under the campaign below: 1.46 W with the PMP running.)
 
 What is left on: each power domain's debugfs `idle_states` usage counts its
 power-offs. GPU, ANE, NVMe (`ans2`), audio, the USB controllers, SIO's CPU
@@ -198,7 +219,7 @@ afr sio
 The display domains are held on deliberately: `dcp_platform_suspend()` calls
 `device_set_wakeup_path()` "which forces its power domains to stay on. We
 need this as we do not support full shutdown properly yet"
-([dcp.c](https://github.com/omacom/linux-aurora/blob/cadfb30a447f72cc8b10e0c6ef64cbdb6894fd05/drivers/gpu/drm/apple/dcp.c), around line 2732). That keeps all
+([dcp.c](../drivers/gpu/drm/apple/dcp.c), around line 2732). That keeps all
 three DCPs and their DARTs powered through every suspend, including both
 external DCPs, with no external display connected (every DP and HDMI
 connector reads `disconnected`). The DCPs do not support runtime PM
@@ -266,7 +287,7 @@ menu governor's choice uses no less than never using CPU PD at all: with a
 10 ms target residency and about 1,500 wakes per CPU per second it almost
 never picks it.
 
-The cost is wake-up latency. `tools/wakelat.c` (SCHED_FIFO,
+The cost is wake-up latency. `tools/aurora-sep/wakelat.c` (SCHED_FIFO,
 1,000 samples per test at 2 ms, six alternating rounds, medians of the
 rounds):
 
@@ -329,7 +350,7 @@ workload, which needs a machine nobody else is using.
 Until a lower residency is in a kernel,
 `echo 1 | sudo tee /sys/devices/system/cpu/cpu*/cpuidle/state0/disable`
 reproduces "PD always" at runtime, and `echo 0` undoes it; it does not
-survive a reboot. `tools/cpuidle-pd-always.tmpfiles.conf` makes
+survive a reboot. `tools/aurora-sep/cpuidle-pd-always.tmpfiles.conf` makes
 it persistent (opt-in, not installed). Its cost is the wake-up latency
 measured above, about 10 us per wake-up.
 
@@ -447,7 +468,7 @@ Fitting T8112's measured power to P = (a + b f) V^2 f at these voltages
 gives 5.8% (E) and 6.3% (P) rms error, about the measurements' own
 scatter; the implied switching capacitance is flat for E and rises a
 little with frequency for P (leakage and heat at the top).
-`tools/t6020-cpu-em.py` does the fit and writes the values into
+`tools/aurora-sep/t6020-cpu-em.py` does the fit and writes the values into
 `t602x-common.dtsi` (`--write`); `tests/test_t6020_cpu_em.py` checks that
 the tree carries them. The energy per cycle rises from each OPP to the
 next, so the energy model marks no OPP inefficient: cpufreq keeps choosing
@@ -472,11 +493,11 @@ a few percent.
    report entries. It is deliberately not in the Makefile: it has the same
    compatible as `t6020-j414s.dtb`, and m1n1 boots the last DTB that matches,
    so packaging both would turn the PMP on for every J414s.
-   `tools/tests/test_t6020_pmp.py` compiles both boards and checks
+   `tools/aurora-sep/tests/test_t6020_pmp.py` compiles both boards and checks
    that the only source differences are the alias and the five
    power-domains lines. It also checks that the PMP node stays disabled until
    m1n1 fills it in, and that the Makefile does not list the variant.
-2. **`tools/sleep-drain-probe.py`**: snapshots the battery
+2. **`tools/aurora-sep/sleep-drain-probe.py`**: snapshots the battery
    energy, time suspended (CLOCK_BOOTTIME - CLOCK_MONOTONIC), per-CPU s2idle
    entries, `/proc/interrupts` and, as root, wakeup sources. It compares two
    snapshots, or wraps one `systemctl suspend`. It reports drain in W, wakes
@@ -488,7 +509,7 @@ a few percent.
    names the interrupt or IPI that woke the SoC each time, tallies
    interrupts, timers and work items per wake, and lists the power domains
    that are not always-on and stayed on through the suspend. Tests:
-   `tools/tests/test_sleep_drain_probe.py`.
+   `tools/aurora-sep/tests/test_sleep_drain_probe.py`.
 3. **`arch/arm64/boot/dts/apple/t6020-j414s-nodcpext.dts`**: the J414s
    board without its two external DCPs. It removes the `dcpext0`/`dcpext1`
    aliases, so m1n1 leaves them alone (it enables, and carves out memory
@@ -505,7 +526,7 @@ a few percent.
    display driver skips unavailable DCPs, and USB-C display ports are only
    created from a probed DCP's routes, so none are created and none fail.
    fw_devlink ignores disabled suppliers. Not in the Makefile, for the same
-   reason as the PMP variant. `tools/tests/test_t6020_nodcpext.py`
+   reason as the PMP variant. `tools/aurora-sep/tests/test_t6020_nodcpext.py`
    checks that only those properties change, against the merged sources,
    and that no graph link from an enabled node leads to a node that is
    disabled only through an ancestor. The DP audio controllers of the
@@ -533,7 +554,7 @@ a few percent.
 
 ## Experiments, smallest first
 
-After booting any of them, `sudo tools/deep-idle-check.py`
+After booting any of them, `sudo tools/aurora-sep/deep-idle-check.py`
 names the m1n1 image by its hash and reports whether the change took:
 CPU `opp-microwatt` in the live DT and the energy model's domains, the
 `pmp` and `dcpext` aliases and whether `apple_pmp` bound, the cpuidle
@@ -543,9 +564,9 @@ domains. It only reads.
 * **E1, PMP on J414s** (needs a reboot; owner's go-ahead). Procedure below.
   This is the only change with an expected battery gain today.
 * **E2, find the s2idle wake source and what stays on** (needs a suspend;
-  owner's go-ahead). On battery: `sudo tools/sleep-drain-probe.py
+  owner's go-ahead). On battery: `sudo tools/aurora-sep/sleep-drain-probe.py
   arm`, close the lid for at least 30 minutes, open it, then `sudo
-  tools/sleep-drain-probe.py report`. Run it once on the stock DTB
+  tools/aurora-sep/sleep-drain-probe.py report`. Run it once on the stock DTB
   and once with E1, so the drain figures compare. The wakes matter less
   than first thought (see Measurements); the domain list and the drain
   matter more.
@@ -576,7 +597,7 @@ domains. It only reads.
   cpu4, cpu7), and `sudo cat
   /sys/kernel/debug/energy_model/cpu0/ps:912000/power` reads 53000. Then,
   with the machine as quiet as it gets (EAS stands aside while any CPU is
-  overutilized), `sudo tools/idle-ab.py --rounds 20 --window 20
+  overutilized), `sudo tools/aurora-sep/idle-ab.py --rounds 20 --window 20
   default no-eas` pairs EAS on against EAS off in the same boot, and
   `pd-always` can join the same run. Expect light background work to move
   from the P clusters to the E cluster (busy time per cluster in the log)
@@ -609,7 +630,7 @@ domains. It only reads.
 
   `GRUB_DEFAULT=0` still boots "Omarchy Linux"; pick "Deep idle test" by
   hand, so a failed boot needs only a reboot. In the test kernel, the
-  sweep is one paired run: `sudo tools/idle-ab.py --rounds 20
+  sweep is one paired run: `sudo tools/aurora-sep/idle-ab.py --rounds 20
   --window 20 default res=2000 res=500 res=100 pd-always`, plus
   `wakelat` at the chosen value. Removal: delete the two `/boot` files,
   `/etc/grub.d/43_deepidle` and `/lib/modules/7.1.12-2-11.35-sep-ARCH-deepidle`,
@@ -624,6 +645,256 @@ domains. It only reads.
   actually dropped or only the CPUs did. No reply means the wake script was
   never armed, which is either the missing SMC/PMGR handshake or the raw/Mach-O
   difference. This probably needs the hv trace below to tell those apart.
+
+## Unattended campaign (2026-10-15)
+
+With the owner's go-ahead for reboots, a root runner
+(`deepidle-runner.service`, sources in `~/Work/deepidle-harness/`) runs one
+step per boot: it records `deep-idle-check.py`, the kernel log and the power
+domains, settles for 180 s, runs `idle-ab.py` (15 rounds of 20 s) and
+`wakelat` for the step's settings, arms the next step (m1n1 image and GRUB
+`next_entry`), and reboots once the session acknowledges it. An early unit
+(`deepidle-early-restore.service`) puts the stock `boot.bin` back right
+after `/boot` mounts, so each test image boots only once. The order is
+stock, E6 energy model, E7 residency kernel, E4 no external DCPs, E1 PMP
+(the riskiest, since `apple_pmp` is built in and probes before any
+watchdog), then stock again.
+
+* **Step 0, stock** (run in place, no reboot): PD always saved 1.080 W
+  of Total System Power (8.61 to 7.53 W, standard error 0.215), lower in
+  15 of 15 rounds; Heatpipe 0.70 W. Busy time 6.7% and 6.6%. The
+  wake-up probe repeated the IPI cost (+9.5 us p50); timer wakes cost
+  more this time (+14 to +18 us p50, against +8 to +10 before).
+
+* **Step 1, E6 energy model** (`boot.bin.em-test`): the energy model
+  registered (23 CPU `opp-microwatt` entries; performance domains cpu0,
+  cpu4 and cpu7), with no errors. EAS on against off: 61 mW lower
+  (standard error 12 mW, lower in 15 of 15), with P-cluster busy time
+  0.11% against 0.39% and E-cluster 1.35% against 0.92%, so light work
+  moved to the E cores as expected. The fresh boot was much quieter than
+  step 0 (6.58 W, 0.6% busy against 8.61 W and 6.7%), and at that wake
+  rate menu already picks CPU PD 89% of the time, so PD always saved only
+  75 mW (standard error 7 mW). PD always's saving scales with the wake
+  rate: about 1 W on a busy desktop, almost nothing on a quiet one.
+
+* **Steps 2 to 5 did not measure.** Booting the test kernel let
+  `kernel-modules-hook`'s `linux-modules-cleanup.service` move aside the
+  hand-installed Aurora 11.35 module tree, since pacman owns neither it
+  nor the test kernel's; its tmpfiles rule deleted both trees at the next
+  boot. Later boots had no modules, so `/boot` did not mount, the SMC
+  sensors were missing and there was no network, and no step measured.
+  The ESP was not touched after step 1. The tree was rebuilt from the
+  kernel's own build directory, and a drop-in now makes the cleanup skip
+  trees marked `.keep`. Any other hand-installed kernel is exposed to the
+  same cleanup whenever a different kernel boots.
+
+* **Run 2, step 0, stock baseline** (fresh boot, on battery, after the
+  modules were restored): 7.81 W at 0.6% busy, CPU PD 90% of idle time
+  under menu, and PD always 142 mW lower (standard error 7 mW, 15 of 15).
+  This is the same picture as step 1: forcing PD pays when wakes are
+  frequent, not on a quiet desktop.
+
+* **Run 2, step 1, E7 residency sweep** (test kernel): against menu's
+  default 10 ms, Total System Power was 86 mW lower at 2,000 us (standard
+  error 18 mW), 147 mW lower at 500 us, 158 mW at 100 us and 157 mW with
+  PD always (all 15 of 15), at 6.83 W and 0.7% busy. The wake-up cost
+  follows the threshold: the probe's 1 to 2 ms sleeps stay in WFI at
+  2,000 us (no cost), and pay the 10 to 15 us PD exit at 500 us and below.
+  On a quiet desktop 500 us gets 93% of the saving. The busy desktop,
+  where PD always saved about 1 W, still needs the same sweep under a
+  reproducible wake load.
+
+* **Run 2, step 2, E4 no external DCPs** (`boot.bin.nodcpext-test`): it
+  took effect (no `dcpext` aliases, all six `dispext0/1` domains off).
+  It can only be compared across boots: Heatpipe (SoC) power was 2.08 W,
+  against 2.00 W and 2.01 W in the stock and test-kernel boots, and Total
+  System Power moves about 1 W between fresh boots. So idle external DCPs
+  cost nothing measurable here (at most about 0.1 W). Starting them on
+  demand is not worth it for awake idle power; s2idle is untested.
+
+* **Run 2, step 3, E1 PMP** (`boot.bin.pmp-test`): **the boot stopped in
+  m1n1**, before GRUB. Stage 2 printed `FDT: failed to transfer pmp
+  tunable`, `Failed to prepare FDT!` and `No valid payload found`, then sat
+  in USB proxy mode until the owner restored a `boot.bin` from recoveryOS.
+  This is m1n1's own `dt_set_pmp` (`src/kboot.c`), which the PMP DTB's
+  `pmp` alias switches on. It copies every property of the ADT's
+  `/arm-io/pmp/iop-pmp-nub` into the `pmp` node as `apple,tunable-*` and
+  fails the whole boot on the first `fdt_setprop` error. The likeliest
+  error is running out of DT space: kboot leaves 96 KiB of headroom and the
+  T6020 PMP nub is large. That is not confirmed, since reading the ADT
+  needs root. A draft m1n1 change (`m1n1-pmp-tunable-nonfatal.patch` in
+  the build directory; it builds) prints the property, the libfdt error
+  and the free space, and leaves the PMP disabled instead, so a retry can
+  only lose the PMP. The PMP's 0.5 W stays unmeasured on T602x.
+* **Asahi kernel** (7.1.13-3-2-ARCH, the boot after the PMP hang, stock
+  image): PD always was 535 mW lower (standard error 181 mW, 15 of 15) at
+  2.8% busy, with PD residency 76% under menu. The effect is the same
+  outside Aurora.
+* **Lessons for the harness.** A hand-installed kernel's modules need
+  the `.keep` drop-in before any other kernel boots. An unattended step
+  must stop, not continue, when a boot is unhealthy or the session does
+  not return. And a `boot.bin` test needs the stock copy on the ESP
+  itself, where recoveryOS can reach it.
+
+* **Run 3, step 0, calibration under a synthetic wake load** (Aurora
+  kernel, stock image, `wakeload 10 650 15`: ten threads that sleep an
+  exponential time with a 650 µs mean and then spin for 15 µs; 5–6% busy,
+  about 1,700 idle entries per CPU per second, like the busy desktop of
+  run 1). Menu picked PD for only 8% of idle time (WFI 86%), against about
+  90% on a quiet boot. PD always was **713 mW lower** (standard error
+  133 mW, lower in 15 of 15 rounds, median 594 mW), and SoC (Heatpipe)
+  power was 600 mW lower (14 of 15). The owner used the machine during
+  one round; the quiet rounds alone give 550–640 mW each. Wake latency
+  p50 went from 7 to 20–24 µs, p99 at most 37 µs. So the load reproduces
+  the busy-desktop saving, and the residency sweep (step 1) can be run
+  under it.
+
+* **Run 3, step 1, residency sweep under the same load** (test kernel).
+  Paired against default, median of the 12 rounds without owner
+  activity (all-15-round means in brackets):
+
+  | Setting | PD % of idle | Total System | SoC (Heatpipe) | Timer wake p50 |
+  |---|---|---|---|---|
+  | default (10 ms) | 11 | 8.68 W | 3.32 W | 7.4 µs |
+  | res=2000 | 19 | −53 mW (+79) | −40 mW | 7.6 µs |
+  | res=500 | 57 | −330 mW (−307) | −271 mW | 21.3 µs |
+  | res=200 | 80 | −526 mW (−291) | −478 mW | 20.3 µs |
+  | res=100 | 88 | −591 mW (−362) | −554 mW | 24.4 µs |
+  | PD always | 93 | −628 mW (−433) | −564 mW | 24.6 µs |
+
+  The saving grows roughly linearly with the share of idle time spent in
+  PD, about 7 mW per percentage point at this load. Wake latency jumps
+  once PD is used at all and then stays the same (p99 at most 37 µs), so
+  a longer residency buys nothing on latency. **A target residency of
+  100 µs is the recommended default**: 94% of the PD always saving, the
+  same latency, and WFI is still chosen for idles predicted shorter than
+  100 µs. 2 ms, the earlier candidate, does almost nothing under load.
+
+* **Run 3, step 2, why E1 stopped in m1n1** (`boot.bin.pmpdiag-test`: a
+  diagnostic m1n1 that measures the PMP tunables, records the result in
+  `/chosen/asahi,pmp-tunables-diag` and never enables the PMP, plus the
+  J414s DTB with only the `pmp` alias added). Linux booted normally with
+  the PMP node disabled. The record: 81 tunable properties, none with the
+  ADT size flag, the largest 3,348 bytes, **15,850 bytes needed and only
+  12,936 free**. m1n1 gives the DT 96 KiB of headroom, and the functions
+  that run before `dt_set_pmp` (display, GPU, SEP and others) use all but
+  about 13 KiB of it. The stock loop therefore failed with
+  `-FDT_ERR_NOSPACE` most of the way through and failed the whole boot.
+  Upstream m1n1 (AsahiLinux main, 2026-10-16) has the same headroom and
+  the same bail. Fix: more headroom (160 KiB) and a copy that cannot fail
+  the boot. The idle A/B on this boot (3% busy, owner active) gave PD
+  always −449 mW (standard error 174 mW, 14 of 15).
+
+* **Run 4, the PMP, loaded mid-boot.** To keep a PMP problem from
+  looping the boot, the test kernel was rebuilt with `CONFIG_APPLE_PMP=m`
+  and the module's autoload blacklisted. The runner measures, runs
+  `modprobe pmp`, waits 60 s and measures again in the same boot. The m1n1
+  build has 160 KiB of DT headroom and copies the tunables only when they
+  fit, enabling the PMP node only when all of them were copied. Step 0
+  (stock image, nothing loaded) measured the drift between the two
+  measurements: at most 80 mW (Total System) and 40 mW (SoC).
+
+  Step 1 (`boot.bin.pmpfix-test`): m1n1 copied all 81 tunables (62 KB of
+  the DT buffer still free) and Linux booted normally. The driver bound
+  (`RTKit: Initializing (protocol version 12)`, `PMP started`; it does
+  not know one tunable, `fast-die-ctrl-ce-map`), with no kernel warnings
+  afterwards. About 90 s after the PMP started, idle power stepped down
+  and stayed down:
+
+  | Quiet desktop, on battery | Before modprobe | After | Change |
+  |---|---|---|---|
+  | Total System Power | 6.28 W | 5.38 W | **−0.90 W** |
+  | SoC (Heatpipe) | 1.99 W | 1.22 W | **−0.77 W** |
+
+  The power domains were the same before and after (116 on), so this is
+  the PMP's own fabric and memory power management, not domains being
+  switched off. PD always still saves another 105 mW on top. Wake latency
+  did not change. This is about 14% of idle system power, more than
+  Asahi's 0.5 W on an M1 Pro.
+
+  Step 2 repeated it on another boot, this time on AC with the battery
+  held at its charge limit, so AC Input Power (measured at the wall side)
+  equals Total System Power and serves as an independent check. Before
+  and after the modprobe: AC Input 6.67 → 5.61 W (**−1.06 W**), SoC
+  2.11 → 1.41 W (−0.70 W) with menu, and 1.98 → 1.14 W (−0.83 W) with PD
+  always.
+
+  Step 3 did it again under the busy-desktop wake load (`wakeload 10 650
+  15`, 4-5% busy, on AC). AC Input with menu went from 7.52 to 6.36 W
+  (**−1.15 W**) and with PD always from 6.81 to 5.69 W (−1.11 W); SoC
+  power from 2.83 to 1.87 W and 2.26 to 1.28 W. The two savings add up:
+  PD always plus the PMP took this load from 7.52 to 5.69 W, 24% less.
+  Wake latency was unchanged in all three PMP boots (p50 within 0.5 µs,
+  except the E→P IPI, 2-4 µs slower), the driver logged no
+  warnings, and the desktop, Wi-Fi and this session kept working.
+
+  Not covered yet: the PMP built in and enabled from boot (as it would be
+  by default), the full E1 DTB with the display and media power domains
+  moved onto PMP report entries, and runs longer than about 25 minutes.
+
+### Overnight s2idle with the PMP (2026-10-17)
+
+The boot of run 4's step 3 (test kernel, `boot.bin.pmpfix-test`, `modprobe
+pmp` done) stayed up after the campaign. After 1.7 h awake, the owner
+unplugged the charger, ran `sleep-drain-probe.py arm` and closed the lid
+overnight; `report` the next morning
+(`~/Work/deep-idle-build/s2idle-pmp-night1.txt`):
+
+| | |
+|---|---|
+| Window | 9.58 h, of it 9.56 h suspended, one suspend |
+| Battery | 48.19 → 34.21 Wh, 13.98 Wh used |
+| Average drain | **1.458 W** |
+| Whole-SoC wakes | 111,238 (3.2 per second) |
+| First interrupt of a wake | AOP mailbox `2a6408000` 61.3%, function-call IPI 38.5% |
+| Wakeup-source events | battery 6, AC 6, USB-C PD 2, SMC input 2; none woke the machine |
+
+Suspend and resume worked with the PMP running: the machine woke on lid
+open, the display, Wi-Fi and the session came back, and the PMP was still
+bound. The 1.46 W includes the 1.5 min awake around the lid close, and
+the window began on AC (status "Not charging" at arm), so if anything the
+suspended drain is slightly higher.
+
+The wakes come from the AOP, the always-on coprocessor. Its mailbox fires
+about 6 times a second awake and 3.6 times a second in s2idle, and each
+message runs `apple_rtkit_rx_work`, which then wakes another CPU with a
+function-call IPI. The AOP serves the ambient-light sensor (the driver
+arms it at a 200 ms report interval, `aop_als.rs`), the lid-angle sensor
+and the microphones, and none of these drivers, nor `aop.rs`, has a
+suspend hook, so the sensors keep reporting through the night. At about
+130 µs per wake this is milliwatts, not the drain; stopping the reports
+in suspend is a small, cheap fix.
+
+The same 13 power domains stayed on as in the earlier counters: the three
+DCPs (`disp0_*`, `dispext0_*`, `dispext1_*`), `apcie_gp`,
+`apcie_gpshr_sys`, `afr` and `sio`. That makes E4 (external DCPs off) the
+next lead for the drain.
+
+Stock, for comparison: the owner's `mac-power-telemetry` timer
+(`~/.local/bin/mac-power-telemetry`, every 3 minutes, battery energy
+from sysfs) logs every suspend. Most of them were on AC and show nothing.
+Two stock suspends on the Aurora kernel and stock `boot.bin` were on
+battery:
+
+| Suspend (journal) | Hours | Energy | Drain |
+|---|---|---|---|
+| 2026-10-10 14:17-16:01 | 1.74 | 36.64 → 33.98 Wh, less ~0.2 Wh awake before the lid closed | **1.41 W** |
+| 2026-10-10 22:55 - 10-11 08:36 | 9.68 | 47.76 → 44.32 Wh, ended on AC ("Not charging") | ≥ 0.35 W (charger plugged in at an unknown time) |
+| 2026-10-16 23:06 - 10-17 08:40, PMP | 9.56 | 48.19 → 34.21 Wh (probe) | **1.39-1.46 W** |
+
+So the PMP does not change the s2idle drain, as far as one short stock
+sample can say: about 1.4 W either way. The gauge updates slowly after a
+resume (two readings a second apart differ by 0.08 Wh), so short windows
+carry an error of a few hundred mW. The PMP's awake saving does not
+carry over: whatever it trims while awake is already idle in s2idle, or the
+PMP does not act because nothing tells it the system is suspended.
+
+What 1.4 W is made of is not known. The next lid close stacks every
+optional block off (`~/Work/deepidle-harness/s2idle-alloff.sh`: Wi-Fi and
+Bluetooth blocked, the AOP sensor drivers unloaded, the SD reader removed)
+to bound what driver work could reach; if that stays near 1.4 W, the
+floor is the SoC itself (CPUs in retention, fabric and DRAM awake), which
+only the SoC sleep protocol (S2R) can lower.
 
 ## Unblocking deep sleep: what to trace with macOS under m1n1 hv
 
@@ -813,8 +1084,10 @@ Rollback:
   the PMP driver would look the same): hold the power key, open Options, and in
   recoveryOS's Terminal mount the ESP (`diskutil list`, then `diskutil mount`
   the `EFI - OMARC` partition, nvme0n1p4 under Linux). Copy
-  `m1n1/boot.bin.before-pmp-test` over `m1n1/boot.bin`. Booting macOS works
-  as well.
+  `m1n1/boot.bin.before-pmp-test` over `m1n1/boot.bin`; that copy must have
+  been made on the ESP first (the install step above does it). This is the
+  path the 2026-10-15 test needed: m1n1 stopped at `failed to transfer pmp
+  tunable` and ran its USB proxy. Booting macOS works as well.
 
 The fallback kernels share `boot.bin`, so they get the PMP DTB too: they are
 not a fallback for this test. The fallback is the `boot.bin` copy.
@@ -838,9 +1111,9 @@ not a fallback for this test. The fallback is the `boot.bin` copy.
 * apple-oss-distributions/xnu `xnu-12377.1.9`: `osfmk/arm64/cpu.c`,
   `osfmk/arm64/machine_routines_asm.s`, `osfmk/arm64/start.s`,
   `pexpert/pexpert/arm64/H14.h`
-* This tree: [cpuidle-apple.c](https://github.com/omacom/linux-aurora/blob/cadfb30a447f72cc8b10e0c6ef64cbdb6894fd05/drivers/cpuidle/cpuidle-apple.c),
-  [pmp-report.c](https://github.com/omacom/linux-aurora/blob/cadfb30a447f72cc8b10e0c6ef64cbdb6894fd05/drivers/pmdomain/apple/pmp-report.c),
-  [pmp.rs](https://github.com/omacom/linux-aurora/blob/cadfb30a447f72cc8b10e0c6ef64cbdb6894fd05/drivers/soc/apple/pmp.rs),
-  [t602x-die0.dtsi](https://github.com/omacom/linux-aurora/blob/cadfb30a447f72cc8b10e0c6ef64cbdb6894fd05/arch/arm64/boot/dts/apple/t602x-die0.dtsi),
-  [HIBERNATION.md](https://github.com/omacom/linux-aurora/blob/cadfb30a447f72cc8b10e0c6ef64cbdb6894fd05/tools/aurora-sep/HIBERNATION.md); issues #50, #24, #59,
+* This tree: [cpuidle-apple.c](../drivers/cpuidle/cpuidle-apple.c),
+  [pmp-report.c](../drivers/pmdomain/apple/pmp-report.c),
+  [pmp.rs](../drivers/soc/apple/pmp.rs),
+  [t602x-die0.dtsi](../arch/arm64/boot/dts/apple/t602x-die0.dtsi),
+  [HIBERNATION.md](../tools/aurora-sep/HIBERNATION.md); issues #50, #24, #59,
   #85

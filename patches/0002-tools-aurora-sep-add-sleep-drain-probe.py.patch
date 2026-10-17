@@ -1,7 +1,7 @@
 From 71ff287e67193a510ad6b2f1e6b9fd2c4980aaf1 Mon Sep 17 00:00:00 2001
 From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
 Date: Wed, 14 Oct 2026 19:12:43 -0400
-Subject: [PATCH 02/37] tools/aurora-sep: add sleep-drain-probe.py
+Subject: [PATCH 02/44] tools/aurora-sep: add sleep-drain-probe.py
 
 s2idle on J414s wakes the whole SoC about 3.7 times per second of sleep
 (per-CPU s2idle entry counts), and the source is not a wakeup source.

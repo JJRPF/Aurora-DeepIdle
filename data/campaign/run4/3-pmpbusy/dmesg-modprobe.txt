@@ -1,0 +1,51 @@
+Oct 16 21:36:06 omarchy-mac kernel: apple_pmp 28e700000.pmp: RTKit: Initializing (protocol version 12)
+Oct 16 21:36:06 omarchy-mac kernel: apple_pmp 28e700000.pmp: unknown property "apple,tunable-fast-die-ctrl-ce-map"
+Oct 16 21:36:06 omarchy-mac kernel: apple_pmp 28e700000.pmp: RTKit: syslog message: io.cpp:41: PMP started
+Oct 16 21:36:07 omarchy-mac kernel: audit: type=1334 audit(1792200967.488:903): prog-id=233 op=LOAD
+Oct 16 21:36:07 omarchy-mac kernel: audit: type=1130 audit(1792200967.489:904): pid=1 uid=0 auid=4294967295 ses=4294967295 subj=unconfined msg='unit=aurora-fand comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=success'
+Oct 16 21:36:07 omarchy-mac kernel: audit: type=1131 audit(1792200967.509:905): pid=1 uid=0 auid=4294967295 ses=4294967295 subj=unconfined msg='unit=aurora-fand comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=failed'
+Oct 16 21:36:07 omarchy-mac kernel: audit: type=1334 audit(1792200967.519:906): prog-id=233 op=UNLOAD
+Oct 16 21:36:12 omarchy-mac kernel: audit: type=1334 audit(1792200972.738:907): prog-id=234 op=LOAD
+Oct 16 21:36:12 omarchy-mac kernel: audit: type=1130 audit(1792200972.739:908): pid=1 uid=0 auid=4294967295 ses=4294967295 subj=unconfined msg='unit=aurora-fand comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=success'
+Oct 16 21:36:12 omarchy-mac kernel: audit: type=1131 audit(1792200972.757:909): pid=1 uid=0 auid=4294967295 ses=4294967295 subj=unconfined msg='unit=aurora-fand comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=failed'
+Oct 16 21:36:12 omarchy-mac kernel: audit: type=1334 audit(1792200972.766:910): prog-id=234 op=UNLOAD
+Oct 16 21:36:17 omarchy-mac kernel: audit: type=1334 audit(1792200977.991:911): prog-id=235 op=LOAD
+Oct 16 21:36:17 omarchy-mac kernel: audit: type=1130 audit(1792200977.992:912): pid=1 uid=0 auid=4294967295 ses=4294967295 subj=unconfined msg='unit=aurora-fand comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=success'
+Oct 16 21:36:18 omarchy-mac kernel: audit: type=1131 audit(1792200978.017:913): pid=1 uid=0 auid=4294967295 ses=4294967295 subj=unconfined msg='unit=aurora-fand comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=failed'
+Oct 16 21:36:18 omarchy-mac kernel: audit: type=1334 audit(1792200978.025:914): prog-id=235 op=UNLOAD
+Oct 16 21:36:23 omarchy-mac kernel: audit: type=1334 audit(1792200983.241:915): prog-id=236 op=LOAD
+Oct 16 21:36:23 omarchy-mac kernel: audit: type=1130 audit(1792200983.242:916): pid=1 uid=0 auid=4294967295 ses=4294967295 subj=unconfined msg='unit=aurora-fand comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=success'
+Oct 16 21:36:23 omarchy-mac kernel: audit: type=1131 audit(1792200983.260:917): pid=1 uid=0 auid=4294967295 ses=4294967295 subj=unconfined msg='unit=aurora-fand comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=failed'
+Oct 16 21:36:23 omarchy-mac kernel: audit: type=1334 audit(1792200983.269:918): prog-id=236 op=UNLOAD
+Oct 16 21:36:28 omarchy-mac kernel: audit: type=1334 audit(1792200988.488:919): prog-id=237 op=LOAD
+Oct 16 21:36:28 omarchy-mac kernel: audit: type=1130 audit(1792200988.490:920): pid=1 uid=0 auid=4294967295 ses=4294967295 subj=unconfined msg='unit=aurora-fand comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=success'
+Oct 16 21:36:28 omarchy-mac kernel: audit: type=1131 audit(1792200988.507:921): pid=1 uid=0 auid=4294967295 ses=4294967295 subj=unconfined msg='unit=aurora-fand comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=failed'
+Oct 16 21:36:28 omarchy-mac kernel: audit: type=1334 audit(1792200988.520:922): prog-id=237 op=UNLOAD
+Oct 16 21:36:33 omarchy-mac kernel: audit: type=1334 audit(1792200993.738:923): prog-id=238 op=LOAD
+Oct 16 21:36:33 omarchy-mac kernel: audit: type=1130 audit(1792200993.740:924): pid=1 uid=0 auid=4294967295 ses=4294967295 subj=unconfined msg='unit=aurora-fand comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=success'
+Oct 16 21:36:33 omarchy-mac kernel: audit: type=1131 audit(1792200993.757:925): pid=1 uid=0 auid=4294967295 ses=4294967295 subj=unconfined msg='unit=aurora-fand comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=failed'
+Oct 16 21:36:33 omarchy-mac kernel: audit: type=1334 audit(1792200993.770:926): prog-id=238 op=UNLOAD
+Oct 16 21:36:38 omarchy-mac kernel: audit: type=1334 audit(1792200998.988:927): prog-id=239 op=LOAD
+Oct 16 21:36:38 omarchy-mac kernel: audit: type=1130 audit(1792200998.989:928): pid=1 uid=0 auid=4294967295 ses=4294967295 subj=unconfined msg='unit=aurora-fand comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=success'
+Oct 16 21:36:39 omarchy-mac kernel: audit: type=1131 audit(1792200999.007:929): pid=1 uid=0 auid=4294967295 ses=4294967295 subj=unconfined msg='unit=aurora-fand comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=failed'
+Oct 16 21:36:39 omarchy-mac kernel: audit: type=1334 audit(1792200999.020:930): prog-id=239 op=UNLOAD
+Oct 16 21:36:44 omarchy-mac kernel: audit: type=1334 audit(1792201004.238:931): prog-id=240 op=LOAD
+Oct 16 21:36:44 omarchy-mac kernel: audit: type=1130 audit(1792201004.239:932): pid=1 uid=0 auid=4294967295 ses=4294967295 subj=unconfined msg='unit=aurora-fand comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=success'
+Oct 16 21:36:44 omarchy-mac kernel: audit: type=1131 audit(1792201004.259:933): pid=1 uid=0 auid=4294967295 ses=4294967295 subj=unconfined msg='unit=aurora-fand comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=failed'
+Oct 16 21:36:44 omarchy-mac kernel: audit: type=1334 audit(1792201004.269:934): prog-id=240 op=UNLOAD
+Oct 16 21:36:49 omarchy-mac kernel: audit: type=1334 audit(1792201009.488:935): prog-id=241 op=LOAD
+Oct 16 21:36:49 omarchy-mac kernel: audit: type=1130 audit(1792201009.489:936): pid=1 uid=0 auid=4294967295 ses=4294967295 subj=unconfined msg='unit=aurora-fand comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=success'
+Oct 16 21:36:49 omarchy-mac kernel: audit: type=1131 audit(1792201009.517:937): pid=1 uid=0 auid=4294967295 ses=4294967295 subj=unconfined msg='unit=aurora-fand comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=failed'
+Oct 16 21:36:49 omarchy-mac kernel: audit: type=1334 audit(1792201009.532:938): prog-id=241 op=UNLOAD
+Oct 16 21:36:54 omarchy-mac kernel: audit: type=1334 audit(1792201014.738:939): prog-id=242 op=LOAD
+Oct 16 21:36:54 omarchy-mac kernel: audit: type=1130 audit(1792201014.739:940): pid=1 uid=0 auid=4294967295 ses=4294967295 subj=unconfined msg='unit=aurora-fand comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=success'
+Oct 16 21:36:54 omarchy-mac kernel: audit: type=1131 audit(1792201014.759:941): pid=1 uid=0 auid=4294967295 ses=4294967295 subj=unconfined msg='unit=aurora-fand comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=failed'
+Oct 16 21:36:54 omarchy-mac kernel: audit: type=1334 audit(1792201014.768:942): prog-id=242 op=UNLOAD
+Oct 16 21:36:59 omarchy-mac kernel: audit: type=1334 audit(1792201019.872:943): prog-id=243 op=LOAD
+Oct 16 21:36:59 omarchy-mac kernel: audit: type=1130 audit(1792201019.873:944): pid=1 uid=0 auid=4294967295 ses=4294967295 subj=unconfined msg='unit=aurora-fand comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=success'
+Oct 16 21:36:59 omarchy-mac kernel: audit: type=1131 audit(1792201019.891:945): pid=1 uid=0 auid=4294967295 ses=4294967295 subj=unconfined msg='unit=aurora-fand comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=failed'
+Oct 16 21:36:59 omarchy-mac kernel: audit: type=1334 audit(1792201019.898:946): prog-id=243 op=UNLOAD
+Oct 16 21:37:04 omarchy-mac kernel: audit: type=1334 audit(1792201024.990:947): prog-id=244 op=LOAD
+Oct 16 21:37:04 omarchy-mac kernel: audit: type=1130 audit(1792201024.992:948): pid=1 uid=0 auid=4294967295 ses=4294967295 subj=unconfined msg='unit=aurora-fand comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=success'
+Oct 16 21:37:05 omarchy-mac kernel: audit: type=1131 audit(1792201025.010:949): pid=1 uid=0 auid=4294967295 ses=4294967295 subj=unconfined msg='unit=aurora-fand comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=failed'
+Oct 16 21:37:05 omarchy-mac kernel: audit: type=1334 audit(1792201025.018:950): prog-id=244 op=UNLOAD

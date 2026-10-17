@@ -1,7 +1,7 @@
 From a49a9e25e7ad0260d6b6e64181960b9e4502fa91 Mon Sep 17 00:00:00 2001
 From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
 Date: Wed, 14 Oct 2026 22:37:27 -0400
-Subject: [PATCH 17/37] tools/aurora-sep: idle-ab: add no-eas, restore only
+Subject: [PATCH 17/44] tools/aurora-sep: idle-ab: add no-eas, restore only
  what was written
 
 no-eas runs a window with kernel.sched_energy_aware=0, so a kernel with

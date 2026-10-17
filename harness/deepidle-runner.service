@@ -1,0 +1,11 @@
+[Unit]
+Description=Deep idle unattended test runner (Aurora-DeepIdle)
+After=graphical.target
+ConditionPathExists=/var/lib/deepidle/plan
+
+[Service]
+Type=simple
+ExecStart=/usr/local/lib/deepidle/runner.sh
+
+[Install]
+WantedBy=graphical.target

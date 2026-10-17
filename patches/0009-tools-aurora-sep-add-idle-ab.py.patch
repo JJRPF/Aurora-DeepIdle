@@ -1,7 +1,7 @@
 From 05bec44160151318902c4de5a5bdb054a2bb36c3 Mon Sep 17 00:00:00 2001
 From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
 Date: Wed, 14 Oct 2026 21:39:09 -0400
-Subject: [PATCH 09/37] tools/aurora-sep: add idle-ab.py
+Subject: [PATCH 09/44] tools/aurora-sep: add idle-ab.py
 
 Compare CPU idle settings by SMC Total System Power on a running machine:
 default, CPU PD disabled, WFI disabled, or a CPU PD target residency

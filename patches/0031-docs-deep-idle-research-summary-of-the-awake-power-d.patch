@@ -1,7 +1,7 @@
 From 0e28a4efcb516c7ac6683fecd1e72004ee75cdce Mon Sep 17 00:00:00 2001
 From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
 Date: Wed, 14 Oct 2026 22:57:29 -0400
-Subject: [PATCH 31/37] docs: deep-idle research: summary of the awake power
+Subject: [PATCH 31/44] docs: deep-idle research: summary of the awake power
  domains
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>

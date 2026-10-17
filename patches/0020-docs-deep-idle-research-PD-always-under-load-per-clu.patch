@@ -1,7 +1,7 @@
 From 6290c6569a7cd5c4fb5bf0c086ddf76adca234e8 Mon Sep 17 00:00:00 2001
 From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
 Date: Wed, 14 Oct 2026 22:44:18 -0400
-Subject: [PATCH 20/37] docs: deep-idle research: PD always under load, per
+Subject: [PATCH 20/44] docs: deep-idle research: PD always under load, per
  cluster, with busy time
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>

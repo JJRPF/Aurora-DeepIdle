@@ -1,7 +1,7 @@
 From c6f776d04716a2187d07689fb076671c15b0f137 Mon Sep 17 00:00:00 2001
 From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
 Date: Wed, 14 Oct 2026 22:38:16 -0400
-Subject: [PATCH 19/37] tools/aurora-sep: idle-ab: log busy time per CPU; doc:
+Subject: [PATCH 19/44] tools/aurora-sep: idle-ab: log busy time per CPU; doc:
  E6 procedure
 
 E6 boots the energy-model image and pairs EAS on against EAS off;

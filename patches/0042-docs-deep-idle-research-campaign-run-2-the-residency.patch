@@ -1,0 +1,36 @@
+From 34ba2f2f60d42ac506701fa3f5d650c29d4a51ed Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Thu, 15 Oct 2026 23:05:04 -0400
+Subject: [PATCH 42/44] docs: deep-idle research: campaign run 2, the residency
+ sweep
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AuzUDcEeRJQ6RCdWW2XWLb
+---
+ docs/deep-idle-research.md | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/docs/deep-idle-research.md b/docs/deep-idle-research.md
+index 42a760eb9c73..6ded05ee044e 100644
+--- a/docs/deep-idle-research.md
++++ b/docs/deep-idle-research.md
+@@ -670,6 +670,16 @@ watchdog), then stock again.
+   This is the same picture as step 1: forcing PD pays when wakes are
+   frequent, not on a quiet desktop.
+ 
++* **Run 2, step 1, E7 residency sweep** (test kernel): against menu's
++  default 10 ms, Total System Power was 86 mW lower at 2,000 us (standard
++  error 18 mW), 147 mW lower at 500 us, 158 mW at 100 us and 157 mW with
++  PD always (all 15 of 15), at 6.83 W and 0.7% busy. The wake-up cost
++  follows the threshold: the probe's 1 to 2 ms sleeps stay in WFI at
++  2,000 us (no cost), and pay the 10 to 15 us PD exit at 500 us and below.
++  On a quiet desktop 500 us gets 93% of the saving. The busy desktop,
++  where PD always saved about 1 W, still needs the same sweep under a
++  reproducible wake load.
++
+ ## Unblocking deep sleep: what to trace with macOS under m1n1 hv
+ 
+ 1. **The CYC_OVRD veto.** m1n1 refuses a guest CYC_OVRD write with
+-- 
+2.55.0
+

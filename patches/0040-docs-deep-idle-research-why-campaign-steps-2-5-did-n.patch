@@ -1,0 +1,37 @@
+From 212a3d2a6a95fa3013c5c6073860aa931ea2678a Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Thu, 15 Oct 2026 21:58:40 -0400
+Subject: [PATCH 40/44] docs: deep-idle research: why campaign steps 2-5 did
+ not measure
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AuzUDcEeRJQ6RCdWW2XWLb
+---
+ docs/deep-idle-research.md | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/docs/deep-idle-research.md b/docs/deep-idle-research.md
+index 88c5b3cbed11..0bc474a52dc3 100644
+--- a/docs/deep-idle-research.md
++++ b/docs/deep-idle-research.md
+@@ -653,6 +653,17 @@ watchdog), then stock again.
+   75 mW (standard error 7 mW). PD always's saving scales with the wake
+   rate: about 1 W on a busy desktop, almost nothing on a quiet one.
+ 
++* **Steps 2 to 5 did not measure.** Booting the test kernel let
++  `kernel-modules-hook`'s `linux-modules-cleanup.service` move aside the
++  hand-installed Aurora 11.35 module tree, since pacman owns neither it
++  nor the test kernel's; its tmpfiles rule deleted both trees at the next
++  boot. Later boots had no modules, so `/boot` did not mount, the SMC
++  sensors were missing and there was no network, and no step measured.
++  The ESP was not touched after step 1. The tree was rebuilt from the
++  kernel's own build directory, and a drop-in now makes the cleanup skip
++  trees marked `.keep`. Any other hand-installed kernel is exposed to the
++  same cleanup whenever a different kernel boots.
++
+ ## Unblocking deep sleep: what to trace with macOS under m1n1 hv
+ 
+ 1. **The CYC_OVRD veto.** m1n1 refuses a guest CYC_OVRD write with
+-- 
+2.55.0
+

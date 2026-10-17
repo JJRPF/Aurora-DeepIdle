@@ -1,7 +1,7 @@
 From fb1f8937df7138b13a19ea20a5350691f25b8c1b Mon Sep 17 00:00:00 2001
 From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
 Date: Wed, 14 Oct 2026 22:53:21 -0400
-Subject: [PATCH 28/37] docs: deep-idle research: what the PMP's ADT properties
+Subject: [PATCH 28/44] docs: deep-idle research: what the PMP's ADT properties
  control
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>

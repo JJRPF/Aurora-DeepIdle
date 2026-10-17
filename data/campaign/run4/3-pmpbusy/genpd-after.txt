@@ -1,0 +1,346 @@
+domain                          status          children        performance
+    /device                         runtime status                  managed by
+------------------------------------------------------------------------------
+pmp-dispext0                    off-0                           0
+sio_cpu                         on                              0
+    39bc08000.mbox                  active                      0           SW
+    39bc00000.sio                   suspended                   0           SW
+dispext0_cpu0                   on                              0
+                                                pmp-dispext0
+    289304000.iommu                 active                      0           SW
+    28930c000.iommu                 active                      0           SW
+    289c08000.mbox                  active                      0           SW
+    289c00000.dcp                   unsupported                 0           SW
+dispext0_fe                     on                              0
+                                                dispext0_cpu0
+dispext0_sys                    on                              0
+                                                dispext0_fe
+pmgr_soc_ocla                   off-0                           0
+gpio                            on                              0
+    39b028000.pinctrl               unsupported                 0           SW
+pmp-avd-sys                     off-0                           0
+pmp-dispext1                    off-0                           0
+pmp-disp0                       off-0                           0
+pmp-isp-sys                     off-0                           0
+gfx                             on                              0
+    406400000.gpu                   unsupported                 0           SW
+afr                             on                              0
+                                                gfx, dispext0_sys
+gpx                             on                              0
+                                                gfx
+atc3_usb                        on                              0
+    1303000000.phy                  unsupported                 0           SW
+    130304c000.mux                  unsupported                 0           SW
+atc2_usb                        on                              0
+    f02f00000.iommu                 active                      0           SW
+    f02f80000.iommu                 active                      0           SW
+    f03000000.phy                   unsupported                 0           SW
+    f0304c000.mux                   unsupported                 0           SW
+    f02280000.usb                   unsupported                 0           SW
+atc1_usb                        on                              0
+    b02f00000.iommu                 active                      0           SW
+    b02f80000.iommu                 active                      0           SW
+    b03000000.phy                   unsupported                 0           SW
+    b0304c000.mux                   unsupported                 0           SW
+    b02280000.usb                   unsupported                 0           SW
+atc0_usb                        on                              0
+    702f00000.iommu                 active                      0           SW
+    702f80000.iommu                 active                      0           SW
+    703000000.phy                   unsupported                 0           SW
+    70304c000.mux                   unsupported                 0           SW
+    702280000.usb                   unsupported                 0           SW
+debug_switch                    on                              0
+nub_sram                        on                              0
+mtp_fabric                      on                              0
+atc3_usb_aon                    on                              0
+atc2_usb_aon                    on                              0
+atc1_usb_aon                    on                              0
+atc0_usb_aon                    on                              0
+nub_fabric                      on                              0
+                                                mtp_fabric
+nub_gpio                        on                              0
+    29e1f0000.pinctrl               unsupported                 0           SW
+msg                             on                              0
+nub_aon                         on                              0
+nub_spmi1                       on                              0
+nub_spmi0                       on                              0
+debug                           on                              0
+prores                          off-0                           0
+venc_me1                        off-0                           0
+venc_me0                        off-0                           0
+                                                venc_me1
+venc_pipe5                      off-0                           0
+                                                venc_me0
+venc_pipe4                      off-0                           0
+                                                venc_me0
+venc_dma                        off-0                           0
+                                                venc_pipe4, venc_pipe5
+isp_clr                         off-0                           0
+    genpd:5:384000000.isp           suspended                   0           SW
+isp_raw                         off-0                           0
+    genpd:6:384000000.isp           suspended                   0           SW
+isp_be                          off-0                           0
+    genpd:4:384000000.isp           suspended                   0           SW
+isp_vis                         off-0                           0
+    genpd:3:384000000.isp           suspended                   0           SW
+dprx                            off-0                           0
+    genpd:2:384000000.isp           suspended                   0           SW
+isp_fe                          off-0                           0
+    genpd:1:384000000.isp           suspended                   0           SW
+isp_cpu                         off-0                           0
+    genpd:0:384000000.isp           suspended                   0           SW
+sep                             on                              0
+    396400000.sep                   unsupported                 0           SW
+apcie_phy_sw                    on                              0
+apcie_ge_sys                    off-0                           0
+apcie_gp_sys                    on                              0
+    594000000.iommu                 active                      0           SW
+    595000000.iommu                 active                      0           SW
+    580000000.pcie                  unsupported                 0           SW
+apcie_st1_sys                   on                              0
+    genpd:2:34bcc0000.nvme          active                      0           SW
+apcie_st_sys                    on                              0
+                                                apcie_st1_sys
+    genpd:1:34bcc0000.nvme          active                      0           SW
+apcie_gpshr_sys                 on                              0
+                                                apcie_gp_sys, apcie_ge_sys
+msr0_ase_core                   off-0                           0
+dpa4                            off-0                           0
+venc_sys                        off-0                           0
+                                                venc_dma
+msr0                            off-0                           0
+                                                msr0_ase_core
+dpa3                            off-0                           0
+dpa2                            off-0                           0
+    39b580000.audio-controller      suspended                   0           SW
+dpa1                            off-0                           0
+    39b540000.audio-controller      suspended                   0           SW
+dpa0                            off-0                           0
+mca3                            off-0                           0
+    genpd:4:39b600000.mca           suspended                   0           SW
+mca2                            on                              0
+    genpd:3:39b600000.mca           active                      0           SW
+mca1                            off-0                           0
+    genpd:2:39b600000.mca           suspended                   0           SW
+mca0                            off-0                           0
+    genpd:1:39b600000.mca           suspended                   0           SW
+uart6                           off-0                           0
+uart5                           off-0                           0
+uart4                           off-0                           0
+uart3                           off-0                           0
+uart2                           off-0                           0
+uart1                           off-0                           0
+dcs_15                          on                              0
+dcs_14                          on                              0
+dcs_13                          on                              0
+dcs_12                          on                              0
+dcs_07                          on                              0
+dcs_06                          on                              0
+dcs_05                          on                              0
+dcs_04                          on                              0
+amcc3                           on                              0
+amcc1                           on                              0
+uart0                           off-0                           0
+    39b200000.serial                suspended                   0           SW
+uart_n                          off-0                           0
+spi5                            off-0                           0
+spi4                            off-0                           0
+spi3                            off-0                           0
+spi2                            off-0                           0
+    39b108000.spi                   suspended                   0           SW
+spi1                            off-0                           0
+    39b104000.spi                   suspended                   0           SW
+spi0                            off-0                           0
+dptx_phy_ps                     on                              0
+aes                             on                              0
+sio_adma                        on                              0
+                                                mca0, mca1, mca2, mca3
+    39b400000.dma-controller        unsupported                 0           SW
+audio_p                         on                              0
+                                                sio_adma, mca0, mca1, mca2, mca3, dpa0, dpa1, dpa2, dpa3, dpa4, sio_cpu
+    genpd:0:39b600000.mca           active                      0           SW
+uart_p                          on                              0
+                                                uart_n, uart0, uart1, uart2, uart3, uart4, uart5, uart6, sio_cpu
+sio_spmi2                       off-0                           0
+sio_spmi1                       off-0                           0
+sio_spmi0                       off-0                           0
+spi_p                           on                              0
+                                                spi0, spi1, spi2, spi3, spi4, spi5, sio_cpu
+i2c8                            off-0                           0
+i2c7                            off-0                           0
+i2c6                            off-0                           0
+i2c5                            off-0                           0
+i2c4                            off-0                           0
+i2c3                            on                              0
+    39b04c000.i2c                   unsupported                 0           SW
+i2c2                            on                              0
+    39b048000.i2c                   unsupported                 0           SW
+i2c1                            on                              0
+    39b044000.i2c                   unsupported                 0           SW
+i2c0                            on                              0
+    39b040000.i2c                   unsupported                 0           SW
+fpwm2                           off-0                           0
+fpwm1                           off-0                           0
+fpwm0                           on                              0
+    39b030000.pwm                   unsupported                 0           SW
+disp0_cpu0                      on                              0
+                                                pmp-disp0
+    389304000.iommu                 active                      0           SW
+    38930c000.iommu                 active                      0           SW
+    389c08000.mbox                  active                      0           SW
+    389c00000.dcp                   unsupported                 0           SW
+disp0_fe                        on                              0
+                                                disp0_cpu0
+isp_sys                         off-0                           0
+                                                pmp-isp-sys
+    3860e8000.iommu                 suspended                   0           SW
+    3860f4000.iommu                 suspended                   0           SW
+    3860fc000.iommu                 suspended                   0           SW
+sio                             on                              0
+                                                fpwm0, fpwm1, fpwm2, i2c0, i2c1, i2c2, i2c3, i2c4, i2c5, i2c6, i2c7, i2c8, spi_p, sio_spmi0, sio_spmi1, sio_spmi2, uart_p, audio_p, sio_adma, aes, dptx_phy_ps, gpio, pmgr_soc_ocla, sio_cpu
+    39b008000.iommu                 active                      0           SW
+jpg                             off-0                           0
+disp0_sys                       on                              0
+                                                disp0_fe
+ans2                            on                              0
+                                                apcie_st_sys
+    347408000.mbox                  active                      0           SW
+    34bc50000.sart                  unsupported                 0           SW
+    genpd:0:34bcc0000.nvme          active                      0           SW
+apcie_st                        on                              0
+                                                apcie_st_sys
+apcie_gp                        on                              0
+                                                apcie_gpshr_sys
+afnc3_lw0                       on                              0
+                                                prores
+afnc3_ls                        on                              0
+                                                afnc3_lw0
+afnc3_ioa                       on                              0
+                                                afnc3_ls
+afnc2_lw1                       on                              0
+                                                sio, isp_sys
+afnc2_lw0                       on                              0
+                                                disp0_sys, jpg
+afnc2_ls                        on                              0
+                                                afnc2_lw0, afnc2_lw1
+afnc2_ioa                       on                              0
+                                                afnc2_ls
+afnc6_lw0                       on                              0
+                                                apcie_gp, apcie_st, ans2
+afnc6_ls                        on                              0
+                                                afnc6_lw0
+afnc6_ioa                       on                              0
+                                                afnc6_ls
+ispsens3                        off-0                           0
+ispsens2                        off-0                           0
+ispsens1                        off-0                           0
+ispsens0                        off-0                           0
+clvr_spmi4                      on                              0
+clvr_spmi3                      on                              0
+clvr_spmi2                      on                              0
+clvr_spmi1                      on                              0
+clvr_spmi0                      on                              0
+ane_set4                        off-0                           0
+ane_set3                        off-0                           0
+                                                ane_set4
+ane_set2                        off-0                           0
+                                                ane_set3
+ane_set1                        off-0                           0
+                                                ane_set2
+ane_base                        off-0                           0
+                                                ane_set1
+ane_td                          off-0                           0
+                                                ane_base
+ane_sys_mpm                     off-0                           0
+trace_fab                       off-0                           0
+atc3_cio_usb                    off-0                           0
+atc3_cio_pcie                   off-0                           0
+atc2_cio_usb                    off-0                           0
+atc2_cio_pcie                   off-0                           0
+atc1_cio_usb                    off-0                           0
+atc1_cio_pcie                   off-0                           0
+atc0_cio_usb                    off-0                           0
+atc0_cio_pcie                   off-0                           0
+ane_cpu                         on                              0
+    285810000.iommu                 active                      0           SW
+    285820000.iommu                 active                      0           SW
+pms_sram                        on                              0
+    28e3c0000.pmp_report            unsupported                 0           SW
+pmp                             on                              0
+    285800000.iommu                 active                      0           SW
+    28e300000.iommu                 active                      0           SW
+    28e700000.pmp                   unsupported                 0           SW
+dispext1_cpu0                   on                              0
+                                                pmp-dispext1
+    315304000.iommu                 active                      0           SW
+    31530c000.iommu                 active                      0           SW
+    315c08000.mbox                  active                      0           SW
+    315c00000.dcp                   unsupported                 0           SW
+dispext1_fe                     on                              0
+                                                dispext1_cpu0
+atc3_pcie                       on                              0
+atc3_cio                        off-0                           0
+                                                atc3_cio_pcie, atc3_cio_usb
+atc2_pcie                       on                              0
+atc2_cio                        off-0                           0
+                                                atc2_cio_pcie, atc2_cio_usb
+atc1_pcie                       on                              0
+atc1_cio                        off-0                           0
+                                                atc1_cio_pcie, atc1_cio_usb
+atc0_pcie                       on                              0
+atc0_cio                        off-0                           0
+                                                atc0_cio_pcie, atc0_cio_usb
+avd_sys                         off-0                           0
+                                                pmp-avd-sys
+    287010000.iommu                 suspended                   0           SW
+    287080000.avd                   suspended                   0           SW
+ane_sys                         on                              0
+                                                ane_cpu, ane_sys_mpm, ane_td
+pms_bridge                      on                              0
+dispext1_sys                    on                              0
+                                                dispext1_fe
+atc3_common                     on                              0
+                                                atc3_cio, atc3_pcie, atc3_usb
+atc2_common                     on                              0
+                                                atc2_cio, atc2_pcie, atc2_usb
+atc1_common                     on                              0
+                                                atc1_cio, atc1_pcie, atc1_usb
+atc0_common                     on                              0
+                                                atc0_cio, atc0_pcie, atc0_usb
+scodec                          off-0                           0
+afnc0_lw0                       on                              0
+                                                pms_bridge, ane_sys, avd_sys, dispext0_sys
+afnc1_lw2                       on                              0
+                                                dispext1_sys
+afnc1_lw1                       on                              0
+                                                atc0_common, atc1_common, atc2_common, atc3_common
+afnc1_lw0                       on                              0
+                                                scodec
+afnc0_ls                        on                              0
+                                                afnc0_lw0
+afnc1_ls                        on                              0
+                                                afnc1_lw0, afnc1_lw1, afnc1_lw2
+afnc0_ioa                       on                              0
+                                                afnc0_ls
+afc                             on                              0
+afnc1_ioa                       on                              0
+                                                afnc1_ls
+dcs_11                          on                              0
+dcs_10                          on                              0
+                                                afnc2_ioa
+dcs_09                          on                              0
+dcs_08                          on                              0
+dcs_03                          on                              0
+dcs_02                          on                              0
+dcs_01                          on                              0
+dcs_00                          on                              0
+amcc2                           on                              0
+amcc0                           on                              0
+pms_c1ppt                       on                              0
+soc_dpe                         on                              0
+pms                             on                              0
+                                                gpio
+dwi                             off-0                           0
+aic                             on                              0
+afi                             on                              0
+                                                afnc1_ioa, afnc0_ioa, afnc6_ioa, afnc3_ioa

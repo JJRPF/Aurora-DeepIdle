@@ -1,7 +1,7 @@
 From fb821048b9ce669bad27362ebce543d8e29cab5e Mon Sep 17 00:00:00 2001
 From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
 Date: Wed, 14 Oct 2026 19:12:43 -0400
-Subject: [PATCH 01/37] arm64: dts: apple: t6020-j414s: add an opt-in PMP
+Subject: [PATCH 01/44] arm64: dts: apple: t6020-j414s: add an opt-in PMP
  variant
 
 The J414s DT is built without APPLE_USE_PMP, so the PMP coprocessor is

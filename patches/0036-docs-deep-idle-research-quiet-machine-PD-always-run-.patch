@@ -1,7 +1,7 @@
 From fb27ba230acd85018cd23d66a8ac8767277bbe6b Mon Sep 17 00:00:00 2001
 From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
 Date: Wed, 14 Oct 2026 23:36:23 -0400
-Subject: [PATCH 36/37] docs: deep-idle research: quiet-machine PD always run,
+Subject: [PATCH 36/44] docs: deep-idle research: quiet-machine PD always run,
  20 of 20 pairs
 
 Co-Authored-By: Claude Haiku 5.5 <noreply@anthropic.com>

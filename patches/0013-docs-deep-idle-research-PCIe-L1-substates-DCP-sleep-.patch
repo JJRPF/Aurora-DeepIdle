@@ -1,7 +1,7 @@
 From f22760c6e99037e98034f021c729ed6459bb775f Mon Sep 17 00:00:00 2001
 From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
 Date: Wed, 14 Oct 2026 22:07:40 -0400
-Subject: [PATCH 13/37] docs: deep-idle research: PCIe L1 substates, DCP sleep
+Subject: [PATCH 13/44] docs: deep-idle research: PCIe L1 substates, DCP sleep
  path, VLPM
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
