@@ -451,3 +451,6 @@ Nothing here installs, reboots, or writes hardware registers. Times are local.
 - lspci: both PCIe links (Wi-Fi 00:00.0-01:00.0, SD 00:01.0-02:00.0) support ASPM L1.1 and L1.2 at both
   ends; all L1 substates are off, ClockPM off (root ports ClockPM-). Kernel ASPM policy [default].
   Results: awake-ab-20261018-1447.txt
+- 15:00 SD link L1 substates, awake, guarded by net-guard.sh (reboot + resume if the network dies; it did not):
+  6 rounds: L1.1 -0.096 W (se 0.046), L1.1+L1.2 -0.102 W. 12-round confirm of L1.1: +0.008 W (se 0.016,
+  lower in 8 of 12): no measurable effect; the 6-round figure was noise. No quirk. No errors, Wi-Fi fine.
