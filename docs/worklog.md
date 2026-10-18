@@ -428,3 +428,17 @@ Nothing here installs, reboots, or writes hardware registers. Times are local.
 - gP keys are function keys; user-space read returns 0. smc-keyread.ko (read only) on Linux: PSDR, PH0R, PH1R,
   PHDR read 0 W with gP06/gP16/gP17 high, so the agent's "rails off" inference is unsupported.
 - s2idle-alloff.sh now also turns the HDMI rails off (smc-pwr-test.ko rebuilt for 7.1.12-2-11.35-sep-ARCH+).
+
+## 2026-10-18 all-off night, Wi-Fi breakage, s2idle-wake
+- All-off night (rfkill all, aop_als/aop_las unloaded, SD reader PCI-removed, HDMI rails off), 22:55 -> 08:42,
+  9.78 h suspended: 47.48 -> 26.84 Wh, 2.108 W, higher than the 1.4 W baseline. AOP mbox still 69.8% of
+  158,040 SoC wakes (3.6/s) with the two sensor drivers unloaded: they are not the AOP's traffic.
+- Wi-Fi breakage: the restore's `echo 1 > /sys/bus/pci/rescan` (08:43:09) -> brcmf query timeouts 2 s later.
+  Reproduced at 08:56 (dry run of s2idle-ab `sd`: rescan after resume; Wi-Fi fine before it) and at 13:12
+  (remove 02:00.0 + rescan of 00:01.0 only, awake, no suspend). Removing 02:00.0 also leaves the 00:01.0 link
+  up with ASPM disabled. With the chip dead every suspend fails (brcmf_pcie_pm_enter_D3 -5), so the owner's
+  two lid closes (10:00-13:07, 13:18-14:33) never suspended: void. SD remove/rescan and rfkill are banned
+  from the harness; s2idle-alloff.sh retired.
+- s2idle-wake.ko: CLOCK_BOOTTIME hrtimer from PM_SUSPEND_PREPARE calls pm_system_wakeup(); fires on the
+  SoC's own s2idle wakes. 45 s and 60 s tests ended on time. s2idle-ab.sh runs one self-waking suspend per
+  setting on battery (coulomb counter BAAC, mA*s), toggling Omarchy stay-awake only around each suspend.
