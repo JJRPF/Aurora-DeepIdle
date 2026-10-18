@@ -479,3 +479,4 @@ Nothing here installs, reboots, or writes hardware registers. Times are local.
 - 17:12 s2idle A/B on the charger (zSPa), 15 min each: base 2.164, hdmi rails off 2.034 (-0.130 W, same as
   awake), aop drivers unloaded 2.164 (0), base 2.159. AOP wake rate 3.6-6/s across runs with no power change.
   => the HDMI patch's saving holds in s2idle; the AOP traffic is not worth chasing.
+- 18:17 45 min base s2idle on the charger: woken early at 776 s, 2.178 W. Duration vs charger question still open.
