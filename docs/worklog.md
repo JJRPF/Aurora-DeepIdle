@@ -469,3 +469,10 @@ Nothing here installs, reboots, or writes hardware registers. Times are local.
 - On the charger, base state: 120 s s2idle 2.148 W (entry/exit included); 829 s s2idle (owner woke it before the
   900 s timer) 2.114 W. Battery-measured s2idle so far ~1.4 W, so PSTR on AC reads higher or this boot sleeps
   higher: needs one run on battery reading BAAC and zSPa together. Wi-Fi fine after both.
+- 16:55 calibration (s2idle-calib.sh): charge limit 80 -> 65 makes the SMC force-discharge on the charger (CHLS
+  0x100 | limit; status Discharging, -0.68 A awake). 900 s s2idle, base state: battery BAAC 1.981 W; zSPa 0.117 W
+  in that mode, so zSPa is adapter-supplied power. On the charger with the battery held it covers the whole
+  system: 2.114 W (829 s) vs 1.981 W from the battery, 7% apart. This boot's s2idle is ~2.0 W, not the 1.4 W of
+  the unplugged nights (charger attached, or the first 15 min higher than a night's mean: not separated yet).
+  Telemetry sleep.jsonl keeps the last 2,000 records; the failed-suspend storms pushed all older nights out.
+- s2idle-ab.sh: measures by zSPa when the battery is held on the charger, by BAAC on battery.
