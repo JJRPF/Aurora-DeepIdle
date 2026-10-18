@@ -454,3 +454,11 @@ Nothing here installs, reboots, or writes hardware registers. Times are local.
 - 15:00 SD link L1 substates, awake, guarded by net-guard.sh (reboot + resume if the network dies; it did not):
   6 rounds: L1.1 -0.096 W (se 0.046), L1.1+L1.2 -0.102 W. 12-round confirm of L1.1: +0.008 W (se 0.016,
   lower in 8 of 12): no measurable effect; the 6-round figure was noise. No quirk. No errors, Wi-Fi fine.
+- 15:2x HDMI rails, 12 rounds: both off -0.130 W (se 0.011, 12 of 12), PHPC unchanged. Per-rail 12 rounds
+  (hdmi -0.19, dp2hdmi -0.43, se 0.17/0.30, default busier): too noisy, not used.
+- On T6020 dcp->external_native is false (T6030 only), so dcp_fixed_hdmi_reinit never runs: rails set high at
+  probe and never touched. Patch drm: apple: dcp: lower the HDMI rails in system sleep (GH-1-DeepIdle
+  5413b261bf65; Aurora-DeepIdle patches/hdmi-rails-off-in-sleep.patch). Compiles (worktree O= build dcp.o; and
+  the running kernel's driver with the resume hunk adapted -> appledrm.ko in scratchpad). Not installed: a
+  broken appledrm while the owner is away would leave no desktop, so no session.
+- Boot -2 had 4,655 "PM: suspend exit" (failed suspends retried while the Wi-Fi chip was dead), boot -1 1,446.

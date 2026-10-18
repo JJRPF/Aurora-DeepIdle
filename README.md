@@ -59,6 +59,13 @@ machine and what it showed.
   after issue #3). The hook stays off; a fixed one is expected to save
   little, since s2idle drains the same with and without the PMP. Tools in `tools/macos-re/` (no Apple files
   in this repo).
+* **The HDMI port's rails cost 0.13 W with nothing plugged in**, outside the
+  SoC (12 paired rounds, lower in 12 of 12). The DCP driver never lowers them
+  on T6020; `patches/hdmi-rails-off-in-sleep.patch` lowers them in system
+  sleep (compile-tested, not booted). An SD reader link left without ASPM L1
+  costs 0.37 W, which is how the all-off night (`data/s2idle/`) drained 2.1 W.
+  Removing and rescanning PCI devices kills the Wi-Fi chip until a reboot;
+  the harness no longer does it.
 * **CPU PD on every idle entry saves up to about 1 W, depending on the
   wake rate.** The `apple_idle` driver's "CPU PD" state (deep WFI with
   retention, the state macOS idles in) has a 10 ms target residency, so on
@@ -143,6 +150,8 @@ makes it persistent: copy it to `/etc/tmpfiles.d/`.
 | `tools/macos-sleep-test.sh` | macOS sleep-drain baseline on the same battery gauge: `curl -fsSL https://raw.githubusercontent.com/JJRPF/Aurora-DeepIdle/main/tools/macos-sleep-test.sh \| bash -s -- arm`, close the lid at least 4 h (overnight is better), then the same with `report`, which opens an issue with the result (`gh`) |
 | `tools/macos-agent-prompt.md` | Prompt for an agent on macOS: PMP device memory, SMC power switches and wake keys (read only), awake idle power, power states, then the sleep test; opens one issue with all of it when the owner says so |
 | `harness/hdmi-power/` | HDMI rails A/B: `smc-pwr-test.ko` (test only) switches `hdmi-pwren` (SMC GPIO 23, gP17) and `dp2hdmi-pwren` (6, gP06), which the DCP driver keeps on, off at run time; `run.sh` measures them with `idle-ab.py`; `s2idle-alloff.sh` turns them off for its lid close too |
+| `harness/s2idle-wake/`, `harness/s2idle-ab.sh` | Self-waking s2idle (no RTC alarm on this machine) and one measured suspend per setting, on battery |
+| `harness/awake-ab/run.sh`, `harness/net-guard.sh` | Awake A/B of SD link ASPM and the HDMI rails; a guard that reboots and reopens the session if the network dies |
 | `harness/smc-keyread/` | `smc-keyread.ko` (test only, read only): every readable SMC `flt` key starting with P in debugfs; `sample.py` gives the mean, min and max of each over N seconds |
 | `tools/macos-re/` | Reading a public macOS kernelcache: remote IPSW extraction, IM4P, chained-pointer fixups, fileset kexts, vtables, Ghidra headless scripts |
 | `dts/` | The opt-in J414s variants: PMP on, and no external DCPs (copies; they live in the kernel tree) |

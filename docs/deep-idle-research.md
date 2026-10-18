@@ -1109,6 +1109,54 @@ radios, AOP sensor drivers, SD reader and HDMI rails off, one lid close. The
 remainder needs S2R (the quiesce actions, CPU power-off, DRAM self-refresh,
 the PMGR S2R timer, and m1n1 handing the wake back to Linux).
 
+## s2idle suspects one at a time (2026-10-18)
+
+**The all-off night drained more, not less.** Radios blocked, the AOP
+ambient-light and lid-angle drivers unloaded, the SD reader removed from PCI,
+the HDMI rails off, one lid close: 9.78 h suspended, 2.108 W against the
+1.4 W baseline. The AOP still caused 70% of 158,040 SoC wakes (3.6/s), so
+those two drivers are not its traffic.
+
+**Removing the SD reader is what cost.** It leaves the SD port's link up
+with ASPM off. Awake, the SD link with `l1_aspm` = 0 draws +0.374 W (6
+paired rounds, higher in 6 of 6, se 0.03 W), about half of the night's
+excess. The rest is probably the Wi-Fi chip blocked rather than asleep
+associated; that was not measured (below).
+
+**It also broke Wi-Fi, three times.** A PCI rescan to bring the SD reader
+back, whole-bus or only its port (00:01.0), killed the Wi-Fi firmware two
+seconds later (`brcmf_msgbuf_query_dcmd` timeouts) until a reboot. A dead
+chip then fails every suspend (`brcmf_pcie_pm_enter_D3` -5) and logind
+retries: 4,655 failed suspends in one lid-closed boot, the machine awake at
+4-5 W. The harness no longer removes, rescans or rfkills anything
+(`harness/s2idle-alloff.sh` retired), and risky tests run under
+`harness/net-guard.sh`, which reboots and reopens the session if the
+network dies.
+
+**HDMI rails: 0.130 W.** `hdmi-pwren` and `dp2hdmi-pwren` off, nothing
+plugged in: -0.130 W of system power (12 rounds, lower in 12 of 12, se
+0.011), with SoC power unchanged, so it is the converter. The DCP driver
+raises both at probe and on T6020 never lowers them (the resume re-setup
+that touches them is T6030-only). `patches/hdmi-rails-off-in-sleep.patch`
+lowers them in system suspend, after the output is disconnected, and
+raises them first thing on resume; compile-tested, not booted. Lowering
+them while awake needs HPD to keep working, which needs a display to test.
+A per-rail split was too noisy to use.
+
+**SD link L1 substates: nothing.** Both PCIe links (Wi-Fi and SD) support
+ASPM L1.1 and L1.2 at both ends and run with all substates off (the DT
+default enables L0s and L1 only). On the SD link, L1.1 measured -0.096 W in
+6 rounds and +0.008 W (se 0.016) in a 12-round confirm: no measurable
+effect. The Wi-Fi link was not touched.
+
+**Self-waking s2idle.** `harness/s2idle-wake` ends a suspend after N
+seconds (a CLOCK_BOOTTIME hrtimer from PM_SUSPEND_PREPARE that calls
+`pm_system_wakeup()`, checked on the SoC's own s2idle wakes), since
+macsmc-rtc has no alarm. `harness/s2idle-ab.sh` runs one per setting on
+battery and reads the SMC coulomb counter (`BAAC`, mA*s). It needs the
+charger out: the battery driver offers `inhibit-charge` but no
+force-discharge.
+
 ## Unblocking deep sleep: what to trace with macOS under m1n1 hv
 
 1. **The CYC_OVRD veto.** m1n1 refuses a guest CYC_OVRD write with

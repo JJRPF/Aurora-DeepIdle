@@ -1,0 +1,25 @@
+Total System Power:
+  setting                                             mean W   PD %  WFI %   paired difference from default
+  default                                               7.17   85.6   13.1
+  set:/sys/module/smc_pwr_test/parameters/hdmi=0        6.98   86.3   12.6   -0.193 W (sd 0.60, se 0.172, lower in 9 of 12)
+  set:/sys/module/smc_pwr_test/parameters/dp2hdmi=0     6.74   87.2   11.8   -0.430 W (sd 1.04, se 0.299, lower in 12 of 12)
+AC Input Power:
+  setting                                             mean W   PD %  WFI %   paired difference from default
+  default                                               7.17   85.6   13.1
+  set:/sys/module/smc_pwr_test/parameters/hdmi=0        6.97   86.3   12.6   -0.197 W (sd 0.61, se 0.176, lower in 9 of 12)
+  set:/sys/module/smc_pwr_test/parameters/dp2hdmi=0     6.74   87.2   11.8   -0.428 W (sd 1.04, se 0.299, lower in 12 of 12)
+3.8 V Rail Power:
+  setting                                             mean W   PD %  WFI %   paired difference from default
+  default                                               0.00   85.6   13.1
+  set:/sys/module/smc_pwr_test/parameters/hdmi=0        0.00   86.3   12.6   +0.000 W (sd 0.00, se 0.000, lower in 0 of 12)
+  set:/sys/module/smc_pwr_test/parameters/dp2hdmi=0     0.00   87.2   11.8   +0.000 W (sd 0.00, se 0.000, lower in 0 of 12)
+Heatpipe Power:
+  setting                                             mean W   PD %  WFI %   paired difference from default
+  default                                               2.37   85.6   13.1
+  set:/sys/module/smc_pwr_test/parameters/hdmi=0        2.15   86.3   12.6   -0.219 W (sd 0.63, se 0.182, lower in 8 of 12)
+  set:/sys/module/smc_pwr_test/parameters/dp2hdmi=0     2.15   87.2   11.8   -0.214 W (sd 0.87, se 0.251, lower in 6 of 12)
+Busy time and clocks:
+  setting                                           busy %   policy0   policy4   policy7
+  default                                              1.3       956       765       789
+  set:/sys/module/smc_pwr_test/parameters/hdmi=0       1.0       917       707       759
+  set:/sys/module/smc_pwr_test/parameters/dp2hdmi=0    0.9       926       704       829
