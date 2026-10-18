@@ -61,7 +61,8 @@ report)
     snapshot
     OUT="$DIR/sleep-test-report-$(date -r "$t0" +%Y%m%d-%H%M).txt"
     # Sleep/Wake/DarkWake events since arming: total time asleep, wake count, wake reasons.
-    pmset -g log | awk '$1 ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/ && ($4 == "Sleep" || $4 == "Wake" || $4 == "DarkWake")' > "$DIR/.events"
+    # "Wake Requests" lines (scheduled wakes, logged just after each Sleep) are not wakes.
+    pmset -g log | awk '$1 ~ /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/ && ($4 == "Sleep" || ($4 == "Wake" && $5 != "Requests") || $4 == "DarkWake")' > "$DIR/.events"
     asleep=0; nsleep=0; nwake=0; ndark=0; sleep_t=""
     : > "$DIR/.events-since"
     while IFS= read -r line; do

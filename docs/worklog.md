@@ -415,3 +415,16 @@ Nothing here installs, reboots, or writes hardware registers. Times are local.
 - Static ADT pmp reg[2] = 0x28e700000 (1 MiB) = Linux "pmp" region; word 0 reads 0x14000095 = the PMP firmware's
   first __TEXT instruction (fw __TEXT vm 0x1000000). So the CSR is unresolved (live ADT order? fw reuses word 0?).
   Nothing written. Lid-close test with deepidle2 dropped.
+
+## 2026-10-17 22:20 macOS 15.7.1 live findings (issue #3) and follow-ups
+- Agent run on macOS (tools/macos-agent-prompt.md) opened JJRPF/Aurora-DeepIdle#3. Sleep 5.90 h lid closed on
+  battery: 1.413 Wh, 0.240 W (98.7% S2R, 27 dark wakes). Awake idle PSTR 5.57 W / PHPC 1.22 W = Linux with PMP.
+- macos-sleep-test.sh bug: `Wake Requests` lines ($4 == "Wake") closed every sleep interval (asleep 0.02 h,
+  29 "full wakes" = 28 requests + 1). Fixed ($5 != "Requests"); mock-tested, old version reproduces it.
+- PMP provider on T6020 is AppleASCWrapV4 (iop,ascwrap-v4); AppleA7IOPV4PMP matches only iop-pmp,t8015
+  (13.5 prelink-info confirms). _runCPU = AppleA7IOPV4: CPU_CONTROL 0x44 bit 4. stopCPU polls
+  AppleASCWrapV4::_isIdle = CPU_STATUS 0x48 & 3 every 1 ms. Index 2 = PMP firmware. harness/pmp-run withdrawn
+  (never run).
+- gP keys are function keys; user-space read returns 0. smc-keyread.ko (read only) on Linux: PSDR, PH0R, PH1R,
+  PHDR read 0 W with gP06/gP16/gP17 high, so the agent's "rails off" inference is unsupported.
+- s2idle-alloff.sh now also turns the HDMI rails off (smc-pwr-test.ko rebuilt for 7.1.12-2-11.35-sep-ARCH+).
