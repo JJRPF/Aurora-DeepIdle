@@ -42,13 +42,14 @@ cleanup() {
     echo "restored; stay-awake on; results in $OUT"
 }
 trap cleanup EXIT
+trap 'exit 130' INT TERM HUP
 lsmod | grep -q '^s2idle_wake ' || insmod "$WAKE" seconds=$((MIN * 60)) || exit 1
 echo $((MIN * 60)) > /sys/module/s2idle_wake/parameters/seconds
 
 aopirq() { awk '/2a6408000.mbox-recv/ { s = 0; for (i = 2; i <= 11; i++) s += $i; print s }' /proc/interrupts; }
 s2u() { cat /sys/devices/system/cpu/cpu0/cpuidle/state*/s2idle/usage 2>/dev/null | awk '{ s += $1 } END { print s + 0 }'; }
 
-{
+exec > >(tee "$OUT") 2>&1
 echo "== s2idle A/B $(date '+%F %T'), $(uname -r), ${MIN} min per setting: $SETTINGS"
 printf '%-6s %8s %8s %7s %8s %7s %s\n' setting susp_s mAh W aop/s wakes/s "wifi after"
 for s in $SETTINGS; do
@@ -72,11 +73,10 @@ for s in $SETTINGS; do
     wifi=$(nmcli -t -f DEVICE,STATE dev 2>/dev/null | awk -F: '$1 == "wlan0" { print $2 }')
     undo "$s"
     awk -v s="$s" -v t0="$t0" -v t1="$t1" -v q0="$q0" -v q1="$q1" -v v0="$v0" -v v1="$v1" \
-        -v a="$((a1 - a0))" -v w="$((w1 - w0))" -v wifi="${wifi:-?}" -v st="$st" 'BEGIN {
+        -v want="$((MIN * 60))" -v a="$((a1 - a0))" -v w="$((w1 - w0))" -v wifi="${wifi:-?}" -v st="$st" 'BEGIN {
         d = t1 - t0; mah = (q0 - q1) / 3600; W = (q0 - q1) / 1000 * (v0 + v1) / 2e6 / d
         printf "%-6s %8.0f %8.1f %7.3f %8.2f %7.2f %s%s\n", s, d, mah, W, a / d, w / d, wifi,
-            (st == "Discharging" ? "" : "  (status " st ": invalid)")
+            (st == "Discharging" ? "" : "  (status " st ": invalid)") (d < 0.95 * want ? "  (woken early)" : "")
     }'
     sleep 20
 done
-} 2>&1 | tee "$OUT"
