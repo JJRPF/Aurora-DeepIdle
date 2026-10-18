@@ -1143,6 +1143,22 @@ raises them first thing on resume; compile-tested, not booted. Lowering
 them while awake needs HPD to keep working, which needs a display to test.
 A per-rail split was too noisy to use.
 
+**s2idle on the charger.** Lowering the charge limit below the charge makes
+the SMC run the machine from the battery with the charger in (`CHLS`
+force-discharge). That way a 900 s s2idle drew 1.98 W from the battery.
+The SMC accumulates adapter-supplied system power: `zSPa` adds Total System
+Power in mW per sample and `zSPc` counts samples (1.075 s each), and it keeps
+counting through s2idle. With the battery held on the charger that is the
+whole system, 2.11 W, 7% from the battery figure. So `harness/s2idle-ab.sh`
+runs unattended on the charger. Sleep on this boot is about 2.0 W against
+the 1.4 W of unplugged nights; whether the charger or the short window
+explains it is not separated yet.
+
+**s2idle A/B on the charger** (15 min each): base 2.164 W, HDMI rails off
+2.034 W (-0.130 W, the same as awake), AOP sensor drivers unloaded 2.164 W,
+base again 2.159 W. The AOP's wake rate varied from 3.6 to 6 per second
+between runs with no change in power.
+
 **SD link L1 substates: nothing.** Both PCIe links (Wi-Fi and SD) support
 ASPM L1.1 and L1.2 at both ends and run with all substates off (the DT
 default enables L0s and L1 only). On the SD link, L1.1 measured -0.096 W in

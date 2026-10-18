@@ -1,0 +1,7 @@
+== s2idle A/B 2026-10-18 17:12:43, 7.1.12-2-11.35-sep-ARCH+, 15 min per setting: base hdmi aop base; measured by smc
+setting   susp_s      mAh       W    aop/s wakes/s wifi after
+base        904      0.0   2.164     5.98    5.94 connected
+hdmi        900      0.0   2.034     3.62    3.64 connected
+aop         900      0.0   2.164     3.62    3.70 connected
+base        900      0.0   2.159     4.56    4.57 connected
+restored; stay-awake on; results in /home/jjr/Work/deep-idle-build/s2idle-ab-20261018-1712.txt

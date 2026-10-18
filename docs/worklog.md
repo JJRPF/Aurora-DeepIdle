@@ -476,3 +476,6 @@ Nothing here installs, reboots, or writes hardware registers. Times are local.
   the unplugged nights (charger attached, or the first 15 min higher than a night's mean: not separated yet).
   Telemetry sleep.jsonl keeps the last 2,000 records; the failed-suspend storms pushed all older nights out.
 - s2idle-ab.sh: measures by zSPa when the battery is held on the charger, by BAAC on battery.
+- 17:12 s2idle A/B on the charger (zSPa), 15 min each: base 2.164, hdmi rails off 2.034 (-0.130 W, same as
+  awake), aop drivers unloaded 2.164 (0), base 2.159. AOP wake rate 3.6-6/s across runs with no power change.
+  => the HDMI patch's saving holds in s2idle; the AOP traffic is not worth chasing.
