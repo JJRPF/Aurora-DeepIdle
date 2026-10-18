@@ -442,3 +442,12 @@ Nothing here installs, reboots, or writes hardware registers. Times are local.
 - s2idle-wake.ko: CLOCK_BOOTTIME hrtimer from PM_SUSPEND_PREPARE calls pm_system_wakeup(); fires on the
   SoC's own s2idle wakes. 45 s and 60 s tests ended on time. s2idle-ab.sh runs one self-waking suspend per
   setting on battery (coulomb counter BAAC, mA*s), toggling Omarchy stay-awake only around each suspend.
+
+## 2026-10-18 14:47 awake A/B: SD link ASPM, HDMI rails (on the charger, 6 rounds x 30 s)
+- s2idle-ab on battery stopped before its first suspend: the charger went in at 14:46 (runner refuses AC).
+- Awake, Total System Power: SD reader link l1_aspm=0 (the state PCI remove left 00:01.0 in all night)
+  +0.374 W (se 0.030, higher in 6 of 6). HDMI rails gP17+gP06 off -0.110 W (se 0.064, lower in 5 of 6).
+  Default 8.67 W, busy 0.9%. So the all-off night's SD removal explains about half its +0.7 W.
+- lspci: both PCIe links (Wi-Fi 00:00.0-01:00.0, SD 00:01.0-02:00.0) support ASPM L1.1 and L1.2 at both
+  ends; all L1 substates are off, ClockPM off (root ports ClockPM-). Kernel ASPM policy [default].
+  Results: awake-ab-20261018-1447.txt
