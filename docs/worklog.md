@@ -462,3 +462,10 @@ Nothing here installs, reboots, or writes hardware registers. Times are local.
   the running kernel's driver with the resume hunk adapted -> appledrm.ko in scratchpad). Not installed: a
   broken appledrm while the owner is away would leave no desktop, so no session.
 - Boot -2 had 4,655 "PM: suspend exit" (failed suspends retried while the Wi-Fi chip was dead), boot -1 1,446.
+- 16:1x SMC energy accumulator found (smc-keyread "all" + "watch"): zSPa (ui64) adds Total System Power in mW
+  once per SMC sample, zSPc counts samples (~1.075 s each); zSPa/zSPc over 60 s = 8.413 W vs PSTR mean 8.409 W.
+  (zSLa moves with zSPa; zSEw/zSEi ~2.37 W per sample, zSAa ~32 mW: unidentified.) The SMC keeps sampling in
+  s2idle, so sleep can be measured on the charger: harness/smc-keyread/smc-acc.py snap/diff.
+- On the charger, base state: 120 s s2idle 2.148 W (entry/exit included); 829 s s2idle (owner woke it before the
+  900 s timer) 2.114 W. Battery-measured s2idle so far ~1.4 W, so PSTR on AC reads higher or this boot sleeps
+  higher: needs one run on battery reading BAAC and zSPa together. Wi-Fi fine after both.

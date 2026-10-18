@@ -4,8 +4,10 @@
  *
  * At load it lists every readable, non-function SMC key of type 'flt ' whose name starts
  * with 'P' (the power sensors), then /sys/kernel/debug/smc_keyread/power reads them all:
- * "KEY raw-hex milliwatts" per line. Only apple_smc_get_key_by_index, apple_smc_get_key_info
- * and apple_smc_read are used; nothing is written to the SMC.
+ * "KEY raw-hex milliwatts" per line. .../all lists every key: name, type, size, flags, and
+ * for a readable non-function key of at most 8 bytes its raw value. Only
+ * apple_smc_get_key_by_index, apple_smc_get_key_info and apple_smc_read are used; nothing is
+ * written to the SMC.
  */
 #include <linux/debugfs.h>
 #include <linux/device.h>
@@ -24,6 +26,12 @@ static struct device *dev;
 static struct apple_smc *smc;
 static smc_key keys[MAX_KEYS];
 static int nkeys;
+/* "watch": up to 16 keys named by the keys= parameter, read raw (at most 8 bytes each). */
+static char *watch_keys = "zSPa zSPc zSPi zSLa zSEw zSEi zSAa BAAC";
+module_param(watch_keys, charp, 0444);
+static smc_key wkeys[16];
+static u8 wsize[16];
+static int nwkeys;
 static struct dentry *dir;
 
 /* IEEE 754 single to an integer in thousandths, without the FPU. */
@@ -60,6 +68,80 @@ static int power_show(struct seq_file *s, void *unused)
 }
 DEFINE_SHOW_ATTRIBUTE(power);
 
+static u32 total;
+
+static int all_show(struct seq_file *s, void *unused)
+{
+	struct apple_smc_key_info info;
+	int i, j;
+
+	for (i = 0; i < total; i++) {
+		smc_key key;
+		u8 buf[8];
+		u32 t;
+
+		if (apple_smc_get_key_by_index(smc, i, &key) < 0 ||
+		    apple_smc_get_key_info(smc, key, &info) < 0)
+			continue;
+		t = info.type_code;
+		seq_printf(s, "%p4ch %c%c%c%c %2u %02x", &key, t >> 24, (t >> 16) & 0xff,
+			   (t >> 8) & 0xff, t & 0xff, info.size, info.flags);
+		if ((info.flags & APPLE_SMC_READABLE) && !(info.flags & APPLE_SMC_FUNCTION) &&
+		    info.size && info.size <= sizeof(buf) &&
+		    apple_smc_read(smc, key, buf, info.size) >= 0) {
+			seq_puts(s, " ");
+			for (j = 0; j < info.size; j++)
+				seq_printf(s, "%02x", buf[j]);
+		}
+		seq_puts(s, "\n");
+	}
+	return 0;
+}
+DEFINE_SHOW_ATTRIBUTE(all);
+
+static int watch_show(struct seq_file *s, void *unused)
+{
+	int i, j;
+
+	seq_printf(s, "t_ns %llu\n", ktime_get_boottime_ns());
+	for (i = 0; i < nwkeys; i++) {
+		u8 buf[8];
+
+		seq_printf(s, "%p4ch ", &wkeys[i]);
+		if (apple_smc_read(smc, wkeys[i], buf, wsize[i]) < 0) {
+			seq_puts(s, "err\n");
+			continue;
+		}
+		for (j = 0; j < wsize[i]; j++)
+			seq_printf(s, "%02x", buf[j]);
+		seq_puts(s, "\n");
+	}
+	return 0;
+}
+DEFINE_SHOW_ATTRIBUTE(watch);
+
+static void parse_watch(void)
+{
+	struct apple_smc_key_info info;
+	const char *p = watch_keys;
+
+	while (*p && nwkeys < ARRAY_SIZE(wkeys)) {
+		smc_key key;
+
+		while (*p == ' ')
+			p++;
+		if (strlen(p) < 4)
+			break;
+		key = __SMC_KEY(p[0], p[1], p[2], p[3]);
+		p += 4;
+		if (apple_smc_get_key_info(smc, key, &info) < 0 || !(info.flags & APPLE_SMC_READABLE) ||
+		    (info.flags & APPLE_SMC_FUNCTION) || !info.size || info.size > 8)
+			continue;
+		wkeys[nwkeys] = key;
+		wsize[nwkeys++] = info.size;
+	}
+}
+
 static int __init smc_keyread_init(void)
 {
 	struct apple_smc_key_info info;
@@ -78,6 +160,7 @@ static int __init smc_keyread_init(void)
 	if (ret < 0)
 		goto fail;
 	count = be32_to_cpu((__force __be32)count);
+	total = count;
 	for (i = 0; i < count && nkeys < MAX_KEYS; i++) {
 		smc_key key;
 		u8 c;
@@ -95,6 +178,9 @@ static int __init smc_keyread_init(void)
 	}
 	dir = debugfs_create_dir("smc_keyread", NULL);
 	debugfs_create_file("power", 0400, dir, NULL, &power_fops);
+	debugfs_create_file("all", 0400, dir, NULL, &all_fops);
+	parse_watch();
+	debugfs_create_file("watch", 0400, dir, NULL, &watch_fops);
 	dev_info(dev, "smc_keyread: %d power keys of %u\n", nkeys, count);
 	return 0;
 fail:
