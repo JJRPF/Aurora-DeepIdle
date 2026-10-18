@@ -1,0 +1,6 @@
+== s2idle calibration 2026-10-18 16:55:38: limit 80 -> 65 (force discharge), 900s
+status Discharging, current -681000 uA
+status after: Discharging
+900.4 s, 838 SMC samples (1.0744 s each): mean Total System Power 0.117 W
+battery (BAAC): 147798 mA*s over 900.4 s at 12.066 V: 1.981 W
+charge limit back to 80, stay-awake on

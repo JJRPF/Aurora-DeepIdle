@@ -1,0 +1,85 @@
+From 5413b261bf652ae375fd533d8af9fdc2d8fab7fc Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 16:12:03 -0400
+Subject: [PATCH] drm: apple: dcp: lower the HDMI rails in system sleep
+
+hdmi-pwren and dp2hdmi-pwren stay high from probe on. With nothing plugged
+in they cost 0.13 W of system power on a J414s (12 paired rounds, lower in
+12 of 12), none of it in the SoC. System suspend already disconnects the
+HDMI output and disables its HPD interrupt, so lower both rails there and
+raise them again first thing on resume, before HPD is looked at.
+
+Compile-tested only; not booted.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AuzUDcEeRJQ6RCdWW2XWLb
+---
+ drivers/gpu/drm/apple/dcp-internal.h |  2 ++
+ drivers/gpu/drm/apple/dcp.c          | 24 ++++++++++++++++++++++++
+ 2 files changed, 26 insertions(+)
+
+diff --git a/drivers/gpu/drm/apple/dcp-internal.h b/drivers/gpu/drm/apple/dcp-internal.h
+index eec54f3260f8..d2a3bf8c6a90 100644
+--- a/drivers/gpu/drm/apple/dcp-internal.h
++++ b/drivers/gpu/drm/apple/dcp-internal.h
+@@ -393,6 +393,8 @@ struct apple_dcp {
+ 	struct gpio_desc *hdmi_hpd;
+ 	struct gpio_desc *hdmi_pwren;
+ 	struct gpio_desc *dp2hdmi_pwren;
++	/* hdmi-pwren and dp2hdmi-pwren lowered for system sleep */
++	bool hdmi_rails_off;
+ 
+ 	struct mutex hpd_mutex;
+ 
+diff --git a/drivers/gpu/drm/apple/dcp.c b/drivers/gpu/drm/apple/dcp.c
+index 87352ac70c44..58aa3cbdd4a8 100644
+--- a/drivers/gpu/drm/apple/dcp.c
++++ b/drivers/gpu/drm/apple/dcp.c
+@@ -2684,6 +2684,22 @@ static void dcp_platform_complete(struct device *dev)
+ 	mutex_unlock(&dcp->hpd_mutex);
+ }
+ 
++/*
++ * With nothing plugged in, the HDMI port's two rails (the converter's
++ * dp2hdmi-pwren and the port's hdmi-pwren) cost 0.13 W of system power on a
++ * J414s, all of it outside the SoC. In system sleep the output is
++ * disconnected and the HPD interrupt is off, so nothing needs them; resume
++ * powers them again before it looks at HPD.
++ */
++static void dcp_hdmi_rails_set(struct apple_dcp *dcp, int on)
++{
++	if (dcp->hdmi_pwren)
++		gpiod_set_value_cansleep(dcp->hdmi_pwren, on);
++	if (dcp->dp2hdmi_pwren)
++		gpiod_set_value_cansleep(dcp->dp2hdmi_pwren, on);
++	dcp->hdmi_rails_off = !on;
++}
++
+ static int dcp_platform_suspend(struct device *dev)
+ {
+ 	struct apple_dcp *dcp = dev_get_drvdata(dev);
+@@ -2725,6 +2741,7 @@ static int dcp_platform_suspend(struct device *dev)
+ 		if (!dcp->active_typec_route) {
+ 			disconnected_hpd_event(dcp->connector);
+ 			dcp_dptx_disconnect(dcp, 0);
++			dcp_hdmi_rails_set(dcp, 0);
+ 		}
+ 	}
+ 	/*
+@@ -2742,6 +2759,13 @@ static int dcp_platform_resume(struct device *dev)
+ 	struct apple_dcp *dcp = dev_get_drvdata(dev);
+ 
+ 	dcp_enable_typec_work(dcp);
++	/*
++	 * Rails first: the converter needs power for HPD. Should HPD read low
++	 * while it starts, the edge interrupt enabled below still sees the
++	 * display come up.
++	 */
++	if (dcp->hdmi_rails_off)
++		dcp_hdmi_rails_set(dcp, 1);
+ 	/* The HDMI output's PHY and crossbar may have lost their setup in sleep. */
+ 	if (dcp->external_native)
+ 		dcp_fabric_hdmi_reinit(dcp, "after system sleep");
+-- 
+2.55.0
+

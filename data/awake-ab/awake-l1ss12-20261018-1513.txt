@@ -1,0 +1,20 @@
+Total System Power:
+  setting                                                  mean W   PD %  WFI %   paired difference from default
+  default                                                    7.05   87.5   11.5
+  set:/sys/bus/pci/devices/0000:02:00.0/link/l1_1_aspm=1     7.06   87.4   11.6   +0.008 W (sd 0.06, se 0.016, lower in 8 of 12)
+AC Input Power:
+  setting                                                  mean W   PD %  WFI %   paired difference from default
+  default                                                    7.05   87.5   11.5
+  set:/sys/bus/pci/devices/0000:02:00.0/link/l1_1_aspm=1     7.06   87.4   11.6   +0.007 W (sd 0.05, se 0.015, lower in 8 of 12)
+3.8 V Rail Power:
+  setting                                                  mean W   PD %  WFI %   paired difference from default
+  default                                                    0.00   87.5   11.5
+  set:/sys/bus/pci/devices/0000:02:00.0/link/l1_1_aspm=1     0.00   87.4   11.6   +0.000 W (sd 0.00, se 0.000, lower in 0 of 12)
+Heatpipe Power:
+  setting                                                  mean W   PD %  WFI %   paired difference from default
+  default                                                    2.17   87.5   11.5
+  set:/sys/bus/pci/devices/0000:02:00.0/link/l1_1_aspm=1     2.08   87.4   11.6   -0.082 W (sd 0.18, se 0.053, lower in 8 of 12)
+Busy time and clocks:
+  setting                                                busy %   policy0   policy4   policy7
+  default                                                   0.9       939       725       790
+  set:/sys/bus/pci/devices/0000:02:00.0/link/l1_1_aspm=1    0.9       930       708       823

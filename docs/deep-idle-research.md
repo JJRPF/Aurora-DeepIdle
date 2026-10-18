@@ -67,6 +67,13 @@ machine or in source is marked as an unknown.
   no suspend hook, so the PMP is never told the system is asleep). The
   0.9 W quoted here before was a J415 figure from elsewhere, not this
   machine.
+* **macOS sleeps this machine at 0.24 W, a sixth of Linux's s2idle.**
+  macOS 15.7.1, lid closed on battery for 5.9 h (2026-10-17, issue #3):
+  1.41 Wh, 0.24 W, 98.7% of the time in S2R ("Deep Idle") with 27 brief dark
+  wakes. Awake and idle the two systems match (SMC `PSTR` 5.57 W, `PHPC` 1.22 W
+  on macOS; 5.38 W and 1.22 W on Linux with the PMP), so the 1.16 W gap is
+  what S2R powers down: the CPUs, DRAM in self-refresh, the SoC clocks. Below,
+  under "macOS 15.7.1 live".
 * **What wakes s2idle is the AOP; the drain is power left on, not wakes.**
   The SoC woke 3.2 times a second, 61% of the time from the AOP's mailbox
   (`2a6408000`, the always-on processor serving the ambient-light and
@@ -948,16 +955,17 @@ state, wait for the ack, `enableMailboxInterrupts(false)`, then the provider's
 `stopCPU()`. For wake it calls the provider's `startCPUWithOptions(fw,
 wasQuiesced)` and sends IOP `0x220` (INIT, `RTBMgmt_wakeQuiesced`) only when
 the previous state was QUIESCED. After IDLE, the IOP reports its own state
-once its CPU runs again, and RTBuddy then signals AP `0x20` (ON). The provider
-is `AppleA7IOPV4PMP`. Its one override that matters is `_runCPU(bool)`, a
-single 32-bit store of 0 or 1 to offset 0 of `_pmsCSRMappedRegs` (device
-memory index 2 of the PMP nub). In place of that, the generic `AppleA7IOPV4`
-toggles ASC `CPU_CONTROL` (0x44) bit 4, which is what Linux's `pmp.rs` sets at
-probe. In the static ADT, `reg` index 2 is 0x28e700000 (1 MiB), the region
-Linux maps as `pmp`. Its word 0 reads 0x14000095, the first instruction of the
-PMP firmware's `__TEXT` (loaded at IOP address 0x1000000). So either the live
-ADT orders `reg` differently, or the firmware reuses word 0 as a run flag
-once it has booted. Not settled; nothing has been written there.
+once its CPU runs again, and RTBuddy then signals AP `0x20` (ON). The
+provider is `AppleASCWrapV4`, which matches the PMP's `iop,ascwrap-v4`
+(corrected after issue #3: `AppleA7IOPV4PMP`, read here first, matches only
+`iop-pmp,t8015`, the A11, and is not loaded on T6020). `AppleASCWrapV4`
+inherits `AppleA7IOPV4::_runCPU(bool)`: read ASC `CPU_CONTROL` (0x44), set or
+clear bit 4 (RUN), write it back, the bit Linux's `pmp.rs` sets at probe.
+`AppleA7IOP::stopCPU` first polls `_isIdle` every 1 ms; `AppleASCWrapV4::_isIdle`
+reads ASC `CPU_STATUS` (0x48) and calls the CPU idle when `status & 3` is
+non-zero. `startCPUWithOptions` sets RUN again. Device memory index 2 of the
+PMP is 0x28e700000, which the live macOS names as the pre-loaded PMP firmware
+(`region-base`, `__TEXT;__DATA`): it is no CSR, and nothing was written there.
 
 **PMGR.** `quiesceHW` (T6020) quiesces the GPU's PMGR (`AGX_PMGR` + 0x100),
 gates clocks in `PMGR_SOC_EAST` and the SoC clock generator, sets PLL-off
@@ -1018,11 +1026,152 @@ the PMP's power in noirq. The cause is the wake method: Linux's
 wake-from-QUIESCED path. macOS wakes the PMP from IDLE by restarting its CPU
 (`_runCPU(1)`, above) and sends no INIT. Nothing else in Linux uses
 `apple_rtkit_idle()`, so this path was untested. The lid-close test is
-dropped: with the PMP stuck in IDLE it would measure the PMP-off case. Next:
-identify the real `_pmsCSR` range (the live ADT through m1n1, or the
-firmware's IDLE loop). Then wake with `_runCPU(1)`, wait for the IOP's own
-state report, and set AP ON. Until then the hook must stay off: as built it
-loses the PMP's awake saving after the first suspend.
+dropped: with the PMP stuck in IDLE it would measure the PMP-off case. The
+wake that fits macOS (corrected above): after the IDLE ack, mask the mailbox
+interrupts, wait for `CPU_STATUS & 3`, clear `CPU_CONTROL` RUN; on resume, set
+RUN, wait for the IOP's own power-state report, set AP ON. Not built
+(`deepidle3`); its expected value is small, because the PMP night and a night
+without the PMP drained the same 1.4 W. Until then the hook stays off: as
+built it loses the PMP's awake saving after the first suspend.
+
+## macOS 15.7.1 live on this machine (issue #3, 2026-10-17)
+
+An agent on macOS 15.7.1 (24G231) collected these from the running system
+with read-only tools (`ioreg`, a user-space SMC reader limited to read
+commands, `powermetrics`, `pmset`, `log show`), then ran
+`tools/macos-sleep-test.sh` across a lid close. Full tables in Aurora-DeepIdle
+issue #3; what matters for Linux:
+
+**Sleep: 0.24 W.** 5.90 h on battery, lid closed, Wi-Fi associated
+(`tcpkeepalive` on, Wake-on-WLAN): 118 mAh, 1.413 Wh, 0.240 W over the whole
+window. 28 sleeps totalling 5.82 h in S2R ("Deep Idle"), 27 dark wakes of a few
+seconds each (the Dialog PMU's RTC, `NUB.SPMI0Sw3IRQ`, for SleepService),
+8.8% of the battery a day. The sleep script's "asleep 0.02 h" line was a bug:
+it took the `Wake Requests` line that follows each `Sleep` line in `pmset -g
+log` as a wake. Fixed; the wall-time 0.240 W is the figure.
+
+**Awake idle matches Linux.** On battery, display at 50% (`PDBR` 1.75 W),
+120 s at 1 Hz: `PSTR` mean 5.57 W (median 5.19 W, min 4.60 W), `PHPC` 1.22 W
+(median 0.76 W). Linux with the PMP: 5.38 W and 1.22 W. `powermetrics`: CPU +
+GPU + ANE 0.58 W; the P1 cluster 29% down, P0 11% down, the E cluster never.
+So macOS has no awake-idle advantage left to find here; the gap is sleep.
+
+**The sleep sequence** (kernel log, first lid close): DCPs off, Wi-Fi to
+associated sleep, `AppleSMCEmbedded` writes `WKTP` = 2, NVMe shutdown, then
+`IOCPUSleepKernel`: sleep actions for the PMU RTC, CLPC, PMGR, `ApplePMPv2`
+(62 ms, the longest), `AppleSMCPMU`, then `AppleSMCKeysEndpoint` writes `MBSE`
+= `slpa` and reports "now quiesced". The quiesce actions then run on the boot
+CPU: PCIe, SoC tuner, memory cache controller, SEP, PMGR ("Starting S2R
+timer"), AIC, Dialog PMU. Wake runs them in reverse; `MBSW` read
+`0001000000000000` after the lid wake, and `WKTP` = 0 is written. This
+matches the 13.5 static order above.
+
+**PMP.** The driver stack is `AppleASCWrapV4` -> `iop-pmp-nub` (`AppleA7IOPNub`,
+`rtbuddy-v2`, `firmware-name` t6020pmp, `pre-loaded`, `no-shutdown`,
+`user-power-managed`) -> `RTBuddy(PMP)` -> `PMPEndpoint1` (endpoint 33) ->
+`ApplePMPv2`. Device memory: 0 = 0x28ec00000 (ASC, mailbox), 1 = 0x28e850000,
+2 = 0x28e700000 (the firmware, 1 MiB), 3 = 0x28e3d0000 (PTD update registers,
+`ptd-update-reg-index`), then the four die windows and three PMGR telemetry
+windows (0x210e70000, 0x211e70000, 0x212e70000). The PMP probe script
+(`harness/pmp-run/toggle.sh`, which would have stored 0 and 1 to
+0x28e700000) is withdrawn: it would have overwritten the firmware's first
+instruction.
+
+**SMC GPIO power switches.** All `gP` keys are function keys (attribute 0xf0);
+a plain SMC read returns 0 for every one of them, on or off, so their live
+state is not readable from user space. Bindings on J414s: `gP06`
+dp2hdmi_pwr_en, `gP08` dp2hdmi reset, `gP09` Wi-Fi pmu_ext_on, `gP0d` amfm
+reg_on, `gP10` hdmi_cec_en, `gP11` bt_wake, `gP16` sd_pwr_en, `gP17`
+hdmi_pwr_en, `gP19` trackpad PMU reset, `gP1a` keyboard STM reset; the rest
+unbound. With nothing plugged in, macOS has the SD reader's port and device
+in power state 0 of 3 (`SDXC Powered` = No), the Thunderbolt NHI and its
+bridge at 0 of 3, the ANE at 0 of 1, `dcpext0` and `dcpext1` at
+`DCPPowerState` 0 (their RTBuddy stays at 2 of 2), and no HDMI hot-plug. The
+agent read the HDMI rail sensors `PH0R`, `PH1R`, `PHDR` and the SD reader's
+`PSDR` as 0 W and took that as the rails being off. Linux reads the same four
+keys as 0 W with `gP06`, `gP16` and `gP17` high (`harness/smc-keyread`,
+below), so these sensors say nothing about the rails. Whether macOS lowers
+the GPIOs is still unproven; the awake A/B (`harness/hdmi-power`) measures
+what they cost.
+
+**Linux SMC power keys** (`harness/smc-keyread`: a read-only module listing
+every readable `flt` key starting with P, and `sample.py`). 79 keys on this
+machine; 38 read 0 throughout a minute, among them `PSDR`, `PH0R`, `PH1R`,
+`PHDR`, `PMVR`, the Thunderbolt and USB `PU1R`/`PU2R`, `PKBC`. The non-zero
+ones besides `PSTR` and `PHPC` include `PDBR` (backlight), `PMVC`, `PSVR`,
+`PPBR`, `Pb0f` and per-rail `PP*`/`PR*` keys, unlabelled; a quiet-desktop
+comparison with macOS for the same keys is the next read.
+
+**What this means for Linux.** Awake, the PMP closed the gap. Asleep, 1.16 W
+separates s2idle from S2R. How much of it s2idle can reach is tonight's
+all-off run (`harness/s2idle-alloff.sh`, now also with the HDMI rails off):
+radios, AOP sensor drivers, SD reader and HDMI rails off, one lid close. The
+remainder needs S2R (the quiesce actions, CPU power-off, DRAM self-refresh,
+the PMGR S2R timer, and m1n1 handing the wake back to Linux).
+
+## s2idle suspects one at a time (2026-10-18)
+
+**The all-off night drained more, not less.** Radios blocked, the AOP
+ambient-light and lid-angle drivers unloaded, the SD reader removed from PCI,
+the HDMI rails off, one lid close: 9.78 h suspended, 2.108 W against the
+1.4 W baseline. The AOP still caused 70% of 158,040 SoC wakes (3.6/s), so
+those two drivers are not its traffic.
+
+**Removing the SD reader is what cost.** It leaves the SD port's link up
+with ASPM off. Awake, the SD link with `l1_aspm` = 0 draws +0.374 W (6
+paired rounds, higher in 6 of 6, se 0.03 W), about half of the night's
+excess. The rest is probably the Wi-Fi chip blocked rather than asleep
+associated; that was not measured (below).
+
+**It also broke Wi-Fi, three times.** A PCI rescan to bring the SD reader
+back, whole-bus or only its port (00:01.0), killed the Wi-Fi firmware two
+seconds later (`brcmf_msgbuf_query_dcmd` timeouts) until a reboot. A dead
+chip then fails every suspend (`brcmf_pcie_pm_enter_D3` -5) and logind
+retries: 4,655 failed suspends in one lid-closed boot, the machine awake at
+4-5 W. The harness no longer removes, rescans or rfkills anything
+(`harness/s2idle-alloff.sh` retired), and risky tests run under
+`harness/net-guard.sh`, which reboots and reopens the session if the
+network dies.
+
+**HDMI rails: 0.130 W.** `hdmi-pwren` and `dp2hdmi-pwren` off, nothing
+plugged in: -0.130 W of system power (12 rounds, lower in 12 of 12, se
+0.011), with SoC power unchanged, so it is the converter. The DCP driver
+raises both at probe and on T6020 never lowers them (the resume re-setup
+that touches them is T6030-only). `patches/hdmi-rails-off-in-sleep.patch`
+lowers them in system suspend, after the output is disconnected, and
+raises them first thing on resume; compile-tested, not booted. Lowering
+them while awake needs HPD to keep working, which needs a display to test.
+A per-rail split was too noisy to use.
+
+**s2idle on the charger.** Lowering the charge limit below the charge makes
+the SMC run the machine from the battery with the charger in (`CHLS`
+force-discharge). That way a 900 s s2idle drew 1.98 W from the battery.
+The SMC accumulates adapter-supplied system power: `zSPa` adds Total System
+Power in mW per sample and `zSPc` counts samples (1.075 s each), and it keeps
+counting through s2idle. With the battery held on the charger that is the
+whole system, 2.11 W, 7% from the battery figure. So `harness/s2idle-ab.sh`
+runs unattended on the charger. Sleep on this boot is about 2.0 W against
+the 1.4 W of unplugged nights; whether the charger or the short window
+explains it is not separated yet.
+
+**s2idle A/B on the charger** (15 min each): base 2.164 W, HDMI rails off
+2.034 W (-0.130 W, the same as awake), AOP sensor drivers unloaded 2.164 W,
+base again 2.159 W. The AOP's wake rate varied from 3.6 to 6 per second
+between runs with no change in power.
+
+**SD link L1 substates: nothing.** Both PCIe links (Wi-Fi and SD) support
+ASPM L1.1 and L1.2 at both ends and run with all substates off (the DT
+default enables L0s and L1 only). On the SD link, L1.1 measured -0.096 W in
+6 rounds and +0.008 W (se 0.016) in a 12-round confirm: no measurable
+effect. The Wi-Fi link was not touched.
+
+**Self-waking s2idle.** `harness/s2idle-wake` ends a suspend after N
+seconds (a CLOCK_BOOTTIME hrtimer from PM_SUSPEND_PREPARE that calls
+`pm_system_wakeup()`, checked on the SoC's own s2idle wakes), since
+macsmc-rtc has no alarm. `harness/s2idle-ab.sh` runs one per setting on
+battery and reads the SMC coulomb counter (`BAAC`, mA*s). It needs the
+charger out: the battery driver offers `inhibit-charge` but no
+force-discharge.
 
 ## Unblocking deep sleep: what to trace with macOS under m1n1 hv
 

@@ -33,6 +33,17 @@ machine and what it showed.
   lid-angle sensor reports; those drivers have no suspend hooks) and cost
   milliwatts; the drain is power left on. `harness/s2idle-alloff.sh`
   bounds how much of it driver work could reach.
+* **macOS sleeps this machine at 0.24 W, a sixth of Linux's s2idle**
+  (issue #3, measured by `tools/macos-agent-prompt.md`): 5.9 h lid closed on
+  battery, 98.7% of it in S2R. Awake idle matches Linux with the PMP (SMC
+  Total System Power 5.57 W against 5.38 W, SoC 1.22 W on both), so the gap
+  is SoC sleep itself. The T6020 PMP runs under `AppleASCWrapV4`, whose CPU
+  run bit is the ASC `CPU_CONTROL` bit Linux already uses; the device memory
+  thought to be a run register is the PMP firmware. macOS has the SD reader,
+  Thunderbolt NHI, ANE and external display pipelines powered down with
+  nothing plugged in. The SMC's HDMI and SD rail sensors read 0 W on Linux
+  as well, rails on, so they cannot show whether a rail is off
+  (`harness/smc-keyread/`).
 * **macOS tells the PMP when the system sleeps; Linux never does.** Read
   from the public macOS 13.5 J414s kernelcache (symbols intact) and device
   tree: the full order of the platform sleep and quiesce actions, the SMC's
@@ -43,10 +54,18 @@ machine and what it showed.
   (`patches/deepidle2-pmp-s2idle-idle.patch`, `harness/deepidle2/`) adds it
   to s2idle. Smoke test (`data/deepidle2/`): the PMP acks IDLE in 399 us but
   never answers again, because Linux's INIT wake is macOS's wake-from-QUIESCED
-  path. macOS wakes the PMP from IDLE by restarting its CPU
-  (`AppleA7IOPV4PMP::_runCPU`), through a register not yet identified. The
-  hook must stay off until then. Tools in `tools/macos-re/` (no Apple files
+  path. macOS wakes the PMP from IDLE by restarting its CPU: wait for ASC
+  `CPU_STATUS & 3`, clear `CPU_CONTROL` RUN, set it again on wake (corrected
+  after issue #3). The hook stays off; a fixed one is expected to save
+  little, since s2idle drains the same with and without the PMP. Tools in `tools/macos-re/` (no Apple files
   in this repo).
+* **The HDMI port's rails cost 0.13 W with nothing plugged in**, outside the
+  SoC (12 paired rounds, lower in 12 of 12). The DCP driver never lowers them
+  on T6020; `patches/hdmi-rails-off-in-sleep.patch` lowers them in system
+  sleep (compile-tested, not booted). An SD reader link left without ASPM L1
+  costs 0.37 W, which is how the all-off night (`data/s2idle/`) drained 2.1 W.
+  Removing and rescanning PCI devices kills the Wi-Fi chip until a reboot;
+  the harness no longer does it.
 * **CPU PD on every idle entry saves up to about 1 W, depending on the
   wake rate.** The `apple_idle` driver's "CPU PD" state (deep WFI with
   retention, the state macOS idles in) has a 10 ms target residency, so on
@@ -129,9 +148,12 @@ makes it persistent: copy it to `/etc/tmpfiles.d/`.
 | `tools/tests/` | Unit tests for all of the above |
 | `tools/mac-power-telemetry` | The owner's battery telemetry, now logging every suspend (logind delay lock, coulomb counter); `tools/mac-power-telemetry-watch.service` |
 | `tools/macos-sleep-test.sh` | macOS sleep-drain baseline on the same battery gauge: `curl -fsSL https://raw.githubusercontent.com/JJRPF/Aurora-DeepIdle/main/tools/macos-sleep-test.sh \| bash -s -- arm`, close the lid at least 4 h (overnight is better), then the same with `report`, which opens an issue with the result (`gh`) |
+| `tools/macos-s2r-prompt.md` | Prompt for an agent on macOS: live sleep-related device tree and power properties, one timed 3-minute sleep, and what the 15.7.1 kexts do to enter and leave S2R (PMU RTC alarm, PMP, PMGR, PMU quiesce, memory, AIC, SEP, PCIe, CPU wake vector); opens one issue. `claude "$(curl -fsSL https://raw.githubusercontent.com/JJRPF/Aurora-DeepIdle/main/tools/macos-s2r-prompt.md)"` |
 | `tools/macos-agent-prompt.md` | Prompt for an agent on macOS: PMP device memory, SMC power switches and wake keys (read only), awake idle power, power states, then the sleep test; opens one issue with all of it when the owner says so |
-| `harness/hdmi-power/` | HDMI rails A/B: `smc-pwr-test.ko` (test only) switches `hdmi-pwren` (SMC GPIO 23, gP17) and `dp2hdmi-pwren` (6, gP06), which the DCP driver keeps on, off at run time; `run.sh` measures them with `idle-ab.py` |
-| `harness/pmp-run/toggle.sh` | Probe of macOS's PMP run store (`AppleA7IOPV4PMP::_runCPU`, 0x28e700000+0): SRAM or a run register; restores the word |
+| `harness/hdmi-power/` | HDMI rails A/B: `smc-pwr-test.ko` (test only) switches `hdmi-pwren` (SMC GPIO 23, gP17) and `dp2hdmi-pwren` (6, gP06), which the DCP driver keeps on, off at run time; `run.sh` measures them with `idle-ab.py`; `s2idle-alloff.sh` turns them off for its lid close too |
+| `harness/s2idle-wake/`, `harness/s2idle-ab.sh` | Self-waking s2idle (no RTC alarm on this machine) and one measured suspend per setting, on battery |
+| `harness/awake-ab/run.sh`, `harness/net-guard.sh` | Awake A/B of SD link ASPM and the HDMI rails; a guard that reboots and reopens the session if the network dies |
+| `harness/smc-keyread/` | `smc-keyread.ko` (test only, read only): every readable SMC `flt` key starting with P in debugfs; `sample.py` gives the mean, min and max of each over N seconds |
 | `tools/macos-re/` | Reading a public macOS kernelcache: remote IPSW extraction, IM4P, chained-pointer fixups, fileset kexts, vtables, Ghidra headless scripts |
 | `dts/` | The opt-in J414s variants: PMP on, and no external DCPs (copies; they live in the kernel tree) |
 | `patches/` | The kernel tree changes as a `git format-patch` series |
