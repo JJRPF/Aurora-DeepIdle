@@ -1247,6 +1247,52 @@ wake its first unattended tests need: macOS's own dark wakes use this alarm
 Not checked yet: whether the PMU alarm can power the machine on from off
 (`por_rtc` is one of the PMU's fault names).
 
+## S2R: what is missing, piece by piece (2026-10-19)
+
+Everything macOS does to sleep the SoC (13.5 static analysis, issues #3 and
+#5), against what Linux and m1n1 have today on this machine:
+
+| Piece | macOS | Linux / m1n1 today | Gap |
+|---|---|---|---|
+| Timed wake | PMU RTC alarm, `NUB.SPMI0Sw3IRQ` | **done** in deepidle3: macsmc-rtc alarm, SPMI irq 2 on AIC 724, wakes s2idle | upstreamable shape; PMU power-on from off untested |
+| Devices | every driver's sleep action | s2idle suspend callbacks | S2R removes power: drivers must resume from power loss. DCP says it cannot ("we do not support full shutdown properly yet"); PCIe, NVMe, Wi-Fi unproven |
+| PMP | RTKit AP IDLE `0x201`, wake by CPU_CONTROL RUN | deepidle2 hook: IDLE works, wake wrong | the `_runCPU` wake (designed, not built) |
+| SMC | `MBSE` `slpw`/`slpa`/`waka`, `WKTP` = 2, `MBSW` wake reason | macsmc has no suspend handler | the handshake; its effect on a running SoC is unknown |
+| AIC | save and mask all banks, restore on wake | no suspend/resume in irq-apple-aic | save/restore (layout known: AIC2 0x6400/0x6600, die stride 0x4a00) |
+| PMGR | `quiesceHW`, S2R timer (`MPMGR_AON` + 0x4000), `restoreHW` (0xc000 bit 31, PLL relock) | `MPMGR_AON` not in the Linux DT or m1n1 | everything; note the S2R-timer word already reads 1 on Linux (meaning unknown) |
+| PCIe | `manual-enable-s2r`: driver takes the link to L2 and gates port clocks | ASPM only | L2 entry and exit |
+| Secondary CPUs | ACC power-down (`0xc5acce55` at 0xfb0, 0 at 0x310), `SUSP` handshake | spin-table, no `cpu_die`; m1n1 PSCI branch: CPU_OFF returns NOT_SUPPORTED | CPU_OFF in firmware |
+| Boot CPU wake | reconfig engine restarts it at the kernel's warm-boot vector | its RVBAR is locked into resident m1n1 | **the hand-back** (below) |
+| Linux entry | n/a | `mem_sleep` offers only `s2idle` | a `deep` state |
+
+**The wake hand-back, read in m1n1** (`src/start.S` `cpu_reset`,
+`src/startup.c` `_cpu_reset_c`, `src/smp.c`). Every RVBAR entry, the boot CPU's
+included, takes the stack in `_reset_stack`. After m1n1 has started the
+secondaries that is `dummy_stack`, which is m1n1's own reserved memory, so a wake
+would run. `_cpu_reset_c` prints "RVBAR entry on primary CPU", reapplies the
+CPU's chicken bits (`init_cpu`) and then calls `m1n1_main()`: a fresh m1n1 boot,
+not a return to Linux, on a SoC that iBoot did not initialise this time. So
+today an S2R wake would at best reboot through m1n1 and at worst hang in it.
+What is missing is small and well defined: Linux registers a resume entry point
+before sleeping, and on a primary RVBAR entry m1n1 sees it, reinitialises the
+CPU and jumps there (at EL2, with the context Linux handed it). That is PSCI
+`SYSTEM_SUSPEND`. Sven Peter's `psci-via-efi` branch already keeps m1n1
+resident as the PSCI provider, identifies the stack by MPIDR on RVBAR re-entry
+("stale on an RVBAR re-entry after deep wfi") and implements CPU_SUSPEND. It
+has no `SYSTEM_SUSPEND` or `CPU_OFF`, and only T8103 is wired up.
+
+**Where the pieces should live.** If m1n1 offers PSCI `SYSTEM_SUSPEND` (and
+`CPU_OFF`), Linux's existing PSCI driver offers `deep` in `mem_sleep` with no
+new Linux core code: the kernel takes the secondaries offline through CPU_OFF,
+suspends devices, and the last call goes to m1n1. The SoC steps that macOS runs
+on the boot CPU after the drivers (AIC, PMGR quiesce and the S2R timer, the PMU
+SPMI quiesce) would then sit behind that call in m1n1, which already owns the
+PMGR CPU-start block, the chicken bits and the reset vector. Driver-owned steps
+(PMP, SMC handshake, PCIe L2, DCP) stay in their Linux drivers' suspend
+callbacks. Order of work: PMP wake fix and the SMC handshake can be built and
+tested in s2idle now; AIC save/restore is a self-contained driver change;
+m1n1 `SYSTEM_SUSPEND` and `CPU_OFF` come next; the PMGR steps need E3's trace.
+
 ## Unblocking deep sleep: what to trace with macOS under m1n1 hv
 
 1. **The CYC_OVRD veto.** m1n1 refuses a guest CYC_OVRD write with
