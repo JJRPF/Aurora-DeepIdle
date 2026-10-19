@@ -1,0 +1,36 @@
+before:
+ctrl 0x01 (enable off)  event 0x00  irqmask 0x01
+counter 3683468 s  alarm 3652420 s (-31048 s)  unix(counter+offset) 1792408106  now 1792408106
+AIC HW_STATE high: []
+armed for counter 3683488
+ctrl 0x41 (enable on)  event 0x00  irqmask 0x00
+counter 3683468 s  alarm 3683488 s (+20 s)  unix(counter+offset) 1792408106  now 1792408106
+AIC HW_STATE high: []
+  counter 3683469 (-19)  event 0x00  AIC []
+  counter 3683470 (-18)  event 0x00  AIC []
+  counter 3683471 (-17)  event 0x00  AIC []
+  counter 3683472 (-16)  event 0x00  AIC []
+  counter 3683473 (-15)  event 0x00  AIC []
+  counter 3683474 (-14)  event 0x00  AIC []
+  counter 3683475 (-13)  event 0x00  AIC []
+  counter 3683476 (-12)  event 0x00  AIC []
+  counter 3683477 (-11)  event 0x00  AIC []
+  counter 3683478 (-10)  event 0x00  AIC []
+  counter 3683479 (-9)  event 0x00  AIC []
+  counter 3683480 (-8)  event 0x00  AIC []
+  counter 3683481 (-7)  event 0x00  AIC []
+  counter 3683482 (-6)  event 0x00  AIC []
+  counter 3683483 (-5)  event 0x00  AIC []
+  counter 3683484 (-4)  event 0x00  AIC []
+  counter 3683485 (-3)  event 0x00  AIC []
+  counter 3683486 (-2)  event 0x00  AIC []
+  counter 3683487 (-1)  event 0x00  AIC []
+  counter 3683488 (+0)  event 0x01  AIC []
+  counter 3683489 (+1)  event 0x01  AIC []
+  counter 3683490 (+2)  event 0x01  AIC []
+  counter 3683491 (+3)  event 0x01  AIC []
+fired at 3683488
+restored:
+ctrl 0x01 (enable off)  event 0x00  irqmask 0x01
+counter 3683491 s  alarm 3652420 s (-31071 s)  unix(counter+offset) 1792408129  now 1792408129
+AIC HW_STATE high: []

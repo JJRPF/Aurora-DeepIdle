@@ -1,0 +1,13 @@
+[Unit]
+Description=deepidle3 test: restore the stock m1n1 image early in boot
+DefaultDependencies=no
+RequiresMountsFor=/boot /var/lib/deepidle
+ConditionPathExists=/var/lib/deepidle/deepidle3-armed
+Before=sysinit.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/deepidle/deepidle3-early.sh
+
+[Install]
+WantedBy=sysinit.target

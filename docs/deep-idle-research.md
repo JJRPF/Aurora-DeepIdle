@@ -85,6 +85,12 @@ machine or in source is marked as an unknown.
   marks itself a wakeup path to keep its domains on ("we do not support full
   shutdown properly yet"), even with nothing plugged in, plus PCIe, `afr` and
   `sio`.
+* **The PMU's RTC alarm now wakes s2idle (test kernel, 2026-10-19).** The
+  alarm macOS uses for its dark wakes sits in the PMU next to the RTC
+  counter; Linux had no driver for it. deepidle3 adds one to macsmc-rtc and
+  wires the SPMI controller's interrupt (AIC 724): `rtcwake -m freeze` woke on
+  time in 3 of 3 cycles. It is also the timed wake S2R tests need. Below,
+  under "The PMU wake alarm".
 * **Awake, four groups of power domains stay on for nothing.** The Neural
   Engine's (its DARTs are pinned by a blanket runtime-PM link to a device
   with no driver), all four USB-C ports' USB blocks with nothing plugged
@@ -1168,10 +1174,78 @@ effect. The Wi-Fi link was not touched.
 **Self-waking s2idle.** `harness/s2idle-wake` ends a suspend after N
 seconds (a CLOCK_BOOTTIME hrtimer from PM_SUSPEND_PREPARE that calls
 `pm_system_wakeup()`, checked on the SoC's own s2idle wakes), since
-macsmc-rtc has no alarm. `harness/s2idle-ab.sh` runs one per setting on
+stock macsmc-rtc has no alarm (deepidle3 adds one, below).
+`harness/s2idle-ab.sh` runs one per setting on
 battery and reads the SMC coulomb counter (`BAAC`, mA*s). It needs the
 charger out: the battery driver offers `inhibit-charge` but no
 force-discharge.
+
+## The PMU wake alarm: issue #5 checked, Linux alarm built (2026-10-19)
+
+An agent on macOS 15.7.1 read the 15.7.1 kexts and timed one lid close
+(`tools/macos-s2r-prompt.md`, Aurora-DeepIdle issue #5): 183.76 s in S2R, the
+same sleep and quiesce order as 13.5 above. Most of it confirms what was
+known (PMP: RTKit AP IDLE `0x201` and ON `0x20`; SMC `MBSE` `slpa`/`waka`,
+`WKTP` = 2; PMGR `MPMGR_AON` + 0x4000). New: the AIC quiesce masks every bank
+at 0x6400 with a die stride of 0x4a00, which is Linux's AIC2 layout (`MASK_SET`
+at 0x2000 + 4 * 4096 + 0x400); PMGR `restoreHW` starts by setting bit 31 of
+0xc000; `manual-enable-s2r` makes the PCIe driver put the link in L2 and gate
+the port clocks itself; secondaries power off through their ACC registers
+(`0xc5acce55` unlock at 0xfb0, 0 at 0x310).
+
+**The PMU alarm, checked on the machine.** The agent's register map for
+`AppleDialogSPMIPMURTC` is right, but two of its readings were not, as reading
+the PMU through Linux's `apple-spmi-nvmem` file showed:
+
+| PMU register | What it is (checked here) |
+|---|---|
+| 0x1401 | alarm control: bit 6 enable; bit 1 set by the PMU when the alarm fires; bit 0 reads 1 (unknown) |
+| 0x1406, 6 bytes | the counter; reading 0x1406 latches it; bytes 2-5 are whole seconds (= `CLKM` >> 15) |
+| 0x140c, 4 bytes | alarm time in **counter seconds**, not UNIX time |
+| 0x1411, 6 bytes | `rtc_offset` (Linux's existing cell), not the counter: UNIX time = counter seconds + (offset >> 15), exact |
+| 0x14c0 | event: bit 0 set when the alarm fires, write 1 to clear |
+| 0x14c2 | alarm interrupt mask: bit 0, 1 = masked |
+
+The value macOS left in 0x140c decodes to 22:30:58 the evening the agent ran,
+a SleepService dark wake. Armed by hand 20 s ahead, the alarm set the event bit
+at that second. The PMU then raises SPMI peripheral interrupt 2 at the
+`nub-spmi0` controller (pending at 0x29e114060 bit 2; the ADT's `spmi-mpmu`
+says `interrupts = [2]`, as t8140's Linux DT does). With that bit unmasked
+(0x29e114020 bit 2) the controller drives **AIC 724**, the second entry of its
+ADT `interrupts`; its reply ("notify", bit 256) interrupt uses the same line.
+Linux's `spmi-apple` already supports both (commit 47d246feceab), but the
+T602x DT gives the controller no interrupt, and no Linux driver programs the
+PMU alarm (t8140's DT names an `apple,j700-pmu-rtc` that does not exist).
+
+**What was built (deepidle3, GH-1-DeepIdle a868561d6298 and 9cbf7cef4a7b):**
+macsmc-rtc gains an optional alarm from four NVMEM cells (alarm, control byte,
+event, mask) and an interrupt, one-shot as macOS uses it, and is a wakeup
+source with `wakeup-source`; `spmi-apple` gets `IRQCHIP_SKIP_SET_WAKE` (its
+parent is chained, and system suspend never disables chained interrupts,
+`kernel/irq/pm.c`); the T602x DT wires `nub_spmi0` to AIC 724 and adds the
+cells. Test image: the 11.35 tree's J414s DTB, which without the patch is
+byte-identical to stock, with only these nodes added (`harness/mmio/dtb-chain.py`).
+
+**First boot: only the first alarm worked.** The awake alarm fired; the three
+`rtcwake -m freeze -s 30` cycles after it slept until the owner touched the
+machine (10.1 h, 39 min, 16 min). With the handler unbound, the cause showed:
+when the alarm fires the PMU clears bit 6 **and sets bit 1**, and while bit 1
+stays set the next alarm clears bit 6 at its second but sets no event and
+raises no interrupt. The first driver wrote bit 6 alone; the hand tests had
+worked because they restored the whole byte. With bit 1 cleared by hand, one
+s2idle woke on the alarm after 30.1 s, ahead of a 90 s backup timer. The fix
+writes the whole control byte, clearing bits 6 and 1.
+
+**Second boot: the alarm wakes s2idle.** Two awake alarms back to back both
+fired, and three `rtcwake -m freeze -s 30` cycles each woke after 30.6-31.0 s
+with `pm_wakeup_irq` = the RTC's interrupt (124); the 120 s backup waker never
+fired. Wi-Fi came back each time. So `rtcwake` and every other RTC wake user
+(systemd timers with `WakeSystem=`, alarmtimers) now work on this machine, the
+s2idle tests no longer need `s2idle-wake.ko` or an owner, and S2R has the timed
+wake its first unattended tests need: macOS's own dark wakes use this alarm
+(`NUB.SPMI0Sw3IRQ` is an S2R wake source in PMGR's `ap-wake-sources`).
+Not checked yet: whether the PMU alarm can power the machine on from off
+(`por_rtc` is one of the PMU's fault names).
 
 ## Unblocking deep sleep: what to trace with macOS under m1n1 hv
 

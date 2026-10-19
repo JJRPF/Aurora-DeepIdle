@@ -1,0 +1,25 @@
+/home/jjr/Work/deepidle-harness/mmio/alarm-s2idle.sh: line 12: /sys/class/rtc/rtc0/wakealarm: No such file or directory
+/home/jjr/Work/deepidle-harness/mmio/alarm-s2idle.sh: line 12: /sys/class/rtc/rtc0/wakealarm: No such file or directory
+cat: /sys/class/rtc/rtc0/wakealarm: No such file or directory
+irq before 2; wakealarm  now 1792449371
+ctrl 0x01 (enable off)  event 0x00  irqmask 0x01
+counter 3724733 s  alarm 3724502 s (-231 s)  unix(counter+offset) 1792449371  now 1792449371
+AIC HW_STATE high: []
+SPMI mask 00000004 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000001  pending [8, 56, 58, 59]
+ctrl 0x01 (enable off)  event 0x00  irqmask 0x01
+counter 3724823 s  alarm 3724502 s (-321 s)  unix(counter+offset) 1792449461  now 1792449461
+AIC HW_STATE high: []
+SPMI mask 00000004 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000001  pending [8, 56, 58, 59]
+suspend rc 0, 90.370419763 s; irq after 2; wakeup_irq cat: /sys/power/pm_wakeup_irq: No data available
+Oct 19 18:37:41 omarchy-mac kernel: apple-dcp 389c00000.dcp: RTKit: syslog message: UPTSQ_Hal_v1.cpp:349: IOMFB: timebase_offset = 4
+Oct 19 18:37:41 omarchy-mac kernel: apple-dcp 389c00000.dcp: RTKit: syslog message: UPTSQManager.cpp:105: IOMFB: switch to normal mode succeeded
+Oct 19 18:37:41 omarchy-mac kernel: apple-dcp 389c00000.dcp: RTKit: syslog message: MMailboxHandler.cpp:214: pcc firmware: MailBox Printf is enabled in BLM Pipe Line Init
+Oct 19 18:37:41 omarchy-mac kernel: apple-dcp 389c00000.dcp: RTKit: syslog message: PPipeDCP_H13P.cpp:17179: handle_stage1_enable blm_en 1 ltm_en 0
+Oct 19 18:37:41 omarchy-mac kernel: OOM killer enabled.
+Oct 19 18:37:41 omarchy-mac kernel: Restarting tasks: Starting
+Oct 19 18:37:41 omarchy-mac kernel: Restarting tasks: Done
+Oct 19 18:37:41 omarchy-mac kernel: efivarfs: resyncing variable state
+Oct 19 18:37:41 omarchy-mac kernel: efivarfs: finished resyncing variable state
+Oct 19 18:37:41 omarchy-mac kernel: random: crng reseeded on system resumption
+Oct 19 18:37:41 omarchy-mac kernel: s2idle-wake: woke it after 90 s
+Oct 19 18:37:41 omarchy-mac kernel: PM: suspend exit

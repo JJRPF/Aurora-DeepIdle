@@ -1,0 +1,22 @@
+irq before 2; wakealarm 1792449504 now 1792449474
+ctrl 0x41 (enable on)  event 0x00  irqmask 0x00
+counter 3724836 s  alarm 3724866 s (+30 s)  unix(counter+offset) 1792449474  now 1792449474
+AIC HW_STATE high: []
+SPMI mask 00000004 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000001  pending [8, 56, 58, 59]
+ctrl 0x03 (enable off)  event 0x00  irqmask 0x01
+counter 3724866 s  alarm 3724866 s (+0 s)  unix(counter+offset) 1792449504  now 1792449504
+AIC HW_STATE high: []
+SPMI mask 00000004 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000001  pending [8, 56, 58, 59]
+suspend rc 0, 30.143832502 s; irq after 3; wakeup_irq 124
+Oct 19 18:38:24 omarchy-mac kernel: apple-dcp 389c00000.dcp: RTKit: syslog message: UPTSQ_Hal_v1.cpp:349: IOMFB: timebase_offset = 4
+Oct 19 18:38:24 omarchy-mac kernel: apple-dcp 389c00000.dcp: RTKit: syslog message: UPTSQManager.cpp:105: IOMFB: switch to normal mode succeeded
+Oct 19 18:38:24 omarchy-mac kernel: apple-dcp 389c00000.dcp: RTKit: syslog message: MMailboxHandler.cpp:214: pcc firmware: MailBox Printf is enabled in BLM Pipe Line Init
+Oct 19 18:38:24 omarchy-mac kernel: apple-dcp 389c00000.dcp: RTKit: syslog message: PPipeDCP_H13P.cpp:17179: handle_stage1_enable blm_en 1 ltm_en 0
+Oct 19 18:38:24 omarchy-mac kernel: OOM killer enabled.
+Oct 19 18:38:24 omarchy-mac kernel: Restarting tasks: Starting
+Oct 19 18:38:24 omarchy-mac kernel: Restarting tasks: Done
+Oct 19 18:38:24 omarchy-mac kernel: efivarfs: resyncing variable state
+Oct 19 18:38:24 omarchy-mac kernel: efivarfs: finished resyncing variable state
+Oct 19 18:38:24 omarchy-mac kernel: random: crng reseeded on system resumption
+Oct 19 18:38:24 omarchy-mac kernel: s2idle-wake: did not fire after 90 s
+Oct 19 18:38:24 omarchy-mac kernel: PM: suspend exit
