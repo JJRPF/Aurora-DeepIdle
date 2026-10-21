@@ -528,3 +528,23 @@ Nothing here installs, reboots, or writes hardware registers. Times are local.
 - Unrelated, pre-existing (default kernel this morning too): aurora-fand.service restart loop,
   "/run/aurora-fand: No such file or directory" (NAMESPACE). Not touched; told the owner.
 - Docs 913087106a99 (section "The PMU wake alarm"). Results: /var/lib/deepidle/results-deepidle3{,-run1}.
+
+## 2026-10-21 No USB at all: CONFIG_USB4_APPLE_SOC missing; deepidle3 rebuilt with it
+- Symptom: no USB bus (lsusb empty), every port. Not deep-idle work: same on the stock 11.35-sep-ARCH+ and
+  11.32 kernels; last USB device seen 2026-09-26 (7.1.9-aurora-sep+, a DT without cio nodes).
+- Cause: the T6020 DT links each cd321x connector (i2c 0-0038/3f/3b) to its USB4 host router
+  (cio@701ac0000/b01ac0000/f01ac0000; 18 fw_devlink cycle lines now, 0 on 2026-09-26). The 11.35 config has
+  `# CONFIG_USB4_APPLE_SOC is not set` (the tree's asahi.config fragment has =m), so cio never binds, the
+  supplier link stays dormant, cd321x is deferred forever ("deferred probe pending: (reason unknown)"),
+  dwc3-apple gets no role, xHCI never starts.
+- Fix (config only): CONFIG_USB4_APPLE_SOC=m, one line of .config. Rebuilt in ~/Work/deepidle-11.35/build:
+  only drivers/thunderbolt/apple.o plus relink; built-in code identical (Image 46375fe16628ab74 differs from
+  8cb1e82915b08f93 only by the embedded config and timestamp). Module trees differ by thunderbolt_apple.ko.
+- Installed in place under the same release (/boot has 24 MB free, no room for a second kernel):
+  harness/deepidle3/usb4.sh; old Image + initramfs in /var/lib/deepidle/deepidle3-nousb4 (`usb4.sh rollback`),
+  old modules in staging-deepidle3. Armed one boot as before (rtcalarm2 DTB, smoke test), earlier smoke
+  results moved to results-deepidle3-before-usb4-20261021-1730.
+- From here on deepidle3 = this build. Note for power numbers: every measurement before this had the USB4
+  routers, cd321x and dwc3/xHCI unbound; idle and s2idle power may shift and need a fresh baseline.
+- The owner's default kernel (linux-aurora 11.35 package) has the same gap; the real fix is that package's
+  config. Not changed here.
