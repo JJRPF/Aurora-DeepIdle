@@ -25,6 +25,15 @@ machine and what it showed.
   wake latency did not change, and nothing logged a warning. With PD
   always as well, the busy desktop went from 7.52 to 5.69 W (24% less).
   A control boot with nothing loaded drifted at most 80 mW.
+* **The PMU's RTC alarm wakes the machine from s2idle (test kernel).**
+  The alarm macOS uses for its dark wakes is in the PMU beside the RTC
+  counter, and Linux had no driver for it. `patches/pmu-rtc-alarm.patch`
+  adds it to macsmc-rtc and wires the SPMI controller's interrupt to AIC 724:
+  `rtcwake -m freeze -s 30` woke after about 31 s in 3 of 3 cycles
+  (`data/deepidle3/`). The register map came from macOS (issue #5) and was
+  corrected on the machine: the alarm is in PMU counter seconds, and the PMU
+  sets a "fired" bit that must be cleared before the next alarm. This is the
+  timed wake unattended S2R tests need.
 * **s2idle drains about 1.4 W, and the PMP does not change it.** One
   night with the PMP running (9.6 h, `data/s2idle/`) drained 1.39-1.46 W,
   and a stock suspend on battery 1.41 W: 23% of the battery a night, about
@@ -151,9 +160,12 @@ makes it persistent: copy it to `/etc/tmpfiles.d/`.
 | `tools/macos-s2r-prompt.md` | Prompt for an agent on macOS: live sleep-related device tree and power properties, one timed 3-minute sleep, and what the 15.7.1 kexts do to enter and leave S2R (PMU RTC alarm, PMP, PMGR, PMU quiesce, memory, AIC, SEP, PCIe, CPU wake vector); opens one issue. `claude "$(curl -fsSL https://raw.githubusercontent.com/JJRPF/Aurora-DeepIdle/main/tools/macos-s2r-prompt.md)"` |
 | `tools/macos-agent-prompt.md` | Prompt for an agent on macOS: PMP device memory, SMC power switches and wake keys (read only), awake idle power, power states, then the sleep test; opens one issue with all of it when the owner says so |
 | `harness/hdmi-power/` | HDMI rails A/B: `smc-pwr-test.ko` (test only) switches `hdmi-pwren` (SMC GPIO 23, gP17) and `dp2hdmi-pwren` (6, gP06), which the DCP driver keeps on, off at run time; `run.sh` measures them with `idle-ab.py`; `s2idle-alloff.sh` turns them off for its lid close too |
-| `harness/s2idle-wake/`, `harness/s2idle-ab.sh` | Self-waking s2idle (no RTC alarm on this machine) and one measured suspend per setting, on battery |
+| `harness/s2idle-wake/`, `harness/s2idle-ab.sh` | Self-waking s2idle (from before the PMU alarm driver) and one measured suspend per setting, on battery |
+| `patches/pmu-rtc-alarm.patch`, `harness/deepidle3/` | The PMU's RTC alarm for Linux (macsmc-rtc alarm, SPMI interrupt 2 on AIC 724, T602x DT): `rtcwake -m freeze` wakes on time. The one-boot test kernel installer and its smoke test; results in `data/deepidle3/` (run 1: the alarm-fired bit bug; run 2: 3 of 3 woke on time) |
+| `harness/mmio/` | `pmu-rtc.py` (decode, arm and fire the PMU alarm through the nvmem file, watch the SPMI and AIC lines), `alarm-s2idle.sh` (one s2idle with the alarm and a backup waker), `mmio-read.c` (read only), `mmio-write.c` (limited to the SPMI controller page), `dtb-chain.py` (list, extract or swap the DTBs in an m1n1 image) |
 | `harness/awake-ab/run.sh`, `harness/net-guard.sh` | Awake A/B of SD link ASPM and the HDMI rails; a guard that reboots and reopens the session if the network dies |
 | `harness/smc-keyread/` | `smc-keyread.ko` (test only, read only): every readable SMC `flt` key starting with P in debugfs; `sample.py` gives the mean, min and max of each over N seconds |
+| `harness/remote/mac-ready.sh`, `docs/pi-handoff.md` | Driving the Mac from a Raspberry Pi 5: a read-only check that the Mac can be driven over SSH (key login, `sudo -n`, kernel, PMU RTC, stay-awake), and the handoff for the Pi session (paths, connecting, Aura proxy mode, standing rules, next work) |
 | `tools/macos-re/` | Reading a public macOS kernelcache: remote IPSW extraction, IM4P, chained-pointer fixups, fileset kexts, vtables, Ghidra headless scripts |
 | `dts/` | The opt-in J414s variants: PMP on, and no external DCPs (copies; they live in the kernel tree) |
 | `patches/` | The kernel tree changes as a `git format-patch` series |
@@ -174,6 +186,11 @@ git clone https://github.com/omacom/linux-aurora && cd linux-aurora
 git switch -c deep-idle cadfb30a447f72cc8b10e0c6ef64cbdb6894fd05
 git am /path/to/Aurora-DeepIdle/patches/*.patch
 ```
+
+Three patches stand apart from that series, made against the 11.35 release
+tree the test kernels were built from: `deepidle2-pmp-s2idle-idle.patch` (the
+PMP s2idle hook), `hdmi-rails-off-in-sleep.patch` and `pmu-rtc-alarm.patch`
+(two commits, `git am`).
 
 The DTS variants are deliberately not in the kernel Makefile. They share the
 stock board's compatible, and m1n1 boots the last matching DTB. Build them

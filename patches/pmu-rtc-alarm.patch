@@ -1,0 +1,645 @@
+From a868561d629869d88d1ed9c058e3bab8ad66b72e Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Mon, 19 Oct 2026 07:21:38 -0400
+Subject: [PATCH 1/2] rtc: macsmc: wake alarm on the PMU's alarm registers
+ (T602x)
+
+The RTC counter macsmc-rtc reads through the SMC (CLKM) lives in the
+PMU, and the PMU has an alarm next to it that macOS
+(AppleDialogSPMIPMURTC) uses for its dark wakes. Its registers are in
+the ADT's spmi-mpmu node: alarm 0x140c, enable 0x1401 bit 6, event
+0x14c0 bit 0 (write 1 to clear), interrupt mask 0x14c2 bit 0.
+
+Checked on a J414s: the alarm register holds the counter's whole
+seconds (CLKM >> 15; the value macOS left behind decodes to 22:30:58
+of the evening it last slept), the event bit sets at that second, the
+PMU raises SPMI peripheral interrupt 2, and the nub-spmi0 controller
+drives AIC 724 with it once unmasked. The controller's reply (notify)
+interrupt uses the same line.
+
+- macsmc-rtc: optional alarm (read/set/irq_enable), one-shot like
+  macOS's, from four NVMEM cells and an interrupt; a wakeup source
+  with "wakeup-source".
+- spmi-apple: IRQCHIP_SKIP_SET_WAKE. The parent is chained, and system
+  suspend leaves chained interrupts enabled, so arming a peripheral
+  interrupt for wakeup needs nothing from the hardware.
+- t602x: nub_spmi0 becomes an interrupt controller on AIC 724, the
+  PMU nvmem layout gains the four alarm cells, and the SMC RTC uses
+  them with SPMI interrupt 2.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AuzUDcEeRJQ6RCdWW2XWLb
+---
+ .../bindings/rtc/apple,smc-rtc.yaml           |  21 ++
+ arch/arm64/boot/dts/apple/t602x-die0.dtsi     |  31 ++-
+ drivers/rtc/rtc-macsmc.c                      | 240 +++++++++++++++++-
+ drivers/spmi/spmi-apple-controller.c          |   7 +-
+ 4 files changed, 285 insertions(+), 14 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/rtc/apple,smc-rtc.yaml b/Documentation/devicetree/bindings/rtc/apple,smc-rtc.yaml
+index 2d468e3c302c..233912de2342 100644
+--- a/Documentation/devicetree/bindings/rtc/apple,smc-rtc.yaml
++++ b/Documentation/devicetree/bindings/rtc/apple,smc-rtc.yaml
+@@ -20,15 +20,36 @@ properties:
+     const: apple,smc-rtc
+ 
+   nvmem-cells:
++    minItems: 1
+     items:
+       - description:
+           RTC offset. By default a 48bit value, specified in 32768 (2^15) Hz
+           clock ticks. With apple,rtc-offset-seconds, a 64bit little-endian
+           count of whole seconds.
++      - description:
++          PMU alarm time, a 32bit little-endian count of the RTC counter's
++          whole seconds.
++      - description: PMU alarm enable bit.
++      - description: PMU alarm event byte, bit 0 set when the alarm fired,
++          cleared by writing 1.
++      - description: PMU alarm interrupt mask bit, 1 masks the interrupt.
+ 
+   nvmem-cell-names:
++    minItems: 1
+     items:
+       - const: rtc_offset
++      - const: rtc_alarm
++      - const: rtc_alarm_en
++      - const: rtc_alarm_event
++      - const: rtc_alarm_irq_mask
++
++  interrupts:
++    maxItems: 1
++    description:
++      The PMU alarm interrupt. With it and the four alarm cells the RTC has an
++      alarm.
++
++  wakeup-source: true
+ 
+   apple,rtc-offset-seconds:
+     type: boolean
+diff --git a/arch/arm64/boot/dts/apple/t602x-die0.dtsi b/arch/arm64/boot/dts/apple/t602x-die0.dtsi
+index 770af9dcf8bb..c61affbffb46 100644
+--- a/arch/arm64/boot/dts/apple/t602x-die0.dtsi
++++ b/arch/arm64/boot/dts/apple/t602x-die0.dtsi
+@@ -312,6 +312,10 @@ nub_spmi0: spmi@29e114000 {
+ 		reg = <0x2 0x9e114000 0x0 0x100>;
+ 		#address-cells = <2>;
+ 		#size-cells = <0>;
++		#interrupt-cells = <2>;
++		interrupt-controller;
++		interrupt-parent = <&aic>;
++		interrupts = <AIC_IRQ 0 724 IRQ_TYPE_LEVEL_HIGH>;
+ 
+ 		pmic1: pmic@f {
+ 			compatible = "apple,maverick-pmic", "apple,spmi-nvmem";
+@@ -322,14 +326,32 @@ nvmem-layout {
+ 				#address-cells = <1>;
+ 				#size-cells = <1>;
+ 
++				rtc_alarm_en: rtc-alarm-en@1401,6 {
++					reg = <0x1401 0x1>;
++					bits = <6 1>;
++				};
++
+ 				pm_setting: pm-setting@1405 {
+ 					reg = <0x1405 0x1>;
+ 				};
+ 
++				rtc_alarm: rtc-alarm@140c {
++					reg = <0x140c 0x4>;
++				};
++
+ 				rtc_offset: rtc-offset@1411 {
+ 					reg = <0x1411 0x6>;
+ 				};
+ 
++				rtc_alarm_event: rtc-alarm-event@14c0 {
++					reg = <0x14c0 0x1>;
++				};
++
++				rtc_alarm_irq_mask: rtc-alarm-irq-mask@14c2,0 {
++					reg = <0x14c2 0x1>;
++					bits = <0 1>;
++				};
++
+ 				boot_stage: boot-stage@6001 {
+ 					reg = <0x6001 0x1>;
+ 				};
+@@ -412,8 +434,13 @@ smc_reboot: reboot {
+ 
+ 		rtc {
+ 			compatible = "apple,smc-rtc";
+-			nvmem-cells = <&rtc_offset>;
+-			nvmem-cell-names = "rtc_offset";
++			nvmem-cells = <&rtc_offset>, <&rtc_alarm>, <&rtc_alarm_en>,
++				<&rtc_alarm_event>, <&rtc_alarm_irq_mask>;
++			nvmem-cell-names = "rtc_offset", "rtc_alarm", "rtc_alarm_en",
++				"rtc_alarm_event", "rtc_alarm_irq_mask";
++			/* The PMU alarm, SPMI peripheral interrupt 2 */
++			interrupts-extended = <&nub_spmi0 2 IRQ_TYPE_EDGE_RISING>;
++			wakeup-source;
+ 		};
+ 	};
+ 
+diff --git a/drivers/rtc/rtc-macsmc.c b/drivers/rtc/rtc-macsmc.c
+index 25d5af5cfbbc..e64871c70ec2 100644
+--- a/drivers/rtc/rtc-macsmc.c
++++ b/drivers/rtc/rtc-macsmc.c
+@@ -5,11 +5,13 @@
+  */
+ 
+ #include <linux/bitops.h>
++#include <linux/interrupt.h>
+ #include <linux/mfd/macsmc.h>
+ #include <linux/module.h>
+ #include <linux/nvmem-consumer.h>
+ #include <linux/of.h>
+ #include <linux/platform_device.h>
++#include <linux/pm_wakeirq.h>
+ #include <linux/rtc.h>
+ #include <linux/slab.h>
+ #include <linux/unaligned.h>
+@@ -30,6 +32,14 @@ struct macsmc_rtc {
+ 	struct rtc_device *rtc_dev;
+ 	struct nvmem_cell *rtc_offset;
+ 	bool offset_in_seconds;
++	/*
++	 * Optional PMU wake alarm. The alarm register holds the PMU counter's
++	 * whole seconds (CLKM >> 15) at which to fire, 32 bits wide.
++	 */
++	struct nvmem_cell *alarm;		/* u32 LE, counter seconds */
++	struct nvmem_cell *alarm_en;		/* one bit: alarm enabled */
++	struct nvmem_cell *alarm_event;		/* bit 0: fired, write 1 to clear */
++	struct nvmem_cell *alarm_irq_mask;	/* one bit: 1 = masked */
+ };
+ 
+ static int macsmc_rtc_get_time_secs(struct macsmc_rtc *rtc, u64 ctr,
+@@ -62,20 +72,13 @@ static int macsmc_rtc_get_time_secs(struct macsmc_rtc *rtc, u64 ctr,
+ 	return 0;
+ }
+ 
+-static int macsmc_rtc_get_time(struct device *dev, struct rtc_time *tm)
++/* The time at counter value ctr (CLKM) */
++static int macsmc_rtc_time_at(struct macsmc_rtc *rtc, u64 ctr, struct rtc_time *tm)
+ {
+-	struct macsmc_rtc *rtc = dev_get_drvdata(dev);
+-	u64 ctr = 0, off = 0;
++	u64 off = 0;
+ 	time64_t now;
+ 	void *p_off;
+ 	size_t len;
+-	int ret;
+-
+-	ret = apple_smc_read(rtc->smc, SMC_KEY(CLKM), &ctr, RTC_BYTES);
+-	if (ret < 0)
+-		return ret;
+-	if (ret != RTC_BYTES)
+-		return -EIO;
+ 
+ 	if (rtc->offset_in_seconds)
+ 		return macsmc_rtc_get_time_secs(rtc, ctr, tm);
+@@ -95,7 +98,22 @@ static int macsmc_rtc_get_time(struct device *dev, struct rtc_time *tm)
+ 	now = sign_extend64(ctr + off, RTC_BITS - 1) >> RTC_SEC_SHIFT;
+ 	rtc_time64_to_tm(now, tm);
+ 
+-	return ret;
++	return 0;
++}
++
++static int macsmc_rtc_get_time(struct device *dev, struct rtc_time *tm)
++{
++	struct macsmc_rtc *rtc = dev_get_drvdata(dev);
++	u64 ctr = 0;
++	int ret;
++
++	ret = apple_smc_read(rtc->smc, SMC_KEY(CLKM), &ctr, RTC_BYTES);
++	if (ret < 0)
++		return ret;
++	if (ret != RTC_BYTES)
++		return -EIO;
++
++	return macsmc_rtc_time_at(rtc, ctr, tm);
+ }
+ 
+ static int macsmc_rtc_set_time(struct device *dev, struct rtc_time *tm)
+@@ -124,15 +142,211 @@ static int macsmc_rtc_set_time(struct device *dev, struct rtc_time *tm)
+ 	return nvmem_cell_write(rtc->rtc_offset, &off, RTC_BYTES);
+ }
+ 
++static int macsmc_rtc_read_u8(struct nvmem_cell *cell, u8 *val)
++{
++	size_t len;
++	u8 *p;
++
++	p = nvmem_cell_read(cell, &len);
++	if (IS_ERR(p))
++		return PTR_ERR(p);
++	*val = len ? p[0] : 0;
++	kfree(p);
++	return len ? 0 : -EIO;
++}
++
++static int macsmc_rtc_write_u8(struct nvmem_cell *cell, u8 val)
++{
++	int ret = nvmem_cell_write(cell, &val, 1);
++
++	return ret < 0 ? ret : 0;
++}
++
++/* Counter seconds and wall-clock seconds, from one CLKM read */
++static int macsmc_rtc_now(struct macsmc_rtc *rtc, u32 *ctr_secs, time64_t *now)
++{
++	struct rtc_time tm;
++	u64 ctr = 0;
++	int ret;
++
++	ret = apple_smc_read(rtc->smc, SMC_KEY(CLKM), &ctr, RTC_BYTES);
++	if (ret < 0)
++		return ret;
++	if (ret != RTC_BYTES)
++		return -EIO;
++	*ctr_secs = ctr >> RTC_SEC_SHIFT;
++
++	ret = macsmc_rtc_time_at(rtc, ctr, &tm);
++	if (ret < 0)
++		return ret;
++	*now = rtc_tm_to_time64(&tm);
++	return 0;
++}
++
++static int macsmc_rtc_alarm_irq_enable(struct device *dev, unsigned int enabled)
++{
++	struct macsmc_rtc *rtc = dev_get_drvdata(dev);
++	int ret;
++
++	/* The order AppleDialogSPMIPMURTC uses: unmask, then enable */
++	if (enabled) {
++		ret = macsmc_rtc_write_u8(rtc->alarm_irq_mask, 0);
++		if (!ret)
++			ret = macsmc_rtc_write_u8(rtc->alarm_en, 1);
++	} else {
++		ret = macsmc_rtc_write_u8(rtc->alarm_en, 0);
++		if (!ret)
++			ret = macsmc_rtc_write_u8(rtc->alarm_irq_mask, 1);
++	}
++	return ret;
++}
++
++static int macsmc_rtc_read_alarm(struct device *dev, struct rtc_wkalrm *wkalrm)
++{
++	struct macsmc_rtc *rtc = dev_get_drvdata(dev);
++	u32 ctr_secs, alarm;
++	time64_t now;
++	u8 en, ev;
++	size_t len;
++	void *p;
++	int ret;
++
++	ret = macsmc_rtc_now(rtc, &ctr_secs, &now);
++	if (ret)
++		return ret;
++
++	p = nvmem_cell_read(rtc->alarm, &len);
++	if (IS_ERR(p))
++		return PTR_ERR(p);
++	if (len < 4) {
++		kfree(p);
++		return -EIO;
++	}
++	alarm = get_unaligned_le32(p);
++	kfree(p);
++
++	ret = macsmc_rtc_read_u8(rtc->alarm_en, &en);
++	if (!ret)
++		ret = macsmc_rtc_read_u8(rtc->alarm_event, &ev);
++	if (ret)
++		return ret;
++
++	rtc_time64_to_tm(now + (s32)(alarm - ctr_secs), &wkalrm->time);
++	wkalrm->enabled = en & 1;
++	wkalrm->pending = ev & 1;
++	return 0;
++}
++
++static int macsmc_rtc_set_alarm(struct device *dev, struct rtc_wkalrm *wkalrm)
++{
++	struct macsmc_rtc *rtc = dev_get_drvdata(dev);
++	s64 delta;
++	u32 ctr_secs;
++	time64_t now;
++	__le32 alarm;
++	int ret;
++
++	ret = macsmc_rtc_now(rtc, &ctr_secs, &now);
++	if (ret)
++		return ret;
++
++	delta = rtc_tm_to_time64(&wkalrm->time) - now;
++	if (delta > S32_MAX)
++		return -ERANGE;
++
++	ret = macsmc_rtc_alarm_irq_enable(dev, 0);
++	if (ret)
++		return ret;
++	ret = macsmc_rtc_write_u8(rtc->alarm_event, 1);
++	if (ret)
++		return ret;
++
++	alarm = cpu_to_le32(ctr_secs + (s32)delta);
++	ret = nvmem_cell_write(rtc->alarm, &alarm, sizeof(alarm));
++	if (ret < 0)
++		return ret;
++
++	return wkalrm->enabled ? macsmc_rtc_alarm_irq_enable(dev, 1) : 0;
++}
++
++static irqreturn_t macsmc_rtc_alarm_irq(int irq, void *data)
++{
++	struct macsmc_rtc *rtc = data;
++	u8 ev;
++
++	if (macsmc_rtc_read_u8(rtc->alarm_event, &ev) || !(ev & 1))
++		return IRQ_NONE;
++
++	/* One-shot, as macOS uses it: clear the event, disable and mask */
++	macsmc_rtc_write_u8(rtc->alarm_event, 1);
++	macsmc_rtc_alarm_irq_enable(rtc->dev, 0);
++	rtc_update_irq(rtc->rtc_dev, 1, RTC_IRQF | RTC_AF);
++	return IRQ_HANDLED;
++}
++
+ static const struct rtc_class_ops macsmc_rtc_ops = {
+ 	.read_time = macsmc_rtc_get_time,
+ 	.set_time = macsmc_rtc_set_time,
+ };
+ 
++static const struct rtc_class_ops macsmc_rtc_alarm_ops = {
++	.read_time = macsmc_rtc_get_time,
++	.set_time = macsmc_rtc_set_time,
++	.read_alarm = macsmc_rtc_read_alarm,
++	.set_alarm = macsmc_rtc_set_alarm,
++	.alarm_irq_enable = macsmc_rtc_alarm_irq_enable,
++};
++
++/* The alarm is optional: without all of its cells and an interrupt, none */
++static int macsmc_rtc_init_alarm(struct platform_device *pdev,
++				 struct macsmc_rtc *rtc)
++{
++	struct device *dev = &pdev->dev;
++	int irq, ret;
++
++	irq = platform_get_irq_optional(pdev, 0);
++	if (irq == -EPROBE_DEFER)
++		return irq;
++	if (irq < 0)
++		return 0;
++
++	rtc->alarm = devm_nvmem_cell_get(dev, "rtc_alarm");
++	rtc->alarm_en = devm_nvmem_cell_get(dev, "rtc_alarm_en");
++	rtc->alarm_event = devm_nvmem_cell_get(dev, "rtc_alarm_event");
++	rtc->alarm_irq_mask = devm_nvmem_cell_get(dev, "rtc_alarm_irq_mask");
++	if (IS_ERR(rtc->alarm) || IS_ERR(rtc->alarm_en) ||
++	    IS_ERR(rtc->alarm_event) || IS_ERR(rtc->alarm_irq_mask)) {
++		dev_warn(dev, "alarm interrupt without its NVMEM cells, no alarm\n");
++		return 0;
++	}
++
++	/* Nothing armed before the handler exists */
++	ret = macsmc_rtc_alarm_irq_enable(dev, 0);
++	if (!ret)
++		ret = macsmc_rtc_write_u8(rtc->alarm_event, 1);
++	if (ret)
++		return dev_err_probe(dev, ret, "failed to disarm the alarm\n");
++
++	ret = devm_request_threaded_irq(dev, irq, NULL, macsmc_rtc_alarm_irq,
++					IRQF_ONESHOT, dev_name(dev), rtc);
++	if (ret)
++		return dev_err_probe(dev, ret, "failed to request the alarm IRQ\n");
++
++	rtc->rtc_dev->ops = &macsmc_rtc_alarm_ops;
++	if (of_property_read_bool(dev->of_node, "wakeup-source")) {
++		device_init_wakeup(dev, true);
++		ret = devm_pm_set_wake_irq(dev, irq);
++		if (ret)
++			dev_warn(dev, "alarm cannot wake the system: %d\n", ret);
++	}
++	return 0;
++}
++
+ static int macsmc_rtc_probe(struct platform_device *pdev)
+ {
+ 	struct apple_smc *smc = dev_get_drvdata(pdev->dev.parent);
+ 	struct macsmc_rtc *rtc;
++	int ret;
+ 
+ 	/*
+ 	 * MFD will probe this device even without a node in the device tree,
+@@ -172,6 +386,10 @@ static int macsmc_rtc_probe(struct platform_device *pdev)
+ 
+ 	platform_set_drvdata(pdev, rtc);
+ 
++	ret = macsmc_rtc_init_alarm(pdev, rtc);
++	if (ret)
++		return ret;
++
+ 	return devm_rtc_register_device(rtc->rtc_dev);
+ }
+ 
+diff --git a/drivers/spmi/spmi-apple-controller.c b/drivers/spmi/spmi-apple-controller.c
+index ec49d412a4b0..821b577644cd 100644
+--- a/drivers/spmi/spmi-apple-controller.c
++++ b/drivers/spmi/spmi-apple-controller.c
+@@ -284,7 +284,12 @@ static struct irq_chip apple_spmi_irq_chip = {
+ 	.irq_unmask = apple_spmi_irq_unmask,
+ 	.irq_ack = apple_spmi_irq_ack,
+ 	.irq_set_type = apple_spmi_irq_set_type,
+-	.flags = IRQCHIP_ONESHOT_SAFE,
++	/*
++	 * The parent is a chained interrupt, which system suspend never
++	 * disables, so a peripheral interrupt armed for wakeup needs nothing
++	 * more from the hardware to wake the system.
++	 */
++	.flags = IRQCHIP_ONESHOT_SAFE | IRQCHIP_SKIP_SET_WAKE,
+ };
+ 
+ static int apple_spmi_irq_domain_map(struct irq_domain *irqd,
+-- 
+2.55.0
+
+
+From 9cbf7cef4a7bc9ff52b4ad2bbc90e5a8addbbc68 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Mon, 19 Oct 2026 18:40:23 -0400
+Subject: [PATCH 2/2] rtc: macsmc: clear the PMU's alarm-fired bit when arming
+
+When the alarm goes off the PMU clears the enable bit (0x1401 bit 6) and
+sets bit 1 of the same byte. While bit 1 stays set, the next alarm still
+clears the enable bit at its second but sets no event and raises no
+interrupt. The first version wrote bit 6 alone, through a one-bit NVMEM
+cell, so only the first alarm after boot worked: in the smoke test the
+awake alarm fired and the three rtcwake s2idle cycles after it slept
+until the owner touched the machine (10.1 h, 39 min, 16 min).
+
+Checked on the J414s with the handler unbound: with bit 1 set, the alarm
+second clears 0x40 and nothing else happens; after writing 0x01 to the
+byte, the same alarm sets the event bit and SPMI interrupt 2 again. With
+bit 1 clear, an rtcwake-style s2idle woke on the alarm after 30.1 s
+(pm_wakeup_irq = the RTC's interrupt) ahead of a 90 s backup timer.
+
+The cell becomes the whole control byte; arming and disarming clear
+bits 6 and 1 and leave the rest (bit 0 reads 1, meaning unknown) as
+found.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AuzUDcEeRJQ6RCdWW2XWLb
+---
+ .../bindings/rtc/apple,smc-rtc.yaml           |  6 ++--
+ arch/arm64/boot/dts/apple/t602x-die0.dtsi     |  7 ++--
+ drivers/rtc/rtc-macsmc.c                      | 32 ++++++++++++++-----
+ 3 files changed, 31 insertions(+), 14 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/rtc/apple,smc-rtc.yaml b/Documentation/devicetree/bindings/rtc/apple,smc-rtc.yaml
+index 233912de2342..c00ece36e76d 100644
+--- a/Documentation/devicetree/bindings/rtc/apple,smc-rtc.yaml
++++ b/Documentation/devicetree/bindings/rtc/apple,smc-rtc.yaml
+@@ -29,7 +29,9 @@ properties:
+       - description:
+           PMU alarm time, a 32bit little-endian count of the RTC counter's
+           whole seconds.
+-      - description: PMU alarm enable bit.
++      - description:
++          PMU alarm control byte, with the alarm enable bit (bit 6) and the
++          bit the PMU sets when the alarm fires (bit 1).
+       - description: PMU alarm event byte, bit 0 set when the alarm fired,
+           cleared by writing 1.
+       - description: PMU alarm interrupt mask bit, 1 masks the interrupt.
+@@ -39,7 +41,7 @@ properties:
+     items:
+       - const: rtc_offset
+       - const: rtc_alarm
+-      - const: rtc_alarm_en
++      - const: rtc_alarm_ctrl
+       - const: rtc_alarm_event
+       - const: rtc_alarm_irq_mask
+ 
+diff --git a/arch/arm64/boot/dts/apple/t602x-die0.dtsi b/arch/arm64/boot/dts/apple/t602x-die0.dtsi
+index c61affbffb46..07ca8f1ef1a7 100644
+--- a/arch/arm64/boot/dts/apple/t602x-die0.dtsi
++++ b/arch/arm64/boot/dts/apple/t602x-die0.dtsi
+@@ -326,9 +326,8 @@ nvmem-layout {
+ 				#address-cells = <1>;
+ 				#size-cells = <1>;
+ 
+-				rtc_alarm_en: rtc-alarm-en@1401,6 {
++				rtc_alarm_ctrl: rtc-alarm-ctrl@1401 {
+ 					reg = <0x1401 0x1>;
+-					bits = <6 1>;
+ 				};
+ 
+ 				pm_setting: pm-setting@1405 {
+@@ -434,9 +433,9 @@ smc_reboot: reboot {
+ 
+ 		rtc {
+ 			compatible = "apple,smc-rtc";
+-			nvmem-cells = <&rtc_offset>, <&rtc_alarm>, <&rtc_alarm_en>,
++			nvmem-cells = <&rtc_offset>, <&rtc_alarm>, <&rtc_alarm_ctrl>,
+ 				<&rtc_alarm_event>, <&rtc_alarm_irq_mask>;
+-			nvmem-cell-names = "rtc_offset", "rtc_alarm", "rtc_alarm_en",
++			nvmem-cell-names = "rtc_offset", "rtc_alarm", "rtc_alarm_ctrl",
+ 				"rtc_alarm_event", "rtc_alarm_irq_mask";
+ 			/* The PMU alarm, SPMI peripheral interrupt 2 */
+ 			interrupts-extended = <&nub_spmi0 2 IRQ_TYPE_EDGE_RISING>;
+diff --git a/drivers/rtc/rtc-macsmc.c b/drivers/rtc/rtc-macsmc.c
+index e64871c70ec2..07f731d24539 100644
+--- a/drivers/rtc/rtc-macsmc.c
++++ b/drivers/rtc/rtc-macsmc.c
+@@ -26,6 +26,15 @@
+ /* Offset kept as a 64-bit little-endian count of whole seconds */
+ #define RTC_OFFSET_SECS_BYTES 8
+ 
++/*
++ * PMU alarm control byte. The PMU clears ALARM_EN and sets ALARM_FIRED when
++ * the alarm goes off; until ALARM_FIRED is cleared again, a later alarm
++ * still clears ALARM_EN at its second but raises no event and no interrupt.
++ * Bit 0 is left as found.
++ */
++#define RTC_ALARM_FIRED BIT(1)
++#define RTC_ALARM_EN BIT(6)
++
+ struct macsmc_rtc {
+ 	struct device *dev;
+ 	struct apple_smc *smc;
+@@ -37,7 +46,7 @@ struct macsmc_rtc {
+ 	 * whole seconds (CLKM >> 15) at which to fire, 32 bits wide.
+ 	 */
+ 	struct nvmem_cell *alarm;		/* u32 LE, counter seconds */
+-	struct nvmem_cell *alarm_en;		/* one bit: alarm enabled */
++	struct nvmem_cell *alarm_ctrl;		/* u8, RTC_ALARM_* */
+ 	struct nvmem_cell *alarm_event;		/* bit 0: fired, write 1 to clear */
+ 	struct nvmem_cell *alarm_irq_mask;	/* one bit: 1 = masked */
+ };
+@@ -188,13 +197,20 @@ static int macsmc_rtc_alarm_irq_enable(struct device *dev, unsigned int enabled)
+ 	struct macsmc_rtc *rtc = dev_get_drvdata(dev);
+ 	int ret;
+ 
++	u8 ctrl;
++
++	ret = macsmc_rtc_read_u8(rtc->alarm_ctrl, &ctrl);
++	if (ret)
++		return ret;
++	ctrl &= ~(RTC_ALARM_EN | RTC_ALARM_FIRED);
++
+ 	/* The order AppleDialogSPMIPMURTC uses: unmask, then enable */
+ 	if (enabled) {
+ 		ret = macsmc_rtc_write_u8(rtc->alarm_irq_mask, 0);
+ 		if (!ret)
+-			ret = macsmc_rtc_write_u8(rtc->alarm_en, 1);
++			ret = macsmc_rtc_write_u8(rtc->alarm_ctrl, ctrl | RTC_ALARM_EN);
+ 	} else {
+-		ret = macsmc_rtc_write_u8(rtc->alarm_en, 0);
++		ret = macsmc_rtc_write_u8(rtc->alarm_ctrl, ctrl);
+ 		if (!ret)
+ 			ret = macsmc_rtc_write_u8(rtc->alarm_irq_mask, 1);
+ 	}
+@@ -206,7 +222,7 @@ static int macsmc_rtc_read_alarm(struct device *dev, struct rtc_wkalrm *wkalrm)
+ 	struct macsmc_rtc *rtc = dev_get_drvdata(dev);
+ 	u32 ctr_secs, alarm;
+ 	time64_t now;
+-	u8 en, ev;
++	u8 ctrl, ev;
+ 	size_t len;
+ 	void *p;
+ 	int ret;
+@@ -225,14 +241,14 @@ static int macsmc_rtc_read_alarm(struct device *dev, struct rtc_wkalrm *wkalrm)
+ 	alarm = get_unaligned_le32(p);
+ 	kfree(p);
+ 
+-	ret = macsmc_rtc_read_u8(rtc->alarm_en, &en);
++	ret = macsmc_rtc_read_u8(rtc->alarm_ctrl, &ctrl);
+ 	if (!ret)
+ 		ret = macsmc_rtc_read_u8(rtc->alarm_event, &ev);
+ 	if (ret)
+ 		return ret;
+ 
+ 	rtc_time64_to_tm(now + (s32)(alarm - ctr_secs), &wkalrm->time);
+-	wkalrm->enabled = en & 1;
++	wkalrm->enabled = !!(ctrl & RTC_ALARM_EN);
+ 	wkalrm->pending = ev & 1;
+ 	return 0;
+ }
+@@ -311,10 +327,10 @@ static int macsmc_rtc_init_alarm(struct platform_device *pdev,
+ 		return 0;
+ 
+ 	rtc->alarm = devm_nvmem_cell_get(dev, "rtc_alarm");
+-	rtc->alarm_en = devm_nvmem_cell_get(dev, "rtc_alarm_en");
++	rtc->alarm_ctrl = devm_nvmem_cell_get(dev, "rtc_alarm_ctrl");
+ 	rtc->alarm_event = devm_nvmem_cell_get(dev, "rtc_alarm_event");
+ 	rtc->alarm_irq_mask = devm_nvmem_cell_get(dev, "rtc_alarm_irq_mask");
+-	if (IS_ERR(rtc->alarm) || IS_ERR(rtc->alarm_en) ||
++	if (IS_ERR(rtc->alarm) || IS_ERR(rtc->alarm_ctrl) ||
+ 	    IS_ERR(rtc->alarm_event) || IS_ERR(rtc->alarm_irq_mask)) {
+ 		dev_warn(dev, "alarm interrupt without its NVMEM cells, no alarm\n");
+ 		return 0;
+-- 
+2.55.0
+

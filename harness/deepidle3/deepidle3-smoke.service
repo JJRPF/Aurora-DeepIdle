@@ -1,0 +1,12 @@
+[Unit]
+Description=deepidle3 test: PMU RTC alarm and s2idle wake smoke test (once)
+After=graphical.target
+ConditionPathExists=/var/lib/deepidle/deepidle3-armed
+
+[Service]
+Type=oneshot
+TimeoutStartSec=15min
+ExecStart=/usr/local/lib/deepidle/deepidle3-smoke.sh
+
+[Install]
+WantedBy=graphical.target

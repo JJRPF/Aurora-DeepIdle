@@ -1,0 +1,15 @@
+2026-10-19 18:41:43 booted 7.1.12-2-11.35-sep-ARCH-deepidle3, m1n1 28fed82d8ec731d1
+2026-10-19 18:42:43 backup waker loaded (120 s)
+2026-10-19 18:42:43 rtc0 macsmc-rtc macsmc-rtc; wakealarm file: yes; wakeup: enabled
+2026-10-19 18:42:43 rtc time 1792449763, system 1792449763
+2026-10-19 18:42:43 awake alarm 1 set: 1792449773, now 1792449763; ctrl 0x41 (enable on)  event 0x00  irqmask 0x00
+2026-10-19 18:42:58 after awake alarm 1: wakealarm '' (empty = fired); ctrl 0x01 (enable off)  event 0x00  irqmask 0x01; 124:          1          0          0          0          0          0          0          0          0          0 apple_spmi   2 Edge      macsmc-rtc
+2026-10-19 18:42:58 awake alarm 2 set: 1792449788, now 1792449778; ctrl 0x41 (enable on)  event 0x00  irqmask 0x00
+2026-10-19 18:43:13 after awake alarm 2: wakealarm '' (empty = fired); ctrl 0x01 (enable off)  event 0x00  irqmask 0x01; 124:          1          0          0          0          0          0          0          0          0          1 apple_spmi   2 Edge      macsmc-rtc
+2026-10-19 18:43:13 cycle 1 before: ctrl 0x01 (enable off)  event 0x00  irqmask 0x01
+2026-10-19 18:43:44 s2idle cycle 1: rtcwake exit 0, 30.608865413 s wall, wakeup irq 124, suspend stats success 1 fail 0
+2026-10-19 18:44:04 cycle 2 before: ctrl 0x01 (enable off)  event 0x00  irqmask 0x01
+2026-10-19 18:44:35 s2idle cycle 2: rtcwake exit 0, 30.964693233 s wall, wakeup irq 124, suspend stats success 2 fail 0
+2026-10-19 18:44:55 cycle 3 before: ctrl 0x01 (enable off)  event 0x00  irqmask 0x01
+2026-10-19 18:45:26 s2idle cycle 3: rtcwake exit 0, 30.971261844 s wall, wakeup irq 124, suspend stats success 3 fail 0
+2026-10-19 18:45:46 done

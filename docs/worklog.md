@@ -480,3 +480,85 @@ Nothing here installs, reboots, or writes hardware registers. Times are local.
   awake), aop drivers unloaded 2.164 (0), base 2.159. AOP wake rate 3.6-6/s across runs with no power change.
   => the HDMI patch's saving holds in s2idle; the AOP traffic is not worth chasing.
 - 18:17 45 min base s2idle on the charger: woken early at 776 s, 2.178 W. Duration vs charger question still open.
+
+## 2026-10-19 issue #5 (macOS S2R agent) checked; PMU RTC alarm mapped live; deepidle3
+- Issue #5 (tools/macos-s2r-prompt.md on 15.7.1): 183.76 s S2R in a 3-min lid close; sleep/quiesce order
+  matches 13.5. Mostly known already (PMP = RTKit AP IDLE 0x201 / ON 0x20, MBSE slpa/waka, WKTP=2,
+  MPMGR_AON+0x4000). New: AIC quiesce (mask banks 0x6400+, die stride 0x4a00 = Linux AIC2 layout),
+  restoreHW sets 0xc000 bit 31, PCIe manual-enable-s2r = driver drives L2 itself, CPU ACC 0xc5acce55.
+- Corrected two claims by reading the PMU (apple-spmi-nvmem file, read only first):
+  - the alarm is NOT a UNIX time: it is the PMU counter's whole seconds (CLKM >> 15). Value left by macOS
+    3652420 -> 2026-10-18 22:30:58, during the agent's session. unix = counter s + (rtc_offset >> 15), exact.
+  - 0x1411 is the rtc_offset scratchpad (Linux DT agrees), not the counter. The counter is 0x1406 (6 bytes,
+    bytes 2-5 = seconds; low 2 bytes read 0a 00); reading 0x1406 latches it.
+- Wrote (said first; macOS writes these ~27x/night): alarm +20 s at 0x140c, 0x14c2=0, 0x1401|=0x40 ->
+  event 0x14c0 bit 0 at exactly the second; restored. No AIC line: SPMI controller masks all zero.
+  SPMI pending (0x29e114060+) bit 2 = PMU irq 2 (ADT spmi-mpmu interrupts=[2], as t8140's DT). Unmasking it
+  (0x29e114020 bit 2) raised AIC 724 only; notify (bit 256, mask 0x40 bit 0) also 724. Re-masked, acked.
+  Tools: harness/mmio/{mmio-read, mmio-write (SPMI page only), pmu-rtc.py, dtb-chain.py}.
+- Linux has spmi-apple IRQ support (47d246feceab) but T6020 DT gives no interrupts; no PMU RTC alarm
+  driver anywhere (t8140 DT names apple,j700-pmu-rtc, no driver). Commit a868561d6298 (GH-1-DeepIdle):
+  macsmc-rtc alarm via 4 NVMEM cells + SPMI irq 2 (one-shot, wakeup-source), spmi-apple
+  IRQCHIP_SKIP_SET_WAKE (chained parent stays on in suspend: kernel/irq/pm.c:70), t602x DT.
+- deepidle3 built (~/Work/deepidle-11.35, patch pmu-rtc-alarm.patch, LOCALVERSION=-deepidle3, no warnings).
+  DTB: unpatched build == stock #31 byte for byte; masked diff = only the new props/nodes.
+  boot.bin.rtcalarm-test 0fcb4c36d6d28447 (113 DTBs, only #31 differs). deepidle2 removed (no /boot room).
+  Installed + armed one boot (harness/deepidle3/install.sh); smoke: awake alarm + 3x rtcwake freeze 30 s.
+
+## 2026-10-19 deepidle3 smoke (07:23): alarm woke nothing in s2idle; cause found; deepidle3b
+- Booted fine (ESP restored to stock, next_entry unset, Wi-Fi up). rtc0 macsmc-rtc with wakealarm, wakeup
+  enabled, IRQ 124 "apple_spmi 2 Edge macsmc-rtc". Awake alarm fired (count 0 -> 1, wakealarm cleared).
+- All three rtcwake -s 30 s2idle cycles slept until the owner touched the machine: 36504 s, 2344 s, 973 s;
+  pm_wakeup_irq empty, alarm IRQ count stayed 1, PMU event bit 0 after.
+- Cause: on fire the PMU clears ctrl 0x1401 bit 6 AND sets bit 1. While bit 1 is set, a later alarm clears
+  bit 6 at its second but sets no event and no SPMI irq (checked with the handler unbound). The driver
+  wrote bit 6 only (one-bit cell), so only the first alarm after boot worked. Morning pmu-rtc.py restored
+  the whole byte (cleared bit 1) - why the manual tests worked. macOS writes the whole byte.
+- With bit 1 cleared by hand: s2idle (alarm +30, s2idle-wake backup 90) woke at 30.14 s, pm_wakeup_irq 124.
+  THE PMU ALARM WAKES s2idle.
+- Fix 9cbf7cef4a7b: whole-byte rtc_alarm_ctrl cell, arm = (ctrl & ~0x42) | 0x40, disarm = ctrl & ~0x42.
+  Rebuilt (Image unchanged), boot.bin.rtcalarm2-test 28fed82d8ec731d1 (only #31 differs, masked diff =
+  intended nodes). Smoke now: 2 awake alarms back to back, 3 rtcwake cycles, backup waker 120 s.
+
+## 2026-10-19 18:41 deepidle3b smoke: THE PMU ALARM WAKES s2idle, 3/3
+- Booted deepidle3 + boot.bin 28fed82d; ESP back to stock 3630adc3, next_entry unset.
+- Awake alarms 1 and 2 (back to back) both fired; ctrl back to 0x01 each time (bit 1 cleared).
+- rtcwake -m freeze -s 30 x3: 30.61, 30.96, 30.97 s, pm_wakeup_irq 124 (macsmc-rtc) each; backup waker
+  (s2idle-wake 120 s) never fired; IRQ 124 total 5. Wi-Fi up after (join_pref -52 as usual), ping ok.
+- Unrelated, pre-existing (default kernel this morning too): aurora-fand.service restart loop,
+  "/run/aurora-fand: No such file or directory" (NAMESPACE). Not touched; told the owner.
+- Docs 913087106a99 (section "The PMU wake alarm"). Results: /var/lib/deepidle/results-deepidle3{,-run1}.
+
+## 2026-10-21 No USB at all: CONFIG_USB4_APPLE_SOC missing; deepidle3 rebuilt with it
+- Symptom: no USB bus (lsusb empty), every port. Not deep-idle work: same on the stock 11.35-sep-ARCH+ and
+  11.32 kernels; last USB device seen 2026-09-26 (7.1.9-aurora-sep+, a DT without cio nodes).
+- Cause: the T6020 DT links each cd321x connector (i2c 0-0038/3f/3b) to its USB4 host router
+  (cio@701ac0000/b01ac0000/f01ac0000; 18 fw_devlink cycle lines now, 0 on 2026-09-26). The 11.35 config has
+  `# CONFIG_USB4_APPLE_SOC is not set` (the tree's asahi.config fragment has =m), so cio never binds, the
+  supplier link stays dormant, cd321x is deferred forever ("deferred probe pending: (reason unknown)"),
+  dwc3-apple gets no role, xHCI never starts.
+- Fix (config only): CONFIG_USB4_APPLE_SOC=m, one line of .config. Rebuilt in ~/Work/deepidle-11.35/build:
+  only drivers/thunderbolt/apple.o plus relink; built-in code identical (Image 46375fe16628ab74 differs from
+  8cb1e82915b08f93 only by the embedded config and timestamp). Module trees differ by thunderbolt_apple.ko.
+- Installed in place under the same release (/boot has 24 MB free, no room for a second kernel):
+  harness/deepidle3/usb4.sh; old Image + initramfs in /var/lib/deepidle/deepidle3-nousb4 (`usb4.sh rollback`),
+  old modules in staging-deepidle3. Armed one boot as before (rtcalarm2 DTB, smoke test), earlier smoke
+  results moved to results-deepidle3-before-usb4-20261021-1730.
+- From here on deepidle3 = this build. Note for power numbers: every measurement before this had the USB4
+  routers, cd321x and dwc3/xHCI unbound; idle and s2idle power may shift and need a fresh baseline.
+- The owner's default kernel (linux-aurora 11.35 package) has the same gap; the real fix is that package's
+  config. Not changed here.
+
+## 2026-10-21 17:33 deepidle3 with USB4_APPLE_SOC: USB works, hotplug works
+- Boot: thunderbolt-apple-acio bound all three cio, cd321x probed, xHCI on the two ports with devices
+  (Cheapino2 keyboard on b02280000, Logi Bolt on 702280000). Nothing deferred.
+- The third port (cd321x 0x3b, f02280000) had a Pixel plugged in but STATUS 0x00 (no plug) from boot, and
+  the keyboard's USB link dropped at 17:36:35 (51 s after the last smoke s2idle) while its CC stayed
+  attached (STATUS 0x...fd48). Both came back on a replug. harness/usb/plugwatch.sh (read only, 0.5 s
+  sampling of the cd321x IRQ, STATUS 0x1a, partners, lsusb) logged the owner replugging all three:
+  IRQ 0 -> 14, every attach and detach handled, the Pixel enumerated on a new xHCI (bus 5). The zero IRQ
+  count before was just no plug events since boot. Open: a device present at boot or across s2idle can
+  need a replug.
+- Smoke rerun: awake alarms 2/2 fired; the three rtcwake cycles woke early (12.4, 20.1, 2.1 s, no
+  pm_wakeup_irq). The keyboard and Bolt receiver have USB wakeup enabled: unattended alarm tests must
+  turn wakeup off on USB devices first (power/wakeup), or the alarm is not what wakes them.

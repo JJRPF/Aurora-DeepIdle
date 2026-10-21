@@ -1,0 +1,12 @@
+0x29e114020 0x00000000 -> wrote 0x00000004 -> 0x00000004
+0x29e114020 0x00000004 -> wrote 0x00000000 -> 0x00000000
+0x29e114060 0x00000004 -> wrote 0x00000004 -> 0x00000000
+0x29e114020 0x00000000 -> wrote 0x00000000 -> 0x00000000
+alarm fired at counter 3683760 SPMI pending [2, 56, 58, 59, 60, 61, 212, 213, 228, 256]
+AIC lines raised by unmasking SPMI irq 2: [724]  dropped: []
+after re-mask and acks, still high from that set: []
+restored:
+ctrl 0x01 (enable off)  event 0x00  irqmask 0x01
+counter 3683760 s  alarm 3652420 s (-31340 s)  unix(counter+offset) 1792408398  now 1792408398
+AIC HW_STATE high: []
+SPMI mask 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000  pending [56, 58, 59, 60, 61, 212, 213, 228, 256]

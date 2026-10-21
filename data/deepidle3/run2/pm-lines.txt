@@ -1,0 +1,18 @@
+Oct 19 18:43:13 omarchy-mac kernel: PM: suspend entry (s2idle)
+Oct 19 18:43:44 omarchy-mac kernel: Freezing user space processes
+Oct 19 18:43:44 omarchy-mac kernel: Freezing user space processes completed (elapsed 0.001 seconds)
+Oct 19 18:43:44 omarchy-mac kernel: Freezing remaining freezable tasks
+Oct 19 18:43:44 omarchy-mac kernel: Freezing remaining freezable tasks completed (elapsed 0.000 seconds)
+Oct 19 18:43:44 omarchy-mac kernel: PM: suspend exit
+Oct 19 18:44:04 omarchy-mac kernel: PM: suspend entry (s2idle)
+Oct 19 18:44:35 omarchy-mac kernel: Freezing user space processes
+Oct 19 18:44:35 omarchy-mac kernel: Freezing user space processes completed (elapsed 0.001 seconds)
+Oct 19 18:44:35 omarchy-mac kernel: Freezing remaining freezable tasks
+Oct 19 18:44:35 omarchy-mac kernel: Freezing remaining freezable tasks completed (elapsed 0.000 seconds)
+Oct 19 18:44:35 omarchy-mac kernel: PM: suspend exit
+Oct 19 18:44:55 omarchy-mac kernel: PM: suspend entry (s2idle)
+Oct 19 18:45:26 omarchy-mac kernel: Freezing user space processes
+Oct 19 18:45:26 omarchy-mac kernel: Freezing user space processes completed (elapsed 0.001 seconds)
+Oct 19 18:45:26 omarchy-mac kernel: Freezing remaining freezable tasks
+Oct 19 18:45:26 omarchy-mac kernel: Freezing remaining freezable tasks completed (elapsed 0.000 seconds)
+Oct 19 18:45:26 omarchy-mac kernel: PM: suspend exit

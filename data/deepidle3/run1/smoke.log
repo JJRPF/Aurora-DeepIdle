@@ -1,0 +1,13 @@
+2026-10-19 07:23:16 booted 7.1.12-2-11.35-sep-ARCH-deepidle3, m1n1 0fcb4c36d6d28447
+2026-10-19 07:24:16 rtc0 macsmc-rtc macsmc-rtc; wakealarm file: yes; wakeup: enabled
+2026-10-19 07:24:16 rtc time 1792409056, system 1792409056
+2026-10-19 07:24:16 awake alarm set: 1792409066, now 1792409056
+2026-10-19 07:24:31 after awake alarm: wakealarm '' (empty = fired and cleared)
+1c1
+< 124:          0          0          0          0          0          0          0          0          0          0 apple_spmi   2 Edge      macsmc-rtc
+---
+> 124:          0          0          0          1          0          0          0          0          0          0 apple_spmi   2 Edge      macsmc-rtc
+2026-10-19 17:32:55 s2idle cycle 1: rtcwake exit 0, 36504.237010457 s wall, wakeup irq cat: /sys/power/pm_wakeup_irq: No data available, suspend stats success 1 fail 0
+2026-10-19 18:12:20 s2idle cycle 2: rtcwake exit 0, 2344.448795772 s wall, wakeup irq cat: /sys/power/pm_wakeup_irq: No data available, suspend stats success 2 fail 0
+2026-10-19 18:28:53 s2idle cycle 3: rtcwake exit 0, 972.600987843 s wall, wakeup irq cat: /sys/power/pm_wakeup_irq: No data available, suspend stats success 3 fail 0
+2026-10-19 18:29:13 done

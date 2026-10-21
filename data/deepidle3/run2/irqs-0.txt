@@ -1,0 +1,1 @@
+124:          0          0          0          0          0          0          0          0          0          0 apple_spmi   2 Edge      macsmc-rtc
