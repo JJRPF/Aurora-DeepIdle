@@ -548,3 +548,17 @@ Nothing here installs, reboots, or writes hardware registers. Times are local.
   routers, cd321x and dwc3/xHCI unbound; idle and s2idle power may shift and need a fresh baseline.
 - The owner's default kernel (linux-aurora 11.35 package) has the same gap; the real fix is that package's
   config. Not changed here.
+
+## 2026-10-21 17:33 deepidle3 with USB4_APPLE_SOC: USB works, hotplug works
+- Boot: thunderbolt-apple-acio bound all three cio, cd321x probed, xHCI on the two ports with devices
+  (Cheapino2 keyboard on b02280000, Logi Bolt on 702280000). Nothing deferred.
+- The third port (cd321x 0x3b, f02280000) had a Pixel plugged in but STATUS 0x00 (no plug) from boot, and
+  the keyboard's USB link dropped at 17:36:35 (51 s after the last smoke s2idle) while its CC stayed
+  attached (STATUS 0x...fd48). Both came back on a replug. harness/usb/plugwatch.sh (read only, 0.5 s
+  sampling of the cd321x IRQ, STATUS 0x1a, partners, lsusb) logged the owner replugging all three:
+  IRQ 0 -> 14, every attach and detach handled, the Pixel enumerated on a new xHCI (bus 5). The zero IRQ
+  count before was just no plug events since boot. Open: a device present at boot or across s2idle can
+  need a replug.
+- Smoke rerun: awake alarms 2/2 fired; the three rtcwake cycles woke early (12.4, 20.1, 2.1 s, no
+  pm_wakeup_irq). The keyboard and Bolt receiver have USB wakeup enabled: unattended alarm tests must
+  turn wakeup off on USB devices first (power/wakeup), or the alarm is not what wakes them.
