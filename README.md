@@ -165,6 +165,7 @@ makes it persistent: copy it to `/etc/tmpfiles.d/`.
 | `harness/mmio/` | `pmu-rtc.py` (decode, arm and fire the PMU alarm through the nvmem file, watch the SPMI and AIC lines), `alarm-s2idle.sh` (one s2idle with the alarm and a backup waker), `mmio-read.c` (read only), `mmio-write.c` (limited to the SPMI controller page), `dtb-chain.py` (list, extract or swap the DTBs in an m1n1 image) |
 | `harness/awake-ab/run.sh`, `harness/net-guard.sh` | Awake A/B of SD link ASPM and the HDMI rails; a guard that reboots and reopens the session if the network dies |
 | `harness/smc-keyread/` | `smc-keyread.ko` (test only, read only): every readable SMC `flt` key starting with P in debugfs; `sample.py` gives the mean, min and max of each over N seconds |
+| `harness/remote/mac-ready.sh`, `docs/pi-handoff.md` | Driving the Mac from a Raspberry Pi 5: a read-only check that the Mac can be driven over SSH (key login, `sudo -n`, kernel, PMU RTC, stay-awake), and the handoff for the Pi session (paths, connecting, Aura proxy mode, standing rules, next work) |
 | `tools/macos-re/` | Reading a public macOS kernelcache: remote IPSW extraction, IM4P, chained-pointer fixups, fileset kexts, vtables, Ghidra headless scripts |
 | `dts/` | The opt-in J414s variants: PMP on, and no external DCPs (copies; they live in the kernel tree) |
 | `patches/` | The kernel tree changes as a `git format-patch` series |

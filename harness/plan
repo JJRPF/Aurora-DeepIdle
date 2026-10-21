@@ -1,0 +1,6 @@
+stock stock default default,pd-always
+em em-test deepidle-stock-panic default,no-eas,pd-always
+kernel stock deepidle-test-kernel default,res=2000,res=500,res=100,pd-always
+nodcpext nodcpext-test deepidle-stock-panic default,pd-always
+pmp pmp-test deepidle-stock-panic default,pd-always
+final stock default default,pd-always
