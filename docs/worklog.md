@@ -594,3 +594,29 @@ Nothing here installs, reboots, or writes hardware registers. Times are local.
   rules, and -k ignores the password just typed). teardown.sh removes the rule. mac-ready.sh now checks
   the rule by running sudo/selftest.sh.
 - Owner, once:  sudo bash ~/Work/deepidle-harness/sudo/install.sh
+
+## 2026-10-22 night: PMP wake from IDLE and the SMC sleep handshake, built as modules (untested)
+- Both are module-only changes against deepidle3: the kernel image stays 46375fe1, so each is
+  tested on the running kernel with insmod, no reboot, no /boot change. Neither has run: the
+  harness sudo rule is not installed yet.
+- PMP (pmp.ko a8ae3a2d, patches/deepidle3-pmp-wake-runcpu.patch). Found: deepidle3 blacklists
+  pmp (/etc/modprobe.d/deepidle-no-pmp.conf), so its s2idle hook (s2idle_idle=Y) never ran. New
+  idle hook: RTKit IDLE as before, then poll ASC CPU_STATUS (0x48) & 3 every 1 ms (up to 100)
+  and clear RUN in CPU_CONTROL (0x44), as macOS stopCPU does. Wake hook: set RUN, 10 ms, then
+  RtKit::boot(), which (its boot and IOP-ack completions still complete from IDLE) sends AP ON and
+  waits for that ack only; on failure fall back to the INIT wake of deepidle2. No INIT after IDLE,
+  as in macOS. Test: harness/pmp-wake/run.sh [CYCLES] insmods the staged module (blacklist kept
+  for the next boot), rtkit.c dynamic debug on for every power-state transition, USB wakeup off,
+  backup waker 120 s, 3 x 30 s PMU-alarm s2idle; pass = "CPU stopped" + "AP ON acked" each cycle
+  and the next cycle IDLE acked (deepidle2 timed out there). Ends with s2idle_idle=0.
+- SMC (macsmc-reboot.ko a0cf24df, patches/deepidle3-smc-s2idle-handshake.patch, also kernel
+  worktree 3ff145247e7d). s2idle_steps bit mask, default 0, s2idle only: 1 WKTP = 2 in suspend /
+  0 in resume; 2 MBSE = slpw in prepare; 4 MBSE = slpa in suspend_late, and in resume_early read
+  MBSE + MBSW (logged) then MBSE = waka. The SMC atomic write cannot be used in noirq (its mode is
+  one way, for power off), so slpa goes in suspend_late, before the PMP hook (macOS: PMP first).
+  Test: harness/smc-sleep/run.sh STEPS [CYCLES] [owner-present] swaps the module at run time and
+  puts the stock one back; bit 4 refuses to run without owner-present (the SMC may cut power with
+  the SoC still up). Order: 1, then 3, then 7 with the owner there.
+- Build note: building a single module target (make ... drivers/x/y.ko) rewrites Module.symvers with
+  that module only, and the next single-target build then fails modpost; `make modules` fixes it
+  and only relinks what changed.
