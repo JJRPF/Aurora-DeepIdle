@@ -1,6 +1,6 @@
 # Driving the Mac from a Raspberry Pi 5
 
-The deep idle work moves its agent session to a Raspberry Pi 5, so that reboots, hangs and suspends of the Mac (J414s, M2 Pro, T6020) no longer end the session. The Pi controls the Mac in two ways:
+The deep idle work moves its agent session to a Raspberry Pi 5, so that reboots, hangs and suspends of the Mac (J414s, M2 Pro, T6020) no longer end the session. **As of 2026-10-22 the agent stays on the Mac** (the Pi has no Claude yet); the Pi is a controller reached from the Mac, and the plan below applies once a session runs there. The Pi controls the Mac in two ways:
 
 - **SSH**, while Linux runs on the Mac and its network is up.
 - **USB**, while the Mac waits in Aura (Aurora Silicon's m1n1 fork) proxy mode. That gives the proxy client, chainloading and the hypervisor with its trace scripts.
