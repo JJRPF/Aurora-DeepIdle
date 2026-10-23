@@ -562,3 +562,18 @@ Nothing here installs, reboots, or writes hardware registers. Times are local.
 - Smoke rerun: awake alarms 2/2 fired; the three rtcwake cycles woke early (12.4, 20.1, 2.1 s, no
   pm_wakeup_irq). The keyboard and Bolt receiver have USB wakeup enabled: unattended alarm tests must
   turn wakeup off on USB devices first (power/wakeup), or the alarm is not what wakes them.
+
+## 2026-10-22 Pi 5 controller connected
+- The controller is a Raspberry Pi 5 (Debian 13, hostname core-node, on Wi-Fi). Its password did not
+  match the owner's login file; the Mac's own key was already authorized on it, so the password was set
+  from that file (sudo chpasswd over stdin) at the owner's word. Credentials stay out of this repo.
+- Pi to Mac: a dedicated key (~/.ssh/id_ed25519_mac on the Pi), added to the Mac's authorized_keys with
+  from= limited to the Pi's Tailscale and current Wi-Fi addresses (backup authorized_keys.bak-before-pi).
+  Pi ~/.ssh/config: `mac` = the Mac's Tailscale address (the same on the Pi's Wi-Fi or Ethernet),
+  `mac-lan` = omarchy-mac.local. Both log in. On Ethernet over the LAN, from= needs that address added.
+- mac-ready.sh from the Pi: 6 ok, 2 failed. Both failures are one cause: sudo on the Mac now asks for a
+  password (99-omarchy-nopasswd-jjr no longer applies; it still worked on 2026-10-21). The harness needs
+  root, so unattended runs from the Pi wait on the owner's choice. Not restored here.
+- Aura proxy on the Pi: python3-construct installed (pyserial was there), Aura cloned from the Mac's
+  read-only clone into ~/deepidle/aura (362ae4f0), udev/80-aura.rules in /etc/udev/rules.d, user in dialout.
+  proxyclient imports; it stops only at /dev/aura missing (no cable, Mac not in proxy mode).
