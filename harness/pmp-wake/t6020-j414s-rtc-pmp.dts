@@ -1,0 +1,7 @@
+#include "t6020-j414s.dts"
+
+/ {
+	aliases {
+		pmp = &pmp;
+	};
+};

@@ -29,6 +29,8 @@ pmplog() { journalctl -k --since "$1" --no-pager -o short-monotonic | grep -i -E
 # Preconditions
 case "$(uname -r)" in *-deepidle3) ;; *) echo "not the deepidle3 kernel"; exit 1 ;; esac
 [ "$(sha256sum $KO | cut -c1-16)" = $KOSHA ] || { echo "staged pmp.ko missing or changed"; exit 1; }
+[ "$(tr -d '\0' < /sys/firmware/devicetree/base/soc/pmp@28e700000/status 2>/dev/null)" = okay ] \
+    || { echo "PMP node not enabled in this boot's DT: boot boot.bin.pmpwake-test (pmp-wake/arm.sh)"; exit 1; }
 lsmod | grep -q '^pmp ' && { echo "pmp already loaded (the old hook would run); reboot first"; exit 1; }
 R=$(dirname $(grep -l macsmc-rtc /sys/class/rtc/rtc*/name 2>/dev/null) 2>/dev/null)
 [ -n "$R" ] && [ -e $R/wakealarm ] || { echo "no macsmc-rtc alarm"; exit 1; }
@@ -72,13 +74,15 @@ for i in $(seq 1 $CYCLES); do
     awake stay-awake
     sleep 5
     pmplog "$since" > $OUT/cycle-$i.txt
-    st=$(grep -c 'CPU stopped' $OUT/cycle-$i.txt); on=$(grep -c 'AP ON acked' $OUT/cycle-$i.txt)
+    # Count the PMP's own lines only: with dynamic debug every RTKit coprocessor logs transitions
+    grep -i 'pmp' $OUT/cycle-$i.txt > $OUT/cycle-$i-pmp.txt
+    st=$(grep -c 'CPU stopped' $OUT/cycle-$i-pmp.txt); on=$(grep -c 'AP ON acked' $OUT/cycle-$i-pmp.txt)
     # the IOP's own report after RUN: RTKit is only "running" again once the IOP state is ON
-    iop=$(grep -c 'IOP power state transition: 0x201 -> 0x20$' $OUT/cycle-$i.txt)
-    bad=$(grep -c -i -E 'idle failed|wake failed|AP ON failed|not idle|timed out|crash' $OUT/cycle-$i.txt)
+    iop=$(grep -c 'IOP power state transition: 0x201 -> 0x20$' $OUT/cycle-$i-pmp.txt)
+    bad=$(grep -c -i -E 'idle failed|wake failed|AP ON failed|not idle|timed out|crash' $OUT/cycle-$i-pmp.txt)
     [ $st = 1 ] && [ $on = 1 ] && [ $iop -ge 1 ] && [ $bad = 0 ] && pass=$((pass + 1))
     log "cycle $i: rtcwake $rc, $(echo "$t1 - $t0" | bc) s, wakeup irq $(cat /sys/power/pm_wakeup_irq 2>&1); CPU stopped $st, IOP back to ON $iop, AP ON acked $on, problems $bad"
-    grep -i -E 'pmp-sleep|s2idle:|power state transition' $OUT/cycle-$i.txt | sed 's/^/    /' | tee -a $OUT/run.log
+    grep -i -E 'pmp-sleep|s2idle:|power state transition' $OUT/cycle-$i-pmp.txt | sed 's/^/    /' | tee -a $OUT/run.log
     sleep 20
 done
 log "result: $pass of $CYCLES cycles stopped and woke the PMP cleanly"
