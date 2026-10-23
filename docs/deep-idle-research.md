@@ -1000,8 +1000,8 @@ converter power `gP06` and HDMI power `gP17`, Wi-Fi `reg_on` `gP0d`.
 **What this changes for Linux.** Three pieces can be tried now, in s2idle,
 without the S2R wake path: (1) tell the PMP (RTKit IDLE in the s2idle
 platform prepare, wake in restore; built as `deepidle2`, below); (2) the SMC
-`slpw`/`slpa`/`waka` handshake, whose effect in s2idle is unknown and risky
-(the SMC may expect the SoC to go down); (3) SMC GPIO power-off of the unused
+`slpw`/`slpa`/`waka` handshake (tested 2026-10-22: `WKTP` and `slpw` are
+harmless in s2idle; `slpa` takes the storage down, see below); (3) SMC GPIO power-off of the unused
 SD reader and HDMI converter. Real S2R additionally needs every quiesce
 action above, the CPUs powered off (CPU_OFF), and m1n1 to hand the boot CPU's
 reset-vector wake back to Linux (`_cpu_reset_c` re-enters `m1n1_main` today).
@@ -1257,7 +1257,7 @@ Everything macOS does to sleep the SoC (13.5 static analysis, issues #3 and
 | Timed wake | PMU RTC alarm, `NUB.SPMI0Sw3IRQ` | **done** in deepidle3: macsmc-rtc alarm, SPMI irq 2 on AIC 724, wakes s2idle | upstreamable shape; PMU power-on from off untested |
 | Devices | every driver's sleep action | s2idle suspend callbacks | S2R removes power: drivers must resume from power loss. DCP says it cannot ("we do not support full shutdown properly yet"); PCIe, NVMe, Wi-Fi unproven |
 | PMP | RTKit AP IDLE `0x201`, wake by CPU_CONTROL RUN | deepidle2 hook: IDLE works, wake wrong | the `_runCPU` wake (designed, not built) |
-| SMC | `MBSE` `slpw`/`slpa`/`waka`, `WKTP` = 2, `MBSW` wake reason | macsmc has no suspend handler | the handshake; its effect on a running SoC is unknown |
+| SMC | `MBSE` `slpw`/`slpa`/`waka`, `WKTP` = 2, `MBSW` wake reason | deepidle3 macsmc-reboot.ko sends it in s2idle (`s2idle_steps`) | `WKTP`, `slpw`: harmless, wake normal. `slpa`: the SMC takes the storage away, NVMe I/O fails after resume, root goes read-only, a warm reboot does not clear it; `slpa` only belongs on the real S2R path |
 | AIC | save and mask all banks, restore on wake | no suspend/resume in irq-apple-aic | save/restore (layout known: AIC2 0x6400/0x6600, die stride 0x4a00) |
 | PMGR | `quiesceHW`, S2R timer (`MPMGR_AON` + 0x4000), `restoreHW` (0xc000 bit 31, PLL relock) | `MPMGR_AON` not in the Linux DT or m1n1 | everything; note the S2R-timer word already reads 1 on Linux (meaning unknown) |
 | PCIe | `manual-enable-s2r`: driver takes the link to L2 and gates port clocks | ASPM only | L2 entry and exit |
@@ -1324,6 +1324,34 @@ T6020 wakes through the boot CPU's RVBAR at all. E3 needed a second machine
 as the USB proxy host: the Raspberry Pi 5 is now set up for that
 (`docs/pi-handoff.md`, Aura proxyclient and udev rules installed). It still
 needs the owner at the machine for the power key.
+
+### The SMC handshake in s2idle (tested 2026-10-22)
+
+deepidle3's `macsmc-reboot.ko` (`s2idle_steps` bit mask) sends macOS's
+sleep handshake around an s2idle cycle, steps added one at a time:
+
+| Steps | What it sends | Result |
+|---|---|---|
+| 1 | `WKTP` = 2 on suspend, 0 on resume | 3/3 cycles: every write 0, wake on the PMU alarm, battery and Wi-Fi fine |
+| 3 | + `MBSE` = `slpw` in prepare | the same (one cycle scored as failed only because Wi-Fi was still reassociating; every s2idle resume on this kernel drops and rejoins Wi-Fi) |
+| 7 | + `MBSE` = `slpa` in suspend_late; on resume read `MBSE`/`MBSW`, then `waka` | **the storage went away**: the Mac resumed, then every NVMe read and write failed, btrfs aborted and went read-only, and the journal kept nothing past the suspend |
+
+The boot after step 7 (a warm reboot into the stock kernel) also stopped
+writing within its first second; only a full power off brought the disk
+back, and the PMU then reported a boot error. So `slpa` is not a
+notification. It tells the SMC the SoC is about to lose power, and the SMC
+takes the storage down with it (which rails or links is not known yet). The
+state outlasts a warm reboot. On a running SoC `waka` does not undo it,
+assuming it was sent at all: nothing of the resume was logged. Afterwards the
+filesystem was intact: btrfs replayed its tree log, and a read-only scrub
+found no errors.
+
+What this means for S2R: `slpa` must be the last thing before the SoC
+actually powers down, with every device (NVMe/ANS included) already
+quiesced. The way back is the SMC's own wake sequence, not a `waka` from a
+kernel that never stopped. `WKTP` and `slpw` can go in early. Any further
+`slpa` test needs the Mac's kernel log streamed off the machine (the Pi's
+`harness/remote/pi-watch.sh`) and the owner at the power key.
 
 ## Unblocking deep sleep: what to trace with macOS under m1n1 hv
 

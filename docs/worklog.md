@@ -660,3 +660,42 @@ Nothing here installs, reboots, or writes hardware registers. Times are local.
 - Morning order once the sudo rule is in: (1) sudo bash sudo/install.sh (owner); (2) smc-sleep/run.sh 1,
   then 3, on the running kernel; (3) pmp-wake/arm.sh + reboot.sh, unattended; (4) smc-sleep 7 with the
   owner present.
+
+## 2026-10-22 22:54-23:07: SMC sleep handshake in s2idle, steps 1, 3, 7 (deepidle3, macsmc-reboot.ko a0cf24df)
+- Step 1 (WKTP = 2 on suspend, 0 on resume), owner-run, 3 cycles: 3/3. Every write returned 0, every
+  wake on IRQ 124 (PMU alarm), battery read and Wi-Fi up after. smc-sleep-1-20261022-2254.txt.
+- Step 3 (+ MBSE = slpw in prepare), 3 cycles: every write 0, wake IRQ 124 each time; scored 2/3 only
+  because wlan0 was DORMANT at the cycle-3 check. Not the SMC: every s2idle resume on this kernel
+  (step 1 too, and the Oct 21 smoke) logs CTRL-EVENT-DISCONNECTED reason=3 locally_generated=1 and
+  reconnects; in cycle 3 the AP refused the first association (status 16), so it took 10 s, not 5.
+  The NVMe log shows the normal s2idle path either way: ANS "NVMe shutdown start ... saveCtx" on
+  suspend, RTKit re-init, "power up done PMU=Ocarina", "enabled 1p0v" on resume.
+  smc-sleep-3-20261022-2300.txt.
+- Step 7 (+ MBSE = slpa in suspend_late, MBSE/MBSW read and MBSE = waka in resume_early), owner
+  present, 1 cycle, started 23:04:32: THE DISK WENT AWAY AFTER RESUME. The Mac resumed (Wi-Fi
+  reconnecting at [106134], console visible), but from [106135] btrfs logged write and read errors on
+  /dev/mapper/root (wr 1093, rd up to 1791 by [106160]), aborted the transaction and went read-only;
+  journald could not rotate. Owner photo 23:06:52. The
+  journal of that boot ends at 23:04:52 (the suspend itself): the resume, the MBSW wake source, the
+  waka result and the NVMe errors were never written. run.log stops after "new macsmc-reboot loaded".
+- The boot after (23:07:39, stock 7.1.12-2-11.35-sep-ARCH+) kept 1222 journal lines, all within its
+  first second, up to the first journal flush; btrfs transid went 56525 -> 56526 only, and the next
+  boot (Oct 23 07:39) had to replay the tree log and reported "PMU logged 1 boot error(s)" (first time
+  on any boot kept). Reading: that boot lost its disk too, soon after start, and only the full power
+  off cleared it, i.e. the SMC kept its slpa state across a warm reboot. Not proven (no log survived);
+  the owner can say whether it booted to a desktop and how it was turned off.
+- Damage: none found. Oct 23: btrfs device stats all 0; read-only scrub of all 107.39 GiB, no errors;
+  ESP fsck -n: only the dirty bit and the usual boot-sector/backup byte; ESP boot.bin stock 3630adc3.
+  tools/fs-check.sh (read-only) does these checks.
+- Conclusion: slpa is not a notification. The SMC acts on it: after slpa it takes the storage down
+  (NAND rails or the ANS link), as macOS expects with the SoC about to lose power. In s2idle the SoC
+  stays up and the s2idle resume path (ANS re-init) cannot bring it back, and waka (if it was even
+  sent) does not undo it. So slpa belongs only on a real S2R path, after every device is down, and its
+  undo is the SMC's own wake sequence, not waka from a running kernel. Steps 1 and 3 did no harm (their power
+  effect is not measured yet). No more slpa runs without the Pi watcher and the owner at the power
+  button; recovery needs a full power off, not a reboot.
+- New: remote/pi-watch.sh runs on the Pi and streams the Mac's `dmesg -w` (no root needed,
+  dmesg_restrict 0) plus a ping log to ~/deepidle/watch/, reconnecting across suspend and reboots
+  without duplicate lines (tested). Every risky run from now on starts it first.
+- Pi access from the Mac: the ssh agent offered a "GitHub" key that waits for a confirmation and hung
+  ssh; new aliases core-node-wifi / core-node-ts use the Mac's own key with IdentitiesOnly and no agent.
