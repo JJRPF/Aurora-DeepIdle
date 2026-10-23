@@ -1293,6 +1293,38 @@ callbacks. Order of work: PMP wake fix and the SMC handshake can be built and
 tested in s2idle now; AIC save/restore is a self-contained driver change;
 m1n1 `SYSTEM_SUSPEND` and `CPU_OFF` come next; the PMGR steps need E3's trace.
 
+### S2R entry on this boot chain (2026-10-22)
+
+How PSCI-via-EFI works (m1n1 branch `psci-via-efi`, `src/psci.c`,
+`rust/src/efi.rs`): m1n1 stays resident and publishes a
+`LINUX_EFI_ARM_PSCI_HANDLER_TABLE` EFI configuration table, a version, a
+feature list and a plain function pointer. The kernel calls that pointer at
+its own exception level (EL2 here), with no SMC or HVC conduit, which is the
+only way to have a PSCI provider on a machine with no EL3 and Linux at EL2.
+Two consequences for this machine:
+
+* **Neither kernel tree carries the kernel side** of the RFC (6 patches,
+  2026-07). It would have to be applied first.
+* **The m1n1 side only works when m1n1 starts the kernel itself.** Its
+  `psci=direct` mode builds a minimal EFI system table with runtime services;
+  the branch notes it "will break when another second stage loader like e.g.
+  u-boot is used". The owner's chain is m1n1, U-Boot, GRUB, Linux.
+
+Three ways to get the S2R entry and the boot CPU's hand-back:
+
+| Route | What changes | Cost |
+|---|---|---|
+| A. `psci=direct` for test boots only | A test `boot.bin` (Aura with PSCI, CPU_OFF and SYSTEM_SUSPEND added) loads the kernel directly; the harness's one-boot `boot.bin` swap already does this kind of thing | No GRUB menu on that boot (the restore service puts the stock `boot.bin` back); kernel side of the RFC needed |
+| B. U-Boot passes m1n1's table on | U-Boot installs the table as an EFI config table and keeps m1n1's region reserved and mapped at runtime | A U-Boot change; keeps GRUB and the fallback kernels; the daily-use route |
+| C. No PSCI: an Apple suspend op | Linux writes its resume address to a page m1n1 checks on a primary RVBAR entry | Still needs the secondaries offline, and spin-table has no `cpu_die`, so it needs CPU_OFF anyway: not simpler than A |
+
+Recommendation: A for the experiments, B only once A shows a wake that
+returns to Linux. Before either, E3 (above) answers whether a raw-booted
+T6020 wakes through the boot CPU's RVBAR at all. E3 needed a second machine
+as the USB proxy host: the Raspberry Pi 5 is now set up for that
+(`docs/pi-handoff.md`, Aura proxyclient and udev rules installed). It still
+needs the owner at the machine for the power key.
+
 ## Unblocking deep sleep: what to trace with macOS under m1n1 hv
 
 1. **The CYC_OVRD veto.** m1n1 refuses a guest CYC_OVRD write with
