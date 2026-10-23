@@ -108,7 +108,7 @@ The harness scripts write their own logs under `~/Work/deepidle-harness/*/logs` 
 
 ## Next work
 
-In order, from "S2R: what is missing, piece by piece":
+In order, from "S2R: what is missing, piece by piece". The phased plan, with what needs the owner and how the Pi can take that over, is `docs/s2r-plan.md`:
 
 1. **Done, 2026-10-22/23:** the SMC handshake (`WKTP`, `slpw` harmless; `slpa` takes the storage down) and the PMP `_runCPU` wake (fails: the macOS wake from IDLE is a power cycle of `ps_pmp`/`ps_pms_sram` with a DART restore). See the research doc. Start `harness/remote/pi-watch.sh` on the Pi before any risky run, so the kernel log survives the Mac.
 1. **PMP power-cycle wake** (design first; owner present).

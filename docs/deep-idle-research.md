@@ -1250,7 +1250,8 @@ Not checked yet: whether the PMU alarm can power the machine on from off
 ## S2R: what is missing, piece by piece (2026-10-19)
 
 Everything macOS does to sleep the SoC (13.5 static analysis, issues #3 and
-#5), against what Linux and m1n1 have today on this machine:
+#5), against what Linux and m1n1 have today on this machine. The plan built
+on this table is `s2r-plan.md`.
 
 | Piece | macOS | Linux / m1n1 today | Gap |
 |---|---|---|---|
