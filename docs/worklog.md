@@ -699,3 +699,45 @@ Nothing here installs, reboots, or writes hardware registers. Times are local.
   without duplicate lines (tested). Every risky run from now on starts it first.
 - Pi access from the Mac: the ssh agent offered a "GitHub" key that waits for a confirmation and hung
   ssh; new aliases core-node-wifi / core-node-ts use the Mac's own key with IdentitiesOnly and no agent.
+
+## 2026-10-23 07:53-08:10: PMP wake test (_runCPU wake), unattended boot: 0/3, and why
+- Armed (pmp-wake/arm.sh), Pi watcher started (pi-watch.sh, tag pmpwake), rebooted via reboot.sh with
+  the headless hook: screens stayed off (headless-boot.log 07:54:52), the session resumed. Boot:
+  deepidle3 + boot.bin.pmpwake-test; early unit put stock boot.bin 3630adc3 back, next_entry unset.
+  Disarmed after (arm.sh remove: units gone, ESP stock). The Pi caught both boots and every line.
+- run.sh 3 (results-pmpwake-20261023-0756, pmp-wake-20261023-0756.txt; kernel timestamps from the Pi's
+  copy, pi-watch-20261023-pmpwake.kmsg): cycle 1: AP and IOP IDLE acked (0x20 -> 0x201), "CPU stopped
+  (0 ms to idle)" (CPU_STATUS & 3 already set), "PMP idle in 501 us"; on wake RUN set, 10 ms, then
+  AP ON: no ack for 1 s (157.964 -> 158.984, ETIME from the AP-ack wait); INIT fallback: no IOP ack for
+  1 s, "wake failed (-62)". Cycles 2, 3: "idle failed (-62)". Every wake on IRQ 124; the system itself
+  was fine, the backup waker never fired. Result 0/3: the PMP never ran again after the stop.
+- Read after (mmio/pmp-asc.sh, read only): CPU_CONTROL 0x10 (RUN set), CPU_STATUS 0x8 (& 3 = 0);
+  A2I_CONTROL 0x00401501: inbox not empty, 4 messages queued (AP ON, INIT, the two IDLE requests) and
+  the IOP inbox interrupt enabled (bit 0, macOS _getKICInboxEnabled); I2A_CONTROL 0x00021101: outbox
+  enabled, empty. So the firmware is not reading its inbox at all: the CPU did not resume running it.
+- macOS, read again (13.5 a7iop.s, RTBuddy disassembled now): RTBuddy states 0..3 request IOP 0x201,
+  0x220, 0x202, 0x0 (table at 0xfffffe0007886c18); wake = startCPUWithOptions(fw, prev == 3) and INIT
+  (wakeQuiesced) only from state 3. AppleA7IOP::stopCPU = _enableOutbox(0) (I2A_CONTROL bit 0),
+  enableMailboxInterrupts(0), poll _isIdle, _runCPU(0), _unmapFirmware, _setMapperActive(0) (DART),
+  _disablePower. startCPUWithOptions = _enablePowerLate, _setMapperActive(1), _mapFirmware (pre-loaded
+  fw: _dartMapiBootFirmware), mailbox interrupt setup (no-ops on V4), _enableOutbox(1),
+  _syncIOPTimebase only with `force-timebase-sync`, _runCPU(1). _runCPU writes only CPU_CONTROL bit 4
+  for the PMP (the second CSR is used only with `auto-boot`, absent). _disablePower gates the node's
+  power-gates unless `ignore-gating` (absent): ADT pmp power-gates [73, 74] = PMGR devices PMP (ps 0x2c8
+  = Linux ps_pmp) and PMS_SRAM (0x2d0 = ps_pms_sram), both not critical. `no-shutdown` on the RTBuddy
+  nub is read only by systemWillShutdown: not sleep.
+- So on macOS the wake from IDLE is a power cycle of the PMP: its context is saved by the IDLE
+  transition, power is removed, power comes back, DART is restored, RUN. Linux kept ps_pmp on (DT
+  apple,always-on) and only toggled RUN; that leaves the IOP unable to run. Both Linux tries so far
+  (deepidle2: IDLE + INIT; now: IDLE + stop + RUN) end the same way.
+- PMGR now (mmio/pmp-ps.sh, read only): ps_pmp 0x1f0f03ff (target/actual 0xf, PS_MIN 0xf, auto
+  enable, was-clk/pwr-gated set), ps_pms_sram 0x1f0003ff (PS_MIN 0). PS_MIN 0xf on ps_pmp means the
+  domain cannot go below on until that field is lowered; pmp_dart lives in ps_pmp, so its registers
+  would need the DART save/restore Linux has for system sleep.
+- Next for the PMP (design, not run): after IDLE + stop, unmap and stop the DART (apple-dart suspend),
+  gate ps_pmp (+ ps_pms_sram?) the way genpd would, ungate, restore the DART, RUN, wait for the IOP's
+  own state report. Open questions first: does PMS_SRAM hold the pre-loaded firmware (1 MiB at
+  0x28e700000) and keep it while gated, and what sets ps_pmp's PS_MIN (iBoot?). Not to be tried
+  without the owner present: the PMP is the SoC's power manager.
+- The Pi's Wi-Fi link stalls on bulk transfers (scp hung, plain cat cut at 327/1588 lines); gzip over
+  the Tailscale alias got the full 4019 lines.

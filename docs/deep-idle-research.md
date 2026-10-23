@@ -1256,7 +1256,7 @@ Everything macOS does to sleep the SoC (13.5 static analysis, issues #3 and
 |---|---|---|---|
 | Timed wake | PMU RTC alarm, `NUB.SPMI0Sw3IRQ` | **done** in deepidle3: macsmc-rtc alarm, SPMI irq 2 on AIC 724, wakes s2idle | upstreamable shape; PMU power-on from off untested |
 | Devices | every driver's sleep action | s2idle suspend callbacks | S2R removes power: drivers must resume from power loss. DCP says it cannot ("we do not support full shutdown properly yet"); PCIe, NVMe, Wi-Fi unproven |
-| PMP | RTKit AP IDLE `0x201`, wake by CPU_CONTROL RUN | deepidle2 hook: IDLE works, wake wrong | the `_runCPU` wake (designed, not built) |
+| PMP | RTKit AP IDLE `0x201`; then stop CPU, DART off, power gates PMP and PMS_SRAM off; wake: gates on, DART on, RUN | deepidle2 (INIT wake) and deepidle3 pmp.ko (RUN-only wake): IDLE works, the IOP never runs again | the power cycle of `ps_pmp` with the DART restore (below) |
 | SMC | `MBSE` `slpw`/`slpa`/`waka`, `WKTP` = 2, `MBSW` wake reason | deepidle3 macsmc-reboot.ko sends it in s2idle (`s2idle_steps`) | `WKTP`, `slpw`: harmless, wake normal. `slpa`: the SMC takes the storage away, NVMe I/O fails after resume, root goes read-only, a warm reboot does not clear it; `slpa` only belongs on the real S2R path |
 | AIC | save and mask all banks, restore on wake | no suspend/resume in irq-apple-aic | save/restore (layout known: AIC2 0x6400/0x6600, die stride 0x4a00) |
 | PMGR | `quiesceHW`, S2R timer (`MPMGR_AON` + 0x4000), `restoreHW` (0xc000 bit 31, PLL relock) | `MPMGR_AON` not in the Linux DT or m1n1 | everything; note the S2R-timer word already reads 1 on Linux (meaning unknown) |
@@ -1352,6 +1352,43 @@ quiesced. The way back is the SMC's own wake sequence, not a `waka` from a
 kernel that never stopped. `WKTP` and `slpw` can go in early. Any further
 `slpa` test needs the Mac's kernel log streamed off the machine (the Pi's
 `harness/remote/pi-watch.sh`) and the owner at the power key.
+
+### The PMP wake from IDLE is a power cycle (tested 2026-10-23)
+
+deepidle3's `pmp.ko` tried the wake read from `AppleA7IOP` earlier: after
+the IDLE ack, poll `CPU_STATUS` and clear RUN; on wake set RUN, wait 10 ms,
+then AP ON (INIT as the fallback). Unattended boot, 3 cycles, kernel log
+kept on the Pi: IDLE was acked and the CPU stopped at once, but after RUN
+the PMP answered nothing (AP ON and INIT both timed out after 1 s) and every
+later IDLE request failed: 0 of 3. Read afterwards: RUN set, `CPU_STATUS`
+0x8, four messages waiting unread in the IOP's inbox with its inbox
+interrupt enabled, the outbox empty. The firmware never ran again.
+
+A second reading of macOS explains it. `AppleA7IOP::stopCPU` does more than
+clear RUN: it disables the outbox, waits for idle, clears RUN, unmaps the
+firmware, turns the IOP's DART off (`_setMapperActive(false)`) and calls
+`_disablePower`, which gates the node's `power-gates` unless the node has
+`ignore-gating`. For the PMP those are ADT devices 73 and 74: the PMGR
+domains **PMP** (Linux `ps_pmp`) and **PMS_SRAM** (`ps_pms_sram`).
+`startCPUWithOptions` reverses each step: power on, DART on, firmware
+mapped, outbox on, RUN. RTBuddy sends INIT only when waking from OFF
+(state 3, IOP `0x0`), never from IDLE. So IDLE means "context saved, power
+may go", and the wake is a power-on, not a resume. Linux keeps `ps_pmp`
+always-on and only toggled RUN, which leaves the IOP unable to run.
+
+`no-shutdown` on the PMP's RTBuddy nub is read only by
+`systemWillShutdown`, not on the sleep path. `_runCPU` writes only
+`CPU_CONTROL` bit 4 here (its second register needs `auto-boot`), and the
+IOP timebase is synced only with `force-timebase-sync`; the PMP has
+neither.
+
+Next (design, not run): IDLE, stop, then the DART suspend and a gate of
+`ps_pmp` (and possibly `ps_pms_sram`); on wake the reverse, then RUN and
+wait for the IOP's own state report. Before that: `ps_pmp` has its minimum
+power state field at 0xf (someone, probably iBoot, pinned it on), and it is
+not known whether PMS_SRAM holds the pre-loaded firmware and keeps it while
+gated. The PMP is the SoC's power manager, so this needs the owner at the
+machine.
 
 ## Unblocking deep sleep: what to trace with macOS under m1n1 hv
 

@@ -110,7 +110,8 @@ The harness scripts write their own logs under `~/Work/deepidle-harness/*/logs` 
 
 In order, from "S2R: what is missing, piece by piece":
 
-1. **PMP `_runCPU` wake fix and the SMC slpw/slpa/waka handshake.** Both are tested in s2idle with the PMU alarm (`rtcwake -m freeze`, deepidle3 kernel and its DTB), with no one at the machine.
+1. **Done, 2026-10-22/23:** the SMC handshake (`WKTP`, `slpw` harmless; `slpa` takes the storage down) and the PMP `_runCPU` wake (fails: the macOS wake from IDLE is a power cycle of `ps_pmp`/`ps_pms_sram` with a DART restore). See the research doc. Start `harness/remote/pi-watch.sh` on the Pi before any risky run, so the kernel log survives the Mac.
+1. **PMP power-cycle wake** (design first; owner present).
 2. **AIC save/restore** across suspend.
 3. **PSCI `SYSTEM_SUSPEND` and `CPU_OFF`, built on Aura.** Use the psci-via-efi branch as a reference only.
 4. **PMGR sleep steps.** These need the hypervisor trace of macOS (above), once the CYC_OVRD block is dealt with.
