@@ -640,3 +640,23 @@ Nothing here installs, reboots, or writes hardware registers. Times are local.
   config table (LINUX_EFI_ARM_PSCI_HANDLER_TABLE), same EL, no SMC/HVC. Neither kernel tree has the
   kernel side of Sven Peter's RFC, and the m1n1 side ("psci=direct") only works when m1n1 loads
   the kernel itself, with no U-Boot; this boot chain uses U-Boot + GRUB.
+
+## 2026-10-22 late: the PMP test needs its own boot image (built), and a one-boot arm
+- Found before any run: the PMP node is `status = "disabled"` in the DT deepidle3 boots with
+  (rtcalarm2 boot.bin), so insmod pmp.ko alone would find no device. run.sh now refuses unless the
+  node is okay. The PMP needs m1n1-pmpfix.bin (5d4c3553: copies the PMP tunables, sets okay) and the
+  `pmp` alias.
+- boot.bin.pmpwake-test 2c710fe4e8d91600 = m1n1-pmpfix.bin + the rtcalarm2 image's 113 DTBs with #31
+  = the deepidle3 build's t6020-j414s.dtb plus only `aliases { pmp = &pmp; }` + the same U-Boot tail.
+  Checked: the kernel's cpp+dtc recipe reproduces the build DTB byte for byte; decompiled diff of the
+  new one = that one line; split back: m1n1 = pmpfix, #31 = new, the other 112 DTBs and the tail =
+  rtcalarm2 (and = pmpfix-test). Recipe: harness/pmp-wake/t6020-j414s-rtc-pmp.dts,
+  harness/tools/bootbin-split.py.
+- harness/pmp-wake/arm.sh (root): checks ESP stock, installs two one-boot units (di-pmpwake-early runs
+  deepidle3-early.sh: stock boot.bin back, next_entry unset; di-pmpwake-run: +120 s, boot-run.sh checks
+  the booted image and runs run.sh 3), arms the flag, writes the test image, next_entry=deepidle3.
+  `arm.sh remove` undoes it; teardown.sh removes the units. harness/reboot.sh then reboots with the
+  session resume armed and the headless hook checked.
+- Morning order once the sudo rule is in: (1) sudo bash sudo/install.sh (owner); (2) smc-sleep/run.sh 1,
+  then 3, on the running kernel; (3) pmp-wake/arm.sh + reboot.sh, unattended; (4) smc-sleep 7 with the
+  owner present.

@@ -10,6 +10,8 @@ rm -f /etc/systemd/system.conf.d/90-deepidle-watchdog.conf
 rm -f /etc/modprobe.d/deepidle-no-pmp.conf
 rm -f /var/lib/deepidle/plan /var/lib/deepidle/boot.bin.stock
 rm -rf /usr/local/lib/deepidle
+systemctl disable di-pmpwake-early.service di-pmpwake-run.service 2>/dev/null
+rm -f /etc/systemd/system/di-pmpwake-early.service /etc/systemd/system/di-pmpwake-run.service /var/lib/deepidle/pmpwake-armed
 rm -f /etc/sudoers.d/90-deepidle-harness   # the harness-only passwordless sudo rule
 # The test kernel: GRUB entries, image, initramfs, modules.
 rm -f /etc/grub.d/43_deepidle /boot/vmlinuz-deepidle-test /boot/initramfs-deepidle-test.img
