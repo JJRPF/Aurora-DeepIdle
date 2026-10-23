@@ -620,3 +620,23 @@ Nothing here installs, reboots, or writes hardware registers. Times are local.
 - Build note: building a single module target (make ... drivers/x/y.ko) rewrites Module.symvers with
   that module only, and the next single-target build then fails modpost; `make modules` fixes it
   and only relinks what changed.
+
+## 2026-10-22 Screens stay off across reboots; agent stays on the Mac
+- Owner: keep Claude on the Mac (no Claude on the Pi), and until told otherwise turn the agent
+  headless mode (jjr.headless / omarchy-headless) back on after every reboot.
+- harness/headless/headless-boot.sh as ~/.local/bin/deepidle-headless-boot, from Hyprland autostart,
+  while ~/.local/state/deepidle/headless-on-boot exists. A reboot keeps headless's `active` flag
+  but kills its keeper and inhibitor, so `omarchy-headless on` alone would only say "already on":
+  the hook clears that stale state first. Tested on the live state (no change) and in a sandbox
+  (stale state cleared, `on` called; nothing when the enable file is gone). teardown.sh removes it.
+- Still lit after a reboot: m1n1, GRUB and the kernel console until Hyprland starts (about a minute),
+  and the plugin plays its "enter" sound. Headless also selects power-saver: power numbers taken
+  under it need saying so.
+- AIC save/restore written and compile-tested (W=1 clean): kernel worktree 1ac4376377c6,
+  patches/aic-syscore-save-restore.patch. syscore ops: save AIC2_CONFIG + every IRQ_CFG, mask all;
+  on resume rewrite them and unmask from the IRQ core's own mask state. Inert today: s2idle never
+  calls syscore ops. Kept out of the deepidle3 build source.
+- PSCI-via-EFI reading: Linux calls m1n1's resident handler through a function pointer in an EFI
+  config table (LINUX_EFI_ARM_PSCI_HANDLER_TABLE), same EL, no SMC/HVC. Neither kernel tree has the
+  kernel side of Sven Peter's RFC, and the m1n1 side ("psci=direct") only works when m1n1 loads
+  the kernel itself, with no U-Boot; this boot chain uses U-Boot + GRUB.
