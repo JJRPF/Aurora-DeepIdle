@@ -577,3 +577,20 @@ Nothing here installs, reboots, or writes hardware registers. Times are local.
 - Aura proxy on the Pi: python3-construct installed (pyserial was there), Aura cloned from the Mac's
   read-only clone into ~/deepidle/aura (362ae4f0), udev/80-aura.rules in /etc/udev/rules.d, user in dialout.
   proxyclient imports; it stops only at /dev/aura missing (no cable, Mac not in proxy mode).
+
+## 2026-10-22 Harness-only passwordless sudo, no expiry (ready, needs the owner once)
+- Why sudo stopped: `omarchy-sudo-passwordless` (Omarchy 4.0.3rc4) writes 99-omarchy-nopasswd-jjr with
+  NOPASSWD: ALL and a systemd timer that deletes it after N minutes (default 15); it also deletes the file
+  whenever its timer is not running (after a reboot). Run 2026-10-21 19:30, expired 19:45.
+- Owner chose: harness only, no time limit. harness/sudo/90-deepidle-harness, a separate file the
+  Omarchy tool never touches. Regex args (sudo 1.9.17): bash on harness *.sh, python3 -I on harness *.py,
+  systemd-run --unit=di-* of a harness script, reboot (now or delayed unit), dmesg (no -H), journalctl
+  --no-pager. Path components must start with [A-Za-z0-9_-], so .. and dotfiles never match.
+- Limit, stated to the owner: the harness tree and what it installs (kernels, modules, boot images,
+  insmod .ko) are jjr-writable, so this stops accidents and generic sudo abuse, not code aimed at the
+  harness. Ad-hoc root reads (debugfs, i2ctransfer) now go in harness scripts.
+- install.sh validates with visudo, installs 0440 atomically, rechecks all of sudoers, then self-tests
+  by running harmless commands as jjr with sudo -n -k (sudo -l cannot tell NOPASSWD from password
+  rules, and -k ignores the password just typed). teardown.sh removes the rule. mac-ready.sh now checks
+  the rule by running sudo/selftest.sh.
+- Owner, once:  sudo bash ~/Work/deepidle-harness/sudo/install.sh
