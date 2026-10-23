@@ -1,0 +1,28 @@
+# Deep idle testing: passwordless sudo for the harness only, for jjr. No expiry; removed by
+# teardown.sh or `sudo bash ~/Work/deepidle-harness/sudo/install.sh remove`.
+# Paths are matched by regular expression (sudo >= 1.9.10): each path component must start with
+# a letter, digit, _ or -, so "..", hidden files and paths outside the harness never match.
+# Limit: the harness tree and the files it installs (kernels, modules, boot images) are writable
+# by jjr, so this guards against accidents and generic sudo abuse, not against code that targets
+# the harness itself.
+# Anything else (ad-hoc reads included) still asks for the password; put such reads in a harness
+# script instead.
+
+# sudo bash /home/jjr/Work/deepidle-harness/<path>.sh [args]
+Cmnd_Alias DI_BASH = /usr/bin/bash ^/home/jjr/Work/deepidle-harness/([A-Za-z0-9_-][A-Za-z0-9_.-]*/)*[A-Za-z0-9_-][A-Za-z0-9_.-]*\.sh( .*)?$
+
+# sudo python3 -I /home/jjr/Work/deepidle-harness/<path>.py [args]
+Cmnd_Alias DI_PY = /usr/bin/python3 ^-I /home/jjr/Work/deepidle-harness/([A-Za-z0-9_-][A-Za-z0-9_.-]*/)*[A-Za-z0-9_-][A-Za-z0-9_.-]*\.py( .*)?$
+
+# sudo systemd-run --unit=di-NAME [--collect] [--on-active=SECONDS] [bash |python3 -I ]<harness script> [args]
+Cmnd_Alias DI_UNIT = /usr/bin/systemd-run ^--unit\=di-[A-Za-z0-9_-]+( --collect)?( --on-active\=[0-9]+)? (/usr/bin/bash |/usr/bin/python3 -I )?/home/jjr/Work/deepidle-harness/([A-Za-z0-9_-][A-Za-z0-9_.-]*/)*[A-Za-z0-9_-][A-Za-z0-9_.-]*\.(sh|py)( .*)?$
+
+# Reboot now, or as a delayed unit (so an SSH session can end cleanly first)
+Cmnd_Alias DI_REBOOT = /usr/bin/systemctl reboot, \
+    /usr/bin/systemd-run ^--unit\=di-[A-Za-z0-9_-]+ --on-active\=[0-9]+ /usr/bin/systemctl reboot$
+
+# Read-only logs. No pager: dmesg -H and a paged journalctl would open less, which can run a shell.
+Cmnd_Alias DI_LOGS = /usr/bin/dmesg "", /usr/bin/dmesg ^-[Tkx]+$, \
+    /usr/bin/journalctl ^--no-pager( .*)?$
+
+jjr ALL=(root) NOPASSWD: DI_BASH, DI_PY, DI_UNIT, DI_REBOOT, DI_LOGS
