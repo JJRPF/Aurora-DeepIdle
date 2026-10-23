@@ -1,0 +1,145 @@
+--- a/drivers/power/reset/macsmc-reboot.c
++++ b/drivers/power/reset/macsmc-reboot.c
+@@ -13,6 +13,7 @@
+ #include <linux/platform_device.h>
+ #include <linux/reboot.h>
+ #include <linux/slab.h>
++#include <linux/suspend.h>
+ 
+ struct macsmc_reboot_nvmem {
+ 	struct nvmem_cell *shutdown_flag;
+@@ -43,8 +44,28 @@
+ 		struct macsmc_reboot_nvmem nvm;
+ 		struct nvmem_cell *nvm_cells[ARRAY_SIZE(nvmem_names)];
+ 	};
++
++	/* s2idle handshake steps in force for the current suspend, and whether slpa went out */
++	unsigned int sleep_steps;
++	bool slpa_sent;
+ };
+ 
++/*
++ * s2idle handshake with the SMC, the steps macOS 13.5 takes for system sleep (AppleSMC and
++ * AppleSMCPMU): WKTP = 2 when the SMC device powers down, MBSE = slpw as the system leaves
++ * full capability, MBSE = slpa as the last sleep step; on wake read MBSE and MBSW (the wake
++ * source), then MBSE = waka and WKTP = 0. macOS then takes the SoC down; in s2idle it stays
++ * up, and what the SMC does then is unknown. So nothing is sent unless enabled in this bit
++ * mask, and only for s2idle: 1 = WKTP, 2 = slpw, 4 = slpa and waka.
++ */
++#define MACSMC_SLEEP_WKTP	BIT(0)
++#define MACSMC_SLEEP_SLPW	BIT(1)
++#define MACSMC_SLEEP_SLPA	BIT(2)
++
++static unsigned int s2idle_steps;
++module_param(s2idle_steps, uint, 0644);
++MODULE_PARM_DESC(s2idle_steps, "SMC sleep handshake in s2idle, bit mask: 1 WKTP, 2 slpw, 4 slpa/waka (default 0, off)");
++
+ /* Helpers to read/write a u8 given a struct nvmem_cell */
+ static int nvmem_cell_get_u8(struct nvmem_cell *cell)
+ {
+@@ -278,6 +299,97 @@
+ 	return 0;
+ }
+ 
++static int macsmc_reboot_pm_prepare(struct device *dev)
++{
++	struct macsmc_reboot *reboot = dev_get_drvdata(dev);
++	int ret;
++
++	reboot->slpa_sent = false;
++	reboot->sleep_steps = pm_suspend_target_state == PM_SUSPEND_TO_IDLE ?
++			      READ_ONCE(s2idle_steps) : 0;
++	if (reboot->sleep_steps & MACSMC_SLEEP_SLPW) {
++		ret = apple_smc_write_u32(reboot->smc, SMC_KEY(MBSE), SMC_KEY(slpw));
++		dev_info(dev, "s2idle: MBSE = slpw (%d)\n", ret);
++	}
++	return 0;
++}
++
++static int macsmc_reboot_pm_suspend(struct device *dev)
++{
++	struct macsmc_reboot *reboot = dev_get_drvdata(dev);
++	int ret;
++
++	if (reboot->sleep_steps & MACSMC_SLEEP_WKTP) {
++		ret = apple_smc_write_u8(reboot->smc, SMC_KEY(WKTP), 2);
++		dev_info(dev, "s2idle: WKTP = 2 (%d)\n", ret);
++	}
++	return 0;
++}
++
++/*
++ * As late as a device callback with the SMC mailbox interrupt still on: macOS sends slpa from
++ * a platform sleep action, after every driver. The atomic SMC write cannot be used in noirq:
++ * its mode is one way, for power off.
++ */
++static int macsmc_reboot_pm_suspend_late(struct device *dev)
++{
++	struct macsmc_reboot *reboot = dev_get_drvdata(dev);
++	int ret;
++
++	if (reboot->sleep_steps & MACSMC_SLEEP_SLPA) {
++		ret = apple_smc_write_u32(reboot->smc, SMC_KEY(MBSE), SMC_KEY(slpa));
++		reboot->slpa_sent = ret >= 0;
++		dev_info(dev, "s2idle: MBSE = slpa (%d)\n", ret);
++	}
++	return 0;
++}
++
++static int macsmc_reboot_pm_resume_early(struct device *dev)
++{
++	struct macsmc_reboot *reboot = dev_get_drvdata(dev);
++	u32 mbse = 0;
++	u8 mbsw[8] = {};
++	int r1, r2, ret;
++
++	if (!reboot->slpa_sent)
++		return 0;
++	reboot->slpa_sent = false;
++	r1 = apple_smc_read_u32(reboot->smc, SMC_KEY(MBSE), &mbse);
++	r2 = apple_smc_read(reboot->smc, SMC_KEY(MBSW), mbsw, sizeof(mbsw));
++	ret = apple_smc_write_u32(reboot->smc, SMC_KEY(MBSE), SMC_KEY(waka));
++	dev_info(dev, "s2idle: wake MBSE %08x (%d), MBSW %8phN (%d); MBSE = waka (%d)\n",
++		 mbse, r1, mbsw, r2, ret);
++	return 0;
++}
++
++static int macsmc_reboot_pm_resume(struct device *dev)
++{
++	struct macsmc_reboot *reboot = dev_get_drvdata(dev);
++	int ret;
++
++	if (reboot->sleep_steps & MACSMC_SLEEP_WKTP) {
++		ret = apple_smc_write_u8(reboot->smc, SMC_KEY(WKTP), 0);
++		dev_info(dev, "s2idle: WKTP = 0 (%d)\n", ret);
++	}
++	return 0;
++}
++
++static void macsmc_reboot_pm_complete(struct device *dev)
++{
++	struct macsmc_reboot *reboot = dev_get_drvdata(dev);
++
++	reboot->sleep_steps = 0;
++}
++
++static const struct dev_pm_ops macsmc_reboot_pm_ops = {
++	.prepare = macsmc_reboot_pm_prepare,
++	.suspend = macsmc_reboot_pm_suspend,
++	.suspend_late = macsmc_reboot_pm_suspend_late,
++	.resume_early = macsmc_reboot_pm_resume_early,
++	.resume = macsmc_reboot_pm_resume,
++	.complete = macsmc_reboot_pm_complete,
++};
++
+ static const struct of_device_id macsmc_reboot_of_table[] = {
+ 	{ .compatible = "apple,smc-reboot", },
+ 	{}
+@@ -288,6 +400,7 @@
+ 	.driver = {
+ 		.name = "macsmc-reboot",
+ 		.of_match_table = macsmc_reboot_of_table,
++		.pm = pm_sleep_ptr(&macsmc_reboot_pm_ops),
+ 	},
+ 	.probe = macsmc_reboot_probe,
+ };
