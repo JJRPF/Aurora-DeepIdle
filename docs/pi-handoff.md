@@ -33,7 +33,7 @@ The Pi session starts fresh: this session's transcript is not carried over. Read
 
 ## Connecting
 
-The Mac runs sshd with key logins only (no passwords). User `jjr` has passwordless `sudo` (`/etc/sudoers.d/99-omarchy-nopasswd-jjr`). **The Pi's key therefore gives root on the Mac.** So:
+The Mac runs sshd with key logins only (no passwords). User `jjr` had passwordless `sudo` (`/etc/sudoers.d/99-omarchy-nopasswd-jjr`); as of 2026-10-22 `sudo -n` asks for a password again, so harness steps that need root wait on the owner. While passwordless sudo is on, **the Pi's key gives root on the Mac.** So:
 
 - Give the Pi its own key (`ssh-keygen -t ed25519`), used for nothing else.
 - On the Mac, put a `from=` restriction on that key in `~/.ssh/authorized_keys`, naming the Pi's address. Keep it off the internet-facing side.
@@ -48,7 +48,9 @@ Host mac
     ServerAliveCountMax 4
 ```
 
-Then run `harness/remote/mac-ready.sh` on the Pi. It reads only, and checks:
+Done on 2026-10-22: the Pi's key is `~/.ssh/id_ed25519_mac`, restricted with `from=` to its Tailscale and Wi-Fi addresses. Its config has `mac` (the Mac's Tailscale address, the same whichever link the Pi uses) and `mac-lan` (`omarchy-mac.local`). If the Pi moves to Ethernet and uses `mac-lan`, add that address to `from=`.
+
+Then run `harness/remote/mac-ready.sh` on the Pi (a copy is in `~/deepidle/` there). It reads only, and checks:
 
 - the key login;
 - `sudo -n`;
@@ -74,7 +76,7 @@ The harness scripts write their own logs under `~/Work/deepidle-harness/*/logs` 
 ## USB: Aura proxy mode
 
 - **Cable:** a USB-A (Pi host port) to USB-C data cable. Check in the Aura/m1n1 docs which J414s port m1n1's USB device works on before relying on one.
-- **Pi setup:** Aura's `proxyclient` needs Python with `pyserial` and `construct`. Install its `udev/` rules; the Mac then shows up as `/dev/aura` (old names kept), with a second port for the hypervisor's virtual UART. Set `M1N1DEVICE` to the first port.
+- **Pi setup:** Aura's `proxyclient` needs Python with `pyserial` and `construct`. Install its `udev/` rules; the Mac then shows up as `/dev/aura` (old names kept), with a second port for the hypervisor's virtual UART. Set `M1N1DEVICE` to the first port. Done on 2026-10-22: Aura is cloned at `~/deepidle/aura` on the Pi, the rules are installed and the user is in `dialout`.
 - **Loading Aura:** **chainload it, never install it** as the Mac's stage 2. Aura 0.1.0 does not claim J414s testing.
 - **Normal boot stays as it is:** the installed `boot.bin` on the ESP stays the owner's stock image.
 - **Hypervisor trace scripts:** `proxyclient/hv/trace_pmgr.py`, `trace_smc.py`, `trace_spmi.py`, `trace_pmp.py`, `trace_aop.py`.
