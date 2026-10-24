@@ -1,6 +1,6 @@
 # Driving the Mac from a Raspberry Pi 5
 
-The deep idle work moves its agent session to a Raspberry Pi 5, so that reboots, hangs and suspends of the Mac (J414s, M2 Pro, T6020) no longer end the session. The Pi controls the Mac in two ways:
+The deep idle work moves its agent session to a Raspberry Pi 5, so that reboots, hangs and suspends of the Mac (J414s, M2 Pro, T6020) no longer end the session. **As of 2026-10-22 the agent stays on the Mac** (the Pi has no Claude yet); the Pi is a controller reached from the Mac, and the plan below applies once a session runs there. The Pi controls the Mac in two ways:
 
 - **SSH**, while Linux runs on the Mac and its network is up.
 - **USB**, while the Mac waits in Aura (Aurora Silicon's m1n1 fork) proxy mode. That gives the proxy client, chainloading and the hypervisor with its trace scripts.
@@ -33,7 +33,7 @@ The Pi session starts fresh: this session's transcript is not carried over. Read
 
 ## Connecting
 
-The Mac runs sshd with key logins only (no passwords). User `jjr` has passwordless `sudo` (`/etc/sudoers.d/99-omarchy-nopasswd-jjr`). **The Pi's key therefore gives root on the Mac.** So:
+The Mac runs sshd with key logins only (no passwords). User `jjr` had passwordless `sudo` (`/etc/sudoers.d/99-omarchy-nopasswd-jjr`); as of 2026-10-22 `sudo -n` asks for a password again, so harness steps that need root wait on the owner. While passwordless sudo is on, **the Pi's key gives root on the Mac.** So:
 
 - Give the Pi its own key (`ssh-keygen -t ed25519`), used for nothing else.
 - On the Mac, put a `from=` restriction on that key in `~/.ssh/authorized_keys`, naming the Pi's address. Keep it off the internet-facing side.
@@ -48,7 +48,9 @@ Host mac
     ServerAliveCountMax 4
 ```
 
-Then run `harness/remote/mac-ready.sh` on the Pi. It reads only, and checks:
+Done on 2026-10-22: the Pi's key is `~/.ssh/id_ed25519_mac`, restricted with `from=` to its Tailscale and Wi-Fi addresses. Its config has `mac` (the Mac's Tailscale address, the same whichever link the Pi uses) and `mac-lan` (`omarchy-mac.local`). If the Pi moves to Ethernet and uses `mac-lan`, add that address to `from=`.
+
+Then run `harness/remote/mac-ready.sh` on the Pi (a copy is in `~/deepidle/` there). It reads only, and checks:
 
 - the key login;
 - `sudo -n`;
@@ -74,7 +76,7 @@ The harness scripts write their own logs under `~/Work/deepidle-harness/*/logs` 
 ## USB: Aura proxy mode
 
 - **Cable:** a USB-A (Pi host port) to USB-C data cable. Check in the Aura/m1n1 docs which J414s port m1n1's USB device works on before relying on one.
-- **Pi setup:** Aura's `proxyclient` needs Python with `pyserial` and `construct`. Install its `udev/` rules; the Mac then shows up as `/dev/aura` (old names kept), with a second port for the hypervisor's virtual UART. Set `M1N1DEVICE` to the first port.
+- **Pi setup:** Aura's `proxyclient` needs Python with `pyserial` and `construct`. Install its `udev/` rules; the Mac then shows up as `/dev/aura` (old names kept), with a second port for the hypervisor's virtual UART. Set `M1N1DEVICE` to the first port. Done on 2026-10-22: Aura is cloned at `~/deepidle/aura` on the Pi, the rules are installed and the user is in `dialout`.
 - **Loading Aura:** **chainload it, never install it** as the Mac's stage 2. Aura 0.1.0 does not claim J414s testing.
 - **Normal boot stays as it is:** the installed `boot.bin` on the ESP stays the owner's stock image.
 - **Hypervisor trace scripts:** `proxyclient/hv/trace_pmgr.py`, `trace_smc.py`, `trace_spmi.py`, `trace_pmp.py`, `trace_aop.py`.
@@ -106,9 +108,10 @@ The harness scripts write their own logs under `~/Work/deepidle-harness/*/logs` 
 
 ## Next work
 
-In order, from "S2R: what is missing, piece by piece":
+In order, from "S2R: what is missing, piece by piece". The phased plan, with what needs the owner and how the Pi can take that over, is `docs/s2r-plan.md`:
 
-1. **PMP `_runCPU` wake fix and the SMC slpw/slpa/waka handshake.** Both are tested in s2idle with the PMU alarm (`rtcwake -m freeze`, deepidle3 kernel and its DTB), with no one at the machine.
+1. **Done, 2026-10-22/23:** the SMC handshake (`WKTP`, `slpw` harmless; `slpa` takes the storage down) and the PMP `_runCPU` wake (fails: the macOS wake from IDLE is a power cycle of `ps_pmp`/`ps_pms_sram` with a DART restore). See the research doc. Start `harness/remote/pi-watch.sh` on the Pi before any risky run, so the kernel log survives the Mac.
+1. **PMP power-cycle wake** (design first; owner present).
 2. **AIC save/restore** across suspend.
 3. **PSCI `SYSTEM_SUSPEND` and `CPU_OFF`, built on Aura.** Use the psci-via-efi branch as a reference only.
 4. **PMGR sleep steps.** These need the hypervisor trace of macOS (above), once the CYC_OVRD block is dealt with.

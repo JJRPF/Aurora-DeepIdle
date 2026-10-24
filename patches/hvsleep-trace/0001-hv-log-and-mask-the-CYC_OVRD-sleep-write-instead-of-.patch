@@ -1,0 +1,65 @@
+From f0950d1824b0181b57765cfd51ccd49204887698 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Fri, 23 Oct 2026 23:48:21 -0400
+Subject: [PATCH] hv: log and mask the CYC_OVRD sleep write instead of refusing
+ it
+
+macOS sets DISABLE_WFI_RET and the FIQ mode bits on its way into system
+sleep. Refusing the write ends the hypervisor run there. For tracing the
+sleep path, drop only those bits, log the write once per change, and
+read back what the guest wrote.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AuzUDcEeRJQ6RCdWW2XWLb
+---
+ src/hv/hv_exc.c | 21 +++++++++++++++------
+ 1 file changed, 15 insertions(+), 6 deletions(-)
+
+diff --git a/src/hv/hv_exc.c b/src/hv/hv_exc.c
+index 7334ed17..7c4fa64f 100644
+--- a/src/hv/hv_exc.c
++++ b/src/hv/hv_exc.c
+@@ -24,6 +24,7 @@ struct hv_pcpu_data {
+     u64 pmc_irq_mode;
+     u64 exc_entry_pmcr0_cnt;
+     u64 mdscr;
++    u64 cyc_ovrd_masked;
+ } ALIGNED(64);
+ 
+ struct hv_pcpu_data pcpu[MAX_CPUS];
+@@ -324,18 +325,26 @@ static bool hv_handle_msr_unlocked(struct exc_info *ctx, u64 iss)
+         /*
+          * Handle this one here because m1n1/Linux (will) use it for explicit cpuidle.
+          * We can pass it through; going into deep sleep doesn't break the HV since we
+-         * don't do any wfis that assume otherwise in m1n1. However, don't het macOS
++         * don't do any wfis that assume otherwise in m1n1. However, don't let macOS
+          * disable WFI ret (when going into systemwide sleep), since that breaks things.
++         * For the sleep trace, log that write and drop only those bits instead of
++         * refusing it (which ends the run): macOS goes on down its sleep path with WFI
++         * still returning, and reads back the value it wrote.
+          */
+-        case SYSREG_ISS(SYS_IMP_APL_CYC_OVRD):
++        case SYSREG_ISS(SYS_IMP_APL_CYC_OVRD): {
++            const u64 sleep_bits = CYC_OVRD_DISABLE_WFI_RET | CYC_OVRD_FIQ_MODE_MASK;
+             if (is_read) {
+-                regs[rt] = mrs(SYS_IMP_APL_CYC_OVRD);
++                regs[rt] = mrs(SYS_IMP_APL_CYC_OVRD) | PERCPU(cyc_ovrd_masked);
+             } else {
+-                if (regs[rt] & (CYC_OVRD_DISABLE_WFI_RET | CYC_OVRD_FIQ_MODE_MASK))
+-                    return false;
+-                msr(SYS_IMP_APL_CYC_OVRD, regs[rt]);
++                u64 masked = regs[rt] & sleep_bits;
++                if (masked != PERCPU(cyc_ovrd_masked))
++                    printf("HV: CPU %ld CYC_OVRD <- 0x%lx at pc 0x%lx (masked 0x%lx)\n",
++                           mrs(TPIDR_EL2), regs[rt], ctx->elr, masked);
++                PERCPU(cyc_ovrd_masked) = masked;
++                msr(SYS_IMP_APL_CYC_OVRD, regs[rt] & ~sleep_bits);
+             }
+             return true;
++        }
+             /* clang-format off */
+         /* IPI handling */
+         SYSREG_PASS(SYS_IMP_APL_IPI_CR_EL1)
+-- 
+2.55.0
+

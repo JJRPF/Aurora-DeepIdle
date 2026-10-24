@@ -1,0 +1,11 @@
+now            ps_pmp 0x1f0f03ff (tf af) pms_sram 0x1f0003ff (tf af) RUN 1 STATUS 0x8 A2I 0x00401501 (n 4) I2A 0x00021101 (n 0)
+RUN cleared    ps_pmp 0x1f0f03ff (tf af) pms_sram 0x1f0003ff (tf af) RUN 0 STATUS 0x8 A2I 0x00401501 (n 4) I2A 0x00021101 (n 0)
+ps 0x2d0: actual 0 after 0.001 ms
+sram gated     ps_pmp 0x1f0f03ff (tf af) pms_sram 0x0f000300 (t0 a0) RUN 0 STATUS 0x8 A2I 0x00401501 (n 4) I2A 0x00021101 (n 0)
+ps 0x2d0: actual f after 0.003 ms
+sram on        ps_pmp 0x1f0f03ff (tf af) pms_sram 0x1f0003ff (tf af) RUN 0 STATUS 0x8 A2I 0x00401501 (n 4) I2A 0x00021101 (n 0)
+RUN +1 ms      ps_pmp 0x1f0f03ff (tf af) pms_sram 0x1f0003ff (tf af) RUN 1 STATUS 0x8 A2I 0x00401501 (n 4) I2A 0x00021101 (n 0)
+RUN +10 ms     ps_pmp 0x1f0f03ff (tf af) pms_sram 0x1f0003ff (tf af) RUN 1 STATUS 0x8 A2I 0x00401501 (n 4) I2A 0x00021101 (n 0)
+RUN +100 ms    ps_pmp 0x1f0f03ff (tf af) pms_sram 0x1f0003ff (tf af) RUN 1 STATUS 0x8 A2I 0x00401501 (n 4) I2A 0x00021101 (n 0)
+RUN +500 ms    ps_pmp 0x1f0f03ff (tf af) pms_sram 0x1f0003ff (tf af) RUN 1 STATUS 0x8 A2I 0x00401501 (n 4) I2A 0x00021101 (n 0)
+RUN +2000 ms   ps_pmp 0x1f0f03ff (tf af) pms_sram 0x1f0003ff (tf af) RUN 1 STATUS 0x8 A2I 0x00401501 (n 4) I2A 0x00021101 (n 0)

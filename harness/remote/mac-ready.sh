@@ -10,12 +10,13 @@ fail() { echo "FAIL  $*"; bad=$((bad + 1)); }
 r() { ssh -o BatchMode=yes -o ConnectTimeout=5 "$H" "$@" 2>&1; }
 
 out=$(r hostname) && pass "ssh $H (key login): $out" || { fail "ssh $H: $out"; exit 1; }
-r sudo -n true >/dev/null && pass "sudo without a password" || fail "sudo -n (harness needs root)"
+r sudo -n /usr/bin/bash /home/jjr/Work/deepidle-harness/sudo/selftest.sh | grep -qx "selftest uid=0" \
+    && pass "harness sudo rule (no password)" || fail "no harness sudo rule: sudo bash ~/Work/deepidle-harness/sudo/install.sh"
 pass "kernel: $(r uname -r)"
 pass "mem_sleep: $(r cat /sys/power/mem_sleep)"
 r test -d Work/deepidle-harness && pass "harness at ~/Work/deepidle-harness" \
     || fail "no ~/Work/deepidle-harness on the Mac"
-rtc=$(r sudo -n python3 Work/deepidle-harness/mmio/pmu-rtc.py show) \
+rtc=$(r sudo -n /usr/bin/python3 -I /home/jjr/Work/deepidle-harness/mmio/pmu-rtc.py show) \
     && pass "PMU RTC readable: $(echo "$rtc" | sed -n 2p)" || fail "pmu-rtc.py show: $rtc"
 r 'grep -l macsmc /sys/class/rtc/rtc*/name' >/dev/null \
     && pass "macsmc RTC present (alarm kernel)" || fail "no macsmc RTC"

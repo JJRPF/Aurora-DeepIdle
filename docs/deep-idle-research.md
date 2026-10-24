@@ -1000,8 +1000,8 @@ converter power `gP06` and HDMI power `gP17`, Wi-Fi `reg_on` `gP0d`.
 **What this changes for Linux.** Three pieces can be tried now, in s2idle,
 without the S2R wake path: (1) tell the PMP (RTKit IDLE in the s2idle
 platform prepare, wake in restore; built as `deepidle2`, below); (2) the SMC
-`slpw`/`slpa`/`waka` handshake, whose effect in s2idle is unknown and risky
-(the SMC may expect the SoC to go down); (3) SMC GPIO power-off of the unused
+`slpw`/`slpa`/`waka` handshake (tested 2026-10-22: `WKTP` and `slpw` are
+harmless in s2idle; `slpa` takes the storage down, see below); (3) SMC GPIO power-off of the unused
 SD reader and HDMI converter. Real S2R additionally needs every quiesce
 action above, the CPUs powered off (CPU_OFF), and m1n1 to hand the boot CPU's
 reset-vector wake back to Linux (`_cpu_reset_c` re-enters `m1n1_main` today).
@@ -1250,18 +1250,19 @@ Not checked yet: whether the PMU alarm can power the machine on from off
 ## S2R: what is missing, piece by piece (2026-10-19)
 
 Everything macOS does to sleep the SoC (13.5 static analysis, issues #3 and
-#5), against what Linux and m1n1 have today on this machine:
+#5), against what Linux and m1n1 have today on this machine. The plan built
+on this table is `s2r-plan.md`.
 
 | Piece | macOS | Linux / m1n1 today | Gap |
 |---|---|---|---|
 | Timed wake | PMU RTC alarm, `NUB.SPMI0Sw3IRQ` | **done** in deepidle3: macsmc-rtc alarm, SPMI irq 2 on AIC 724, wakes s2idle | upstreamable shape; PMU power-on from off untested |
 | Devices | every driver's sleep action | s2idle suspend callbacks | S2R removes power: drivers must resume from power loss. DCP says it cannot ("we do not support full shutdown properly yet"); PCIe, NVMe, Wi-Fi unproven |
-| PMP | RTKit AP IDLE `0x201`, wake by CPU_CONTROL RUN | deepidle2 hook: IDLE works, wake wrong | the `_runCPU` wake (designed, not built) |
-| SMC | `MBSE` `slpw`/`slpa`/`waka`, `WKTP` = 2, `MBSW` wake reason | macsmc has no suspend handler | the handshake; its effect on a running SoC is unknown |
+| PMP | RTKit AP IDLE `0x201`; then stop CPU, DART off, power gates PMP and PMS_SRAM off; wake: gates on, DART on, RUN | deepidle2 (INIT wake) and deepidle3 pmp.ko (RUN-only wake): IDLE works, the IOP never runs again | the power cycle of `ps_pmp` with the DART restore (below) |
+| SMC | `MBSE` `slpw`/`slpa`/`waka`, `WKTP` = 2, `MBSW` wake reason | deepidle3 macsmc-reboot.ko sends it in s2idle (`s2idle_steps`) | `WKTP`, `slpw`: harmless, wake normal. `slpa`: the SMC takes the storage away, NVMe I/O fails after resume, root goes read-only, a warm reboot does not clear it; `slpa` only belongs on the real S2R path |
 | AIC | save and mask all banks, restore on wake | no suspend/resume in irq-apple-aic | save/restore (layout known: AIC2 0x6400/0x6600, die stride 0x4a00) |
 | PMGR | `quiesceHW`, S2R timer (`MPMGR_AON` + 0x4000), `restoreHW` (0xc000 bit 31, PLL relock) | `MPMGR_AON` not in the Linux DT or m1n1 | everything; note the S2R-timer word already reads 1 on Linux (meaning unknown) |
 | PCIe | `manual-enable-s2r`: driver takes the link to L2 and gates port clocks | ASPM only | L2 entry and exit |
-| Secondary CPUs | ACC power-down (`0xc5acce55` at 0xfb0, 0 at 0x310), `SUSP` handshake | spin-table, no `cpu_die`; m1n1 PSCI branch: CPU_OFF returns NOT_SUPPORTED | CPU_OFF in firmware |
+| Secondary CPUs | ACC power-down (`0xc5acce55` at 0xfb0, 0 at 0x310), `SUSP` handshake | spin-table, no `cpu_die`; m1n1 PSCI branch: CPU_OFF returns NOT_SUPPORTED | CPU_OFF in firmware: **built, not booted** (2026-10-24, `psci-efi.md`) |
 | Boot CPU wake | reconfig engine restarts it at the kernel's warm-boot vector | its RVBAR is locked into resident m1n1 | **the hand-back** (below) |
 | Linux entry | n/a | `mem_sleep` offers only `s2idle` | a `deep` state |
 
@@ -1292,6 +1293,164 @@ PMGR CPU-start block, the chicken bits and the reset vector. Driver-owned steps
 callbacks. Order of work: PMP wake fix and the SMC handshake can be built and
 tested in s2idle now; AIC save/restore is a self-contained driver change;
 m1n1 `SYSTEM_SUSPEND` and `CPU_OFF` come next; the PMGR steps need E3's trace.
+
+### S2R entry on this boot chain (2026-10-22)
+
+How PSCI-via-EFI works (m1n1 branch `psci-via-efi`, `src/psci.c`,
+`rust/src/efi.rs`): m1n1 stays resident and publishes a
+`LINUX_EFI_ARM_PSCI_HANDLER_TABLE` EFI configuration table, a version, a
+feature list and a plain function pointer. The kernel calls that pointer at
+its own exception level (EL2 here), with no SMC or HVC conduit, which is the
+only way to have a PSCI provider on a machine with no EL3 and Linux at EL2.
+Two consequences for this machine:
+
+* **Neither kernel tree carries the kernel side** of the RFC (6 patches,
+  2026-07). It would have to be applied first.
+* **The m1n1 side only works when m1n1 starts the kernel itself.** Its
+  `psci=direct` mode builds a minimal EFI system table with runtime services;
+  the branch notes it "will break when another second stage loader like e.g.
+  u-boot is used". The owner's chain is m1n1, U-Boot, GRUB, Linux.
+
+Three ways to get the S2R entry and the boot CPU's hand-back:
+
+| Route | What changes | Cost |
+|---|---|---|
+| A. `psci=direct` for test boots only | A test `boot.bin` (Aura with PSCI, CPU_OFF and SYSTEM_SUSPEND added) loads the kernel directly; the harness's one-boot `boot.bin` swap already does this kind of thing | No GRUB menu on that boot (the restore service puts the stock `boot.bin` back); kernel side of the RFC needed |
+| B. U-Boot passes m1n1's table on | U-Boot installs the table as an EFI config table and keeps m1n1's region reserved and mapped at runtime | A U-Boot change; keeps GRUB and the fallback kernels; the daily-use route |
+| C. No PSCI: an Apple suspend op | Linux writes its resume address to a page m1n1 checks on a primary RVBAR entry | Still needs the secondaries offline, and spin-table has no `cpu_die`, so it needs CPU_OFF anyway: not simpler than A |
+
+Recommendation: A for the experiments, B only once A shows a wake that
+returns to Linux. Before either, E3 (above) answers whether a raw-booted
+T6020 wakes through the boot CPU's RVBAR at all. E3 needed a second machine
+as the USB proxy host: the Raspberry Pi 5 is now set up for that
+(`docs/pi-handoff.md`, Aura proxyclient and udev rules installed). It still
+needs the owner at the machine for the power key.
+
+### The SMC handshake in s2idle (tested 2026-10-22)
+
+deepidle3's `macsmc-reboot.ko` (`s2idle_steps` bit mask) sends macOS's
+sleep handshake around an s2idle cycle, steps added one at a time:
+
+| Steps | What it sends | Result |
+|---|---|---|
+| 1 | `WKTP` = 2 on suspend, 0 on resume | 3/3 cycles: every write 0, wake on the PMU alarm, battery and Wi-Fi fine |
+| 3 | + `MBSE` = `slpw` in prepare | the same (one cycle scored as failed only because Wi-Fi was still reassociating; every s2idle resume on this kernel drops and rejoins Wi-Fi) |
+| 7 | + `MBSE` = `slpa` in suspend_late; on resume read `MBSE`/`MBSW`, then `waka` | **the storage went away**: the Mac resumed, then every NVMe read and write failed, btrfs aborted and went read-only, and the journal kept nothing past the suspend |
+
+The boot after step 7 (a warm reboot into the stock kernel) also stopped
+writing within its first second; only a full power off brought the disk
+back, and the PMU then reported a boot error. So `slpa` is not a
+notification. It tells the SMC the SoC is about to lose power, and the SMC
+takes the storage down with it (which rails or links is not known yet). The
+state outlasts a warm reboot. On a running SoC `waka` does not undo it,
+assuming it was sent at all: nothing of the resume was logged. Afterwards the
+filesystem was intact: btrfs replayed its tree log, and a read-only scrub
+found no errors.
+
+What this means for S2R: `slpa` must be the last thing before the SoC
+actually powers down, with every device (NVMe/ANS included) already
+quiesced. The way back is the SMC's own wake sequence, not a `waka` from a
+kernel that never stopped. `WKTP` and `slpw` can go in early. Any further
+`slpa` test needs the Mac's kernel log streamed off the machine (the Pi's
+`harness/remote/pi-watch.sh`) and the owner at the power key.
+
+### The PMP wake from IDLE is a power cycle (tested 2026-10-23)
+
+deepidle3's `pmp.ko` tried the wake read from `AppleA7IOP` earlier: after
+the IDLE ack, poll `CPU_STATUS` and clear RUN; on wake set RUN, wait 10 ms,
+then AP ON (INIT as the fallback). Unattended boot, 3 cycles, kernel log
+kept on the Pi: IDLE was acked and the CPU stopped at once, but after RUN
+the PMP answered nothing (AP ON and INIT both timed out after 1 s) and every
+later IDLE request failed: 0 of 3. Read afterwards: RUN set, `CPU_STATUS`
+0x8, four messages waiting unread in the IOP's inbox with its inbox
+interrupt enabled, the outbox empty. The firmware never ran again.
+
+A second reading of macOS explains it. `AppleA7IOP::stopCPU` does more than
+clear RUN: it disables the outbox, waits for idle, clears RUN, unmaps the
+firmware, turns the IOP's DART off (`_setMapperActive(false)`) and calls
+`_disablePower`, which gates the node's `power-gates` unless the node has
+`ignore-gating`. For the PMP those are ADT devices 73 and 74: the PMGR
+domains **PMP** (Linux `ps_pmp`) and **PMS_SRAM** (`ps_pms_sram`).
+`startCPUWithOptions` reverses each step: power on, DART on, firmware
+mapped, outbox on, RUN. RTBuddy sends INIT only when waking from OFF
+(state 3, IOP `0x0`), never from IDLE. So IDLE means "context saved, power
+may go", and the wake is a power-on, not a resume. Linux keeps `ps_pmp`
+always-on and only toggled RUN, which leaves the IOP unable to run.
+
+`no-shutdown` on the PMP's RTBuddy nub is read only by
+`systemWillShutdown`, not on the sleep path. `_runCPU` writes only
+`CPU_CONTROL` bit 4 here (its second register needs `auto-boot`), and the
+IOP timebase is synced only with `force-timebase-sync`; the PMP has
+neither.
+
+Next (design, not run): IDLE, stop, then the DART suspend and a gate of
+`ps_pmp` (and possibly `ps_pms_sram`); on wake the reverse, then RUN and
+wait for the IOP's own state report. (Two of these were tried on
+2026-10-23; see "S2R work since the plan" below. Gating `ps_pms_sram` does
+not restart the PMP, and resetting `ps_pmp` kills the SoC.) Before that: `ps_pmp` has its minimum
+power state field at 0xf (someone, probably iBoot, pinned it on), and it is
+not known whether PMS_SRAM holds the pre-loaded firmware and keeps it while
+gated. The PMP is the SoC's power manager, so this needs the owner at the
+machine.
+
+### S2R work since the plan (2026-10-23 and 24)
+
+The plan is `s2r-plan.md`; the run-by-run detail is in `worklog.md`.
+
+**PMP restart, on a PMP already stopped by the RUN-only test**
+(`harness/mmio/pmp-cycle.c`, which writes only a fixed list of addresses;
+results in `data/pmp-cycle/`):
+
+* `sram-cycle`: RUN cleared, `ps_pms_sram` gated (actual state 0 within
+  1 us) and ungated (back to f within 3 us), RUN set. `CPU_STATUS` stayed
+  0x8 for 2 s, and the four messages stayed unread. Power-cycling the SRAM
+  domain alone does not restart the PMP.
+* `reset-cycle`: the PMGR device reset (bit 31) of `ps_pmp` killed the whole
+  SoC at once, with nothing logged. The Mac came back by itself about 45 s
+  later. The mode is now refused by `pmp-cycle.sh`.
+
+`ps_pmp` has its minimum power state pinned at 0xf, presumably by iBoot, so
+macOS most likely never powers it off either: `_disablePower`'s gate request
+cannot take it below on. What remains of macOS's restart is the DART off and
+on and the outbox steps around RUN. That is untried, and it needs no reset.
+
+**The hypervisor guest.**
+
+* Asahi's m1n1-hypervisor guide pins only macOS 13.5 (M1, M2) and 14.8.3
+  (M1 to M3) as guests. Newer XNU expects SPTM to be loaded first, and Aura
+  does not load it (m1n1 PR #698 adds SPTM and TXM support; not merged).
+* This Mac's everyday macOS updated itself from 15.7.1 to 15.7.4 on
+  2026-10-23. Neither version can be the guest. The guest becomes a separate
+  14.8.3 volume, `macOSTest`, without FileVault, so runs need nobody at the
+  Mac. The setup scripts are `tools/macos-hv-testvol.sh`, then
+  `tools/macos-hv-prep.sh` in the new system, then
+  `harness/hv/make-recovery.sh` for the recoveryOS step.
+* Linux boots that volume once with `asahi-bless --next`
+  (`harness/hv/bless.sh`). The Pi runs `harness/remote/hv-run.sh`, which
+  chainloads a patched Aura, runs the guest with the PMP and SMC tracers,
+  then reboots the Mac back into Linux.
+* The patched Aura (branch `hvsleep-trace`) logs the CYC_OVRD sleep write
+  and masks it instead of refusing it, so the trace can follow the guest
+  into its sleep path.
+
+**Overnight s2idle on the default kernel** (8.33 h, `data/overnight/`):
+
+* One suspend and a clean wake.
+* 3.4 whole-SoC wakes a second, 72% of them first raised by the AOP mailbox:
+  the same picture as on 10-17.
+* The battery fell from 90% to 80%. The charger was connected, though, and
+  the battery was above its 80% charge limit. The SMC ran the Mac from the
+  battery only until it reached 80%, then held it there. So 4.77 Wh in
+  8.33 h (0.57 W) is a lower bound, not a drain figure. A drain figure needs
+  the charger unplugged.
+
+**Phase 1, CPU_ON and CPU_OFF** (`psci-efi.md`):
+
+* The RFC's kernel side applies clean to 7.1.12.
+* Aura's handler reuses its own CPU stop and RVBAR re-entry.
+* U-Boot publishes the table, since in this boot chain U-Boot, not Aura,
+  provides EFI.
+* All three parts are built. None is booted.
 
 ## Unblocking deep sleep: what to trace with macOS under m1n1 hv
 

@@ -1,0 +1,2 @@
+armed: counters in /var/tmp/sleep-drain-probe.json, trace in sys/kernel/tracing/instances/sleep-drain-probe.
+Suspend as usual, on battery; after resume run: report

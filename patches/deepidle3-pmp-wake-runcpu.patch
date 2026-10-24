@@ -1,0 +1,152 @@
+--- a/drivers/soc/apple/pmp.rs
++++ b/drivers/soc/apple/pmp.rs
+@@ -40,15 +40,28 @@
+         AsBytes,
+         FromBytes, //
+     },
++    time::{delay::fsleep, Delta},
+     types::ForeignOwnable, //
+ };
+ 
++use core::sync::atomic::{AtomicBool, Ordering};
++
++/// Set when the s2idle hook stopped the PMP's CPU, so the wake hook starts it again.
++static CPU_STOPPED: AtomicBool = AtomicBool::new(false);
++
+ const PMP_MMIO_SIZE: usize = 0x80000;
+ const ASC_MMIO_SIZE: usize = 0x4000;
+ const BOOTARGS_OFFSET: usize = 0x22c;
+ const BOOTARGS_SIZE: usize = 0x230;
+ const CPU_CONTROL: usize = 0x44;
+ const CPU_RUN: u32 = 0x1 << 4;
++const CPU_STATUS: usize = 0x48;
++/// CPU_STATUS bits that mean the ASC's CPU is idle (macOS `AppleASCWrapV4::_isIdle`).
++const CPU_STATUS_IDLE: u32 = 0x3;
++/// Polls of CPU_STATUS, 1 ms apart, before giving up on stopping the CPU after IDLE.
++const CPU_IDLE_POLLS: u32 = 100;
++/// After RUN is set again, time for the IOP to report its own power state before AP ON.
++const CPU_WAKE_SETTLE_MS: i64 = 10;
+ const PMP_ENDPOINT: u8 = 0x20;
+ const OPC_GET_IOVA_TABLE: u64 = 0x10;
+ const OPC_MALLOC: u64 = 0x12;
+@@ -152,6 +165,34 @@
+         asc_mmio.write32(val | CPU_RUN, CPU_CONTROL);
+         Ok(())
+     }
++    /// Reads CPU_STATUS; outside a `Core` context, so through `try_access`.
++    fn cpu_status(&self) -> Result<u32> {
++        self.asc_mmio
++            .try_access_with(|io| io.relaxed().read32(CPU_STATUS))
++            .ok_or(ENXIO)
++    }
++    /// Sets or clears RUN in CPU_CONTROL (macOS `AppleA7IOPV4::_runCPU`).
++    fn run_cpu(&self, run: bool) -> Result<()> {
++        self.asc_mmio
++            .try_access_with(|io| {
++                let io = io.relaxed();
++                let val = io.read32(CPU_CONTROL);
++                io.write32(if run { val | CPU_RUN } else { val & !CPU_RUN }, CPU_CONTROL);
++            })
++            .ok_or(ENXIO)
++    }
++    /// macOS `AppleA7IOP::stopCPU`: poll CPU_STATUS every 1 ms until the CPU is idle, then
++    /// clear RUN. Returns the number of polls it took.
++    fn stop_cpu_when_idle(&self) -> Result<u32> {
++        for polls in 0..CPU_IDLE_POLLS {
++            if self.cpu_status()? & CPU_STATUS_IDLE != 0 {
++                self.run_cpu(false)?;
++                return Ok(polls);
++            }
++            fsleep(Delta::from_millis(1));
++        }
++        Err(ETIMEDOUT)
++    }
+     fn start(&self) -> Result<()> {
+         let mut guard = self.rtkit.lock();
+         let mut rtk = guard.as_mut().as_pin_mut().unwrap();
+@@ -396,33 +437,67 @@
+     }
+ }
+ 
+-/// s2idle hook (pmp-sleep.c): put the PMP's RTKit into IDLE, as macOS does
+-/// while the system sleeps.
++/// s2idle hook (pmp-sleep.c): put the PMP's RTKit into IDLE and stop its CPU, as macOS does
++/// while the system sleeps (`RTBuddy::_setManagedStateGated`: IDLE request and ack, then the
++/// provider's `stopCPU`).
+ unsafe extern "C" fn pmp_sleep_idle(ctx: *mut core::ffi::c_void) -> core::ffi::c_int {
+     // SAFETY: `ctx` is the `PmpData` registered in probe; PmpDriver unregisters
+     // it before the Arc can drop.
+     let data = unsafe { &*(ctx as *const PmpData) };
+     let mut guard = data.rtkit.lock();
+-    match guard.as_mut().as_pin_mut() {
+-        Some(rtk) => match rtk.idle() {
+-            Ok(()) => 0,
+-            Err(e) => e.to_errno(),
+-        },
+-        None => -(bindings::ENODEV as core::ffi::c_int),
+-    }
+-}
+-
+-/// s2idle hook: wake the PMP's RTKit again (IOP INIT, then AP ON).
++    let Some(mut rtk) = guard.as_mut().as_pin_mut() else {
++        return -(bindings::ENODEV as core::ffi::c_int);
++    };
++    if let Err(e) = rtk.as_mut().idle() {
++        return e.to_errno();
++    }
++    match data.stop_cpu_when_idle() {
++        Ok(polls) => {
++            CPU_STOPPED.store(true, Ordering::Relaxed);
++            dev_info!(data.dev, "s2idle: CPU stopped ({} ms to idle)\n", polls);
++        }
++        // RTKit is in IDLE either way; the wake hook then only sends AP ON.
++        Err(e) => dev_warn!(
++            data.dev,
++            "s2idle: CPU not idle ({:?}, CPU_STATUS {:#x}), RUN left set\n",
++            e,
++            data.cpu_status().unwrap_or(u32::MAX)
++        ),
++    }
++    0
++}
++
++/// s2idle hook: wake the PMP from IDLE the way macOS does: start its CPU again
++/// (`startCPUWithOptions`, no INIT message after IDLE), let the IOP report its own power
++/// state, then AP ON. `RtKit::boot` does the AP ON: its boot and IOP-ack completions are
++/// still complete from the IDLE transition, so it sends AP ON and waits for that ack only.
++/// If that fails, fall back to the INIT wake (the deepidle2 path).
+ unsafe extern "C" fn pmp_sleep_wake(ctx: *mut core::ffi::c_void) -> core::ffi::c_int {
+     // SAFETY: as in `pmp_sleep_idle`.
+     let data = unsafe { &*(ctx as *const PmpData) };
+     let mut guard = data.rtkit.lock();
+-    match guard.as_mut().as_pin_mut() {
+-        Some(rtk) => match rtk.wake() {
+-            Ok(()) => 0,
+-            Err(e) => e.to_errno(),
+-        },
+-        None => -(bindings::ENODEV as core::ffi::c_int),
++    let Some(mut rtk) = guard.as_mut().as_pin_mut() else {
++        return -(bindings::ENODEV as core::ffi::c_int);
++    };
++    if CPU_STOPPED.swap(false, Ordering::Relaxed) {
++        if let Err(e) = data.run_cpu(true) {
++            return e.to_errno();
++        }
++        fsleep(Delta::from_millis(CPU_WAKE_SETTLE_MS));
++    }
++    match rtk.as_mut().boot() {
++        Ok(()) => {
++            dev_info!(data.dev, "s2idle: AP ON acked (CPU_STATUS {:#x})\n",
++                      data.cpu_status().unwrap_or(u32::MAX));
++            0
++        }
++        Err(e) => {
++            dev_warn!(data.dev, "s2idle: AP ON failed ({:?}), trying the INIT wake\n", e);
++            match rtk.as_mut().wake() {
++                Ok(()) => 0,
++                Err(e) => e.to_errno(),
++            }
++        }
+     }
+ }
+ 

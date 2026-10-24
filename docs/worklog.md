@@ -562,3 +562,260 @@ Nothing here installs, reboots, or writes hardware registers. Times are local.
 - Smoke rerun: awake alarms 2/2 fired; the three rtcwake cycles woke early (12.4, 20.1, 2.1 s, no
   pm_wakeup_irq). The keyboard and Bolt receiver have USB wakeup enabled: unattended alarm tests must
   turn wakeup off on USB devices first (power/wakeup), or the alarm is not what wakes them.
+
+## 2026-10-22 Pi 5 controller connected
+- The controller is a Raspberry Pi 5 (Debian 13, hostname core-node, on Wi-Fi). Its password did not
+  match the owner's login file; the Mac's own key was already authorized on it, so the password was set
+  from that file (sudo chpasswd over stdin) at the owner's word. Credentials stay out of this repo.
+- Pi to Mac: a dedicated key (~/.ssh/id_ed25519_mac on the Pi), added to the Mac's authorized_keys with
+  from= limited to the Pi's Tailscale and current Wi-Fi addresses (backup authorized_keys.bak-before-pi).
+  Pi ~/.ssh/config: `mac` = the Mac's Tailscale address (the same on the Pi's Wi-Fi or Ethernet),
+  `mac-lan` = omarchy-mac.local. Both log in. On Ethernet over the LAN, from= needs that address added.
+- mac-ready.sh from the Pi: 6 ok, 2 failed. Both failures are one cause: sudo on the Mac now asks for a
+  password (99-omarchy-nopasswd-jjr no longer applies; it still worked on 2026-10-21). The harness needs
+  root, so unattended runs from the Pi wait on the owner's choice. Not restored here.
+- Aura proxy on the Pi: python3-construct installed (pyserial was there), Aura cloned from the Mac's
+  read-only clone into ~/deepidle/aura (362ae4f0), udev/80-aura.rules in /etc/udev/rules.d, user in dialout.
+  proxyclient imports; it stops only at /dev/aura missing (no cable, Mac not in proxy mode).
+
+## 2026-10-22 Harness-only passwordless sudo, no expiry (ready, needs the owner once)
+- Why sudo stopped: `omarchy-sudo-passwordless` (Omarchy 4.0.3rc4) writes 99-omarchy-nopasswd-jjr with
+  NOPASSWD: ALL and a systemd timer that deletes it after N minutes (default 15); it also deletes the file
+  whenever its timer is not running (after a reboot). Run 2026-10-21 19:30, expired 19:45.
+- Owner chose: harness only, no time limit. harness/sudo/90-deepidle-harness, a separate file the
+  Omarchy tool never touches. Regex args (sudo 1.9.17): bash on harness *.sh, python3 -I on harness *.py,
+  systemd-run --unit=di-* of a harness script, reboot (now or delayed unit), dmesg (no -H), journalctl
+  --no-pager. Path components must start with [A-Za-z0-9_-], so .. and dotfiles never match.
+- Limit, stated to the owner: the harness tree and what it installs (kernels, modules, boot images,
+  insmod .ko) are jjr-writable, so this stops accidents and generic sudo abuse, not code aimed at the
+  harness. Ad-hoc root reads (debugfs, i2ctransfer) now go in harness scripts.
+- install.sh validates with visudo, installs 0440 atomically, rechecks all of sudoers, then self-tests
+  by running harmless commands as jjr with sudo -n -k (sudo -l cannot tell NOPASSWD from password
+  rules, and -k ignores the password just typed). teardown.sh removes the rule. mac-ready.sh now checks
+  the rule by running sudo/selftest.sh.
+- Owner, once:  sudo bash ~/Work/deepidle-harness/sudo/install.sh
+
+## 2026-10-22 night: PMP wake from IDLE and the SMC sleep handshake, built as modules (untested)
+- Both are module-only changes against deepidle3: the kernel image stays 46375fe1, so each is
+  tested on the running kernel with insmod, no reboot, no /boot change. Neither has run: the
+  harness sudo rule is not installed yet.
+- PMP (pmp.ko a8ae3a2d, patches/deepidle3-pmp-wake-runcpu.patch). Found: deepidle3 blacklists
+  pmp (/etc/modprobe.d/deepidle-no-pmp.conf), so its s2idle hook (s2idle_idle=Y) never ran. New
+  idle hook: RTKit IDLE as before, then poll ASC CPU_STATUS (0x48) & 3 every 1 ms (up to 100)
+  and clear RUN in CPU_CONTROL (0x44), as macOS stopCPU does. Wake hook: set RUN, 10 ms, then
+  RtKit::boot(), which (its boot and IOP-ack completions still complete from IDLE) sends AP ON and
+  waits for that ack only; on failure fall back to the INIT wake of deepidle2. No INIT after IDLE,
+  as in macOS. Test: harness/pmp-wake/run.sh [CYCLES] insmods the staged module (blacklist kept
+  for the next boot), rtkit.c dynamic debug on for every power-state transition, USB wakeup off,
+  backup waker 120 s, 3 x 30 s PMU-alarm s2idle; pass = "CPU stopped" + "AP ON acked" each cycle
+  and the next cycle IDLE acked (deepidle2 timed out there). Ends with s2idle_idle=0.
+- SMC (macsmc-reboot.ko a0cf24df, patches/deepidle3-smc-s2idle-handshake.patch, also kernel
+  worktree 3ff145247e7d). s2idle_steps bit mask, default 0, s2idle only: 1 WKTP = 2 in suspend /
+  0 in resume; 2 MBSE = slpw in prepare; 4 MBSE = slpa in suspend_late, and in resume_early read
+  MBSE + MBSW (logged) then MBSE = waka. The SMC atomic write cannot be used in noirq (its mode is
+  one way, for power off), so slpa goes in suspend_late, before the PMP hook (macOS: PMP first).
+  Test: harness/smc-sleep/run.sh STEPS [CYCLES] [owner-present] swaps the module at run time and
+  puts the stock one back; bit 4 refuses to run without owner-present (the SMC may cut power with
+  the SoC still up). Order: 1, then 3, then 7 with the owner there.
+- Build note: building a single module target (make ... drivers/x/y.ko) rewrites Module.symvers with
+  that module only, and the next single-target build then fails modpost; `make modules` fixes it
+  and only relinks what changed.
+
+## 2026-10-22 Screens stay off across reboots; agent stays on the Mac
+- Owner: keep Claude on the Mac (no Claude on the Pi), and until told otherwise turn the agent
+  headless mode (jjr.headless / omarchy-headless) back on after every reboot.
+- harness/headless/headless-boot.sh as ~/.local/bin/deepidle-headless-boot, from Hyprland autostart,
+  while ~/.local/state/deepidle/headless-on-boot exists. A reboot keeps headless's `active` flag
+  but kills its keeper and inhibitor, so `omarchy-headless on` alone would only say "already on":
+  the hook clears that stale state first. Tested on the live state (no change) and in a sandbox
+  (stale state cleared, `on` called; nothing when the enable file is gone). teardown.sh removes it.
+- Still lit after a reboot: m1n1, GRUB and the kernel console until Hyprland starts (about a minute),
+  and the plugin plays its "enter" sound. Headless also selects power-saver: power numbers taken
+  under it need saying so.
+- AIC save/restore written and compile-tested (W=1 clean): kernel worktree 1ac4376377c6,
+  patches/aic-syscore-save-restore.patch. syscore ops: save AIC2_CONFIG + every IRQ_CFG, mask all;
+  on resume rewrite them and unmask from the IRQ core's own mask state. Inert today: s2idle never
+  calls syscore ops. Kept out of the deepidle3 build source.
+- PSCI-via-EFI reading: Linux calls m1n1's resident handler through a function pointer in an EFI
+  config table (LINUX_EFI_ARM_PSCI_HANDLER_TABLE), same EL, no SMC/HVC. Neither kernel tree has the
+  kernel side of Sven Peter's RFC, and the m1n1 side ("psci=direct") only works when m1n1 loads
+  the kernel itself, with no U-Boot; this boot chain uses U-Boot + GRUB.
+
+## 2026-10-22 late: the PMP test needs its own boot image (built), and a one-boot arm
+- Found before any run: the PMP node is `status = "disabled"` in the DT deepidle3 boots with
+  (rtcalarm2 boot.bin), so insmod pmp.ko alone would find no device. run.sh now refuses unless the
+  node is okay. The PMP needs m1n1-pmpfix.bin (5d4c3553: copies the PMP tunables, sets okay) and the
+  `pmp` alias.
+- boot.bin.pmpwake-test 2c710fe4e8d91600 = m1n1-pmpfix.bin + the rtcalarm2 image's 113 DTBs with #31
+  = the deepidle3 build's t6020-j414s.dtb plus only `aliases { pmp = &pmp; }` + the same U-Boot tail.
+  Checked: the kernel's cpp+dtc recipe reproduces the build DTB byte for byte; decompiled diff of the
+  new one = that one line; split back: m1n1 = pmpfix, #31 = new, the other 112 DTBs and the tail =
+  rtcalarm2 (and = pmpfix-test). Recipe: harness/pmp-wake/t6020-j414s-rtc-pmp.dts,
+  harness/tools/bootbin-split.py.
+- harness/pmp-wake/arm.sh (root): checks ESP stock, installs two one-boot units (di-pmpwake-early runs
+  deepidle3-early.sh: stock boot.bin back, next_entry unset; di-pmpwake-run: +120 s, boot-run.sh checks
+  the booted image and runs run.sh 3), arms the flag, writes the test image, next_entry=deepidle3.
+  `arm.sh remove` undoes it; teardown.sh removes the units. harness/reboot.sh then reboots with the
+  session resume armed and the headless hook checked.
+- Morning order once the sudo rule is in: (1) sudo bash sudo/install.sh (owner); (2) smc-sleep/run.sh 1,
+  then 3, on the running kernel; (3) pmp-wake/arm.sh + reboot.sh, unattended; (4) smc-sleep 7 with the
+  owner present.
+
+## 2026-10-22 22:54-23:07: SMC sleep handshake in s2idle, steps 1, 3, 7 (deepidle3, macsmc-reboot.ko a0cf24df)
+- Step 1 (WKTP = 2 on suspend, 0 on resume), owner-run, 3 cycles: 3/3. Every write returned 0, every
+  wake on IRQ 124 (PMU alarm), battery read and Wi-Fi up after. smc-sleep-1-20261022-2254.txt.
+- Step 3 (+ MBSE = slpw in prepare), 3 cycles: every write 0, wake IRQ 124 each time; scored 2/3 only
+  because wlan0 was DORMANT at the cycle-3 check. Not the SMC: every s2idle resume on this kernel
+  (step 1 too, and the Oct 21 smoke) logs CTRL-EVENT-DISCONNECTED reason=3 locally_generated=1 and
+  reconnects; in cycle 3 the AP refused the first association (status 16), so it took 10 s, not 5.
+  The NVMe log shows the normal s2idle path either way: ANS "NVMe shutdown start ... saveCtx" on
+  suspend, RTKit re-init, "power up done PMU=Ocarina", "enabled 1p0v" on resume.
+  smc-sleep-3-20261022-2300.txt.
+- Step 7 (+ MBSE = slpa in suspend_late, MBSE/MBSW read and MBSE = waka in resume_early), owner
+  present, 1 cycle, started 23:04:32: THE DISK WENT AWAY AFTER RESUME. The Mac resumed (Wi-Fi
+  reconnecting at [106134], console visible), but from [106135] btrfs logged write and read errors on
+  /dev/mapper/root (wr 1093, rd up to 1791 by [106160]), aborted the transaction and went read-only;
+  journald could not rotate. Owner photo 23:06:52. The
+  journal of that boot ends at 23:04:52 (the suspend itself): the resume, the MBSW wake source, the
+  waka result and the NVMe errors were never written. run.log stops after "new macsmc-reboot loaded".
+- The boot after (23:07:39, stock 7.1.12-2-11.35-sep-ARCH+) kept 1222 journal lines, all within its
+  first second, up to the first journal flush; btrfs transid went 56525 -> 56526 only, and the next
+  boot (Oct 23 07:39) had to replay the tree log and reported "PMU logged 1 boot error(s)" (first time
+  on any boot kept). Reading: that boot lost its disk too, soon after start, and only the full power
+  off cleared it, i.e. the SMC kept its slpa state across a warm reboot. Not proven (no log survived);
+  the owner can say whether it booted to a desktop and how it was turned off.
+- Damage: none found. Oct 23: btrfs device stats all 0; read-only scrub of all 107.39 GiB, no errors;
+  ESP fsck -n: only the dirty bit and the usual boot-sector/backup byte; ESP boot.bin stock 3630adc3.
+  tools/fs-check.sh (read-only) does these checks.
+- Conclusion: slpa is not a notification. The SMC acts on it: after slpa it takes the storage down
+  (NAND rails or the ANS link), as macOS expects with the SoC about to lose power. In s2idle the SoC
+  stays up and the s2idle resume path (ANS re-init) cannot bring it back, and waka (if it was even
+  sent) does not undo it. So slpa belongs only on a real S2R path, after every device is down, and its
+  undo is the SMC's own wake sequence, not waka from a running kernel. Steps 1 and 3 did no harm (their power
+  effect is not measured yet). No more slpa runs without the Pi watcher and the owner at the power
+  button; recovery needs a full power off, not a reboot.
+- New: remote/pi-watch.sh runs on the Pi and streams the Mac's `dmesg -w` (no root needed,
+  dmesg_restrict 0) plus a ping log to ~/deepidle/watch/, reconnecting across suspend and reboots
+  without duplicate lines (tested). Every risky run from now on starts it first.
+- Pi access from the Mac: the ssh agent offered a "GitHub" key that waits for a confirmation and hung
+  ssh; new aliases core-node-wifi / core-node-ts use the Mac's own key with IdentitiesOnly and no agent.
+
+## 2026-10-23 07:53-08:10: PMP wake test (_runCPU wake), unattended boot: 0/3, and why
+- Armed (pmp-wake/arm.sh), Pi watcher started (pi-watch.sh, tag pmpwake), rebooted via reboot.sh with
+  the headless hook: screens stayed off (headless-boot.log 07:54:52), the session resumed. Boot:
+  deepidle3 + boot.bin.pmpwake-test; early unit put stock boot.bin 3630adc3 back, next_entry unset.
+  Disarmed after (arm.sh remove: units gone, ESP stock). The Pi caught both boots and every line.
+- run.sh 3 (results-pmpwake-20261023-0756, pmp-wake-20261023-0756.txt; kernel timestamps from the Pi's
+  copy, pi-watch-20261023-pmpwake.kmsg): cycle 1: AP and IOP IDLE acked (0x20 -> 0x201), "CPU stopped
+  (0 ms to idle)" (CPU_STATUS & 3 already set), "PMP idle in 501 us"; on wake RUN set, 10 ms, then
+  AP ON: no ack for 1 s (157.964 -> 158.984, ETIME from the AP-ack wait); INIT fallback: no IOP ack for
+  1 s, "wake failed (-62)". Cycles 2, 3: "idle failed (-62)". Every wake on IRQ 124; the system itself
+  was fine, the backup waker never fired. Result 0/3: the PMP never ran again after the stop.
+- Read after (mmio/pmp-asc.sh, read only): CPU_CONTROL 0x10 (RUN set), CPU_STATUS 0x8 (& 3 = 0);
+  A2I_CONTROL 0x00401501: inbox not empty, 4 messages queued (AP ON, INIT, the two IDLE requests) and
+  the IOP inbox interrupt enabled (bit 0, macOS _getKICInboxEnabled); I2A_CONTROL 0x00021101: outbox
+  enabled, empty. So the firmware is not reading its inbox at all: the CPU did not resume running it.
+- macOS, read again (13.5 a7iop.s, RTBuddy disassembled now): RTBuddy states 0..3 request IOP 0x201,
+  0x220, 0x202, 0x0 (table at 0xfffffe0007886c18); wake = startCPUWithOptions(fw, prev == 3) and INIT
+  (wakeQuiesced) only from state 3. AppleA7IOP::stopCPU = _enableOutbox(0) (I2A_CONTROL bit 0),
+  enableMailboxInterrupts(0), poll _isIdle, _runCPU(0), _unmapFirmware, _setMapperActive(0) (DART),
+  _disablePower. startCPUWithOptions = _enablePowerLate, _setMapperActive(1), _mapFirmware (pre-loaded
+  fw: _dartMapiBootFirmware), mailbox interrupt setup (no-ops on V4), _enableOutbox(1),
+  _syncIOPTimebase only with `force-timebase-sync`, _runCPU(1). _runCPU writes only CPU_CONTROL bit 4
+  for the PMP (the second CSR is used only with `auto-boot`, absent). _disablePower gates the node's
+  power-gates unless `ignore-gating` (absent): ADT pmp power-gates [73, 74] = PMGR devices PMP (ps 0x2c8
+  = Linux ps_pmp) and PMS_SRAM (0x2d0 = ps_pms_sram), both not critical. `no-shutdown` on the RTBuddy
+  nub is read only by systemWillShutdown: not sleep.
+- So on macOS the wake from IDLE is a power cycle of the PMP: its context is saved by the IDLE
+  transition, power is removed, power comes back, DART is restored, RUN. Linux kept ps_pmp on (DT
+  apple,always-on) and only toggled RUN; that leaves the IOP unable to run. Both Linux tries so far
+  (deepidle2: IDLE + INIT; now: IDLE + stop + RUN) end the same way.
+- PMGR now (mmio/pmp-ps.sh, read only): ps_pmp 0x1f0f03ff (target/actual 0xf, PS_MIN 0xf, auto
+  enable, was-clk/pwr-gated set), ps_pms_sram 0x1f0003ff (PS_MIN 0). PS_MIN 0xf on ps_pmp means the
+  domain cannot go below on until that field is lowered; pmp_dart lives in ps_pmp, so its registers
+  would need the DART save/restore Linux has for system sleep.
+- Next for the PMP (design, not run): after IDLE + stop, unmap and stop the DART (apple-dart suspend),
+  gate ps_pmp (+ ps_pms_sram?) the way genpd would, ungate, restore the DART, RUN, wait for the IOP's
+  own state report. Open questions first: does PMS_SRAM hold the pre-loaded firmware (1 MiB at
+  0x28e700000) and keep it while gated, and what sets ps_pmp's PS_MIN (iBoot?). Not to be tried
+  without the owner present: the PMP is the SoC's power manager.
+- The Pi's Wi-Fi link stalls on bulk transfers (scp hung, plain cat cut at 327/1588 lines); gzip over
+  the Tailscale alias got the full 4019 lines.
+
+## 2026-10-23 afternoon to night: PMP restart tries, S2R plan, the hypervisor guest
+- S2R plan written (docs/s2r-plan.md). Owner: no extra hardware (no PD board, no smart plug), so
+  Phase 0 is dropped; recovery comes from the watchdog, Aura's early proxy wait, asahi-bless --next
+  and a proxy reboot from the Pi. The PMP power-cycle test may run unattended.
+- PMP, on a PMP already stopped by the morning's RUN-only test (mmio/pmp-cycle.c, address-limited
+  writer; results in /var/lib/deepidle/pmp-cycle-20261023-*):
+  - sram-cycle (15:14:01): RUN cleared, ps_pms_sram (0x2d0) gated (actual 0 in 1 us) and ungated
+    (actual f in 3 us), RUN set: CPU_STATUS stayed 0x8 up to 2 s, A2I still 4 queued. Gating the
+    SRAM domain alone does not restart the PMP.
+  - reset-cycle (15:15:53): DEV_DISABLE + RESET (bit 31) on ps_pmp (0x2c8): the whole SoC died at
+    once, no log line; the Mac came back on its own into the stock kernel at about 15:16:39. Never
+    to be run again. ps_pmp is pinned on by iBoot (PS_MIN 0xf), so macOS probably never really
+    power-cycles it either; what is left of macOS's restart is the DART off/on and the outbox
+    steps around RUN (untried).
+  - mmio/pmp-asc.sh mailbox fields fixed: FULL bit 16, EMPTY bit 17, count from bit 20 (as
+    apple-mailbox.c); the script had used 17 and 18.
+- macOS data for the hypervisor run: tools/macos-hv-prep.sh (curl | bash; prompts for the
+  controller's login, nothing hardcoded) installed the hvsleep launch daemon (acts only with
+  hvsleep=1) and sent sw_vers, diskutil, nvram, pmset, ioreg and the kernelcache to the Pi. Found:
+  Macintosh HD was 15.7.1 (24G231), FileVault on, SIP off; the Linux stub carries 13.5 firmware.
+- The Pi moved from the lossy 2.4 GHz network to the main 5 GHz one (NetworkManager profile,
+  priority 10, the old one kept as fallback): 20 MB in 3.7 s, no stalls. Mac ssh alias updated,
+  host key checked against the old entry.
+- Option B (Aura as custom kernel of Macintosh HD) stopped at its own version check: Macintosh HD
+  had auto-updated to 15.7.4 on the restart. Nothing was installed. Asahi's m1n1-hypervisor guide
+  pins only 13.5 (M1/M2) and 14.8.3 (M1-M3) as guests; newer XNU needs SPTM, which Aura does not
+  load (m1n1 PR #698, unmerged). Owner chose option A: a separate macOS 14.8.3 volume.
+- Built for option A, nothing run on the Mac yet:
+  - tools/macos-hv-testvol.sh: in the everyday macOS, checks Apple's catalog for 14.8.3, downloads
+    it, adds an empty APFS volume macOSTest (container has 91 GB free; typed yes), opens the
+    installer; `setup` mode in the new system turns off automatic updates and runs macos-hv-prep.sh.
+  - hv-testvol-recovery.sh (harness hv/make-recovery.sh, served by the Pi on the LAN only, embeds
+    aura.bin c7509ccf): only macOSTest at 14.8.3, refuses the Macintosh HD volume group, checks
+    bputil reports a Paired recoveryOS, then bputil -nkcas, csrutil disable, kmutil configure-boot.
+  - tools/im4p-extract.py: IMG4/IM4P to Mach-O with the lzfse tool; on the 15.7.1 kernelcache:
+    krnl, 30.2 MB LZFSE, 114.9 MB fileset Mach-O, xnu-11417.140.69.708.3 RELEASE_ARM64_T6020.
+  - harness hv/bless.sh (asahi-bless through the harness sudo rule): candidates Macintosh HD and
+    omarchy (default). Each run boots macOSTest once with --next.
+  - Pi deepidle/hv-run.sh: waits for /dev/m1n1, run_guest.py with trace_pmp and trace_smc, boot
+    args debug=0x14e serial=3 apcie=0xfffffffe -enable-kprintf-spam wdt=-1 clpc=0 hvsleep=1, stdin
+    /dev/null, 1 h limit, then tools/reboot.py so the Mac returns to Linux.
+- Linux on the Mac sees no USB buses on the running kernel (dwc3/xhci load, /sys/bus/usb/devices
+  empty); the hypervisor runs use the Mac's USB only from Aura, so this does not block them.
+
+## 2026-10-23 23:53 to 10-24 08:13: overnight s2idle on the default kernel (7.1.12-2-11.35-sep)
+- harness overnight/run.sh: drain probe armed as root, allow-idle, systemctl suspend, woken by the
+  owner (lid) at 08:12:57; stay-awake back on after. Pi watcher (tag overnight): down 23:53:06, up
+  08:13:11, nothing logged in between. Resume clean: the usual brcmf p2p/join_pref -52 lines and the
+  known aurora-fand restart loop, nothing else. Results: overnight/results-20261023-235100.
+- 8.33 h suspended, one suspend, 0.7 min awake. Battery 52.01 -> 47.24 Wh (90% -> 80%), but this
+  is NOT a drain figure: the charger was connected and the battery was above the 80% end threshold,
+  so the SMC ran the Mac from the battery only until it reached 80%, then held it there ("Not
+  charging", AC input 5.99 W after). 4.77 Wh / 8.33 h = 0.57 W is only a lower bound; at the
+  earlier 1.4 W it would have reached 80% after about 3.4 h. A real overnight figure needs the
+  charger unplugged (or the battery at or below the threshold with charging inhibited).
+- Wakes as before: 100,939 whole-SoC wakes (3.4/s); first interrupt AOP mailbox 2a6408000 72.4%,
+  function-call IPI 27.5% (the 200 ms aop_als interval, worklog 2026-10-1x: 3.2/s, 61%/38%).
+  Domains left on that may power off: afr, apcie_gp, apcie_gpshr_sys, disp0/dispext0/dispext1
+  cpu0/fe/sys, sio.
+
+## 2026-10-24 morning: S2R Phase 1 built (PSCI CPU_ON/CPU_OFF through EFI), not booted
+- RFC fetched from lore (20260708-efi-psci-v1-0-9efb3abf0e4c@kernel.org): 6 patches apply clean
+  on GH-1-DeepIdle 1ac4376 (local branch psci-efi-test). Review state: Ard took 3 and 4; Mark
+  Rutland objects to calling it PSCI; the interface may change.
+- Kernel: + t6020-j414s-psci.dts (opt-in, out of the Makefile). Built out of tree with the
+  deepidle3 config (USB4=m, LOCALVERSION -psci-efi); the tree's built-in DRM_ASAHI needs
+  APPLE_PMP=y to link (apple_pmp_set_device_power), a tree/config mismatch unrelated to the RFC.
+  DTB checked: 12 x enable-method psci, no spin-table, psci { method = "efi" }.
+- Aura (branch psci-efi): psci.c + smp_psci_* (CPU_ON dispatch/restart, CPU_OFF = PMGR stop +
+  L1 set/way clean + cpu_sleep(true), AFFINITY_INFO from the CPU's own OFF mark, never a power
+  status read), kboot dt_set_psci() -> /chosen aura,psci-*. Call graph from the handler checked:
+  no printf, no FP.
+- U-Boot asahi-v2026.07-2 (the installed uboot-asahi 2026.07.asahi2) + efi_platform_register()
+  hook: runtime code + MMIO (ISA nGnRnE bits) + the config table. Built.
+- arm64 stub skips SetVirtualAddressMap with 48-bit VAs, so the runtime map is already 1:1 (no
+  efi=novamap needed on this config).
+- Design, risks and the first boot test: docs/psci-efi.md. The boot test needs the owner's go.

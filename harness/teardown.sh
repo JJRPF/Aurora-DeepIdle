@@ -10,6 +10,9 @@ rm -f /etc/systemd/system.conf.d/90-deepidle-watchdog.conf
 rm -f /etc/modprobe.d/deepidle-no-pmp.conf
 rm -f /var/lib/deepidle/plan /var/lib/deepidle/boot.bin.stock
 rm -rf /usr/local/lib/deepidle
+systemctl disable di-pmpwake-early.service di-pmpwake-run.service 2>/dev/null
+rm -f /etc/systemd/system/di-pmpwake-early.service /etc/systemd/system/di-pmpwake-run.service /var/lib/deepidle/pmpwake-armed
+rm -f /etc/sudoers.d/90-deepidle-harness   # the harness-only passwordless sudo rule
 # The test kernel: GRUB entries, image, initramfs, modules.
 rm -f /etc/grub.d/43_deepidle /boot/vmlinuz-deepidle-test /boot/initramfs-deepidle-test.img
 rm -rf /usr/lib/modules/7.1.12-2-11.35-sep-ARCH-deepidle
@@ -19,6 +22,9 @@ systemctl daemon-reload
 # The user-side resume hook.
 sed -i -e '\|deepidle-resume|d' -e '/^-- Deep idle testing: reopen the Claude session/d' /home/jjr/.config/hypr/autostart.lua
 rm -f /home/jjr/.local/bin/deepidle-resume /home/jjr/.local/state/deepidle/resume
+# The after-boot headless hook (agent headless mode back on after every boot).
+sed -i -e '\|deepidle-headless-boot|d' -e '/^-- Deep idle testing: agent headless mode back on/d' -e '/^-- ~\/.local\/state\/deepidle\/headless-on-boot exists/d' /home/jjr/.config/hypr/autostart.lua
+rm -f /home/jjr/.local/bin/deepidle-headless-boot /home/jjr/.local/state/deepidle/headless-on-boot
 echo "Harness removed. Still to do, when you want: remove the LUKS keyfile slot:"
 echo "  cryptsetup luksRemoveKey /dev/nvme0n1p5 /crypto_keyfile.bin"
 echo "  rm /crypto_keyfile.bin /etc/mkinitcpio.conf.d/deepidle-keyfile.conf && mkinitcpio -P"

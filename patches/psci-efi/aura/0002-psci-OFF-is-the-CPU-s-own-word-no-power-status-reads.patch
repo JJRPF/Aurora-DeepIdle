@@ -1,0 +1,166 @@
+From 50d362223ba8fde98696cbc1ac96789800ce5098 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Sat, 24 Oct 2026 08:32:26 -0400
+Subject: [PATCH 2/2] psci: OFF is the CPU's own word; no power status reads
+
+smp_stop_cpu() notes that register access dies with the last core of a
+cluster, so AFFINITY_INFO must not read the implementation registers
+of a core that may be down: the dying CPU marks itself OFF after its
+last memory access, and CPU_ON waits 1 ms before restarting it. The
+implementation registers are no longer exported for the runtime map.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AuzUDcEeRJQ6RCdWW2XWLb
+---
+ src/kboot.c |  5 +++--
+ src/psci.h  |  2 +-
+ src/smp.c   | 53 ++++++++++++++++++++---------------------------------
+ 3 files changed, 24 insertions(+), 36 deletions(-)
+
+diff --git a/src/kboot.c b/src/kboot.c
+index ec854c3d..d594ea6e 100644
+--- a/src/kboot.c
++++ b/src/kboot.c
+@@ -717,8 +717,9 @@ static int dt_set_smbios(void)
+  *                           to map as EFI runtime services code
+  *   aura,psci-runtime-mmio  <base size>... the MMIO the handler touches, to map
+  *                           as EFI runtime MMIO (Device-nGnRnE)
+- * The kernel must boot with efi=novamap: the handler pointer and everything it
+- * uses are physical addresses, so the runtime map has to be 1:1.
++ * The handler pointer and everything it uses are physical addresses, so the
++ * kernel's EFI runtime map has to be 1:1: the arm64 EFI stub does that by itself
++ * with 48-bit VAs (it skips SetVirtualAddressMap), efi=novamap forces it.
+  */
+ static int dt_set_psci(void)
+ {
+diff --git a/src/psci.h b/src/psci.h
+index 22998084..92d225ab 100644
+--- a/src/psci.h
++++ b/src/psci.h
+@@ -12,7 +12,7 @@
+  * found through the LINUX_EFI_ARM_PSCI_HANDLER_TABLE configuration table.
+  *
+  * The handler runs in the kernel's context: its stack, its page tables (the EFI
+- * runtime map, which must be 1:1, i.e. the kernel booted with efi=novamap),
++ * runtime map, which must be 1:1: the arm64 stub's default with 48-bit VAs),
+  * interrupts masked. So it must not use FP/SIMD (we build with
+  * -mgeneral-regs-only), must not printf (the UART is not mapped there) and may
+  * touch only our image and the MMIO ranges exported with the table.
+diff --git a/src/smp.c b/src/smp.c
+index 206421bf..e9b82631 100644
+--- a/src/smp.c
++++ b/src/smp.c
+@@ -957,12 +957,16 @@ u64 smp_get_release_addr(int cpu)
+  * (PMGR stop request, cpu_sleep(true)); CPU_ON then restarts it through the PMGR
+  * start registers, it re-enters through RVBAR (_cpu_reset_c) into the park loop,
+  * and is dispatched to the kernel's entry point from there.
++ *
++ * Known gap: a CPU_ON within the few instructions between the dying CPU's OFF
++ * and its power-down would find the core still up; the restart then does
++ * nothing and CPU_ON fails with INTERNAL_FAILURE (the kernel reports the CPU as
++ * failing to come online, nothing worse). The 1 ms wait makes that unlikely.
+  */
+ enum psci_cpu_state {
+     PSCI_CPU_PARKED = 0, /* in the park loop, not yet given to the kernel */
+     PSCI_CPU_ON,
+-    PSCI_CPU_OFF_PENDING, /* CPU_OFF called, power-down not yet seen */
+-    PSCI_CPU_OFF,         /* powered down */
++    PSCI_CPU_OFF, /* done with memory and going down (set by the CPU itself) */
+ };
+ 
+ static u8 psci_cpu_state[MAX_CPUS] SMP_SHARED;
+@@ -980,11 +984,6 @@ static int smp_psci_index(u64 mpidr)
+     return -1;
+ }
+ 
+-static bool smp_psci_core_stopped(int index)
+-{
+-    return !(read64(cpu_info[index].impl_reg + 0x100) & 0xff);
+-}
+-
+ int smp_psci_affinity_info(u64 mpidr)
+ {
+     int index = smp_psci_index(mpidr);
+@@ -994,19 +993,13 @@ int smp_psci_affinity_info(u64 mpidr)
+     if (index == boot_cpu_idx)
+         return PSCI_AFFINITY_INFO_ON;
+ 
++    /*
++     * No power status read here: smp_stop_cpu() notes that register access dies
++     * with the last core of a cluster, so OFF is the CPU's own word, written
++     * after its last memory access, just before the power-down.
++     */
+     dc_civac_range(&psci_cpu_state[index], 1);
+-    switch (psci_cpu_state[index]) {
+-        case PSCI_CPU_ON:
+-            return PSCI_AFFINITY_INFO_ON;
+-        case PSCI_CPU_OFF_PENDING:
+-            if (!smp_psci_core_stopped(index))
+-                return PSCI_AFFINITY_INFO_ON;
+-            psci_cpu_state[index] = PSCI_CPU_OFF;
+-            dc_civac_range(&psci_cpu_state[index], 1);
+-            return PSCI_AFFINITY_INFO_OFF;
+-        default:
+-            return PSCI_AFFINITY_INFO_OFF;
+-    }
++    return psci_cpu_state[index] == PSCI_CPU_ON ? PSCI_AFFINITY_INFO_ON : PSCI_AFFINITY_INFO_OFF;
+ }
+ 
+ /* Hand a parked CPU its entry point, as smp_call4() does, without waiting. */
+@@ -1077,12 +1070,10 @@ int smp_psci_cpu_on(u64 mpidr, u64 entry, u64 context)
+             return smp_psci_dispatch(index, entry, context);
+         case PSCI_CPU_ON:
+             return PSCI_RET_ALREADY_ON;
+-        case PSCI_CPU_OFF_PENDING:
+-            if (!smp_psci_core_stopped(index))
+-                return PSCI_RET_ALREADY_ON;
+-            /* fallthrough */
+         case PSCI_CPU_OFF:
+         default:
++            /* OFF is set a few instructions before the power-down: give it time. */
++            udelay(1000);
+             if (smp_psci_restart(index))
+                 return PSCI_RET_INTERNAL_FAILURE;
+             return smp_psci_dispatch(index, entry, context);
+@@ -1099,24 +1090,21 @@ int smp_psci_cpu_off(void)
+     const struct cpu_info *cpu = &cpu_info[index];
+     u64 start_base = cpu_start_base + cpu->die * PMGR_DIE_OFFSET;
+ 
+-    psci_cpu_state[index] = PSCI_CPU_OFF_PENDING;
+-    dc_civac_range(&psci_cpu_state[index], 1);
+-    sysop("dsb sy");
++    /* As smp_stop_cpu(): request the stop, then power down without retention. */
++    write32(start_base + 0x0, cpu_start_bit(index, cpu));
+ 
++    psci_cpu_state[index] = PSCI_CPU_OFF;
++    dc_civac_range(&psci_cpu_state[index], 1);
+     /* This core's L1 goes away with its power: write the kernel's dirty lines back. */
+     dcsw_op_level1(DCSW_OP_DCCISW);
+     sysop("dsb sy");
+-
+-    /* As smp_stop_cpu(): request the stop, then power down without retention. */
+-    write32(start_base + 0x0, cpu_start_bit(index, cpu));
+     cpu_sleep(true);
+ }
+ 
+ /*
+  * The MMIO the PSCI handler touches, as page-aligned <base, size> pairs, for the
+- * EFI runtime memory map: the PMGR CPU start/stop block of each die, each CPU's
+- * implementation registers (the power status at +0x100) and, without fast IPIs,
+- * the AIC. Returns the number of pairs written.
++ * EFI runtime memory map: the PMGR CPU start/stop block of each die and, without
++ * fast IPIs, the AIC. Returns the number of pairs written.
+  */
+ static void smp_psci_add_range(u64 *ranges, int max, int *n, u64 base, u64 size)
+ {
+@@ -1142,7 +1130,6 @@ int smp_psci_mmio_ranges(u64 *ranges, int max)
+             continue;
+         smp_psci_add_range(ranges, max, &n, cpu_start_base + cpu_info[i].die * PMGR_DIE_OFFSET,
+                            0x100);
+-        smp_psci_add_range(ranges, max, &n, cpu_info[i].impl_reg, 0x108);
+     }
+     if (!cpu_features->fast_ipi && aic)
+         smp_psci_add_range(ranges, max, &n, aic->base, SZ_16K);
+-- 
+2.55.0
+

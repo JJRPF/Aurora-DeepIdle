@@ -1,0 +1,48 @@
+== 2026-10-23 23:51:00 before
+status=Discharging
+capacity=90
+charge_now=4575000
+energy_now=52155000
+current_now=-410000
+voltage_now=12239000
+charge_behaviour=[auto] inhibit-charge
+charge_control_start_threshold=75
+charge_control_end_threshold=80
+ac_online=1
+Total System Power=4797562
+AC Input Power=116982
+Heatpipe Power=2299434
+suspend success=0 fail=0
+boottime-monotonic: 1216.59 11834.33
+== 2026-10-23 23:53:00 before suspend
+status=Discharging
+capacity=90
+charge_now=4562000
+energy_now=52006800
+current_now=-394000
+voltage_now=12230000
+charge_behaviour=[auto] inhibit-charge
+charge_control_start_threshold=75
+charge_control_end_threshold=80
+ac_online=1
+Total System Power=4854305
+AC Input Power=116771
+Heatpipe Power=2174216
+suspend success=0 fail=0
+boottime-monotonic: 1336.62 13017.07
+== 2026-10-24 08:13:17 after
+status=Not charging
+capacity=80
+charge_now=4144000
+energy_now=47241600
+current_now=0
+voltage_now=12099000
+charge_behaviour=[auto] inhibit-charge
+charge_control_start_threshold=75
+charge_control_end_threshold=80
+ac_online=1
+Total System Power=6034499
+AC Input Power=5985216
+Heatpipe Power=2863690
+suspend success=1 fail=0
+boottime-monotonic: 31353.62 13396.64
