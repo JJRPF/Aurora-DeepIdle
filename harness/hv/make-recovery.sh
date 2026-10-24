@@ -17,6 +17,15 @@ cat <<EOF
 # Run in macOSTest's own (paired) recoveryOS. It only ever targets macOSTest with macOS 14.8.9;
 # Macintosh HD and the Linux entry (omarchy) are never touched. Aura $DESC, sha256 $SHA.
 set -e
+# recoveryOS ships a small toolset (no base64, maybe no shasum or openssl): list every missing tool
+# first, before any check or change.
+miss=
+for t in plutil diskutil bputil csrutil kmutil curl grep cut tr wc mkdir; do
+    command -v \$t > /dev/null 2>&1 || miss="\$miss \$t"
+done
+command -v shasum > /dev/null 2>&1 || command -v openssl > /dev/null 2>&1 || miss="\$miss shasum-or-openssl"
+[ -z "\$miss" ] || { echo "recoveryOS lacks:\$miss"; echo "Stopping, nothing changed. Send this line back."; exit 1; }
+echo "tools present: plutil diskutil bputil csrutil kmutil curl grep cut tr wc mkdir + a sha256 tool"
 NAME=macOSTest
 WANT=14.8.9
 V="/Volumes/\$NAME"
