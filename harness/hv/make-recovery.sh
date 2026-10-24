@@ -2,6 +2,9 @@
 # Build hv-testvol-recovery.sh: Aura as the custom boot object of the macOSTest volume (14.8.9),
 # run by the owner in macOSTest's paired recoveryOS. Embeds aura.bin with its sha256.
 #   make-recovery.sh <aura.bin> <out.sh>
+# recoveryOS has no base64, so the script downloads aura.bin (checked against the embedded sha256)
+# from the URL given as its argument or $AURA_URL: serve <aura.bin> next to the script, then in
+# recoveryOS: curl -fsSL http://<host>/hv-testvol-recovery.sh | sh -s -- http://<host>/aura.bin
 set -eu
 IMG=$1 OUT=$2
 SHA=$(sha256sum "$IMG" | cut -d' ' -f1)
@@ -33,11 +36,9 @@ grep -q ': Paired' /tmp/bp.txt || {
     echo "Stopping, nothing changed."; exit 1; }
 T=/tmp/aura-hv
 mkdir -p \$T
-base64 -D -o \$T/aura.bin <<'EOF_AURA'
-EOF
-base64 -w 76 "$IMG"
-cat <<EOF
-EOF_AURA
+URL=\${1:-\${AURA_URL:-}}
+[ -n "\$URL" ] || { echo "usage: sh -s -- <url of aura.bin>"; exit 1; }
+curl -fsS "\$URL" -o \$T/aura.bin || { echo "cannot download \$URL: stopping, nothing changed."; exit 1; }
 got=\$( (shasum -a 256 \$T/aura.bin 2>/dev/null || openssl dgst -sha256 -r \$T/aura.bin) | cut -d' ' -f1)
 [ "\$got" = "$SHA" ] || { echo "aura.bin checksum mismatch (\$got): stopping, nothing changed."; exit 1; }
 echo
