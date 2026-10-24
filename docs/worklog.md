@@ -785,3 +785,19 @@ Nothing here installs, reboots, or writes hardware registers. Times are local.
     /dev/null, 1 h limit, then tools/reboot.py so the Mac returns to Linux.
 - Linux on the Mac sees no USB buses on the running kernel (dwc3/xhci load, /sys/bus/usb/devices
   empty); the hypervisor runs use the Mac's USB only from Aura, so this does not block them.
+
+## 2026-10-23 23:53 to 10-24 08:13: overnight s2idle on the default kernel (7.1.12-2-11.35-sep)
+- harness overnight/run.sh: drain probe armed as root, allow-idle, systemctl suspend, woken by the
+  owner (lid) at 08:12:57; stay-awake back on after. Pi watcher (tag overnight): down 23:53:06, up
+  08:13:11, nothing logged in between. Resume clean: the usual brcmf p2p/join_pref -52 lines and the
+  known aurora-fand restart loop, nothing else. Results: overnight/results-20261023-235100.
+- 8.33 h suspended, one suspend, 0.7 min awake. Battery 52.01 -> 47.24 Wh (90% -> 80%), but this
+  is NOT a drain figure: the charger was connected and the battery was above the 80% end threshold,
+  so the SMC ran the Mac from the battery only until it reached 80%, then held it there ("Not
+  charging", AC input 5.99 W after). 4.77 Wh / 8.33 h = 0.57 W is only a lower bound; at the
+  earlier 1.4 W it would have reached 80% after about 3.4 h. A real overnight figure needs the
+  charger unplugged (or the battery at or below the threshold with charging inhibited).
+- Wakes as before: 100,939 whole-SoC wakes (3.4/s); first interrupt AOP mailbox 2a6408000 72.4%,
+  function-call IPI 27.5% (the 200 ms aop_als interval, worklog 2026-10-1x: 3.2/s, 61%/38%).
+  Domains left on that may power off: afr, apcie_gp, apcie_gpshr_sys, disp0/dispext0/dispext1
+  cpu0/fe/sys, sio.
