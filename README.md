@@ -5,7 +5,9 @@ CPU deep idle and sleep-drain research for the 14" MacBook Pro M2 Pro
 kernel, with the measurement tools, the kernel and device tree changes, and
 the raw data behind every number.
 
-The full write-up is [docs/deep-idle-research.md](docs/deep-idle-research.md).
+Start with [docs/status.md](docs/status.md): where everything stands, in one
+page. The full write-up is [docs/deep-idle-research.md](docs/deep-idle-research.md),
+the plan for real suspend to RAM is [docs/s2r-plan.md](docs/s2r-plan.md), and
 [docs/worklog.md](docs/worklog.md) is the running log of what was run on the
 machine and what it showed.
 
@@ -68,6 +70,23 @@ machine and what it showed.
   after issue #3). The hook stays off; a fixed one is expected to save
   little, since s2idle drains the same with and without the PMP. Tools in `tools/macos-re/` (no Apple files
   in this repo).
+* **The SMC sleep handshake: `slpa` takes the storage away.** Sent in
+  s2idle one step at a time (`WKTP`, then `slpw`, then `slpa`, with `waka`
+  on resume), the first two are harmless. After `slpa` the Mac resumed but
+  every NVMe access failed, and the state survived a warm reboot; only a
+  full power off cleared it. So `slpa` means "the SoC is about to lose
+  power" and belongs last on a real S2R path.
+* **The PMP's wake from IDLE is a power cycle on macOS, and Linux cannot
+  restart it yet.** RUN alone woke it 0 of 3 times. Gating its SRAM domain
+  did not restart it, and a PMGR reset of `ps_pmp` crashed the whole SoC.
+  `ps_pmp` is pinned on by iBoot. What is left to try is macOS's DART and
+  outbox steps around RUN.
+* **S2R plan and Phase 1** ([docs/s2r-plan.md](docs/s2r-plan.md),
+  [docs/psci-efi.md](docs/psci-efi.md)). Phase 1, PSCI CPU_ON and CPU_OFF
+  through the PSCI-via-EFI RFC, is built in the kernel, in Aura and in
+  U-Boot, and is not booted yet. The macOS sleep trace under the hypervisor
+  uses a separate macOS 14.8.3 volume, the pinned guest version (newer XNU
+  needs SPTM).
 * **The HDMI port's rails cost 0.13 W with nothing plugged in**, outside the
   SoC (12 paired rounds, lower in 12 of 12). The DCP driver never lowers them
   on T6020; `patches/hdmi-rails-off-in-sleep.patch` lowers them in system
@@ -148,6 +167,16 @@ makes it persistent: copy it to `/etc/tmpfiles.d/`.
 |---|---|
 | `docs/deep-idle-research.md` | The research: states, what macOS does, measurements, designs, experiments, unknowns |
 | `docs/worklog.md` | Session log: every live run, its settings and results |
+| `docs/status.md` | One-page summary: results, the S2R pieces, what is built but not booted, how testing works |
+| `docs/s2r-plan.md` | The phased plan to S2R (PSCI provider in Aura, macOS trace, devices, daily use) |
+| `docs/psci-efi.md` | Phase 1: PSCI CPU_ON/CPU_OFF through EFI in the kernel, Aura and U-Boot; the first boot test |
+| `tools/macos-hv-testvol.sh` | macOS side: download 14.8.3, add the `macOSTest` volume, open the installer; `setup` mode inside the new system |
+| `tools/macos-hv-prep.sh` | macOS side: the `hvsleep=1` sleep job and the data the hypervisor run needs, sent to the controller |
+| `tools/im4p-extract.py` | IMG4/IM4P kernelcache to the Mach-O `run_guest.py` loads (needs the `lzfse` tool) |
+| `harness/hv/`, `harness/remote/hv-run.sh` | Boot the guest volume once (`asahi-bless`), build the recoveryOS script that installs Aura on it, and the Pi's unattended guest run |
+| `harness/overnight/run.sh` | One measured overnight s2idle, woken by the owner; results in `data/overnight/` |
+| `harness/mmio/pmp-cycle.c` | Address-limited PMP restart experiments (`reset-cycle` is retired: it crashed the SoC); results in `data/pmp-cycle/` |
+| `patches/psci-efi/`, `patches/hvsleep-trace/` | Phase 1 (Aura, U-Boot, the T6020 PSCI DTS) and the Aura hypervisor change for the sleep trace |
 | `tools/idle-ab.py` | Paired A/B of cpuidle settings by SMC power (all sensors), with busy time and clocks; settings `default`, `wfi-only`, `pd-always[@cpus]`, `res=US`, `no-eas`, `set:PATH=VALUE[,...]` (any sysfs knob for the window) |
 | `tools/wakelat.c` | Wake-up latency probe (timer overshoot, cross-CPU futex wake), SCHED_FIFO |
 | `tools/sleep-drain-probe.py` | s2idle drain, wake sources (tracefs), domains left on through a suspend |
