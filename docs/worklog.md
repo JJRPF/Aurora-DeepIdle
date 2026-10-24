@@ -741,3 +741,47 @@ Nothing here installs, reboots, or writes hardware registers. Times are local.
   without the owner present: the PMP is the SoC's power manager.
 - The Pi's Wi-Fi link stalls on bulk transfers (scp hung, plain cat cut at 327/1588 lines); gzip over
   the Tailscale alias got the full 4019 lines.
+
+## 2026-10-23 afternoon to night: PMP restart tries, S2R plan, the hypervisor guest
+- S2R plan written (docs/s2r-plan.md). Owner: no extra hardware (no PD board, no smart plug), so
+  Phase 0 is dropped; recovery comes from the watchdog, Aura's early proxy wait, asahi-bless --next
+  and a proxy reboot from the Pi. The PMP power-cycle test may run unattended.
+- PMP, on a PMP already stopped by the morning's RUN-only test (mmio/pmp-cycle.c, address-limited
+  writer; results in /var/lib/deepidle/pmp-cycle-20261023-*):
+  - sram-cycle (15:14:01): RUN cleared, ps_pms_sram (0x2d0) gated (actual 0 in 1 us) and ungated
+    (actual f in 3 us), RUN set: CPU_STATUS stayed 0x8 up to 2 s, A2I still 4 queued. Gating the
+    SRAM domain alone does not restart the PMP.
+  - reset-cycle (15:15:53): DEV_DISABLE + RESET (bit 31) on ps_pmp (0x2c8): the whole SoC died at
+    once, no log line; the Mac came back on its own into the stock kernel at about 15:16:39. Never
+    to be run again. ps_pmp is pinned on by iBoot (PS_MIN 0xf), so macOS probably never really
+    power-cycles it either; what is left of macOS's restart is the DART off/on and the outbox
+    steps around RUN (untried).
+  - mmio/pmp-asc.sh mailbox fields fixed: FULL bit 16, EMPTY bit 17, count from bit 20 (as
+    apple-mailbox.c); the script had used 17 and 18.
+- macOS data for the hypervisor run: tools/macos-hv-prep.sh (curl | bash; prompts for the
+  controller's login, nothing hardcoded) installed the hvsleep launch daemon (acts only with
+  hvsleep=1) and sent sw_vers, diskutil, nvram, pmset, ioreg and the kernelcache to the Pi. Found:
+  Macintosh HD was 15.7.1 (24G231), FileVault on, SIP off; the Linux stub carries 13.5 firmware.
+- The Pi moved from the lossy 2.4 GHz network to the main 5 GHz one (NetworkManager profile,
+  priority 10, the old one kept as fallback): 20 MB in 3.7 s, no stalls. Mac ssh alias updated,
+  host key checked against the old entry.
+- Option B (Aura as custom kernel of Macintosh HD) stopped at its own version check: Macintosh HD
+  had auto-updated to 15.7.4 on the restart. Nothing was installed. Asahi's m1n1-hypervisor guide
+  pins only 13.5 (M1/M2) and 14.8.3 (M1-M3) as guests; newer XNU needs SPTM, which Aura does not
+  load (m1n1 PR #698, unmerged). Owner chose option A: a separate macOS 14.8.3 volume.
+- Built for option A, nothing run on the Mac yet:
+  - tools/macos-hv-testvol.sh: in the everyday macOS, checks Apple's catalog for 14.8.3, downloads
+    it, adds an empty APFS volume macOSTest (container has 91 GB free; typed yes), opens the
+    installer; `setup` mode in the new system turns off automatic updates and runs macos-hv-prep.sh.
+  - hv-testvol-recovery.sh (harness hv/make-recovery.sh, served by the Pi on the LAN only, embeds
+    aura.bin c7509ccf): only macOSTest at 14.8.3, refuses the Macintosh HD volume group, checks
+    bputil reports a Paired recoveryOS, then bputil -nkcas, csrutil disable, kmutil configure-boot.
+  - tools/im4p-extract.py: IMG4/IM4P to Mach-O with the lzfse tool; on the 15.7.1 kernelcache:
+    krnl, 30.2 MB LZFSE, 114.9 MB fileset Mach-O, xnu-11417.140.69.708.3 RELEASE_ARM64_T6020.
+  - harness hv/bless.sh (asahi-bless through the harness sudo rule): candidates Macintosh HD and
+    omarchy (default). Each run boots macOSTest once with --next.
+  - Pi deepidle/hv-run.sh: waits for /dev/m1n1, run_guest.py with trace_pmp and trace_smc, boot
+    args debug=0x14e serial=3 apcie=0xfffffffe -enable-kprintf-spam wdt=-1 clpc=0 hvsleep=1, stdin
+    /dev/null, 1 h limit, then tools/reboot.py so the Mac returns to Linux.
+- Linux on the Mac sees no USB buses on the running kernel (dwc3/xhci load, /sys/bus/usb/devices
+  empty); the hypervisor runs use the Mac's USB only from Aura, so this does not block them.

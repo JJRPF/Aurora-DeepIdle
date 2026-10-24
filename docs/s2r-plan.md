@@ -47,7 +47,7 @@ is back, which also stops all other work. Some steps also need hands once:
 the USB-C cable from the Pi to the Mac, the charger unplugged for a battery
 measurement, and a macOS login for the hypervisor setup.
 
-**Phase 0 removes most of this.** Give the Pi a USB-PD board that speaks
+**Phase 0 would have removed most of this** (dropped, see below). Give the Pi a USB-PD board that speaks
 Apple's vendor messages: Marc Zyngier's Central Scrutinizer (a Raspberry Pi
 Pico with an FUSB302), or a similar board. Wired to the Mac's DFU port, it
 gives the Pi:
@@ -66,19 +66,25 @@ measurements need no hands either. Whether a PD reboot also clears an
 
 Each phase ends with a gate: what has to work before the next phase starts.
 
-### Phase 0: remote hands (owner: buy and connect; then once with the owner)
+### Phase 0: remote hands (dropped: no extra hardware)
 
-* Pi: the PD board on the Mac's DFU port, the vendor-message tool, a serial
-  log added to `pi-watch.sh`, and a smart plug on the charger.
-* Test with the owner present: a PD reboot from Linux, from m1n1 proxy mode,
-  and from a hung kernel. Serial shows m1n1's boot log.
-* **Gate:** the Pi can reboot the Mac from any state, and the Pi records
-  serial.
+The owner cannot add the PD board or the smart plug (2026-10-23), so recovery
+has to come from software:
 
-Without Phase 0 every later phase still works, but each run that leaves
-Linux needs the owner within reach.
+* a test Aura build that leaves the SoC watchdog armed instead of disabling
+  it (`wdt_disable()` in `main.c`), so a hang in Aura or in a wake reboots
+  the Mac;
+* Aura's early proxy wait, so the Pi can chainload the stock chain from a
+  test boot that did not reach Linux;
+* for the hypervisor runs, `asahi-bless --next` from Linux boots the test
+  volume once, and the Pi's run script ends by rebooting the Mac through the
+  proxy, back into Linux.
 
-### Phase 1: CPU_OFF and CPU_ON in Aura (unattended once Phase 0 is done)
+What this cannot cover: a sleep that never wakes, and an `slpa`-type state
+that only a full power off clears. Runs that can end there still need the
+owner within reach.
+
+### Phase 1: CPU_OFF and CPU_ON in Aura (unattended where the watchdog covers it)
 
 * Aura: a resident PSCI provider for T6020. Use the `psci-via-efi` branch as a
   reference only. Add `CPU_ON` and `CPU_OFF`; `CPU_OFF` is the ACC power-down,
@@ -93,7 +99,7 @@ Linux needs the owner within reach.
 * **Gate:** hotplug is clean, deep idle is not worse, and the RVBAR re-entry
   of a secondary works.
 
-### Phase 2: SYSTEM_SUSPEND with the SoC still on (unattended once Phase 0 is done)
+### Phase 2: SYSTEM_SUSPEND with the SoC still on (unattended where the watchdog covers it)
 
 * Aura `SYSTEM_SUSPEND`: the boot CPU powers down like a secondary. Its locked
   RVBAR lands in resident Aura, which restores the CPU state (chicken bits,
@@ -119,10 +125,23 @@ wakes there, iBoot's raw-mode setup is enough for S2R.
   - Catch the boot CPU's RVBAR entry on wake and restart the guest at its
     own reset vector.
   - Bring the USB proxy link back after the wake, or log over serial
-    (Phase 0) while it is down.
-* macOS, set up once by the owner: automatic login, plus a launch daemon
-  that schedules a wake (`pmset schedule wake`) and then sleeps a few
-  minutes after boot. No hands are needed after that.
+    while it is down (there is no serial without Phase 0).
+* The guest is macOS 14.8.3 on its own volume, `macOSTest`, beside the
+  everyday macOS. 14.8.3 is the pinned hypervisor guest for the M1 to M3
+  series in Asahi's m1n1-hypervisor guide. Newer XNU needs SPTM, which Aura
+  does not load (m1n1 PR #698 adds it; not merged). The everyday macOS
+  (15.7.4) cannot be the guest.
+* Set up once by the owner (`tools/macos-hv-testvol.sh`): the installer and
+  an empty volume from the everyday macOS, then Setup Assistant without
+  FileVault, then `setup` mode in the new system. That mode turns off
+  automatic updates and runs `tools/macos-hv-prep.sh`. The prep script
+  installs a launch daemon that, only when the boot-args carry `hvsleep=1`,
+  schedules a wake (`pmset schedule wake`) and sleeps 5 minutes after boot.
+  Then, in macOSTest's own recoveryOS, the Asahi guide's `bputil -nkcas`,
+  `csrutil disable` and `kmutil configure-boot` with Aura. No hands are
+  needed after that.
+* The kernel: `tools/im4p-extract.py` turns the Preboot kernelcache into
+  the Mach-O that `run_guest.py` loads (checked on 15.7.1: a 115 MB fileset).
 * Trace (`proxyclient/hv/trace_*`):
   - PMGR: PS writes, `MPMGR_AON`, the CPU-start block, reconfig-looking
     writes;
@@ -149,7 +168,7 @@ Each device on its own, in the order the trace gives:
 
 | Device | Today | Work |
 |---|---|---|
-| PMP | IDLE works; the wake fails | the power cycle of `ps_pmp`/`ps_pms_sram` with the DART saved and restored (designed); testable in s2idle now |
+| PMP | IDLE works; the wake fails. Gating `ps_pms_sram` alone does not restart the CPU, and a PMGR reset of `ps_pmp` killed the SoC (2026-10-23) | `ps_pmp` is pinned on (PS_MIN 0xf), so macOS probably never really power-cycles it either. Next: macOS's DART off/on and outbox steps around RUN, no reset |
 | NVMe (ANS) | suspend shuts down RTKit and resets on resume | check it in Phase 2 and 5; little work expected |
 | PCIe: Wi-Fi, SD reader, HDMI | ASPM only | L2 entry per `manual-enable-s2r`, D3cold resume through the PCI core (no remove/rescan) |
 | SMC | `WKTP` and `slpw` harmless | keep those in prepare; `slpa` goes last, in Aura or a syscore step, in the traced order |
@@ -198,12 +217,9 @@ No owner and no reboot needed:
   `ps_pmp`'s minimum power state, and whether PMS_SRAM holds the PMP
   firmware.
 
-Owner decisions:
+Owner decisions (2026-10-23):
 
-* the Phase 0 hardware. Without it, Phases 1, 2 and 5 need someone within
-  reach for each run that might leave Linux;
-* the one-time macOS setup for Phase 3;
-* whether the PMP power-cycle test may run unattended. The watchdog and the
-  one-boot image cover a kernel hang, and gating PMGR domains does not touch
-  the SMC, so a warm reboot should clear it. The worst case is a Mac that
-  stays down until the owner is back.
+* no Phase 0 hardware; recovery comes from software (Phase 0 above);
+* the PMP power-cycle test may run unattended;
+* the Phase 3 guest is a separate macOS 14.8.3 volume (the everyday macOS
+  auto-updated to 15.7.4, which the hypervisor cannot run).
