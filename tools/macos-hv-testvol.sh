@@ -12,12 +12,23 @@
 set -euo pipefail
 
 NAME=macOSTest
-WANT=14.8.9
-# Apple's software update catalog entry for $WANT (product 140-88558, build 23J631): the pkg,
-# its size and SHA-1 as the catalog lists them. Used when softwareupdate no longer lists $WANT.
-PKG_URL=https://swcdn.apple.com/content/downloads/13/30/140-88558-A_TN3FIE7J63/p61cqj3ktmcqilz3q64ls4ekp1os9c8qbp/InstallAssistant.pkg
-PKG_SIZE=13654790295
-PKG_SHA1=10632733f9b4ab1397fffc98b53e6790e4c2c1b0
+# Guest version: 14.8.9 by default; HV_GUEST=13.7.8 picks the Ventura fallback (never tried as a guest).
+# Apple's software update catalog entries (the pkg, its size and SHA-1 as listed there), used when
+# softwareupdate no longer lists the version.
+WANT=${HV_GUEST:-14.8.9}
+case "$WANT" in
+14.8.9) # product 140-88558, build 23J631
+    APPNAME="Install macOS Sonoma.app"
+    PKG_URL=https://swcdn.apple.com/content/downloads/13/30/140-88558-A_TN3FIE7J63/p61cqj3ktmcqilz3q64ls4ekp1os9c8qbp/InstallAssistant.pkg
+    PKG_SIZE=13654790295
+    PKG_SHA1=10632733f9b4ab1397fffc98b53e6790e4c2c1b0 ;;
+13.7.8) # product 093-22004, build 22H730
+    APPNAME="Install macOS Ventura.app"
+    PKG_URL=https://swcdn.apple.com/content/downloads/09/46/093-22004-A_QNZEDC334I/phigx2zvoggml6sh79my4y51fnvgy8hix4/InstallAssistant.pkg
+    PKG_SIZE=12205110942
+    PKG_SHA1=072098c6b951701714537d333f8e7dded6d64390 ;;
+*) echo "HV_GUEST must be 14.8.9 or 13.7.8"; exit 1 ;;
+esac
 BRANCH=GH-8-S2R-NextSteps
 RAW=https://raw.githubusercontent.com/JJRPF/Aurora-DeepIdle/$BRANCH/tools
 
@@ -58,9 +69,9 @@ if [ "${1:-}" = setup ]; then
 fi
 
 # Step 1, in the everyday macOS.
-case "$ver" in 1[4-9].*|2*) ;; *) echo "macOS $ver is too old to fetch $WANT"; exit 1 ;; esac
+case "$ver" in 1[3-9].*|2*) ;; *) echo "macOS $ver is too old to fetch $WANT"; exit 1 ;; esac
 [ "$(plist / VolumeName)" != "$NAME" ] || { echo "this is already $NAME; run with: setup"; exit 1; }
-APP="/Applications/Install macOS Sonoma.app"
+APP="/Applications/$APPNAME"
 
 echo "== administrator password for sudo"
 sudo -v < $TTY
