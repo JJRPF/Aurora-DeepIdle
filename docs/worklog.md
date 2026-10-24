@@ -829,8 +829,8 @@ Nothing here installs, reboots, or writes hardware registers. Times are local.
   softwareupdate first, else curl -C - plus size and SHA-1 check, then installer -pkg. Version 14.8.9 also in
   harness/hv/make-recovery.sh and hv-run.sh. Not run: it needs macOS. The SHA-1 is the catalog's value, not yet checked
   against a downloaded copy.
-- Step 3: not done. No 14.8.x IPSW URL is reachable, so no remote zip read; the pkg's payload is a sequential archive
-  holding SharedSupport.dmg, not range-readable. The KDK has kernel.release.t6020 only, not the kernelcache fileset.
+- Step 3: not done. No 14.8.x IPSW URL is reachable, so no remote zip read; the pkg (xar, SharedSupport.dmg inside, not checked)
+  would need a dmg parser and a large sequential read, not attempted. The KDK has kernel.release.t6020 only, not the kernelcache fileset.
   The `setup` step in the new system sends the installed kernelcache, as planned.
 - Step 4: the Pi has Aura (deepidle/aura, python deps ok), hv/aura-hvsleep.macho and the recovery server running.
   The served hv-testvol-recovery.sh said 14.8.3 and would have refused 14.8.9: patched to 14.8.9 in place (text only,
