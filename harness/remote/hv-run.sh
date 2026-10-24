@@ -1,5 +1,5 @@
 #!/bin/bash
-# Pi side of the hypervisor sleep trace: run macOSTest's kernel (14.8.3) under Aura's hypervisor
+# Pi side of the hypervisor sleep trace: run macOSTest's kernel (14.8.9) under Aura's hypervisor
 # with the PMP and SMC tracers, unattended. The Mac must be booting Aura on macOSTest (Linux:
 # hv/bless.sh next macOSTest, then reboot) with the Pi's USB-A port cabled to the Mac's DFU port.
 #   hv-run.sh <kernelcache.macho> [tag] [aura.macho to chainload first]

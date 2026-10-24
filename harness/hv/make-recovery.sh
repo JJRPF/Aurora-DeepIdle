@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build hv-testvol-recovery.sh: Aura as the custom boot object of the macOSTest volume (14.8.3),
+# Build hv-testvol-recovery.sh: Aura as the custom boot object of the macOSTest volume (14.8.9),
 # run by the owner in macOSTest's paired recoveryOS. Embeds aura.bin with its sha256.
 #   make-recovery.sh <aura.bin> <out.sh>
 set -eu
@@ -11,11 +11,11 @@ cat <<EOF
 #!/bin/sh
 # Aura as the custom boot object of the "macOSTest" volume, for the hypervisor sleep trace
 # (Aurora-DeepIdle docs/s2r-plan.md Phase 3; the steps of Asahi's m1n1-hypervisor guide).
-# Run in macOSTest's own (paired) recoveryOS. It only ever targets macOSTest with macOS 14.8.3;
+# Run in macOSTest's own (paired) recoveryOS. It only ever targets macOSTest with macOS 14.8.9;
 # Macintosh HD and the Linux entry (omarchy) are never touched. Aura $DESC, sha256 $SHA.
 set -e
 NAME=macOSTest
-WANT=14.8.3
+WANT=14.8.9
 V="/Volumes/\$NAME"
 P="\$V/System/Library/CoreServices/SystemVersion.plist"
 [ -f "\$P" ] || { echo "\$NAME is not mounted. Open Disk Utility, mount \$NAME, then run this again."; exit 1; }

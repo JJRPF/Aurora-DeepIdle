@@ -819,3 +819,20 @@ Nothing here installs, reboots, or writes hardware registers. Times are local.
 - arm64 stub skips SetVirtualAddressMap with 48-bit VAs, so the runtime map is already 1:1 (no
   efi=novamap needed on this config).
 - Design, risks and the first boot test: docs/psci-efi.md. The boot test needs the owner's go.
+
+## 2026-10-24: GH-8 part A from Linux (macOS guest)
+- Step 1: Apple's catalog (swscan, macOS 14 and 15 catalogs) no longer lists 14.8.3 (nor 14.8.4 to 14.8.5): Sonoma is
+  14.8.7 (23J520), 14.8.8 (23J620), 14.8.9 (23J631). The 14.8.3 pkg is gone from the feed. ipsw.me ends at 14.6.1,
+  mesu has only the latest (27.0.1) IPSW, AppleDB knows 14.8.x only as InstallAssistant, OTA and KDK.
+  Owner chose 14.8.9 as the guest. Changed variable: it was never run under the hypervisor.
+- Step 2: tools/macos-hv-testvol.sh now pins the catalog pkg (URL, size 13654790295, SHA-1 10632733...c0), tries
+  softwareupdate first, else curl -C - plus size and SHA-1 check, then installer -pkg. Version 14.8.9 also in
+  harness/hv/make-recovery.sh and hv-run.sh. Not run: it needs macOS. The SHA-1 is the catalog's value, not yet checked
+  against a downloaded copy.
+- Step 3: not done. No 14.8.x IPSW URL is reachable, so no remote zip read; the pkg's payload is a sequential archive
+  holding SharedSupport.dmg, not range-readable. The KDK has kernel.release.t6020 only, not the kernelcache fileset.
+  The `setup` step in the new system sends the installed kernelcache, as planned.
+- Step 4: the Pi has Aura (deepidle/aura, python deps ok), hv/aura-hvsleep.macho and the recovery server running.
+  The served hv-testvol-recovery.sh said 14.8.3 and would have refused 14.8.9: patched to 14.8.9 in place (text only,
+  embedded Aura unchanged, sh -n ok), old copy kept on the Pi. /dev/m1n1 absent, as expected with the Mac in Linux.
+- Step 5: docs/hv-guest-checklist.md. Part B not started (needs the owner's go for every boot step).
