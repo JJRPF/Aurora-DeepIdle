@@ -1,0 +1,199 @@
+From b9822e477f84633b8775fd1ba05965d8f94fe39b Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Sat, 24 Oct 2026 08:31:17 -0400
+Subject: [PATCH] efi_loader, arm: apple: publish the bootloader's PSCI-via-EFI
+ table
+
+The resident bootloader (Aura) serves PSCI CPU_ON/CPU_OFF to the kernel
+through the LINUX_EFI_ARM_PSCI_HANDLER_TABLE configuration table of the
+PSCI-via-EFI RFC (July 2026). When it does, it leaves in /chosen:
+aura,psci-table, aura,psci-runtime-code <base size> and
+aura,psci-runtime-mmio <base size>...
+
+efi_platform_register(), a new weak hook called from
+efi_init_obj_list(), adds the code range as runtime services code and
+the MMIO ranges as runtime MMIO tagged Device-nGnRnE through the UEFI
+2.10 ISA attribute bits (efi_add_memory_attribute(), new), then
+installs the table. Without those properties nothing changes. Built,
+not booted.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AuzUDcEeRJQ6RCdWW2XWLb
+---
+ arch/arm/mach-apple/board.c | 63 +++++++++++++++++++++++++++++++++++++
+ include/efi_loader.h        |  4 +++
+ lib/efi_loader/efi_memory.c | 32 +++++++++++++++++++
+ lib/efi_loader/efi_setup.c  | 14 +++++++++
+ 4 files changed, 113 insertions(+)
+
+diff --git a/arch/arm/mach-apple/board.c b/arch/arm/mach-apple/board.c
+index 5efd5f5a..48a71f1d 100644
+--- a/arch/arm/mach-apple/board.c
++++ b/arch/arm/mach-apple/board.c
+@@ -15,6 +15,7 @@
+ #include <asm/global_data.h>
+ #include <asm/io.h>
+ #include <asm/system.h>
++#include <linux/bitfield.h>
+ 
+ DECLARE_GLOBAL_DATA_PTR;
+ 
+@@ -1220,3 +1221,65 @@ int ft_board_setup(void *blob, struct bd_info *bd)
+ 
+ 	return 0;
+ }
++
++#if CONFIG_IS_ENABLED(EFI_LOADER)
++/*
++ * PSCI-via-EFI: the resident bootloader (Aura) serves PSCI to the kernel through a
++ * function pointer in the LINUX_EFI_ARM_PSCI_HANDLER_TABLE configuration table
++ * (PSCI-via-EFI RFC, July 2026). Aura says where its table, code and MMIO are in
++ * /chosen, only when the DT asks for the EFI conduit:
++ *   aura,psci-table         physical address of the table
++ *   aura,psci-runtime-code  <base size> of Aura's image (code, data, stacks)
++ *   aura,psci-runtime-mmio  <base size>... MMIO the handler uses
++ * Publish them so the kernel maps them in its EFI runtime map. Everything there is
++ * a physical address, so that map has to be 1:1: the arm64 EFI stub does that by
++ * itself with 48-bit VAs (no SetVirtualAddressMap), efi=novamap forces it.
++ */
++static const efi_guid_t linux_efi_arm_psci_handler_table_guid =
++	EFI_GUID(0xf9b47651, 0x4674, 0x4ed9, 0x94, 0x3b, 0x5c, 0xea, 0xd2, 0x10, 0x9a, 0x8b);
++
++/* UEFI 2.10 ISA-specific attributes: bits 59:44 hold the MAIR value. */
++#define EFI_MEMORY_ISA_VALID	BIT_ULL(62)
++#define EFI_MEMORY_ISA_MASK	GENMASK_ULL(59, 44)
++#define MAIR_DEVICE_nGnRnE	0x00ULL
++
++efi_status_t efi_platform_register(void)
++{
++	ofnode chosen = ofnode_path("/chosen");
++	const fdt64_t *prop;
++	efi_status_t ret;
++	u64 table;
++	int len, i;
++
++	if (!ofnode_valid(chosen) ||
++	    ofnode_read_u64(chosen, "aura,psci-table", &table))
++		return EFI_SUCCESS;
++
++	prop = ofnode_get_property(chosen, "aura,psci-runtime-code", &len);
++	if (!prop || len != 2 * sizeof(*prop)) {
++		log_err("PSCI-via-EFI: no aura,psci-runtime-code, not publishing the table\n");
++		return EFI_SUCCESS;
++	}
++	ret = efi_add_memory_map(fdt64_to_cpu(prop[0]), fdt64_to_cpu(prop[1]),
++				 EFI_RUNTIME_SERVICES_CODE);
++	if (ret != EFI_SUCCESS)
++		return ret;
++
++	prop = ofnode_get_property(chosen, "aura,psci-runtime-mmio", &len);
++	for (i = 0; prop && i + 1 < len / (int)sizeof(*prop); i += 2) {
++		u64 base = fdt64_to_cpu(prop[i]);
++		u64 size = fdt64_to_cpu(prop[i + 1]);
++
++		ret = efi_add_memory_map(base, size, EFI_MMAP_IO);
++		if (ret != EFI_SUCCESS)
++			return ret;
++		/* Apple MMIO wants Device-nGnRnE, not the default nGnRE */
++		efi_add_memory_attribute(base, size, EFI_MEMORY_ISA_VALID |
++					 FIELD_PREP(EFI_MEMORY_ISA_MASK, MAIR_DEVICE_nGnRnE));
++	}
++
++	log_info("PSCI-via-EFI: table at 0x%llx, %d MMIO ranges\n", table, i / 2);
++	return efi_install_configuration_table(&linux_efi_arm_psci_handler_table_guid,
++					       (void *)(uintptr_t)table);
++}
++#endif
+diff --git a/include/efi_loader.h b/include/efi_loader.h
+index 3a4d5026..d88178db 100644
+--- a/include/efi_loader.h
++++ b/include/efi_loader.h
+@@ -918,6 +918,10 @@ efi_status_t efi_get_memory_map(efi_uintn_t *memory_map_size,
+ 				uint32_t *descriptor_version);
+ /* Adds a range into the EFI memory map */
+ efi_status_t efi_add_memory_map(u64 start, u64 size, int memory_type);
++/* Add attribute bits to the descriptors covering a range */
++efi_status_t efi_add_memory_attribute(u64 start, u64 size, u64 attr);
++/* Install platform-specific configuration tables (weak, default: none) */
++efi_status_t efi_platform_register(void);
+ 
+ /**
+  * efi_update_memory_map() - update the memory map by adding/removing pages
+diff --git a/lib/efi_loader/efi_memory.c b/lib/efi_loader/efi_memory.c
+index 2feb29f0..87cc8290 100644
+--- a/lib/efi_loader/efi_memory.c
++++ b/lib/efi_loader/efi_memory.c
+@@ -391,6 +391,38 @@ efi_status_t efi_add_memory_map(u64 start, u64 size, int memory_type)
+ 	return efi_update_memory_map(start, pages, memory_type, false, false);
+ }
+ 
++/**
++ * efi_add_memory_attribute() - add attribute bits to a range of the memory map
++ *
++ * Sets @attr in every descriptor that overlaps [@start, @start + @size), e.g.
++ * the ISA-specific bits (UEFI 2.10) that select a device memory type for a
++ * runtime MMIO range.
++ *
++ * @start:	start address, must be a multiple of EFI_PAGE_SIZE
++ * @size:	length in bytes
++ * @attr:	attribute bits to set
++ * Return:	EFI_SUCCESS, or EFI_NOT_FOUND if no descriptor overlaps
++ */
++efi_status_t efi_add_memory_attribute(u64 start, u64 size, u64 attr)
++{
++	struct efi_mem_list *lmem;
++	bool found = false;
++
++	list_for_each_entry(lmem, &efi_mem, link) {
++		u64 desc_start = lmem->desc.physical_start;
++		u64 desc_end = desc_start + (lmem->desc.num_pages << EFI_PAGE_SHIFT);
++
++		if (desc_start < start + size && start < desc_end) {
++			lmem->desc.attribute |= attr;
++			found = true;
++		}
++	}
++	if (found)
++		++efi_memory_map_key;
++
++	return found ? EFI_SUCCESS : EFI_NOT_FOUND;
++}
++
+ /**
+  * efi_check_allocated() - validate address to be freed
+  *
+diff --git a/lib/efi_loader/efi_setup.c b/lib/efi_loader/efi_setup.c
+index f302bb62..7f177ed0 100644
+--- a/lib/efi_loader/efi_setup.c
++++ b/lib/efi_loader/efi_setup.c
+@@ -228,6 +228,16 @@ static efi_status_t efi_start_obj_list(void)
+ 	return ret;
+ }
+ 
++/**
++ * efi_platform_register() - install platform-specific configuration tables
++ *
++ * Return:	status code
++ */
++__weak efi_status_t efi_platform_register(void)
++{
++	return EFI_SUCCESS;
++}
++
+ /**
+  * efi_init_obj_list() - Initialize and populate EFI object list
+  *
+@@ -308,6 +318,10 @@ efi_status_t efi_init_obj_list(void)
+ 			goto out;
+ 	}
+ 
++	ret = efi_platform_register();
++	if (ret != EFI_SUCCESS)
++		goto out;
++
+ 	if (IS_ENABLED(CONFIG_EFI_TCG2_PROTOCOL)) {
+ 		ret = efi_tcg2_register();
+ 		if (ret != EFI_SUCCESS)
+-- 
+2.55.0
+

@@ -801,3 +801,21 @@ Nothing here installs, reboots, or writes hardware registers. Times are local.
   function-call IPI 27.5% (the 200 ms aop_als interval, worklog 2026-10-1x: 3.2/s, 61%/38%).
   Domains left on that may power off: afr, apcie_gp, apcie_gpshr_sys, disp0/dispext0/dispext1
   cpu0/fe/sys, sio.
+
+## 2026-10-24 morning: S2R Phase 1 built (PSCI CPU_ON/CPU_OFF through EFI), not booted
+- RFC fetched from lore (20260708-efi-psci-v1-0-9efb3abf0e4c@kernel.org): 6 patches apply clean
+  on GH-1-DeepIdle 1ac4376 (local branch psci-efi-test). Review state: Ard took 3 and 4; Mark
+  Rutland objects to calling it PSCI; the interface may change.
+- Kernel: + t6020-j414s-psci.dts (opt-in, out of the Makefile). Built out of tree with the
+  deepidle3 config (USB4=m, LOCALVERSION -psci-efi); the tree's built-in DRM_ASAHI needs
+  APPLE_PMP=y to link (apple_pmp_set_device_power), a tree/config mismatch unrelated to the RFC.
+  DTB checked: 12 x enable-method psci, no spin-table, psci { method = "efi" }.
+- Aura (branch psci-efi): psci.c + smp_psci_* (CPU_ON dispatch/restart, CPU_OFF = PMGR stop +
+  L1 set/way clean + cpu_sleep(true), AFFINITY_INFO from the CPU's own OFF mark, never a power
+  status read), kboot dt_set_psci() -> /chosen aura,psci-*. Call graph from the handler checked:
+  no printf, no FP.
+- U-Boot asahi-v2026.07-2 (the installed uboot-asahi 2026.07.asahi2) + efi_platform_register()
+  hook: runtime code + MMIO (ISA nGnRnE bits) + the config table. Built.
+- arm64 stub skips SetVirtualAddressMap with 48-bit VAs, so the runtime map is already 1:1 (no
+  efi=novamap needed on this config).
+- Design, risks and the first boot test: docs/psci-efi.md. The boot test needs the owner's go.

@@ -98,6 +98,9 @@ owner within reach.
   idle and wake-latency checks against stock.
 * **Gate:** hotplug is clean, deep idle is not worse, and the RVBAR re-entry
   of a secondary works.
+* Status 2026-10-24: kernel, Aura and U-Boot parts built, not booted. U-Boot
+  publishes the table here, since Aura does not load the kernel directly
+  (`psci-efi.md`).
 
 ### Phase 2: SYSTEM_SUSPEND with the SoC still on (unattended where the watchdog covers it)
 

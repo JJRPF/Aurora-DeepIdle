@@ -1,0 +1,518 @@
+From 5462bdf47025859d2ae08ffab5f5e9714c4b9862 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Sat, 24 Oct 2026 08:29:12 -0400
+Subject: [PATCH 1/2] psci: CPU_ON, CPU_OFF and AFFINITY_INFO through the
+ PSCI-via-EFI conduit
+
+The kernel calls psci_efi_handler() as a plain function under its EFI
+runtime map (Sven Peter's PSCI-via-EFI RFC, table layout as in the
+kernel's struct efi_psci_table, num_features included).
+
+CPU_ON dispatches a parked secondary to the kernel's entry point the
+way smp_call4() does, without waiting. CPU_OFF cleans the core's L1,
+posts the PMGR stop request and powers the core down with cpu_sleep()
+as smp_stop_cpu() does; the next CPU_ON restarts it through the PMGR
+start registers, it re-enters through RVBAR into the park loop and is
+dispatched from there. AFFINITY_INFO reports OFF only once the core's
+power status reads stopped.
+
+The handler never prints (the UART is not mapped in the kernel's
+context) and cleans or invalidates every spin-table access, since the
+parked CPUs run with the MMU off.
+
+kboot publishes the table, the image range and the MMIO the handler
+touches in /chosen (aura,psci-*) for the EFI provider, only when the
+payload DT has psci { method = "efi"; }. Built, not booted.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AuzUDcEeRJQ6RCdWW2XWLb
+---
+ Makefile     |   1 +
+ src/kboot.c  |  51 +++++++++++++
+ src/memory.h |   1 +
+ src/psci.c   |  57 ++++++++++++++
+ src/psci.h   |  69 +++++++++++++++++
+ src/smp.c    | 206 +++++++++++++++++++++++++++++++++++++++++++++++++++
+ src/smp.h    |   6 ++
+ 7 files changed, 391 insertions(+)
+ create mode 100644 src/psci.c
+ create mode 100644 src/psci.h
+
+diff --git a/Makefile b/Makefile
+index fa074c24..94177a12 100644
+--- a/Makefile
++++ b/Makefile
+@@ -200,6 +200,7 @@ OBJECTS := \
+ 	stage1_proxy.o \
+ 	sio.o \
+ 	smc.o \
++	psci.o \
+ 	smp.o \
+ 	spmi.o ace3.o \
+ 	start.o \
+diff --git a/src/kboot.c b/src/kboot.c
+index 070d90e6..ec854c3d 100644
+--- a/src/kboot.c
++++ b/src/kboot.c
+@@ -23,6 +23,7 @@
+ #include "memory.h"
+ #include "pcie.h"
+ #include "pmgr.h"
++#include "psci.h"
+ #include "sep.h"
+ #include "sio.h"
+ #include "smp.h"
+@@ -707,6 +708,54 @@ static int dt_set_smbios(void)
+     return 0;
+ }
+ 
++/*
++ * PSCI-via-EFI (psci.c): only when the payload's DT asks for it with
++ * psci { method = "efi"; }, tell the EFI provider (U-Boot) what to publish:
++ *   aura,psci-table         physical address of struct psci_efi_table, for the
++ *                           LINUX_EFI_ARM_PSCI_HANDLER_TABLE configuration table
++ *   aura,psci-runtime-code  <base size> of this image (handler, data, stacks),
++ *                           to map as EFI runtime services code
++ *   aura,psci-runtime-mmio  <base size>... the MMIO the handler touches, to map
++ *                           as EFI runtime MMIO (Device-nGnRnE)
++ * The kernel must boot with efi=novamap: the handler pointer and everything it
++ * uses are physical addresses, so the runtime map has to be 1:1.
++ */
++static int dt_set_psci(void)
++{
++    int psci = fdt_path_offset(dt, "/psci");
++    if (psci < 0)
++        return 0;
++
++    const char *method = fdt_getprop(dt, psci, "method", NULL);
++    if (!method || strcmp(method, "efi"))
++        return 0;
++
++    int node = fdt_path_offset(dt, "/chosen");
++    if (node < 0)
++        bail("FDT: /chosen node not found in devtree\n");
++
++    if (fdt_setprop_u64(dt, node, "aura,psci-table", (u64)&psci_efi_table))
++        bail("FDT: couldn't set aura,psci-table\n");
++
++    u64 base = ALIGN_DOWN((u64)_base, SZ_16K);
++    u64 end = ALIGN_UP((u64)_end, SZ_16K);
++    fdt64_t code[2] = {cpu_to_fdt64(base), cpu_to_fdt64(end - base)};
++    if (fdt_setprop(dt, node, "aura,psci-runtime-code", code, sizeof(code)))
++        bail("FDT: couldn't set aura,psci-runtime-code\n");
++
++    u64 ranges[2 * 16];
++    int n = smp_psci_mmio_ranges(ranges, 16);
++    fdt64_t mmio[2 * 16];
++    for (int i = 0; i < 2 * n; i++)
++        mmio[i] = cpu_to_fdt64(ranges[i]);
++    if (fdt_setprop(dt, node, "aura,psci-runtime-mmio", mmio, 2 * n * sizeof(fdt64_t)))
++        bail("FDT: couldn't set aura,psci-runtime-mmio\n");
++
++    printf("FDT: PSCI-via-EFI table at %p, image 0x%lx..0x%lx, %d MMIO ranges\n",
++           &psci_efi_table, base, end, n);
++    return 0;
++}
++
+ static int dt_set_cpus(void)
+ {
+     int ret = 0;
+@@ -4732,6 +4781,8 @@ int kboot_prepare_dt(void *fdt)
+         return -1;
+     if (dt_set_cpus())
+         return -1;
++    if (dt_set_psci())
++        return -1;
+     if (dt_set_mac_addresses())
+         return -1;
+     if (dt_set_wifi())
+diff --git a/src/memory.h b/src/memory.h
+index 8268713e..4f875e96 100644
+--- a/src/memory.h
++++ b/src/memory.h
+@@ -73,6 +73,7 @@ void dc_civac_range(void *addr, size_t length);
+ #define DCSW_OP_DCCISW 0x1
+ #define DCSW_OP_DCCSW  0x2
+ void dcsw_op_all(u64 op_type);
++void dcsw_op_level1(u64 op_type);
+ 
+ void mmu_init(void);
+ int memory_fw_ro_range(u64 *start, u64 *end);
+diff --git a/src/psci.c b/src/psci.c
+new file mode 100644
+index 00000000..444d71e5
+--- /dev/null
++++ b/src/psci.c
+@@ -0,0 +1,57 @@
++/* SPDX-License-Identifier: MIT */
++
++#include "psci.h"
++#include "smp.h"
++#include "types.h"
++
++/*
++ * CPU_ON, CPU_OFF and AFFINITY_INFO for the secondaries; the CPU work is in
++ * smp.c (smp_psci_*), next to the spin table and the PMGR CPU start/stop it
++ * reuses. CPU_SUSPEND and SYSTEM_SUSPEND are not offered yet: cpuidle stays
++ * with the kernel's Apple driver, and system suspend is the next phase.
++ */
++
++static unsigned long psci_affinity_info(unsigned long target_affinity,
++                                        unsigned long lowest_affinity_level)
++{
++    if (lowest_affinity_level != 0)
++        return PSCI_RET_INVALID_PARAMS;
++
++    return smp_psci_affinity_info(target_affinity);
++}
++
++unsigned long psci_efi_handler(unsigned long fid, unsigned long arg0, unsigned long arg1,
++                               unsigned long arg2)
++{
++    switch (fid) {
++        case PSCI_0_2_FN_PSCI_VERSION:
++            return PSCI_VERSION_1_0;
++        case PSCI_1_0_FN_PSCI_FEATURES:
++            if (PSCI_FN(arg0) >= PSCI_MAX_FN)
++                return PSCI_RET_NOT_SUPPORTED;
++            return psci_efi_table.features[PSCI_FN(arg0)];
++        case PSCI_0_2_FN_CPU_OFF:
++            return smp_psci_cpu_off();
++        case PSCI_0_2_FN64_CPU_ON:
++            return smp_psci_cpu_on(arg0, arg1, arg2);
++        case PSCI_0_2_FN64_AFFINITY_INFO:
++            return psci_affinity_info(arg0, arg1);
++        default:
++            return PSCI_RET_NOT_SUPPORTED;
++    }
++}
++
++const struct psci_efi_table psci_efi_table = {
++    .version = PSCI_VERSION_1_0,
++    .num_features = PSCI_MAX_FN,
++    .handler = psci_efi_handler,
++    .features =
++        {
++            [0 ... PSCI_MAX_FN - 1] = PSCI_RET_NOT_SUPPORTED,
++            [PSCI_FN(PSCI_0_2_FN_PSCI_VERSION)] = PSCI_RET_SUCCESS,
++            [PSCI_FN(PSCI_1_0_FN_PSCI_FEATURES)] = PSCI_RET_SUCCESS,
++            [PSCI_FN(PSCI_0_2_FN_CPU_OFF)] = PSCI_RET_SUCCESS,
++            [PSCI_FN(PSCI_0_2_FN64_CPU_ON)] = PSCI_RET_SUCCESS,
++            [PSCI_FN(PSCI_0_2_FN64_AFFINITY_INFO)] = PSCI_RET_SUCCESS,
++        },
++};
+diff --git a/src/psci.h b/src/psci.h
+new file mode 100644
+index 00000000..22998084
+--- /dev/null
++++ b/src/psci.h
+@@ -0,0 +1,69 @@
++/* SPDX-License-Identifier: MIT */
++
++#ifndef PSCI_H
++#define PSCI_H
++
++#include "types.h"
++
++/*
++ * PSCI through the PSCI-via-EFI conduit (Sven Peter's RFC, July 2026): there is
++ * no EL3 on Apple silicon and the kernel shares EL2 with us, so the kernel calls
++ * psci_efi_handler() directly, as a plain function under its EFI runtime mapping,
++ * found through the LINUX_EFI_ARM_PSCI_HANDLER_TABLE configuration table.
++ *
++ * The handler runs in the kernel's context: its stack, its page tables (the EFI
++ * runtime map, which must be 1:1, i.e. the kernel booted with efi=novamap),
++ * interrupts masked. So it must not use FP/SIMD (we build with
++ * -mgeneral-regs-only), must not printf (the UART is not mapped there) and may
++ * touch only our image and the MMIO ranges exported with the table.
++ */
++
++#define PSCI_VERSION_1_0 0x00010000
++
++/* Function numbers are the low byte of a function ID, the same for SMC32/SMC64. */
++#define PSCI_MAX_FN  0x20
++#define PSCI_FN(fid) ((fid) & 0xff)
++
++enum psci_fn_id {
++    PSCI_0_2_FN_PSCI_VERSION = 0x84000000,
++    PSCI_0_2_FN64_CPU_SUSPEND = 0xc4000001,
++    PSCI_0_2_FN_CPU_OFF = 0x84000002,
++    PSCI_0_2_FN64_CPU_ON = 0xc4000003,
++    PSCI_0_2_FN64_AFFINITY_INFO = 0xc4000004,
++    PSCI_1_0_FN_PSCI_FEATURES = 0x8400000a,
++};
++
++enum psci_ret {
++    PSCI_RET_SUCCESS = 0,
++    PSCI_RET_NOT_SUPPORTED = -1,
++    PSCI_RET_INVALID_PARAMS = -2,
++    PSCI_RET_DENIED = -3,
++    PSCI_RET_ALREADY_ON = -4,
++    PSCI_RET_ON_PENDING = -5,
++    PSCI_RET_INTERNAL_FAILURE = -6,
++    PSCI_RET_NOT_PRESENT = -7,
++    PSCI_RET_DISABLED = -8,
++    PSCI_RET_INVALID_ADDRESS = -9,
++};
++
++enum psci_affinity_info {
++    PSCI_AFFINITY_INFO_ON = 0,
++    PSCI_AFFINITY_INFO_OFF = 1,
++    PSCI_AFFINITY_INFO_ON_PENDING = 2,
++};
++
++/* Must match the kernel's struct efi_psci_table (arch/arm64/include/asm/efi.h). */
++struct psci_efi_table {
++    u32 version;
++    u32 num_features;
++    unsigned long (*handler)(unsigned long fid, unsigned long arg0, unsigned long arg1,
++                             unsigned long arg2);
++    s32 features[PSCI_MAX_FN];
++};
++
++extern const struct psci_efi_table psci_efi_table;
++
++unsigned long psci_efi_handler(unsigned long fid, unsigned long arg0, unsigned long arg1,
++                               unsigned long arg2);
++
++#endif
+diff --git a/src/smp.c b/src/smp.c
+index a563d33d..206421bf 100644
+--- a/src/smp.c
++++ b/src/smp.c
+@@ -1,6 +1,7 @@
+ /* SPDX-License-Identifier: MIT AND GPL-2.0-only */
+ 
+ #include "smp.h"
++#include "psci.h"
+ #include "adt.h"
+ #include "aic.h"
+ #include "aic_regs.h"
+@@ -943,3 +944,208 @@ u64 smp_get_release_addr(int cpu)
+     target->args[3] = 0;
+     return (u64)&target->target;
+ }
++
++/*
++ * PSCI CPU_ON / CPU_OFF / AFFINITY_INFO (psci.c), called by the kernel through the
++ * PSCI-via-EFI conduit: in the kernel's context, under its 1:1 EFI runtime map, so
++ * no printf here, and the spin table is shared with CPUs that run with the MMU
++ * off, so every write to it is cleaned to the point of coherency and every read
++ * of what those CPUs write is invalidated first.
++ *
++ * A secondary is parked in smp_secondary_entry() from boot until the kernel's
++ * first CPU_ON (PSCI OFF). CPU_OFF powers it down the way smp_stop_cpu() does
++ * (PMGR stop request, cpu_sleep(true)); CPU_ON then restarts it through the PMGR
++ * start registers, it re-enters through RVBAR (_cpu_reset_c) into the park loop,
++ * and is dispatched to the kernel's entry point from there.
++ */
++enum psci_cpu_state {
++    PSCI_CPU_PARKED = 0, /* in the park loop, not yet given to the kernel */
++    PSCI_CPU_ON,
++    PSCI_CPU_OFF_PENDING, /* CPU_OFF called, power-down not yet seen */
++    PSCI_CPU_OFF,         /* powered down */
++};
++
++static u8 psci_cpu_state[MAX_CPUS] SMP_SHARED;
++
++static int smp_psci_index(u64 mpidr)
++{
++    mpidr &= 0xffffff;
++    for (int i = 0; i < MAX_CPUS; i++) {
++        dc_civac_range(&smp_reset_stacks[i], sizeof(smp_reset_stacks[i]));
++        if (cpu_info[i].valid && smp_reset_stacks[i].mpidr == mpidr)
++            return i;
++    }
++    if (boot_cpu_idx >= 0 && mpidr == (boot_cpu_mpidr & 0xffffff))
++        return boot_cpu_idx;
++    return -1;
++}
++
++static bool smp_psci_core_stopped(int index)
++{
++    return !(read64(cpu_info[index].impl_reg + 0x100) & 0xff);
++}
++
++int smp_psci_affinity_info(u64 mpidr)
++{
++    int index = smp_psci_index(mpidr);
++
++    if (index < 0)
++        return PSCI_RET_INVALID_PARAMS;
++    if (index == boot_cpu_idx)
++        return PSCI_AFFINITY_INFO_ON;
++
++    dc_civac_range(&psci_cpu_state[index], 1);
++    switch (psci_cpu_state[index]) {
++        case PSCI_CPU_ON:
++            return PSCI_AFFINITY_INFO_ON;
++        case PSCI_CPU_OFF_PENDING:
++            if (!smp_psci_core_stopped(index))
++                return PSCI_AFFINITY_INFO_ON;
++            psci_cpu_state[index] = PSCI_CPU_OFF;
++            dc_civac_range(&psci_cpu_state[index], 1);
++            return PSCI_AFFINITY_INFO_OFF;
++        default:
++            return PSCI_AFFINITY_INFO_OFF;
++    }
++}
++
++/* Hand a parked CPU its entry point, as smp_call4() does, without waiting. */
++static int smp_psci_dispatch(int index, u64 entry, u64 context)
++{
++    struct spin_table *t = &spin_table[index];
++
++    dc_civac_range(t, sizeof(*t));
++    if (!t->flag || t->target)
++        return PSCI_RET_INTERNAL_FAILURE;
++
++    t->args[0] = context;
++    t->args[1] = 0;
++    t->args[2] = 0;
++    t->args[3] = 0;
++    sysop("dmb sy");
++    t->target = entry;
++    dc_civac_range(t, sizeof(*t));
++    psci_cpu_state[index] = PSCI_CPU_ON;
++    dc_civac_range(&psci_cpu_state[index], 1);
++    sysop("dsb sy");
++
++    if (wfe_mode)
++        sysop("sev");
++    else
++        smp_send_ipi(index);
++    return PSCI_RET_SUCCESS;
++}
++
++/* Restart a CPU that CPU_OFF powered down; it comes back in the park loop. */
++static int smp_psci_restart(int index)
++{
++    const struct cpu_info *cpu = &cpu_info[index];
++    u64 start_base = cpu_start_base + cpu->die * PMGR_DIE_OFFSET;
++
++    memset(&spin_table[index], 0, sizeof(struct spin_table));
++    target_cpu = index;
++    dc_civac_range(&spin_table[index], sizeof(struct spin_table));
++    dc_civac_range(&target_cpu, sizeof(target_cpu));
++    sysop("dsb sy");
++
++    write32(start_base + 0x4, cpu_start_bit(index, cpu));
++    write32(start_base + 0x8 + 4 * cpu->cluster, 1 << cpu->core);
++
++    for (int i = 0; i < 100; i++) {
++        dc_civac_range(&spin_table[index], sizeof(struct spin_table));
++        if (spin_table[index].flag)
++            return 0;
++        udelay(1000);
++    }
++    return -1;
++}
++
++int smp_psci_cpu_on(u64 mpidr, u64 entry, u64 context)
++{
++    int index = smp_psci_index(mpidr);
++
++    if (index < 0)
++        return PSCI_RET_INVALID_PARAMS;
++    if (!entry)
++        return PSCI_RET_INVALID_ADDRESS;
++    if (index == boot_cpu_idx)
++        return PSCI_RET_ALREADY_ON;
++
++    dc_civac_range(&psci_cpu_state[index], 1);
++    switch (psci_cpu_state[index]) {
++        case PSCI_CPU_PARKED:
++            return smp_psci_dispatch(index, entry, context);
++        case PSCI_CPU_ON:
++            return PSCI_RET_ALREADY_ON;
++        case PSCI_CPU_OFF_PENDING:
++            if (!smp_psci_core_stopped(index))
++                return PSCI_RET_ALREADY_ON;
++            /* fallthrough */
++        case PSCI_CPU_OFF:
++        default:
++            if (smp_psci_restart(index))
++                return PSCI_RET_INTERNAL_FAILURE;
++            return smp_psci_dispatch(index, entry, context);
++    }
++}
++
++int smp_psci_cpu_off(void)
++{
++    int index = smp_psci_index(mrs(MPIDR_EL1));
++
++    if (index < 0 || index == boot_cpu_idx)
++        return PSCI_RET_DENIED;
++
++    const struct cpu_info *cpu = &cpu_info[index];
++    u64 start_base = cpu_start_base + cpu->die * PMGR_DIE_OFFSET;
++
++    psci_cpu_state[index] = PSCI_CPU_OFF_PENDING;
++    dc_civac_range(&psci_cpu_state[index], 1);
++    sysop("dsb sy");
++
++    /* This core's L1 goes away with its power: write the kernel's dirty lines back. */
++    dcsw_op_level1(DCSW_OP_DCCISW);
++    sysop("dsb sy");
++
++    /* As smp_stop_cpu(): request the stop, then power down without retention. */
++    write32(start_base + 0x0, cpu_start_bit(index, cpu));
++    cpu_sleep(true);
++}
++
++/*
++ * The MMIO the PSCI handler touches, as page-aligned <base, size> pairs, for the
++ * EFI runtime memory map: the PMGR CPU start/stop block of each die, each CPU's
++ * implementation registers (the power status at +0x100) and, without fast IPIs,
++ * the AIC. Returns the number of pairs written.
++ */
++static void smp_psci_add_range(u64 *ranges, int max, int *n, u64 base, u64 size)
++{
++    u64 start = ALIGN_DOWN(base, SZ_16K);
++    u64 end = ALIGN_UP(base + size, SZ_16K);
++
++    for (int i = 0; i < *n; i++)
++        if (ranges[2 * i] == start && ranges[2 * i + 1] == end - start)
++            return;
++    if (*n < max) {
++        ranges[2 * *n] = start;
++        ranges[2 * *n + 1] = end - start;
++        (*n)++;
++    }
++}
++
++int smp_psci_mmio_ranges(u64 *ranges, int max)
++{
++    int n = 0;
++
++    for (int i = 0; i < MAX_CPUS; i++) {
++        if (!cpu_info[i].valid)
++            continue;
++        smp_psci_add_range(ranges, max, &n, cpu_start_base + cpu_info[i].die * PMGR_DIE_OFFSET,
++                           0x100);
++        smp_psci_add_range(ranges, max, &n, cpu_info[i].impl_reg, 0x108);
++    }
++    if (!cpu_features->fast_ipi && aic)
++        smp_psci_add_range(ranges, max, &n, aic->base, SZ_16K);
++
++    return n;
++}
+diff --git a/src/smp.h b/src/smp.h
+index 6efdda92..9f9840e5 100644
+--- a/src/smp.h
++++ b/src/smp.h
+@@ -47,5 +47,11 @@ static inline int smp_id(void)
+         return mrs(TPIDR_EL1);
+ }
+ 
++/* PSCI-via-EFI CPU operations (psci.c); return PSCI codes, CPU_OFF only on failure. */
++int smp_psci_cpu_on(u64 mpidr, u64 entry, u64 context);
++int smp_psci_cpu_off(void);
++int smp_psci_affinity_info(u64 mpidr);
++int smp_psci_mmio_ranges(u64 *ranges, int max);
++
+ extern int boot_cpu_idx;
+ #endif
+-- 
+2.55.0
+
