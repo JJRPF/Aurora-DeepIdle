@@ -1,18 +1,24 @@
 #!/bin/bash
-# A separate macOS 14.8.3 volume for the Aura hypervisor sleep trace (docs/s2r-plan.md, Phase 3).
-# 14.8.3 is the pinned hypervisor guest for the M1-M3 series (Asahi's m1n1-hypervisor guide);
-# newer macOS needs SPTM, which Aura does not load. The everyday macOS and Linux stay as they are.
+# A separate macOS 14.8.x volume for the Aura hypervisor sleep trace (docs/s2r-plan.md, Phase 3).
+# Asahi's m1n1-hypervisor guide pins 14.8.3 for the M1-M3 series; Apple's catalog no longer offers
+# it (checked 2026-10-24: only 14.8.7, 14.8.8, 14.8.9), so the guest is 14.8.9, the same Sonoma XNU
+# line. macOS 15 and later need SPTM, which Aura does not load. The everyday macOS and Linux stay.
 #
 # Step 1, in the everyday macOS (downloads the installer, adds an empty volume, opens the installer):
-#   curl -fsSL https://raw.githubusercontent.com/JJRPF/Aurora-DeepIdle/<branch>/tools/macos-hv-testvol.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/JJRPF/Aurora-DeepIdle/GH-8-S2R-NextSteps/tools/macos-hv-testvol.sh | bash
 # Step 2, in the new macOS 14.8.3, after Setup Assistant (turns off its automatic updates, then
 # runs macos-hv-prep.sh: the sleep job and the data the hypervisor run needs):
 #   curl -fsSL .../tools/macos-hv-testvol.sh | bash -s -- setup
 set -euo pipefail
 
 NAME=macOSTest
-WANT=14.8.3
-BRANCH=quick-SmcSleep-PiWatch
+WANT=14.8.9
+# Apple's software update catalog entry for $WANT (product 140-88558, build 23J631): the pkg,
+# its size and SHA-1 as the catalog lists them. Used when softwareupdate no longer lists $WANT.
+PKG_URL=https://swcdn.apple.com/content/downloads/13/30/140-88558-A_TN3FIE7J63/p61cqj3ktmcqilz3q64ls4ekp1os9c8qbp/InstallAssistant.pkg
+PKG_SIZE=13654790295
+PKG_SHA1=10632733f9b4ab1397fffc98b53e6790e4c2c1b0
+BRANCH=GH-8-S2R-NextSteps
 RAW=https://raw.githubusercontent.com/JJRPF/Aurora-DeepIdle/$BRANCH/tools
 
 # Everything runs inside main(), so bash has read the whole script before any command can
@@ -71,14 +77,20 @@ elif [ -d "$APP" ]; then
 else
     echo "== looking for the $WANT full installer"
     list=$(softwareupdate --list-full-installers 2>&1 || true)
-    if ! grep -q "Version: $WANT," <<< "$list"; then
-        echo "Apple's catalog does not offer $WANT now. Sonoma versions it lists:"
-        grep "Version: 14\." <<< "$list" || echo "  (none)"
-        echo "Stopping: send this list back; nothing was changed."
-        exit 1
+    if grep -q "Version: $WANT," <<< "$list"; then
+        echo "== downloading $WANT (about 14 GB)"
+        sudo softwareupdate --fetch-full-installer --full-installer-version $WANT
+    else
+        echo "softwareupdate does not list $WANT; using the catalog's InstallAssistant.pkg."
+        pkg=/Users/Shared/InstallAssistant-$WANT.pkg
+        echo "== downloading $WANT (about 14 GB, resumable)"
+        curl -fL -C - "$PKG_URL" -o "$pkg"
+        [ "$(stat -f %z "$pkg")" = "$PKG_SIZE" ] || { echo "size mismatch: not $PKG_SIZE bytes; delete $pkg and retry"; exit 1; }
+        echo "== checking SHA-1"
+        [ "$(shasum -a 1 "$pkg" | cut -d' ' -f1)" = "$PKG_SHA1" ] || { echo "SHA-1 mismatch; delete $pkg and retry"; exit 1; }
+        sudo installer -pkg "$pkg" -target /
+        rm -f "$pkg"
     fi
-    echo "== downloading $WANT (about 13 GB)"
-    sudo softwareupdate --fetch-full-installer --full-installer-version $WANT
     [ -d "$APP" ] || { echo "the download did not leave $APP"; exit 1; }
     echo "$WANT" > $MARK
 fi
