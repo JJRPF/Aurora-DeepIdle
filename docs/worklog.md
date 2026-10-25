@@ -906,3 +906,9 @@ Nothing here installs, reboots, or writes hardware registers. Times are local.
   proxy, and a hung SoC has none. The honest limit of unattended testing here is a hard hang needing the power key.
 - Owner request 15:14: no reboots for now (using the Mac). Next when allowed: timestamp the console, run once with the owner present at the
   Mac for the autologin step, then unattended.
+
+## 2026-10-25: GitHub Project
+- Private user Project "S2R on M2 Pro (J414s)": https://github.com/users/JJRPF/projects/2 (number 2, id PVT_kwHOByT81M4Boss1), linked to the repo.
+  Status field PVTSSF_lAHOByT81M4Boss1zhnLjfo: Todo 9c0cb1c9, In Progress c2f6f865, Blocked 5bf15dda, Done 9654d217.
+  Holds issue #8, PR #7 and 13 draft items (done fixes, the run 5 hang, autologin, Phase 3 trace, Phase 1 boot test, wake path, GH-8 PR).
+  Kept up to date after every test (boot prompt step 5).
