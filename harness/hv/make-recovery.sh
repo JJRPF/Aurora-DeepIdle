@@ -83,12 +83,13 @@ echo "  3. kmutil configure-boot: \$NAME boots Aura (proxy mode, waiting for the
 printf "Type yes to continue: "
 read a < /dev/tty
 [ "\$a" = yes ] || { echo "cancelled, nothing changed."; exit 1; }
-until bputil -nkcas -v "\$VGID"; do
+until bputil -nkcas -v "\$VGID" < /dev/tty; do
     printf "bputil failed (wrong password?). Enter to retry, q to stop: "; read a < /dev/tty
     [ "\$a" = q ] && exit 1
 done
-csrutil disable || echo "csrutil disable failed: note its message for Claude, continuing."
-until kmutil configure-boot -c \$T/aura.bin --raw --entry-point 2048 --lowest-virtual-address 0 -v "\$V"; do
+echo "csrutil will ask which installation: choose the number of \$NAME."
+csrutil disable < /dev/tty || echo "csrutil disable failed: note its message for Claude, continuing."
+until kmutil configure-boot -c \$T/aura.bin --raw --entry-point 2048 --lowest-virtual-address 0 -v "\$V" < /dev/tty; do
     printf "kmutil failed (wrong password?). Enter to retry, q to stop: "; read a < /dev/tty
     [ "\$a" = q ] && exit 1
 done
