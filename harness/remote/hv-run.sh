@@ -26,10 +26,13 @@ if [ -n "$CHAIN" ]; then
 fi
 echo "$(date '+%F %T') starting the guest: $(basename "$KC")" | tee -a "$OUT/run.txt"
 # stdin from /dev/null: the shells run_guest opens on errors and on exit read EOF and move on.
-timeout 3600 python3 tools/run_guest.py -l "$OUT/hv.log" \
+# Every console line gets the Pi's wall-clock time (HH:MM:SS), so the time of the last event before a hang is known.
+timeout 3600 python3 -u tools/run_guest.py -l "$OUT/hv.log" \
     -m hv/trace_pmp.py -m hv/trace_smc.py "$KC" -- \
     "debug=0x14e serial=3 apcie=0xfffffffe -enable-kprintf-spam wdt=-1 clpc=0 hvsleep=1" \
-    < /dev/null > "$OUT/console.txt" 2>&1 || echo "run_guest exit $?" | tee -a "$OUT/run.txt"
+    < /dev/null 2>&1 | while IFS= read -r l; do printf '%(%T)T %s\n' -1 "$l"; done > "$OUT/console.txt"
+rc=${PIPESTATUS[0]}
+[ "$rc" = 0 ] || echo "run_guest exit $rc" | tee -a "$OUT/run.txt"
 # Leave the Mac rebooting into its default (Linux), not stopped in the proxy: a guest left
 # without its host, or Aura idling after the run, would otherwise wait for the owner.
 sleep 2
