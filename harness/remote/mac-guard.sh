@@ -11,7 +11,7 @@
 # Events: ~/deepidle/guard.log. Reports: ~/deepidle/rescue/.
 set -u
 D=$HOME/deepidle; LOG=$D/guard.log; HOLD=$D/guard-hold; PIDF=$D/guard.pid
-RESET_AFTER=${RESET_AFTER:-300}; HELP_AFTER=${HELP_AFTER:-900}
+RESET_AFTER=${RESET_AFTER:-300}; HELP_AFTER=${HELP_AFTER:-900}; STALL=${STALL:-180}
 MACIP=${MACIP:-$(ssh -G mac | awk '/^hostname /{print $2}')}
 now() { date '+%F %T'; }
 log() { echo "$(now) $*" >> "$LOG"; }
@@ -26,7 +26,16 @@ loop() {
             down_since=0; reset_done=0; help_done=0; continue
         fi
         [ "$down_since" = 0 ] && { down_since=$t; log "Mac unreachable"; }
-        pgrep -f "run_guest.py|hv-run.sh" > /dev/null && continue
+        # A guest run in progress keeps the Mac away on purpose, but only while it makes progress:
+        # a run whose console file has not grown for STALL s is stuck (2026-10-25: run_guest sat in
+        # its error shell for 17 min with the Mac on the rainbow logo, and this check hid it).
+        if pgrep -f "run_guest.py" > /dev/null; then
+            f=$(ls -t "$D"/hv/*/console.txt 2>/dev/null | head -1)
+            [ -n "$f" ] && [ $(( t - $(stat -c %Y "$f") )) -lt "$STALL" ] && continue
+            log "guest run stalled (console idle $STALL s): stopping it"
+            pkill -f run_guest.py; sleep 3
+        fi
+        pgrep -f "hv-run.sh" > /dev/null && [ ! -e /dev/m1n1 ] && continue
         gone=$((t - down_since))
         if [ "$gone" -ge "$RESET_AFTER" ] && [ "$reset_done" = 0 ] && [ -e /dev/m1n1 ]; then
             reset_done=1; log "down $gone s, Aura proxy present: rebooting the Mac through it"
