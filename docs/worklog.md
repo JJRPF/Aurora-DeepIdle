@@ -878,3 +878,14 @@ Nothing here installs, reboots, or writes hardware registers. Times are local.
 - BLOCKED: `agy remote-control start` on the Pi says "not signed in: run `agy`, sign in" (print mode works with the stored token, RC
   needs an interactive sign-in), and the Pi user has no linger (a user daemon would stop at logout; enabling it needs sudo on the Pi).
   No further test reboots until the owner signs in.
+
+## 2026-10-25 11:53-12:10: run 4 reached the macOS login window; agy RC session; password to the Pi
+- Run 4 (SMC tracer fix): the guest macOS 14.8.9 booted under the hypervisor to its login window. The owner rebooted from there after ~4 min
+  (nothing seemed to happen; the hvsleep job sleeps the guest 5 min after boot, so it had not run yet) and had to type the account password.
+  No agy RC session existed then (only the daemon, which is not a session), so the owner could not watch.
+- Pi: agy-session.py keeps an interactive agy in RC mode (pty, log rescue/agy-session.log, restarts); ready-for-reboot.sh now requires it.
+  Its banner says "not signed in" although the daemon is; unverified whether it can run tool calls. The guard reboots through the proxy itself first.
+- The macOSTest login (1Password item "MacOS Test Login") is on the Pi in secret/macostest-login (mode 600) and in the Mac's
+  ~/.local/state/deepidle. Owner: nothing on the macOSTest volume is sensitive and it will be deleted after testing; agy and Claude may modify it freely.
+  op needs an approval prompt in the 1Password app (headless: invisible), so the owner approves it by hand.
+- Autologin: the owner sets it once in the guest (System Settings), prompted by a phone notification (notify-when-guest.sh) that run 5 sends.
