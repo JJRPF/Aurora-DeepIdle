@@ -2,7 +2,7 @@
 # Pi side of the hypervisor sleep trace: run macOSTest's kernel (14.8.9) under Aura's hypervisor
 # with the PMP and SMC tracers, unattended. The Mac must be booting Aura on macOSTest (Linux:
 # hv/bless.sh next macOSTest, then reboot) with the Pi's USB-A port cabled to the Mac's DFU port.
-#   hv-run.sh <kernelcache.macho> [tag] [aura.macho to chainload first]
+#   hv-run.sh <kernelcache.macho> [tag] [aura.bin (raw) or aura.macho to chainload first; use the raw build]
 # Output: ~/deepidle/hv/<date>-<tag>/ (console.txt, hv.log). Not to be started without the owner's go.
 set -eu
 KC=$(readlink -f "$1"); TAG=${2:-sleep}; CHAIN=${3:+$(readlink -f "$3")}
@@ -16,7 +16,11 @@ for _ in $(seq 300); do [ -e "$DEV" ] && break; sleep 1; done
 cd "$AURA/proxyclient"
 if [ -n "$CHAIN" ]; then
     echo "$(date '+%F %T') chainloading $(basename "$CHAIN") $(sha256sum "$CHAIN" | cut -c1-16)" | tee -a "$OUT/run.txt"
-    timeout 120 python3 tools/chainload.py "$CHAIN" < /dev/null >> "$OUT/run.txt" 2>&1 || { echo "chainload failed" | tee -a "$OUT/run.txt"; exit 1; }
+    # A *.bin is the raw build (what the volume's boot object is): its vectors sit at the image base,
+    # where the first stage's locked RVBAR points. The Mach-O build has them 0x10000 higher, and the
+    # second stage then refuses to start any secondary CPU ("RVBAR differs from vector").
+    RAW=; case "$CHAIN" in *.bin) RAW="-r -E 2048" ;; esac
+    timeout 120 python3 tools/chainload.py $RAW "$CHAIN" < /dev/null >> "$OUT/run.txt" 2>&1 || { echo "chainload failed" | tee -a "$OUT/run.txt"; exit 1; }
     sleep 3
     for _ in $(seq 60); do [ -e "$DEV" ] && break; sleep 1; done
 fi
