@@ -2,6 +2,7 @@
 # Pi side of the hypervisor sleep trace: run macOSTest's kernel (14.8.9) under Aura's hypervisor
 # with the PMP and SMC tracers, unattended. The Mac must be booting Aura on macOSTest (Linux:
 # hv/bless.sh next macOSTest, then reboot) with the Pi's USB-A port cabled to the Mac's DFU port.
+# RUNTIME=<seconds> caps the guest run (default 3600).
 # HVSLEEP=0 hv-run.sh ... starts the guest WITHOUT the sleep job (control run: does the guest hang by itself?).
 #   hv-run.sh <kernelcache.macho> [tag] [aura.bin (raw) or aura.macho to chainload first; use the raw build]
 # Output: ~/deepidle/hv/<date>-<tag>/ (console.txt, hv.log). Not to be started without the owner's go.
@@ -28,7 +29,7 @@ fi
 echo "$(date '+%F %T') starting the guest: $(basename "$KC")" | tee -a "$OUT/run.txt"
 # stdin from /dev/null: the shells run_guest opens on errors and on exit read EOF and move on.
 # Every console line gets the Pi's wall-clock time (HH:MM:SS), so the time of the last event before a hang is known.
-timeout 3600 python3 -u tools/run_guest.py -l "$OUT/hv.log" \
+timeout ${RUNTIME:-3600} python3 -u tools/run_guest.py -l "$OUT/hv.log" \
     -m hv/trace_pmp.py -m hv/trace_smc.py "$KC" -- \
     "debug=0x14e serial=3 apcie=0xfffffffe -enable-kprintf-spam wdt=-1 clpc=0 hvsleep=${HVSLEEP:-1}" \
     < /dev/null 2>&1 | while IFS= read -r l; do printf '%(%T)T %s\n' -1 "$l"; done > "$OUT/console.txt"

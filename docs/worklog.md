@@ -934,3 +934,13 @@ Nothing here installs, reboots, or writes hardware registers. Times are local.
   front end (DISP0_FE) off at 98.7 %, seconds before the console went silent: most likely the guest's sleep starting (docs/hv-boot-trace-reference.md).
   hv-run.sh has HVSLEEP=0 for the control run. Phase 1 test boot.bin assembled and verified offline. README/status updated;
   tools/tests/test_bootbin_build.py added (passes).
+
+## 2026-10-25 17:03-17:20: run 6, control (HVSLEEP=0): no hang in 15 min; guest restart works
+- Pi: hv-run HVSLEEP=0 RUNTIME=1800 (tag sixth-nosleep), started 17:03:48, 906 s of PMP writes, 104 578 lines, now stamped. No hang; the owner
+  restarted the guest at 17:18:54 (the PMP targets went to 0x0, the Mac booted Linux at 17:19:35). Display domain off for ~1 min mid-run, no effect.
+- The autologin notification again never went out: `cd ~/deepidle && cmd &` in the ssh one-liner ran in a subshell, so the second line looked for
+  ./notify-when-guest.sh in the wrong directory (the script itself works). New launcher harness/remote/start-run.sh uses absolute paths.
+- The guard asked agy for a diagnosis at 17:19:18 although the Mac was already about to come back (down 929 s at that moment: the guest run itself
+  took 15 min and the guard only skips while run_guest is alive; it ended at 17:18:54). No harm; its threshold should be measured from the run's end.
+- Whether autologin got set: not confirmed (the owner restarted the guest; check at the next guest boot).
+- Open: how to make a sleep-job run end without the power key (Pi-side VBUS wake, or an armed SoC watchdog). See docs/hv-run5-analysis.md.
