@@ -889,3 +889,20 @@ Nothing here installs, reboots, or writes hardware registers. Times are local.
   ~/.local/state/deepidle. Owner: nothing on the macOSTest volume is sensitive and it will be deleted after testing; agy and Claude may modify it freely.
   op needs an approval prompt in the 1Password app (headless: invisible), so the owner approves it by hand.
 - Autologin: the owner sets it once in the guest (System Settings), prompted by a phone notification (notify-when-guest.sh) that run 5 sends.
+
+## 2026-10-25 12:12-15:14: run 5 (autologin prompt): the whole machine hung; owner power-cycled at ~15:14
+- Run 5: the guest booted under the hypervisor (starting the guest 12:12:49), all tracers logging, then the console went silent at
+  12:20:45 (7 min 56 s in) and the Aura USB proxy stopped answering (reboot.py timed out twice: the guard at 12:24, agy at ~12:29).
+  The SoC itself is hung, not only the guest: no remote recovery exists (no serial, no power control from the Pi); the owner had to hold the
+  power key. The Mac was down about 3 h (12:12 to 15:14) because nobody was at it.
+- The phone notification asking for the autologin step never went out (script bug: it picked the previous run's directory before the new one
+  existed, and hid curl's errors; fixed: waits for its own run dir, logs every step to guard.log). The Pi to phone path itself works (tested).
+  So nobody logged in; the guest sat at the login window. The owner had asked to be called only once, so that cost the whole slot.
+- What the tracers show before the silence: macOS only polling SMC (MSX0/MSX2/MSxb keys, 1152 each) and PMP registers; no PMGR/CPUSTART writes
+  after boot, no SMC sleep keys (slpw/slpa/WKTP writes), no CYC_OVRD. So the hang came before any orderly sleep was begun: the hvsleep job
+  (5 min after launchd) may have been about to fire, or the hang is a hypervisor/guest fault unrelated to sleep (e.g. a stuck tracer path or
+  an unhandled guest exception). Not yet distinguished. console.txt has no timestamps; add them (hv-run.sh) so the time of the last event is known.
+- agy: the helper ran (diagnosis report rescue/20261025-122810.md, correct: needs the power key). It cannot do more; remote control needs the
+  proxy, and a hung SoC has none. The honest limit of unattended testing here is a hard hang needing the power key.
+- Owner request 15:14: no reboots for now (using the Mac). Next when allowed: timestamp the console, run once with the owner present at the
+  Mac for the autologin step, then unattended.
