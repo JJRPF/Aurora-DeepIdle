@@ -928,3 +928,9 @@ Nothing here installs, reboots, or writes hardware registers. Times are local.
   the GH-8 work was rebased onto main (PR #7 merged) and is published with `git push origin HEAD:main`. Kernel, boot image and recovery
   scripts that are installed on the Mac's boot path still wait for the owner's go. The branch GH-8-S2R-NextSteps is kept: the issue comment's curl
   URL points at it.
+
+## 2026-10-25 afternoon: offline work while the Mac was in use (no reboots)
+- Direct push on; GH-8 work published to main. Run 5 decoded: the PMP device power target shows media blocks off at 90 % of the log and the display
+  front end (DISP0_FE) off at 98.7 %, seconds before the console went silent: most likely the guest's sleep starting (docs/hv-boot-trace-reference.md).
+  hv-run.sh has HVSLEEP=0 for the control run. Phase 1 test boot.bin assembled and verified offline. README/status updated;
+  tools/tests/test_bootbin_build.py added (passes).
