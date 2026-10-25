@@ -46,10 +46,18 @@ case "\$VGID" in
 63C812F7-0F7D-4358-903C-D2257F942E56|"") echo "unexpected volume group '\$VGID': stopping, nothing changed."; exit 1 ;;
 esac
 bputil -d -v "\$VGID" > /tmp/bp.txt
-grep -q ': Paired' /tmp/bp.txt || {
-    echo "This is not \$NAME's own recoveryOS. Restart into \$NAME, set it as the startup disk"
-    echo "(System Settings > General > Startup Disk), shut down, hold the power key, choose Options."
-    echo "Stopping, nothing changed."; exit 1; }
+if ! grep -q ': Paired' /tmp/bp.txt; then
+    echo
+    echo "This may not be \$NAME's own recoveryOS (no ': Paired' line in bputil -d). bputil said:"
+    sed -n 1,25p /tmp/bp.txt
+    echo "--- the recoveryOS you are in was started from:"
+    diskutil list | grep -i "recovery\\|\$NAME" || true
+    echo "If it is not \$NAME's: set \$NAME as the startup disk (System Settings > General > Startup Disk),"
+    echo "shut down, hold the power key, choose Options. If you are sure it is, say yes to go on;"
+    echo "bputil itself refuses to change a volume it is not paired with."
+    printf "Type yes to go on anyway: "; read a < /dev/tty
+    [ "\$a" = yes ] || { echo "Stopping, nothing changed."; exit 1; }
+fi
 T=/tmp/aura-hv
 mkdir -p \$T
 URL=\${1:-\${AURA_URL:-}}
