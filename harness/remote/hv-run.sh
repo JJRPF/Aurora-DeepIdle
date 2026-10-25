@@ -15,6 +15,7 @@ mkdir -p "$OUT"
 echo "$(date '+%F %T') waiting for $DEV (Aura proxy)" | tee "$OUT/run.txt"
 for _ in $(seq 300); do [ -e "$DEV" ] && break; sleep 1; done
 [ -e "$DEV" ] || { echo "no $DEV after 300 s: Aura did not come up on USB" | tee -a "$OUT/run.txt"; exit 1; }
+"$HOME/deepidle/vbus.sh" learn 2>&1 | tee -a "$OUT/run.txt" || true   # which hub port the Mac is on, for the guard's VBUS cycle
 cd "$AURA/proxyclient"
 if [ -n "$CHAIN" ]; then
     echo "$(date '+%F %T') chainloading $(basename "$CHAIN") $(sha256sum "$CHAIN" | cut -c1-16)" | tee -a "$OUT/run.txt"
