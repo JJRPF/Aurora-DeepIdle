@@ -1,0 +1,29 @@
+From 90b2155e11658b37c2ff6ab9ce210ad7f57f027f Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Sun, 25 Oct 2026 11:20:00 -0400
+Subject: [PATCH] smp: RVBAR readback carries the core index in bits 44-45 on
+ T6020; compare bits 43:12 only
+
+Without this a resident (stage 2) image refuses to start every core but core 0 of each cluster.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+---
+ src/smp.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/smp.c b/src/smp.c
+index a563d33d..73469c0d 100644
+--- a/src/smp.c
++++ b/src/smp.c
+@@ -27,7 +27,7 @@
+ #define SMP_SHARED __attribute__((section(".data.smp_shared")))
+ 
+ #define RVBAR_LOCK BIT(0)
+-#define RVBAR_ADDR GENMASK(47, 12)
++#define RVBAR_ADDR GENMASK(43, 12) /* bits 44-45 read back as the core index on T6020 */
+ 
+ struct spin_table {
+     u64 mpidr;
+-- 
+2.55.0
+
