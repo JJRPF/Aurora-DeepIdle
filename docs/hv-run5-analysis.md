@@ -23,3 +23,16 @@ Offline reading of `~/deepidle/hv/20261025-121153-fifth/` (console.txt 98822 lin
 ## Control run (needs a reboot and the owner at the Mac for the autologin step)
 `HVSLEEP=0 hv-run.sh ...` (no sleep job) for about 12 minutes, same tracers. If it hangs too: hypotheses 2 or 3, not sleep. If it stays up:
 hypothesis 1, then the sleep sequence is the data to record (it is in the log up to the last line).
+
+## Run 6 result (2026-10-25 17:03-17:19, control: HVSLEEP=0, owner at the Mac)
+* 15 minutes (906 s of PMP target writes, 104 578 console lines, now with wall-clock stamps), no hang. The display domain (DISP0_FE) was off from
+  about +13:58 for over a minute (the owner was not touching the Mac then) and the guest and proxy stayed up. Display-off alone is not the trigger.
+* The run ended at 17:18:54 when the owner restarted the guest from its Apple menu: the PMP targets ramp to 0x0 (DISPEXT0/1, DP0-3 on briefly,
+  then everything off: 0x4700, 0xc700, 0xe700, 0xe300, 0xc300, 0x8300, 0x300, 0x200, 0x0 within a second), the proxy lost the Mac
+  (SerialException) and the Mac booted its default, Linux, at 17:19:35. A guest restart under the hypervisor works end to end.
+* So with the sleep job off the guest lives; with it on (run 5) it stops 7 min 56 s in after the display goes off. Together with the PMP
+  sequence this points at macOS system sleep entering and not coming back (wake alarm or not). Caveat: run 6 had owner input, which also
+  keeps macOS awake; the clean comparison is a hands-free sleep-job-on run with autologin (run 7) and a hands-free sleep-off run.
+* Every sleep-job run ends with a hung SoC and needs the power key. Ideas to remove that need: wake the Mac from the Pi by cutting and restoring
+  the USB-C cable's VBUS (Pi 5 per-port power switching, `uhubctl`, needs sudo on the Pi) if the SMC wakes on attach; or arm the SoC watchdog so the
+  hung machine resets itself (needs the guest or Aura to arm it; Aura's own HV watchdog is a software one on a CPU that the sleep powers down).
