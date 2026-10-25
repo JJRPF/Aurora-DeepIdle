@@ -2,12 +2,15 @@
 # Build hv-testvol-recovery.sh: Aura as the custom boot object of the macOSTest volume (14.8.9),
 # run by the owner in macOSTest's paired recoveryOS. Embeds aura.bin with its sha256.
 #   make-recovery.sh <aura.bin> <out.sh>
-# recoveryOS has no base64, so the script downloads aura.bin (checked against the embedded sha256)
+# recoveryOS has no base64, so the script downloads aura.bin (checked by size and the best digest recoveryOS has)
 # from the URL given as its argument or $AURA_URL: serve <aura.bin> next to the script, then in
 # recoveryOS: curl -fsSL http://<host>/hv-testvol-recovery.sh | sh -s -- http://<host>/aura.bin
 set -eu
 IMG=$1 OUT=$2
 SHA=$(sha256sum "$IMG" | cut -d' ' -f1)
+MD5=$(md5sum "$IMG" | cut -d' ' -f1)
+CK=$(cksum "$IMG" | cut -d' ' -f1)
+SZ=$(wc -c < "$IMG" | tr -d ' ')
 DESC=$(git -C "$(dirname "$IMG")/.." describe --always --dirty 2>/dev/null || echo unknown)
 {
 cat <<EOF
@@ -17,15 +20,19 @@ cat <<EOF
 # Run in macOSTest's own (paired) recoveryOS. It only ever targets macOSTest with macOS 14.8.9;
 # Macintosh HD and the Linux entry (omarchy) are never touched. Aura $DESC, sha256 $SHA.
 set -e
-# recoveryOS ships a small toolset (no base64, maybe no shasum or openssl): list every missing tool
-# first, before any check or change.
+# recoveryOS ships a small toolset (no base64, no shasum or openssl): report the state of every tool
+# first, before any check or change. Only the tools the steps cannot do without are fatal.
 miss=
 for t in plutil diskutil bputil csrutil kmutil curl grep cut tr wc mkdir; do
-    command -v \$t > /dev/null 2>&1 || miss="\$miss \$t"
+    if command -v \$t > /dev/null 2>&1; then echo "  ok       \$t"; else echo "  MISSING  \$t"; miss="\$miss \$t"; fi
 done
-command -v shasum > /dev/null 2>&1 || command -v openssl > /dev/null 2>&1 || miss="\$miss shasum-or-openssl"
-[ -z "\$miss" ] || { echo "recoveryOS lacks:\$miss"; echo "Stopping, nothing changed. Send this line back."; exit 1; }
-echo "tools present: plutil diskutil bputil csrutil kmutil curl grep cut tr wc mkdir + a sha256 tool"
+SUM=size
+for t in shasum openssl md5 cksum; do
+    if command -v \$t > /dev/null 2>&1; then echo "  ok       \$t (image check)"; [ \$SUM = size ] && SUM=\$t
+    else echo "  absent   \$t (image check)"; fi
+done
+echo "image check: \$SUM"
+[ -z "\$miss" ] || { echo "recoveryOS lacks:\$miss"; echo "Stopping, nothing changed. Send these lines back."; exit 1; }
 NAME=macOSTest
 WANT=14.8.9
 V="/Volumes/\$NAME"
@@ -48,11 +55,19 @@ mkdir -p \$T
 URL=\${1:-\${AURA_URL:-}}
 [ -n "\$URL" ] || { echo "usage: sh -s -- <url of aura.bin>"; exit 1; }
 curl -fsS "\$URL" -o \$T/aura.bin || { echo "cannot download \$URL: stopping, nothing changed."; exit 1; }
-got=\$( (shasum -a 256 \$T/aura.bin 2>/dev/null || openssl dgst -sha256 -r \$T/aura.bin) | cut -d' ' -f1)
-[ "\$got" = "$SHA" ] || { echo "aura.bin checksum mismatch (\$got): stopping, nothing changed."; exit 1; }
+case "\$SUM" in
+shasum) got=\$(shasum -a 256 \$T/aura.bin | cut -d' ' -f1); want=$SHA ;;
+openssl) got=\$(openssl dgst -sha256 -r \$T/aura.bin | cut -d' ' -f1); want=$SHA ;;
+md5) got=\$(md5 -q \$T/aura.bin); want=$MD5 ;;
+cksum) got=\$(cksum \$T/aura.bin | cut -d' ' -f1); want=$CK ;;
+*) got=; want= ;;
+esac
+size=\$(wc -c < \$T/aura.bin | tr -d ' ')
+[ "\$size" = "$SZ" ] || { echo "aura.bin is \$size bytes, not $SZ: stopping, nothing changed."; exit 1; }
+[ "\$got" = "\$want" ] || { echo "aura.bin \$SUM mismatch (\$got): stopping, nothing changed."; exit 1; }
 echo
 echo "Target: \$V (macOS \$ver, volume group \$VGID, paired recoveryOS)."
-echo "Image: aura.bin \$(wc -c < \$T/aura.bin | tr -d ' ') bytes, checksum OK."
+echo "Image: aura.bin \$(wc -c < \$T/aura.bin | tr -d ' ') bytes, size and \$SUM check OK."
 echo "Three steps, each asks for the \$NAME admin user and password:"
 echo "  1. bputil -nkcas: reduced security for \$NAME only (custom kernel, kexts, no CTRR/SSV)"
 echo "  2. csrutil disable: SIP off for \$NAME (bputil turns it back on)"
