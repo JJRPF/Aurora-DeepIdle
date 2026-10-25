@@ -836,3 +836,13 @@ Nothing here installs, reboots, or writes hardware registers. Times are local.
   The served hv-testvol-recovery.sh said 14.8.3 and would have refused 14.8.9: patched to 14.8.9 in place (text only,
   embedded Aura unchanged, sh -n ok), old copy kept on the Pi. /dev/m1n1 absent, as expected with the Mac in Linux.
 - Step 5: docs/hv-guest-checklist.md. Part B not started (needs the owner's go for every boot step).
+
+## 2026-10-25: macOSTest set up; guest kernelcache ready
+- Owner ran the recovery script (after three fixes: no base64 in recoveryOS, bputil/csrutil/kmutil must read
+  /dev/tty not the curl|sh pipe, tool report instead of a hard stop). bputil -nkcas: Permissive, 3rd-party kexts on,
+  SSV/CTRR/boot-args filtering off; csrutil disable and kmutil configure-boot (Aura c7509ccf) ran in the second pass.
+  recoveryOS lacks shasum and openssl (md5, cksum exist).
+- The `setup` upload holds macOSTest's kernelcache: 14.8.9 23J631, xnu-10063.141.1.713.39~1/RELEASE_ARM64_T6020, IMG4/LZFSE
+  28 MB -> fileset Mach-O 105414656 bytes (sha256 c1b073f8...). On the Pi as hv/kernelcache-14.8.9-23J631.macho; Aura's
+  MachO loader parses it (entry 0xfffffe0008594548). SIP was on and FileVault off at that time.
+- Pi watcher started (tag hvguest). Next: bless macOSTest once, run hv-run.sh (needs the owner's USB cable and root for asahi-bless).
