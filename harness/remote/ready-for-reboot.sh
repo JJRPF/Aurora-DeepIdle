@@ -7,6 +7,8 @@ PI=${PI_HOST:-core-node-ts}; TAG=${1:-test}
 r() { timeout 60 ssh -o BatchMode=yes -o ConnectTimeout=8 "$PI" "$@" 2>&1 | grep -v 'Pseudo-terminal'; }
 bad=0
 out=$(r "~/deepidle/agy-ready.sh $TAG"); echo "agy: $out"; echo "$out" | grep -qi "daemon status: active" || { echo "NOT READY: agy RC daemon"; bad=1; }
+s=$(r 'python3 ~/deepidle/agy-session.py start >/dev/null; python3 ~/deepidle/agy-session.py status'); echo "agy session: $s"
+echo "$s" | grep -q "supervisor: running | agy process: up" || { echo "NOT READY: agy RC session"; bad=1; }
 g=$(r '~/deepidle/mac-guard.sh start >/dev/null; ~/deepidle/mac-guard.sh status | head -1'); echo "guard: $g"; echo "$g" | grep -q "^running" || { echo "NOT READY: mac-guard"; bad=1; }
 w=$(r '~/deepidle/pi-watch.sh status | head -1' | sed 's#/home/[^ ]*#<watch>#'); echo "watch: $w"
 echo "$w" | grep -q "^running" || { echo "NOT READY: pi-watch"; bad=1; }
