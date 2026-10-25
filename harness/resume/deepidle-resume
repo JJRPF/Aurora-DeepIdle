@@ -1,0 +1,20 @@
+#!/bin/bash
+# Reopen the S2R Claude Code session after a boot into Linux (Aurora-DeepIdle, GH-8).
+# Installed as ~/.local/bin/deepidle-resume, started from Hyprland autostart.
+#   armed once:  ~/.local/state/deepidle/resume exists            -> prompt.txt (the old per-reboot mode)
+#   every boot:  ~/.local/state/deepidle/resume-always exists     -> boot-prompt.txt
+# Stop it for good: rm ~/.local/state/deepidle/resume-always (and resume).
+# The session is resumed by id in the GH-8 worktree, so it continues with its whole history.
+STATE=$HOME/.local/state/deepidle
+SID=b00687d8-28dd-4b63-8d60-e14d50d972ad
+DIR=/home/jjr/dev/Aurora-DeepIdle/GH-8-S2R-NextSteps
+if [ -e "$STATE/resume" ] && [ -s "$STATE/prompt.txt" ]; then P=$STATE/prompt.txt
+elif [ -e "$STATE/resume-always" ] && [ -s "$STATE/boot-prompt.txt" ]; then P=$STATE/boot-prompt.txt
+else exit 0; fi
+# Another process already has this session open (the owner resumed it by hand): do nothing.
+if pgrep -f "claude.*--resume $SID" > /dev/null; then
+    echo "$(date '+%F %T') resume skipped: session already open" >> "$STATE/resume.log"; exit 0; fi
+echo "$(date '+%F %T') resume launched ($(basename "$P"))" >> "$STATE/resume.log"
+sleep 20
+exec xdg-terminal-exec --title="S2R (Claude)" --dir="$DIR" -- \
+    bash -lc "claude --resume $SID --permission-mode bypassPermissions \"\$(cat '$P')\"; echo \"claude exited: \$?\"; exec bash"
