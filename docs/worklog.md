@@ -846,3 +846,20 @@ Nothing here installs, reboots, or writes hardware registers. Times are local.
   28 MB -> fileset Mach-O 105414656 bytes (sha256 c1b073f8...). On the Pi as hv/kernelcache-14.8.9-23J631.macho; Aura's
   MachO loader parses it (entry 0xfffffe0008594548). SIP was on and FileVault off at that time.
 - Pi watcher started (tag hvguest). Next: bless macOSTest once, run hv-run.sh (needs the owner's USB cable and root for asahi-bless).
+
+## 2026-10-25 11:00-11:30: first two guest runs under the hypervisor (macOSTest 14.8.9)
+- Run 1 (Mach-O Aura chained): the Pi chainloaded aura-hvsleep.macho, the guest booted far enough for the PMGR/PMP/SMC
+  tracers to log (SMC KInfo reads, PMP DEV_STATUS_TGT writes, CPUSTART writes), then hv_start_secondary(1) failed. Cause in the
+  second stage's own log: "SMP: RVBAR 0x1000300c000 differs from vector 0x1000301c000; refusing start". The volume's boot
+  object is the RAW build (vectors at the image base); the Mach-O build has them 0x10000 higher and RVBAR is locked on T6020.
+  Fix: chainload the raw build (hv-run.sh: *.bin -> chainload.py -r -E 2048).
+- Run 2 (raw Aura chained): RVBAR now matches, but "SMP: RVBAR 0x1100036d0000 differs from vector 0x100036d0000" for CPUs
+  1-3, 5-6, 9-10; only CPU 4 and CPU 8 (core 0 of clusters 1 and 2) started. RVBAR readback carries the CORE index in bits 44-45
+  on T6020 (0x11.. = core 1, 0x21.. = core 2, 0x31.. = core 3); Aura masks GENMASK(47,12). Fix: GENMASK(43,12)
+  (aura-hvsleep 90b2155e, patches/hvsleep-trace). The same bug would make Aura as stage 2 start one core per cluster, which
+  matters for part B step 0 of GH-8 (stock Aura as stage 2 has never booted this Mac).
+- Both runs left run_guest.py in its error shell on the Mac's rainbow logo; the Pi guard (mac-guard.sh) did not reboot the Mac
+  because it skipped while run_guest.py was alive. Now it treats a run whose console file has not grown for 180 s as stalled
+  and stops it, then reboots through the proxy after 300 s. The owner hard-rebooted by hand both times.
+- Boot resume (harness/resume/deepidle-resume + ~/.local/state/deepidle/resume-always, boot-prompt.txt) resumes this session on
+  every Linux boot; agy on the Pi (gemini-3.8-flash-high, --remote-control) is the rescue helper only.
