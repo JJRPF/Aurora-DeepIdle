@@ -912,3 +912,13 @@ Nothing here installs, reboots, or writes hardware registers. Times are local.
   Status field PVTSSF_lAHOByT81M4Boss1zhnLjfo: Todo 9c0cb1c9, In Progress c2f6f865, Blocked 5bf15dda, Done 9654d217.
   Holds issue #8, PR #7 and 13 draft items (done fixes, the run 5 hang, autologin, Phase 3 trace, Phase 1 boot test, wake path, GH-8 PR).
   Kept up to date after every test (boot prompt step 5).
+
+## 2026-10-25 15:20-15:40: Phase 1 test image assembled offline (not installed, nothing armed)
+- aura-psci (branch psci-efi) now carries the RVBAR core-index fix (cherry-picked 90b2155e as a local commit): without it stock Aura as
+  stage 2 would start only core 0 of each cluster on T6020 (worklog 11:20). Rebuilt (build/aura.bin).
+- harness/tools/bootbin-build.py (new) assembles the test boot.bin from the stock one: new stage-2 image + DTB #31 replaced + new gzipped U-Boot.
+  Result ~/Work/psci-test/boot.bin.psci-test (8934040 B): image == aura-psci build; 113 DTBs, only #31 differs from the installed boot.bin
+  (stock #31 is the apple,j414s DTB; new #31 == t6020-j414s-psci.dtb); the tail gunzips to the patched U-Boot (654512 B, stock 660216 B).
+  Verified by splitting it back. The kernel and the GRUB entry are not built or installed yet.
+- Step 0 of GH-8 B (stock Aura as stage 2, same boot.bin otherwise) can be assembled the same way from ~/Work/aurora-src/aura/build/aura.bin
+  plus the stock DTB set, but that tree lacks the RVBAR fix: rebuild it with 90b2155e first.
