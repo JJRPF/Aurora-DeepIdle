@@ -944,3 +944,8 @@ Nothing here installs, reboots, or writes hardware registers. Times are local.
   took 15 min and the guard only skips while run_guest is alive; it ended at 17:18:54). No harm; its threshold should be measured from the run's end.
 - Whether autologin got set: not confirmed (the owner restarted the guest; check at the next guest boot).
 - Open: how to make a sleep-job run end without the power key (Pi-side VBUS wake, or an armed SoC watchdog). See docs/hv-run5-analysis.md.
+
+## 2026-10-25 — VBUS-cycle recovery (idea 1), prepared
+- `uhubctl` 2.6.0 is on the Pi (Pi 5, per-port power switching advertised on all four hubs). Nothing is on USB while the Mac runs Linux, so the Mac's port is learned at run start (`vbus.sh learn`, called by `hv-run.sh` once Aura is present).
+- `mac-guard.sh`: after VBUS_AFTER (420 s) with the Mac unreachable and no Aura on USB it runs `vbus.sh cycle` (8 s off, then on) before the agy diagnosis. Also fixed: the outage clock now starts when a guest run ends.
+- Untested whether a hung M2 wakes on a cable attach. Run 7 tests it. Idea 2 (armed watchdog) follows if not.
