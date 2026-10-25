@@ -1,0 +1,38 @@
+From 7651484b103c637f3d4559ad96041cc6ccae70f5 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <jpfister@gmail.com>
+Date: Sun, 25 Oct 2026 19:06:31 -0400
+Subject: [PATCH] hv: also mask CYC_OVRD WFI_MODE so a guest core does not
+ really deep-sleep under the HV; drop the proxy-entry print
+
+---
+ src/hv/hv_exc.c | 7 ++-----
+ 1 file changed, 2 insertions(+), 5 deletions(-)
+
+diff --git a/src/hv/hv_exc.c b/src/hv/hv_exc.c
+index 417227a5..29295a12 100644
+--- a/src/hv/hv_exc.c
++++ b/src/hv/hv_exc.c
+@@ -47,10 +47,6 @@ static void _hv_exc_proxy(struct exc_info *ctx, uartproxy_boot_reason_t reason,
+ 
+     hv_wdt_breadcrumb('P');
+ 
+-    /* Say why we are here before the rendezvous: it can panic if a CPU is already asleep. */
+-    printf("HV: proxy entry on CPU %ld: reason %d type %d esr 0x%lx elr 0x%lx afsr1 0x%lx\n",
+-           mrs(TPIDR_EL2), reason, type, ctx->esr, ctx->elr, ctx->afsr1);
+-
+     /*
+      * Get all the CPUs into the HV before running the proxy, to make sure they all exit to
+      * the guest with a consistent time offset.
+@@ -336,7 +332,8 @@ static bool hv_handle_msr_unlocked(struct exc_info *ctx, u64 iss)
+          * still returning, and reads back the value it wrote.
+          */
+         case SYSREG_ISS(SYS_IMP_APL_CYC_OVRD): {
+-            const u64 sleep_bits = CYC_OVRD_DISABLE_WFI_RET | CYC_OVRD_FIQ_MODE_MASK;
++            const u64 sleep_bits =
++                CYC_OVRD_DISABLE_WFI_RET | CYC_OVRD_FIQ_MODE_MASK | CYC_OVRD_WFI_MODE_MASK;
+             if (is_read) {
+                 regs[rt] = mrs(SYS_IMP_APL_CYC_OVRD) | PERCPU(cyc_ovrd_masked);
+             } else {
+-- 
+2.55.0
+
