@@ -170,12 +170,15 @@ makes it persistent: copy it to `/etc/tmpfiles.d/`.
 | `docs/status.md` | One-page summary: results, the S2R pieces, what is built but not booted, how testing works |
 | `docs/s2r-plan.md` | The phased plan to S2R (PSCI provider in Aura, macOS trace, devices, daily use) |
 | `docs/psci-efi.md` | Phase 1: PSCI CPU_ON/CPU_OFF through EFI in the kernel, Aura and U-Boot; the first boot test |
-| `tools/macos-hv-testvol.sh` | macOS side: download 14.8.3, add the `macOSTest` volume, open the installer; `setup` mode inside the new system |
+| `tools/macos-hv-testvol.sh` | macOS side: download the guest installer (14.8.9, or 13.7.8 with `HV_GUEST`; 14.8.3 is gone from Apple's catalog), add the `macOSTest` volume, open the installer; `setup` mode inside the new system |
 | `tools/macos-hv-prep.sh` | macOS side: the `hvsleep=1` sleep job and the data the hypervisor run needs, sent to the controller |
 | `tools/im4p-extract.py` | IMG4/IM4P kernelcache to the Mach-O `run_guest.py` loads (needs the `lzfse` tool) |
 | `harness/hv/`, `harness/remote/hv-run.sh` | Boot the guest volume once (`asahi-bless`), build the recoveryOS script that installs Aura on it, and the Pi's unattended guest run |
 | `harness/overnight/run.sh` | One measured overnight s2idle, woken by the owner; results in `data/overnight/` |
 | `harness/mmio/pmp-cycle.c` | Address-limited PMP restart experiments (`reset-cycle` is retired: it crashed the SoC); results in `data/pmp-cycle/` |
+| `harness/remote/` (`mac-guard.sh`, `agy-*`, `notify-when-guest.sh`, `ready-for-reboot.sh`), `harness/resume/` | The Pi's safety net for unattended runs (proxy reboot of a stranded Mac, an agy helper in remote-control mode, phone notices) and the resume of the Claude session on every Linux boot |
+| `harness/tools/bootbin-build.py` | Assemble a test `boot.bin` (new stage 2, one DTB replaced, new U-Boot) from the stock one, offline |
+| `docs/hv-guest-checklist.md`, `docs/hv-run5-analysis.md`, `docs/hv-boot-trace-reference.md` | The owner's checklist for the guest, the analysis of the run 5 hang, and what macOS does at boot and at the start of sleep, from the trace |
 | `patches/psci-efi/`, `patches/hvsleep-trace/` | Phase 1 (Aura, U-Boot, the T6020 PSCI DTS) and the Aura hypervisor change for the sleep trace |
 | `tools/idle-ab.py` | Paired A/B of cpuidle settings by SMC power (all sensors), with busy time and clocks; settings `default`, `wfi-only`, `pd-always[@cpus]`, `res=US`, `no-eas`, `set:PATH=VALUE[,...]` (any sysfs knob for the window) |
 | `tools/wakelat.c` | Wake-up latency probe (timer overshoot, cross-CPU futex wake), SCHED_FIFO |

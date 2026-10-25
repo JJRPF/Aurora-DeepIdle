@@ -40,9 +40,17 @@ There are two goals:
   * Open: PMGR's last steps and the boot CPU's wake hand-back, which the
     macOS hypervisor trace (Phase 3) is meant to answer, and DCP resume,
     the long pole.
-* **Next:** two first steps, tracked in their own issue. One is Phase 1's
-  boot test. The other is the macOS 14.8.3 guest for the hypervisor trace,
-  with as much of its install as possible done from Linux.
+* **Next:** Phase 1's boot test (not started: each boot step needs the
+  owner), and finishing the macOSTest guest runs. State on 2026-10-25: the
+  guest is **macOS 14.8.9** (14.8.3 is gone from Apple's catalog), installed
+  on its own volume with Aura as its boot object; it boots under the
+  hypervisor with all 10 CPUs and the SMC and PMP tracers (three Aura/tracer
+  fixes were needed, `patches/hvsleep-trace`). Run 5 ended with the display
+  domain going off and then the whole SoC hanging, probably the guest's
+  sleep (`docs/hv-run5-analysis.md`, `docs/hv-boot-trace-reference.md`); the
+  control run without the sleep job and the autologin step are next. Work
+  is tracked in the GitHub Project "S2R on M2 Pro (J414s)" and the repo is
+  now pushed to directly (no PR per step).
 
 ## Timeline
 
