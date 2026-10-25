@@ -9,6 +9,6 @@ PROMPT="You are a helper on a Raspberry Pi that controls an Apple M2 Pro Mac (J4
 1. Read: $D/guard.log (tail 60), the newest files in $D/watch/ (the Mac's kernel log and ping log, tail 80 each), and ${LASTRUN}run.txt and the tail of ${LASTRUN}console.txt.
 2. Check whether /dev/m1n1 exists and lsusb shows the Mac. If /dev/m1n1 exists, you may run: cd $D/aura/proxyclient && timeout 60 python3 tools/reboot.py < /dev/null. Nothing else on the Mac: no register writes, no other proxy tools, no ssh commands that change anything.
 3. Write a short report to $R: what state the Mac seems to be in, what you did, and what the owner must do (for example press the power key; you cannot). Never print the Pi's username or any path containing it, and never print IP addresses. Do not edit any other file."
-timeout 900 "$HOME/.local/bin/agy" --model gemini-3.8-flash-high --effort high --dangerously-skip-permissions \
+timeout 900 "$HOME/.local/bin/agy" --model gemini-3.8-flash-high --effort high --dangerously-skip-permissions --remote-control \
     --print-timeout 600s -p "$PROMPT" >> "$D/rescue/agy-last.txt" 2>&1
 echo "$(date '+%F %T') agy-rescue finished, report: $R"
