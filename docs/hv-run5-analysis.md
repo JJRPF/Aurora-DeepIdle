@@ -12,7 +12,7 @@ Offline reading of `~/deepidle/hv/20261025-121153-fifth/` (console.txt 98822 lin
   no CPUSTART after boot, no SMC sleep keys (`slpw`/`slpa`/`WKTP` write), no CYC_OVRD.
 
 ## Hypotheses (ranked) and what separates them
-1. **macOS began to sleep and the machine did not wake.** For: 7:56 is guest boot (~2.5 min) plus the 5-minute `hvsleep` delay; the screen was blank;
+1. **macOS began to sleep and the machine did not wake. (Most likely, see docs/hv-boot-trace-reference.md: the display domain DISP0_FE went off 6 s before the end.)** For: 7:56 is guest boot (~2.5 min) plus the 5-minute `hvsleep` delay; the screen was blank;
    the SoC and its USB went away together. Against: no SMC sleep keys, no PMGR writes. (On T6020 sleep may go through the PMP only.)
    Test: after a run, the guest's own `/var/log/hvsleep.log` and `pmset -g log` say whether the job fired and why/when it slept
    (rerun `macos-hv-prep.sh` in the guest: it uploads the pmset data).
