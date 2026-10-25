@@ -5,7 +5,7 @@
 # line. macOS 15 and later need SPTM, which Aura does not load. The everyday macOS and Linux stay.
 #
 # Step 1, in the everyday macOS (downloads the installer, adds an empty volume, opens the installer):
-#   curl -fsSL https://raw.githubusercontent.com/JJRPF/Aurora-DeepIdle/GH-8-S2R-NextSteps/tools/macos-hv-testvol.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/JJRPF/Aurora-DeepIdle/main/tools/macos-hv-testvol.sh | bash
 # Step 2, in the new macOS 14.8.3, after Setup Assistant (turns off its automatic updates, then
 # runs macos-hv-prep.sh: the sleep job and the data the hypervisor run needs):
 #   curl -fsSL .../tools/macos-hv-testvol.sh | bash -s -- setup
@@ -29,7 +29,7 @@ case "$WANT" in
     PKG_SHA1=072098c6b951701714537d333f8e7dded6d64390 ;;
 *) echo "HV_GUEST must be 14.8.9 or 13.7.8"; exit 1 ;;
 esac
-BRANCH=GH-8-S2R-NextSteps
+BRANCH=main
 RAW=https://raw.githubusercontent.com/JJRPF/Aurora-DeepIdle/$BRANCH/tools
 
 # Everything runs inside main(), so bash has read the whole script before any command can

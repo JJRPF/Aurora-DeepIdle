@@ -7,7 +7,7 @@ Everything that can be done from Linux was done (worklog 2026-10-24, GH-8). What
 | # | Where | What | Time |
 |---|---|---|---|
 | 0 | Linux (me) | `asahi-bless --next --set-boot <macOS volume>` and reboot, if you want to skip the boot picker. Your go first. | 2 min |
-| 1 | everyday macOS | Terminal: `curl -fsSL https://raw.githubusercontent.com/JJRPF/Aurora-DeepIdle/GH-8-S2R-NextSteps/tools/macos-hv-testvol.sh \| bash` (needs the PR branch pushed). It downloads the 13.7 GB `InstallAssistant.pkg` from Apple's catalog (size and SHA-1 checked), installs "Install macOS Sonoma.app", adds the empty `macOSTest` volume (asks `yes`), opens the installer. | 20 to 60 min, mostly download |
+| 1 | everyday macOS | Terminal: `curl -fsSL https://raw.githubusercontent.com/JJRPF/Aurora-DeepIdle/main/tools/macos-hv-testvol.sh \| bash` (needs the PR branch pushed). It downloads the 13.7 GB `InstallAssistant.pkg` from Apple's catalog (size and SHA-1 checked), installs "Install macOS Sonoma.app", adds the empty `macOSTest` volume (asks `yes`), opens the installer. | 20 to 60 min, mostly download |
 | 2 | installer | Continue, agree, choose **macOSTest** (Show All Disks). Never Macintosh HD. It restarts itself and installs. | ~30 min |
 | 3 | Setup Assistant | Local admin account (any name), no Apple Account, **FileVault off**, skip Location, Analytics, Screen Time, Siri. | 5 min |
 | 4 | new macOS 14.8.9 | Terminal: `curl -fsSL .../tools/macos-hv-testvol.sh \| bash -s -- setup`. Turns off automatic updates, installs the sleep job, collects data, copies it to the Pi (asks for the Pi's ssh login). | 5 min |

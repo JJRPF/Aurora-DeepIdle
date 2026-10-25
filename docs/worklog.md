@@ -922,3 +922,9 @@ Nothing here installs, reboots, or writes hardware registers. Times are local.
   Verified by splitting it back. The kernel and the GRUB entry are not built or installed yet.
 - Step 0 of GH-8 B (stock Aura as stage 2, same boot.bin otherwise) can be assembled the same way from ~/Work/aurora-src/aura/build/aura.bin
   plus the stock DTB set, but that tree lacks the RVBAR fix: rebuild it with 90b2155e first.
+
+## 2026-10-25: Aurora-DeepIdle switched to direct push
+- Owner decision: one effort, not separate tasks, so no PR per step. `grove add-repo Aurora-DeepIdle --direct-push` (local config.json);
+  the GH-8 work was rebased onto main (PR #7 merged) and is published with `git push origin HEAD:main`. Kernel, boot image and recovery
+  scripts that are installed on the Mac's boot path still wait for the owner's go. The branch GH-8-S2R-NextSteps is kept: the issue comment's curl
+  URL points at it.
