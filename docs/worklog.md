@@ -863,3 +863,18 @@ Nothing here installs, reboots, or writes hardware registers. Times are local.
   and stops it, then reboots through the proxy after 300 s. The owner hard-rebooted by hand both times.
 - Boot resume (harness/resume/deepidle-resume + ~/.local/state/deepidle/resume-always, boot-prompt.txt) resumes this session on
   every Linux boot; agy on the Pi (gemini-3.8-flash-high, --remote-control) is the rescue helper only.
+
+## 2026-10-25 11:20-11:40: third guest run: all 10 CPUs in the guest; SMC tracer assert; agy readiness
+- Run 3 (raw Aura chained, RVBAR fix 90b2155e): "Starting guest secondary" and "Entering guest secondary" for CPUs 1-6, 8-10 (CPU 4
+  and 8 were already running as cluster boot cores... all 10 online in the guest), no SMP refusal. The guest then ran with the PMGR/PMP/SMC
+  tracers logging until 11:21, when SMCTracer.handle_msg hit an AssertionError in the ASC base-message field validator
+  (trace/asc.py BASE_MESSAGE, a message type it does not know) and each one dropped the run into the interactive debug shell
+  (stdin /dev/null: "Returning to tracer", ~150 MB of tracebacks). Not a guest or hardware fault.
+  Fix: trace_smc.py catches the AssertionError and logs "[smc] unparsed msg dir r0 r1" (aura-hvsleep tree, patches/hvsleep-trace).
+  Run ended with the Mac at the rainbow logo again; the owner hard-rebooted (11:35). The guard held (hold file) during the run.
+- Owner rule (2026-10-25): start the agy helper in remote-control mode before every reboot; it keeps logs; read them after every test.
+  Added harness/remote: agy-ready.sh (Pi: RC daemon up, logs to rescue/agy-ready.log), agy-report.sh (Pi: guard + agy events since a
+  time), ready-for-reboot.sh (Mac: refuses unless agy RC, mac-guard, pi-watch and resume-always are all up; run before each reboot).
+- BLOCKED: `agy remote-control start` on the Pi says "not signed in: run `agy`, sign in" (print mode works with the stored token, RC
+  needs an interactive sign-in), and the Pi user has no linger (a user daemon would stop at logout; enabling it needs sudo on the Pi).
+  No further test reboots until the owner signs in.
