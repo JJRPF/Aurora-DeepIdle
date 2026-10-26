@@ -981,3 +981,4 @@ Nothing here installs, reboots, or writes hardware registers. Times are local.
 - Full sleep entry written up in docs/hv-boot-trace-reference.md: `MBSE=slpw`, PMP TGT handshake, `MBSE=slpa`, `SetAPPower 0x201` (SMC + PMP), `SetIOPPower`, CPU stop writes, PCPM clears, CYC_OVRD deep sleep. `SetAPPower` is what takes the cores down, so no HV tweak keeps them alive; the HV phase of the sleep trace is done.
 - Not obtainable under the HV: the wake side (what restarts the AP, the RVBAR it uses, which events wake it).
 - Next needs the owner (rules): reproduce `slpw`/`slpa` + `SetAPPower` from Linux on the Phase 1/2 test image, which the project rule forbids ("No slpa") until lifted.
+- 2026-10-25 21:31:57 Phase 1 step 0 armed (Aura stage 2, boot.bin 19d5f8f6...), rebooting; owner present.
