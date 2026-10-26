@@ -1,0 +1,12 @@
+[Unit]
+Description=PSCI-via-EFI test: CPU count and hotplug (once)
+After=graphical.target
+ConditionPathExists=/var/lib/deepidle/psci-efi-armed
+
+[Service]
+Type=oneshot
+TimeoutStartSec=20min
+ExecStart=/usr/local/lib/deepidle/psci-efi-run.sh
+
+[Install]
+WantedBy=graphical.target
