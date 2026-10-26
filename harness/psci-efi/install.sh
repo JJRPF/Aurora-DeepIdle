@@ -1,6 +1,7 @@
 #!/bin/bash
 # PSCI-via-EFI boot tests (S2R plan, Phase 1), one boot each, owner's go for each.
 #   sudo bash install.sh step0   Aura as the stage 2, stock DTB and U-Boot, stock kernel (default entry)
+#   sudo bash install.sh step1a  the psci-efi-test kernel on the STOCK boot.bin (no PSCI node, spin-table): is the kernel build itself fine?
 #   sudo bash install.sh step1   the psci-efi-test kernel + Aura + patched U-Boot + PSCI DTB (GRUB next_entry)
 #   sudo bash install.sh remove  undo everything (units, GRUB entry, test kernel, stock boot.bin back)
 # Installs next to the existing kernels; none of the owner's is touched. The default GRUB entry never
@@ -33,7 +34,7 @@ if [ "${1:-}" = remove ]; then
     exit 0
 fi
 STEP=${1:?step0 | step1 | remove}
-case $STEP in step0) BIN=$BIN0; SHA=$SHA0 ;; step1) BIN=$BIN1; SHA=$SHA1 ;; *) echo "step0 | step1 | remove"; exit 1 ;; esac
+case $STEP in step0) BIN=$BIN0; SHA=$SHA0 ;; step1) BIN=$BIN1; SHA=$SHA1 ;; step1a) BIN=$STOCK; SHA=$STOCKSHA ;; *) echo "step0 | step1a | step1 | remove"; exit 1 ;; esac
 
 # Preconditions
 [ "$(sha256sum $STOCK | cut -c1-16)" = $STOCKSHA ] || { echo "stock boot.bin copy missing or wrong"; exit 1; }
@@ -46,7 +47,9 @@ for d in /usr/lib/modules/*/; do
 done
 mkdir -p /var/lib/deepidle /usr/local/lib/deepidle
 
-if [ $STEP = step1 ]; then
+if [ $STEP != step0 ] && [ -e /boot/vmlinuz-psci-efi-test ] && [ -e /etc/grub.d/45_psci_efi ] && [ -d "/usr/lib/modules/$REL" ]; then
+    echo "psci-efi-test kernel already installed"
+elif [ $STEP != step0 ]; then
     [ -d $STAGE/lib/modules/$REL ] && [ -f $STAGE/boot/vmlinuz-psci-efi-test ] || { echo "staging $STAGE missing"; exit 1; }
     # /boot has no room for two test kernels: the deepidle3 one (a test artifact) goes first
     if [ -e /etc/grub.d/44_deepidle3 ] || [ -e /boot/vmlinuz-deepidle3-test ]; then
@@ -79,6 +82,6 @@ systemctl enable psci-efi-early.service psci-efi-run.service
 # Arm one boot
 echo $STEP > /var/lib/deepidle/psci-efi-armed
 cp $BIN /boot/m1n1/boot.bin.tmp && sync && mv /boot/m1n1/boot.bin.tmp /boot/m1n1/boot.bin && sync
-[ $STEP = step1 ] && grub-editenv /boot/grub/grubenv set next_entry=psci-efi-test-kernel
-echo "armed $STEP: boot.bin $(sha256sum /boot/m1n1/boot.bin | cut -c1-16)$( [ $STEP = step1 ] && echo ', next_entry psci-efi-test-kernel')."
+[ $STEP != step0 ] && grub-editenv /boot/grub/grubenv set next_entry=psci-efi-test-kernel
+echo "armed $STEP: boot.bin $(sha256sum /boot/m1n1/boot.bin | cut -c1-16)$( [ $STEP != step0 ] && echo ', next_entry psci-efi-test-kernel')."
 echo "Reboot when ready. Results: /var/lib/deepidle/results-psci-efi-$STEP-*/"
