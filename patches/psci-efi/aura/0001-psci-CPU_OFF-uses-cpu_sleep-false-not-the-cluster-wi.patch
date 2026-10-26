@@ -1,0 +1,41 @@
+From c9d6b349f5055b801886445d8505c42872f3d430 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <jpfister@gmail.com>
+Date: Sun, 25 Oct 2026 22:14:04 -0400
+Subject: [PATCH] psci: CPU_OFF uses cpu_sleep(false), not the cluster-wide
+ ACC_OVRD deep sleep
+
+---
+ src/smp.c | 10 ++++++++--
+ 1 file changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/src/smp.c b/src/smp.c
+index 704ae71f..642d0de0 100644
+--- a/src/smp.c
++++ b/src/smp.c
+@@ -1090,7 +1090,13 @@ int smp_psci_cpu_off(void)
+     const struct cpu_info *cpu = &cpu_info[index];
+     u64 start_base = cpu_start_base + cpu->die * PMGR_DIE_OFFSET;
+ 
+-    /* As smp_stop_cpu(): request the stop, then power down without retention. */
++    /*
++     * As smp_stop_cpu(): request the stop, then power the core down. Not cpu_sleep(true): its
++     * ACC_OVRD writes (PWR_DN_SRM, POWER_DOWN_CPM, DEEP_SLEEP) are per cluster, shared with the
++     * cores that keep running Linux, and meant for the last core of a bootloader handoff. The first
++     * CPU_OFF with it took the whole SoC down (boot test 2026-10-25). cpu_sleep(false) only sets
++     * the per-core CYC_OVRD (deep WFI, no retention), which is what macOS's per-core idle uses.
++     */
+     write32(start_base + 0x0, cpu_start_bit(index, cpu));
+ 
+     psci_cpu_state[index] = PSCI_CPU_OFF;
+@@ -1098,7 +1104,7 @@ int smp_psci_cpu_off(void)
+     /* This core's L1 goes away with its power: write the kernel's dirty lines back. */
+     dcsw_op_level1(DCSW_OP_DCCISW);
+     sysop("dsb sy");
+-    cpu_sleep(true);
++    cpu_sleep(false);
+ }
+ 
+ /*
+-- 
+2.55.0
+
