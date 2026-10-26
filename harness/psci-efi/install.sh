@@ -15,7 +15,7 @@ H=$(cd "$(dirname "$0")" && pwd)
 REL=7.1.12-psci-efi+
 STAGE=/home/jjr/Work/staging-psci-efi
 BIN0=/home/jjr/Work/psci-test/boot.bin.aura-stage2; SHA0=19d5f8f627f966a1
-BIN1=/home/jjr/Work/psci-test/boot.bin.psci-test5;  SHA1=85b54e03f7a91214
+BIN1=/home/jjr/Work/psci-test/boot.bin.psci-test6;  SHA1=4c5c4b22cf9f7428
 STOCK=/var/lib/deepidle/boot.bin.stock; STOCKSHA=3630adc3b3be173c
 stockback() {
     [ "$(sha256sum /boot/m1n1/boot.bin | cut -c1-16)" = $STOCKSHA ] || {

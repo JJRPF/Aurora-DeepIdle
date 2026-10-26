@@ -1029,3 +1029,5 @@ Nothing here installs, reboots, or writes hardware registers. Times are local.
 
 ## 2026-10-25 night: PSCI restart attempt 3 (test image 5)
 CPU_ON of a CPU_OFF'd core still failed (core stays stopped after PMGR start strobes). Image 5 (85b54e03f7a91214): restart clears the stop strobe (+0x0), then start strobes, then `smp_send_ipi` + `sev`, in case the deep-WFI core needs an event. Result: pending (step1m).
+
+Result image 5 (step1m, 22:25): CPU_ON of cpu1 after CPU_OFF still fails (cycle 1 online failed). Cause found while reading the restart: it memset the spin_table entry, which zeroed the stored mpidr, so the wake IPI went to cpu0, not the target. Image 6 (4c5c4b22cf9f7428) keeps the mpidr. Result: pending.
