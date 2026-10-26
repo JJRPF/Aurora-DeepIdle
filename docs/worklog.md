@@ -988,3 +988,9 @@ Nothing here installs, reboots, or writes hardware registers. Times are local.
 - Result (`/var/lib/deepidle/results-psci-efi-step0-20261025-2132`): booted image sha 19d5f8f6; early unit put stock back (ESP 3630adc3 again); Linux 7.1.12-2-11.35-sep-ARCH+, "smp: Brought up 1 node, 10 CPUs", online 0-9, EFI v2.11 by U-Boot. No problem seen. Aura as a resident stage 2 is fine for this Mac.
 - Next: stage the psci-efi-test kernel (modules building, release 7.1.12-psci-efi+), then step 1 (needs the owner's go again).
 - 2026-10-25 21:45:59 Phase 1 step 1 armed (psci-efi kernel + boot.bin.psci-test 78b481c6, next_entry psci-efi-test-kernel); owner asleep, standing go; rebooting.
+
+## 2026-10-25 21:46 — Phase 1 step 1: the psci-efi kernel boot died early, no log; bisecting
+- Armed step 1 (psci-efi kernel 7.1.12-psci-efi+, modules staged stripped (96 MB, 1872 modules), boot.bin.psci-test 78b481c6, next_entry psci-efi-test-kernel), rebooted 21:46:02.
+- Result: no journal for the psci-efi boot at all (journal list: boot -1 ended 21:46:02, next boot starts 21:48:20 on the DEFAULT stock kernel); the ESP still held the psci boot.bin (booted sha 78b481c6) and the early unit then restored stock. GRUB had consumed next_entry. So the psci-efi kernel (or its initramfs) died before the root filesystem was mounted and panic=10 (or a reset) rebooted into the default entry.
+- Side result: the stock kernel on the PSCI DTB says `psci: invalid "method" property: efi` and brings up 1 CPU, exactly as the doc predicted for a kernel without the RFC patches; Linux stays usable.
+- No early console to read (screens off, no UART). Bisect: step1a = the psci-efi kernel on the STOCK boot.bin (no PSCI node). Boots -> the fault is in the PSCI path; does not boot -> kernel/initramfs build (the initramfs has the same 207 modules as stock, no firmware blobs).
