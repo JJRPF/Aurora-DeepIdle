@@ -982,3 +982,8 @@ Nothing here installs, reboots, or writes hardware registers. Times are local.
 - Not obtainable under the HV: the wake side (what restarts the AP, the RVBAR it uses, which events wake it).
 - Next needs the owner (rules): reproduce `slpw`/`slpa` + `SetAPPower` from Linux on the Phase 1/2 test image, which the project rule forbids ("No slpa") until lifted.
 - 2026-10-25 21:31:57 Phase 1 step 0 armed (Aura stage 2, boot.bin 19d5f8f6...), rebooting; owner present.
+
+## 2026-10-25 21:32 — Phase 1 step 0 PASSED: Aura as the stage 2 boots stock Linux
+- Built `boot.bin.aura-stage2` (19d5f8f627f966a1): the stock boot.bin with only the stage-2 image replaced by the aura-psci build (RVBAR fix in); verified image == build, all 113 DTBs and the U-Boot payload byte-identical to stock. `harness/psci-efi/install.sh step0` armed it (stock kernel, default GRUB entry), owner present and approving (go given in session), rebooted 21:32.
+- Result (`/var/lib/deepidle/results-psci-efi-step0-20261025-2132`): booted image sha 19d5f8f6; early unit put stock back (ESP 3630adc3 again); Linux 7.1.12-2-11.35-sep-ARCH+, "smp: Brought up 1 node, 10 CPUs", online 0-9, EFI v2.11 by U-Boot. No problem seen. Aura as a resident stage 2 is fine for this Mac.
+- Next: stage the psci-efi-test kernel (modules building, release 7.1.12-psci-efi+), then step 1 (needs the owner's go again).
