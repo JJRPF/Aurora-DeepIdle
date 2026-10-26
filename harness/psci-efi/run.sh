@@ -21,6 +21,10 @@ log "online: $(cat /sys/devices/system/cpu/online); nproc $(nproc)"
 dmesg > $OUT/dmesg.txt; chmod 644 $OUT/dmesg.txt
 grep -iE "psci|smp: |cpu[0-9]+: (failed|boot)|failed to come online|efi:" $OUT/dmesg.txt | tee -a $OUT/key-lines.txt | head -40
 sync
+# What Aura left in /chosen for U-Boot and the kernel (raw property bytes), and the kernel's iomem view
+for pr in /proc/device-tree/chosen/aura,*; do [ -e "$pr" ] && { echo "== $pr"; xxd "$pr"; } ; done > $OUT/chosen-aura.txt 2>&1
+cp /proc/iomem $OUT/iomem.txt 2>/dev/null; cat /sys/firmware/efi/systab > $OUT/systab.txt 2>/dev/null
+sync
 case $STEP in step1|step1m) ;; *) log "$STEP done"; rm -f /var/lib/deepidle/psci-efi-armed; exit 0 ;; esac
 if ! grep -qi "PSCIv" $OUT/dmesg.txt; then log "no PSCI version line: table not found, stopping before hotplug"; rm -f /var/lib/deepidle/psci-efi-armed; exit 0; fi
 if [ $STEP = step1m ]; then
