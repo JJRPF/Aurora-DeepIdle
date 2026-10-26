@@ -1,0 +1,63 @@
+From 60dcf68416b9c3443cfb7a988b44dc307dcc805d Mon Sep 17 00:00:00 2001
+From: Justin Pfister <jpfister@gmail.com>
+Date: Sun, 25 Oct 2026 22:17:58 -0400
+Subject: [PATCH] psci: CPU_ON of an off core sets the reset stack like
+ smp_start_cpu() does
+
+---
+ src/smp.c | 28 +++++++++++++++++++++++++---
+ 1 file changed, 25 insertions(+), 3 deletions(-)
+
+diff --git a/src/smp.c b/src/smp.c
+index 642d0de0..22a28b78 100644
+--- a/src/smp.c
++++ b/src/smp.c
+@@ -1037,20 +1037,42 @@ static int smp_psci_restart(int index)
+ 
+     memset(&spin_table[index], 0, sizeof(struct spin_table));
+     target_cpu = index;
++    /*
++     * The reset handler takes its stack from these (smp_start_cpu() sets them before every
++     * start and puts the dummy stack back after). RVBAR is not touched: it is not in the
++     * handler's mapped MMIO, and a CPU_OFF'd core keeps it (read back 2026-10-25).
++     */
++    if (has_el3()) {
++        _reset_stack = secondary_stacks_el3[index] + SECONDARY_STACK_SIZE;
++        _reset_stack_el1 = secondary_stacks[index] + SECONDARY_STACK_SIZE;
++    } else {
++        _reset_stack = secondary_stacks[index] + SECONDARY_STACK_SIZE;
++    }
+     dc_civac_range(&spin_table[index], sizeof(struct spin_table));
+     dc_civac_range(&target_cpu, sizeof(target_cpu));
++    dc_civac_range(&_reset_stack, sizeof(_reset_stack));
++    dc_civac_range(&_reset_stack_el1, sizeof(_reset_stack_el1));
+     sysop("dsb sy");
+ 
+     write32(start_base + 0x4, cpu_start_bit(index, cpu));
+     write32(start_base + 0x8 + 4 * cpu->cluster, 1 << cpu->core);
+ 
++    int ret = -1;
+     for (int i = 0; i < 100; i++) {
+         dc_civac_range(&spin_table[index], sizeof(struct spin_table));
+-        if (spin_table[index].flag)
+-            return 0;
++        if (spin_table[index].flag) {
++            ret = 0;
++            break;
++        }
+         udelay(1000);
+     }
+-    return -1;
++
++    _reset_stack = dummy_stack + DUMMY_STACK_SIZE;
++    _reset_stack_el1 = dummy_stack_el1 + DUMMY_STACK_SIZE;
++    dc_civac_range(&_reset_stack, sizeof(_reset_stack));
++    dc_civac_range(&_reset_stack_el1, sizeof(_reset_stack_el1));
++    sysop("dsb sy");
++    return ret;
+ }
+ 
+ int smp_psci_cpu_on(u64 mpidr, u64 entry, u64 context)
+-- 
+2.55.0
+
