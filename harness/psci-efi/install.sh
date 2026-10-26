@@ -2,6 +2,8 @@
 # PSCI-via-EFI boot tests (S2R plan, Phase 1), one boot each, owner's go for each.
 #   sudo bash install.sh step0   Aura as the stage 2, stock DTB and U-Boot, stock kernel (default entry)
 #   sudo bash install.sh step1a  the psci-efi-test kernel on the STOCK boot.bin (no PSCI node, spin-table): is the kernel build itself fine?
+#   sudo bash install.sh step1m  as step1 but the kernel gets maxcpus=1: it only probes the EFI PSCI handler, then run.sh
+#                                 brings the secondaries online one at a time from the running system (logged)
 #   sudo bash install.sh step1   the psci-efi-test kernel + Aura + patched U-Boot + PSCI DTB (GRUB next_entry)
 #   sudo bash install.sh remove  undo everything (units, GRUB entry, test kernel, stock boot.bin back)
 # Installs next to the existing kernels; none of the owner's is touched. The default GRUB entry never
@@ -34,7 +36,7 @@ if [ "${1:-}" = remove ]; then
     exit 0
 fi
 STEP=${1:?step0 | step1 | remove}
-case $STEP in step0) BIN=$BIN0; SHA=$SHA0 ;; step1) BIN=$BIN1; SHA=$SHA1 ;; step1a) BIN=$STOCK; SHA=$STOCKSHA ;; *) echo "step0 | step1a | step1 | remove"; exit 1 ;; esac
+case $STEP in step0) BIN=$BIN0; SHA=$SHA0 ;; step1) BIN=$BIN1; SHA=$SHA1 ;; step1a) BIN=$STOCK; SHA=$STOCKSHA ;; step1m) BIN=$BIN1; SHA=$SHA1 ;; *) echo "step0 | step1a | step1m | step1 | remove"; exit 1 ;; esac
 
 # Preconditions
 [ "$(sha256sum $STOCK | cut -c1-16)" = $STOCKSHA ] || { echo "stock boot.bin copy missing or wrong"; exit 1; }
@@ -63,14 +65,22 @@ elif [ $STEP != step0 ]; then
     install -m 644 $STAGE/boot/vmlinuz-psci-efi-test /boot/vmlinuz-psci-efi-test
     mkinitcpio -k "$REL" -g /boot/initramfs-psci-efi-test.img > /var/lib/deepidle/mkinitcpio-psci-efi.log 2>&1 || true
     [ -s /boot/initramfs-psci-efi-test.img ] || { echo "initramfs failed, see /var/lib/deepidle/mkinitcpio-psci-efi.log"; exit 1; }
+fi
+
+if [ $STEP != step0 ]; then
+    # GRUB entries (never the default): the test kernel, and the same with maxcpus=1
     sed -e "s/Deep idle test kernel (7.1.12-2-11.35-sep-ARCH-deepidle)/Deep idle PSCI-via-EFI test ($REL)/" \
         -e 's/--id deepidle-test-kernel/--id psci-efi-test-kernel/' \
         -e 's/vmlinuz-deepidle-test/vmlinuz-psci-efi-test/' -e 's/initramfs-deepidle-test.img/initramfs-psci-efi-test.img/' \
-        /etc/grub.d/43_deepidle | awk '/^menuentry .Deep idle DTB test/{exit} {print}' > /etc/grub.d/45_psci_efi
-    echo "MENU" >> /etc/grub.d/45_psci_efi
+        /etc/grub.d/43_deepidle | awk '/^menuentry .Deep idle DTB test/{exit} {print}' | grep -v '^MENU$' | grep -v "^cat <<'MENU'" > /tmp/psci-entry.$$
+    { echo "#!/bin/sh"; echo "cat <<'MENU'"; cat /tmp/psci-entry.$$
+      sed -e "s/(7.1.12-psci-efi+)/(7.1.12-psci-efi+, maxcpus=1)/" -e 's/--id psci-efi-test-kernel/--id psci-efi-test-kernel-mc1/' \
+          -e 's/ panic=10$/ panic=10 maxcpus=1/' /tmp/psci-entry.$$
+      echo "MENU"; } > /etc/grub.d/45_psci_efi
+    rm -f /tmp/psci-entry.$$
     chmod 755 /etc/grub.d/45_psci_efi
     grub-mkconfig -o /boot/grub/grub.cfg > /var/lib/deepidle/grub-mkconfig-psci-efi.log 2>&1
-    grep -q "id psci-efi-test-kernel" /boot/grub/grub.cfg || { echo "GRUB entry missing, see log"; exit 1; }
+    grep -q "id psci-efi-test-kernel " /boot/grub/grub.cfg && grep -q "id psci-efi-test-kernel-mc1" /boot/grub/grub.cfg || { echo "GRUB entries missing, see log"; exit 1; }
 fi
 
 install -m 755 $H/early.sh /usr/local/lib/deepidle/psci-efi-early.sh
@@ -82,6 +92,7 @@ systemctl enable psci-efi-early.service psci-efi-run.service
 # Arm one boot
 echo $STEP > /var/lib/deepidle/psci-efi-armed
 cp $BIN /boot/m1n1/boot.bin.tmp && sync && mv /boot/m1n1/boot.bin.tmp /boot/m1n1/boot.bin && sync
-[ $STEP != step0 ] && grub-editenv /boot/grub/grubenv set next_entry=psci-efi-test-kernel
-echo "armed $STEP: boot.bin $(sha256sum /boot/m1n1/boot.bin | cut -c1-16)$( [ $STEP != step0 ] && echo ', next_entry psci-efi-test-kernel')."
+case $STEP in step1m) NE=psci-efi-test-kernel-mc1 ;; step0) NE= ;; *) NE=psci-efi-test-kernel ;; esac
+[ -n "$NE" ] && grub-editenv /boot/grub/grubenv set next_entry=$NE
+echo "armed $STEP: boot.bin $(sha256sum /boot/m1n1/boot.bin | cut -c1-16)${NE:+, next_entry $NE}."
 echo "Reboot when ready. Results: /var/lib/deepidle/results-psci-efi-$STEP-*/"
