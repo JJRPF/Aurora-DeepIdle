@@ -1,0 +1,103 @@
+From 301c45901d8852096418c57f2d263ef81ed4c170 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <jpfister@gmail.com>
+Date: Sun, 25 Oct 2026 22:04:18 -0400
+Subject: [PATCH] efi_loader: let a platform re-apply runtime ranges after the
+ DT reserved ranges are carved out
+
+efi_carve_out_dt_rsv() re-registers every reserved range of the kernel's device tree as
+reserved memory over whatever type it had. Aura's image is in those ranges, so its
+EFI_RUNTIME_SERVICES_CODE type from efi_platform_register() was overwritten with Reserved
+and the kernel never mapped the PSCI handler (CPU_ON faulted with a level 2 translation
+fault, boot test 2026-10-25). New weak hook efi_platform_after_dt_rsv(), called at the end
+of the carve-out; the Apple board re-adds the image range there.
+---
+ arch/arm/mach-apple/board.c   | 16 ++++++++++++++--
+ include/efi_loader.h          |  1 +
+ lib/efi_loader/efi_dt_fixup.c |  2 ++
+ lib/efi_loader/efi_setup.c    | 11 +++++++++++
+ 4 files changed, 28 insertions(+), 2 deletions(-)
+
+diff --git a/arch/arm/mach-apple/board.c b/arch/arm/mach-apple/board.c
+index 48a71f1d..dff4f44d 100644
+--- a/arch/arm/mach-apple/board.c
++++ b/arch/arm/mach-apple/board.c
+@@ -1243,6 +1243,17 @@ static const efi_guid_t linux_efi_arm_psci_handler_table_guid =
+ #define EFI_MEMORY_ISA_MASK	GENMASK_ULL(59, 44)
+ #define MAIR_DEVICE_nGnRnE	0x00ULL
+ 
++/* Aura's image range, kept to re-apply it after the DT reserved ranges are carved out */
++static u64 psci_code_base, psci_code_size;
++
++void efi_platform_after_dt_rsv(void)
++{
++	if (!psci_code_size)
++		return;
++	/* The DT also reserves Aura's image; its runtime-code type must win */
++	efi_add_memory_map(psci_code_base, psci_code_size, EFI_RUNTIME_SERVICES_CODE);
++}
++
+ efi_status_t efi_platform_register(void)
+ {
+ 	ofnode chosen = ofnode_path("/chosen");
+@@ -1260,8 +1271,9 @@ efi_status_t efi_platform_register(void)
+ 		log_err("PSCI-via-EFI: no aura,psci-runtime-code, not publishing the table\n");
+ 		return EFI_SUCCESS;
+ 	}
+-	ret = efi_add_memory_map(fdt64_to_cpu(prop[0]), fdt64_to_cpu(prop[1]),
+-				 EFI_RUNTIME_SERVICES_CODE);
++	psci_code_base = fdt64_to_cpu(prop[0]);
++	psci_code_size = fdt64_to_cpu(prop[1]);
++	ret = efi_add_memory_map(psci_code_base, psci_code_size, EFI_RUNTIME_SERVICES_CODE);
+ 	if (ret != EFI_SUCCESS)
+ 		return ret;
+ 
+diff --git a/include/efi_loader.h b/include/efi_loader.h
+index d88178db..b48f9968 100644
+--- a/include/efi_loader.h
++++ b/include/efi_loader.h
+@@ -922,6 +922,7 @@ efi_status_t efi_add_memory_map(u64 start, u64 size, int memory_type);
+ efi_status_t efi_add_memory_attribute(u64 start, u64 size, u64 attr);
+ /* Install platform-specific configuration tables (weak, default: none) */
+ efi_status_t efi_platform_register(void);
++void efi_platform_after_dt_rsv(void);
+ 
+ /**
+  * efi_update_memory_map() - update the memory map by adding/removing pages
+diff --git a/lib/efi_loader/efi_dt_fixup.c b/lib/efi_loader/efi_dt_fixup.c
+index 333711b9..eb3e56a7 100644
+--- a/lib/efi_loader/efi_dt_fixup.c
++++ b/lib/efi_loader/efi_dt_fixup.c
+@@ -129,6 +129,8 @@ void efi_carve_out_dt_rsv(void *fdt)
+ 			subnode = fdt_next_subnode(fdt, subnode);
+ 		}
+ 	}
++
++	efi_platform_after_dt_rsv();
+ }
+ 
+ /**
+diff --git a/lib/efi_loader/efi_setup.c b/lib/efi_loader/efi_setup.c
+index 7f177ed0..beff0cec 100644
+--- a/lib/efi_loader/efi_setup.c
++++ b/lib/efi_loader/efi_setup.c
+@@ -233,6 +233,17 @@ static efi_status_t efi_start_obj_list(void)
+  *
+  * Return:	status code
+  */
++/**
++ * efi_platform_after_dt_rsv() - platform hook after the DT reserved ranges are carved out
++ *
++ * efi_carve_out_dt_rsv() turns every reserved range of the kernel's device tree into
++ * reserved memory in the EFI memory map, over whatever type it had. A platform that
++ * registered a runtime range which the DT also reserves re-applies it here.
++ */
++__weak void efi_platform_after_dt_rsv(void)
++{
++}
++
+ __weak efi_status_t efi_platform_register(void)
+ {
+ 	return EFI_SUCCESS;
+-- 
+2.55.0
+
