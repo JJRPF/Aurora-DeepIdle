@@ -975,3 +975,9 @@ Nothing here installs, reboots, or writes hardware registers. Times are local.
 - Fix: TGT_RD address computed from pmp_base + ptd offset; the decision is a pure function (tested); the hooks catch every exception and pass the access through, so a bug there cannot reach the debug shell. Guard: stops a run whose last 3000 console lines hold >= 20 "Entering debug shell".
 - VBUS cycle also failed at 21:03:57: `sudo: a password is required` on the Pi (plain `uhubctl` lists hubs without root, a cycle needs root). Needs the owner: a NOPASSWD rule for /usr/sbin/uhubctl on the Pi. Not done yet.
 - Lesson: run the new tracer code against stubs before a boot, not after (done now for the decision function).
+
+## 2026-10-25 — Runs 11: the macOS sleep-entry sequence, complete; HV cannot go past it
+- Run 11 (HV_PMP_KEEP_CPUS=1, fixed hook): the PMP hook works (`guest wrote TGT 0x200, CPU domains kept on -> 0x300`), the run reaches the same end: `Failed to rendezvous, missing CPUs: 0x106 (current: 10)` at 21:11:19, Mac rebooted by the HV panic, Linux 21:12:00 (guard saw 64+ s down). No power key.
+- Full sleep entry written up in docs/hv-boot-trace-reference.md: `MBSE=slpw`, PMP TGT handshake, `MBSE=slpa`, `SetAPPower 0x201` (SMC + PMP), `SetIOPPower`, CPU stop writes, PCPM clears, CYC_OVRD deep sleep. `SetAPPower` is what takes the cores down, so no HV tweak keeps them alive; the HV phase of the sleep trace is done.
+- Not obtainable under the HV: the wake side (what restarts the AP, the RVBAR it uses, which events wake it).
+- Next needs the owner (rules): reproduce `slpw`/`slpa` + `SetAPPower` from Linux on the Phase 1/2 test image, which the project rule forbids ("No slpa") until lifted.
