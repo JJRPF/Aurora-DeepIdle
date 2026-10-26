@@ -32,8 +32,13 @@ loop() {
         if pgrep -f "run_guest.py" > /dev/null; then
             f=$(ls -t "$D"/hv/*/console.txt 2>/dev/null | head -1)
             # the outage clock starts when the run ends, not when the Mac went away
-            [ -n "$f" ] && [ $(( t - $(stat -c %Y "$f") )) -lt "$STALL" ] && { down_since=$t; continue; }
-            log "guest run stalled (console idle $STALL s): stopping it"
+            if [ -n "$f" ] && [ "$(tail -n 3000 "$f" | grep -c 'Entering debug shell')" -ge 20 ]; then
+                # a tracer bug that raises on every access keeps the console busy forever (run 10: 24 min)
+                log "guest run loops in the debug shell: stopping it"
+            else
+                [ -n "$f" ] && [ $(( t - $(stat -c %Y "$f") )) -lt "$STALL" ] && { down_since=$t; continue; }
+                log "guest run stalled (console idle $STALL s): stopping it"
+            fi
             pkill -f run_guest.py; sleep 3
         fi
         pgrep -f "hv-run.sh" > /dev/null && [ ! -e /dev/m1n1 ] && continue
