@@ -74,8 +74,8 @@ if [ $STEP != step0 ]; then
         -e 's/vmlinuz-deepidle-test/vmlinuz-psci-efi-test/' -e 's/initramfs-deepidle-test.img/initramfs-psci-efi-test.img/' \
         /etc/grub.d/43_deepidle | awk '/^menuentry .Deep idle DTB test/{exit} {print}' | grep -v '^MENU$' | grep -v "^cat <<'MENU'" > /tmp/psci-entry.$$
     { echo "#!/bin/sh"; echo "cat <<'MENU'"; cat /tmp/psci-entry.$$
-      sed -e "s/(7.1.12-psci-efi+)/(7.1.12-psci-efi+, maxcpus=1)/" -e 's/--id psci-efi-test-kernel/--id psci-efi-test-kernel-mc1/' \
-          -e 's/ panic=10$/ panic=10 maxcpus=1/' /tmp/psci-entry.$$
+      sed -e "s/(7.1.12-psci-efi+)/(7.1.12-psci-efi+, maxcpus=1 efi=debug)/" -e 's/--id psci-efi-test-kernel/--id psci-efi-test-kernel-mc1/' \
+          -e 's/ panic=10$/ panic=10 maxcpus=1 efi=debug/' /tmp/psci-entry.$$
       echo "MENU"; } > /etc/grub.d/45_psci_efi
     rm -f /tmp/psci-entry.$$
     chmod 755 /etc/grub.d/45_psci_efi
