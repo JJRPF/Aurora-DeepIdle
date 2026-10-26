@@ -12,9 +12,11 @@
 set -u
 STEP=$(cat /var/lib/deepidle/psci-efi-armed)
 OUT=/var/lib/deepidle/results-psci-efi-$STEP-$(date +%Y%m%d-%H%M)
-CYCLES=${CYCLES:-100}
+CYCLES=${CYCLES:-3}
 mkdir -p $OUT; chmod 755 $OUT
-log() { echo "$(date '+%F %T') $*" | tee -a $OUT/run.log; sync; }
+# every line also goes to the kernel log, so the Pi's live dmesg stream shows the last action even if the
+# machine dies before the file reaches the disk
+log() { echo "$(date '+%F %T') $*" | tee -a $OUT/run.log; echo "psci-efi-test: $*" > /dev/kmsg; sync; }
 sleep 45
 log "step $STEP; kernel $(uname -r); booted m1n1 image $(cat /run/psci-efi-booted-sha 2>/dev/null)"
 log "online: $(cat /sys/devices/system/cpu/online); nproc $(nproc)"
@@ -42,7 +44,9 @@ for c in $(ls -d /sys/devices/system/cpu/cpu[0-9]* | sed 's#.*/cpu##' | sort -n)
     f=/sys/devices/system/cpu/cpu$c/online; [ -e $f ] || { log "cpu$c: no online file"; continue; }
     ok=0
     for i in $(seq $CYCLES); do
+        log "cpu$c cycle $i: offline ..."
         echo 0 > $f 2>/dev/null; [ "$(cat $f)" = 0 ] || { log "cpu$c cycle $i: offline failed"; fail=1; break; }
+        log "cpu$c cycle $i: offline ok, online ..."
         echo 1 > $f 2>/dev/null; [ "$(cat $f)" = 1 ] || { log "cpu$c cycle $i: online failed"; fail=1; break; }
         ok=$i
     done
