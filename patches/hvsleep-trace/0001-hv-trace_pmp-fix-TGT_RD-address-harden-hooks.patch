@@ -1,0 +1,68 @@
+From 1ab66aefb95e95a18de111ff213b91b30cabc8db Mon Sep 17 00:00:00 2001
+From: Justin Pfister <jpfister@gmail.com>
+Date: Sun, 25 Oct 2026 21:06:26 -0400
+Subject: [PATCH] hv/trace_pmp: fix TGT_RD address, harden hooks
+
+---
+ proxyclient/hv/trace_pmp.py | 34 +++++++++++++++++++++++++---------
+ 1 file changed, 25 insertions(+), 9 deletions(-)
+
+diff --git a/proxyclient/hv/trace_pmp.py b/proxyclient/hv/trace_pmp.py
+index df93d62a..3b920417 100644
+--- a/proxyclient/hv/trace_pmp.py
++++ b/proxyclient/hv/trace_pmp.py
+@@ -199,6 +199,13 @@ class _Evt:
+ KEEP_CPUS = os.environ.get("HV_PMP_KEEP_CPUS") == "1"
+ CPU_DOMAIN_MASK = sum(1 << pmp_bits[n] for n in ("ECPM", "PCPM0", "PCPM1") if n in pmp_bits)
+ 
++def keep_cpu_domains(val, cur):
++    """A write that would clear a CPU-complex domain bit that is currently on keeps it on."""
++    return val | (cur & CPU_DOMAIN_MASK)
++
++_WIDTH = {8: 0, 16: 1, 32: 2, 64: 3}   # bits -> log2 bytes, as in the event flags
++TGT_RD_ADDR = pmp_base + pmp_ptd_range_map[b'SOC-DEV-PS-REQ'] * 16
++
+ class PMPRegTracer(Tracer):
+ 
+     def start(self):
+@@ -208,19 +215,28 @@ class PMPRegTracer(Tracer):
+             self.hv.log(f"PMP: keeping CPU domains on (mask {CPU_DOMAIN_MASK:#x})")
+ 
+     def hook_w(self, addr, val, width, **kwargs):
+-        reg = self.PMP.lookup_addr(addr)[0]
+-        if reg == "DEV_STATUS_TGT_WR":
+-            cur = self.hv.u.read(self.PMP.addrof("DEV_STATUS_TGT_RD"), 64)
+-            keep = val | (cur & CPU_DOMAIN_MASK)
+-            if keep != val:
+-                self.hv.log(f"PMP: guest wrote TGT {val:#x}, CPU domains kept on -> {keep:#x}")
+-                val = keep
++        try:
++            if self.PMP.lookup_addr(addr)[0] == "DEV_STATUS_TGT_WR":
++                cur = self.hv.u.read(TGT_RD_ADDR, 64)
++                keep = keep_cpu_domains(val, cur)
++                if keep != val:
++                    self.hv.log(f"PMP: guest wrote TGT {val:#x}, CPU domains kept on -> {keep:#x}")
++                    val = keep
++        except Exception as e:
++            # never let a bug here end in the debug shell: pass the write through unchanged
++            self.hv.log(f"PMP: keep-cpus failed ({e!r}), write passed through")
+         self.hv.u.write(addr, val, width)
+-        self.evt_rw(_Evt(addr, val, True, {8: 0, 16: 1, 32: 2, 64: 3}.get(width, 3)), **kwargs)
++        try:
++            self.evt_rw(_Evt(addr, val, True, _WIDTH.get(width, 3)), **kwargs)
++        except Exception as e:
++            self.hv.log(f"PMP: trace of write failed ({e!r})")
+ 
+     def hook_r(self, addr, width, **kwargs):
+         val = self.hv.u.read(addr, width)
+-        self.evt_rw(_Evt(addr, val, False, {8: 0, 16: 1, 32: 2, 64: 3}.get(width, 3)), **kwargs)
++        try:
++            self.evt_rw(_Evt(addr, val, False, _WIDTH.get(width, 3)), **kwargs)
++        except Exception as e:
++            self.hv.log(f"PMP: trace of read failed ({e!r})")
+         return val
+ 
+ 
+-- 
+2.55.0
+
