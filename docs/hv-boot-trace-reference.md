@@ -41,7 +41,7 @@ Captured from the guest's `pmset sleepnow`-style sleep (timestamps from run 11, 
 
 1. SMC key writes `MSxb` (many, 2-byte values 0x0201..0x035d, from all CPUs): housekeeping before sleep.
 2. SMC key **`MBSE` = `slpw`** (bytes `73 6c 70 77`, logged as 0x77706c73): the sleep warning / prepare step.
-3. PMP `DEV_STATUS_TGT_WR` handshake: the target word steps 0x700 -> 0x2700 -> 0x6700 -> 0xe700 -> 0xe300 -> 0xc300 -> 0x4300 -> 0x300, one bit per write, each answered in `DEV_STATUS_ACT` before the next (bits 13-15 are devices macOS turns on for the final steps, 0x400 and 0x8000 are cleared again; PCPM0/PCPM1 = 0x100/0x200 stay).
+3. PMP `DEV_STATUS_TGT_WR` handshake, which is display power (decoded from run 11): starting from PCPM0+PCPM1+GFX (0x700), macOS adds DISP0_FE (0x2700), DISPEXT0_FE + DP0/DP1-SOC-VMAX (0x6700), DISPEXT1_FE + DP2/DP3-SOC-VMAX (0xe700), then drops them again in reverse: GFX off (0xe300), DISP0_FE off (0xc300), DISPEXT1_FE + DP2/DP3 off (0x4300), DISPEXT0_FE + DP0/DP1 off (0x300). Each write is answered in `DEV_STATUS_ACT` before the next. End state: only PCPM0 and PCPM1 (the CPU complexes) are requested, everything else is off.
 4. SMC key **`MBSE` = `slpa`** (`73 6c 70 61`, 0x61706c73): the actual sleep trigger (the key the project rule forbids sending by hand).
 5. Immediately: `SetAPPower` STATE=0x201 to the SMC management endpoint and to the PMP (both ack), then PMP `SetIOPPower` 0x201.
 6. CPU start/stop register writes (`CPUSTART` 28e0a8000, one bit per core 1-6, 8-10), then PMP `TGT_WR` writes clearing PCPM1 (0x200) and PCPM0 (0x100) i.e. the CPU complexes, then a PMGR 0x2902801c0 write (the USB0 AON hook).
