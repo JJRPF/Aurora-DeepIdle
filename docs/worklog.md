@@ -1050,3 +1050,5 @@ Result image 13 (22:53): bare `wfi` loop on the Aura stack survives (offline ok,
 
 ## 2026-10-27
 Result image 14 (2026-10-25 22:56): the SoC hung after "CPU1 killed" again and stayed hung until a manual reset (next boot 2026-10-26 20:16; the guard's VBUS cycle does not help with a SoC hang, and the watchdog did not fire). So the hang is in the part bisect 1 left out: the civac + `me->target` read. Image 15 (a5e3ced5b3007515): plain load of `me->target` (the mapping is inner-shareable WB, no civac needed on the reading side), no civac in the park loop. Result: pending. (Boot at 2026-10-27 04:05 ran the step on the stock kernel: "table not found", harmless.)
+
+Result image 15 (2026-10-27 17:34): the SoC died during the initial `onlining cpu6` (before any hotplug cycle), reset by the watchdog ~100 s later. That path is unchanged from images that passed, so either a flake or an interaction I do not yet see; repeating the same image once to tell. (The Pi's kmsg stream missed this boot: Wi-Fi was not up in time.)
