@@ -79,6 +79,9 @@ static int copy(const char *from, const char *to)
 int main(void)
 {
     char v[128], p[96];
+    mkdir("/proc", 0755);
+    mkdir("/sys", 0755);
+    mkdir("/dev", 0755);
     mount("proc", "/proc", "proc", 0, 0);
     mount("sysfs", "/sys", "sysfs", 0, 0);
     mount("devtmpfs", "/dev", "devtmpfs", 0, 0);
