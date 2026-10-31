@@ -6,6 +6,8 @@
  */
 #define _GNU_SOURCE
 #include <dirent.h>
+#include <errno.h>
+#include <stdarg.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -17,8 +19,40 @@
 
 static int kmsg = -1, crumb = -1;
 
-static void say(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
-#include <stdarg.h>
+#define LOGSZ (256 * 1024)
+static char logbuf[LOGSZ], kbuf[96 * 1024];
+static int loglen;
+
+/* Rewrite the preallocated log file from offset 0: our lines, then the kernel log tail. Data-only synchronous
+ * writes into already-allocated clusters, so a hang right after loses nothing that was said before it. */
+static void flush_log(void)
+{
+    if (crumb < 0)
+        return;
+    int n = loglen, kl = 0;
+    int k = open("/dev/kmsg", O_RDONLY | O_NONBLOCK);
+    if (k >= 0) {
+        char rec[2048];
+        ssize_t r;
+        kl = snprintf(kbuf, sizeof kbuf, "\n== kmsg ==\n");
+        while ((r = read(k, rec, sizeof rec - 1)) > 0 || (r < 0 && errno == EPIPE)) {
+            if (r < 0)
+                continue;
+            rec[r] = 0;
+            char *m = strchr(rec, ';');
+            if (m && kl < (int)sizeof kbuf - 2048)
+                kl += snprintf(kbuf + kl, sizeof kbuf - kl, "%s", m + 1);
+        }
+        close(k);
+        /* keep only the newest part that fits */
+        if (kl > (int)(LOGSZ - n - 1))
+            memmove(kbuf, kbuf + kl - (LOGSZ - n - 1), LOGSZ - n - 1), kl = LOGSZ - n - 1;
+    }
+    memcpy(logbuf + n, kbuf, kl);
+    pwrite(crumb, logbuf, n + kl, 0);
+    logbuf[n] = 0;
+}
+
 static void say(const char *fmt, ...)
 {
     char b[256], c[300];
@@ -29,10 +63,11 @@ static void say(const char *fmt, ...)
     int n = snprintf(c, sizeof c, "psci-ram: %s\n", b);
     if (kmsg >= 0)
         write(kmsg, c, n);
-    if (crumb >= 0) {
-        write(crumb, c + 10, n - 10);
-        fsync(crumb);
+    if (loglen + n < LOGSZ / 2) {
+        memcpy(logbuf + loglen, c + 10, n - 10);
+        loglen += n - 10;
     }
+    flush_log();
 }
 
 static int rd(const char *p, char *buf, int n)
@@ -96,7 +131,14 @@ int main(void)
         sleep(5);
         reboot(RB_AUTOBOOT);
     }
-    crumb = open("/esp/psci-ram.log", O_WRONLY | O_CREAT | O_TRUNC | O_APPEND, 0644);
+    crumb = open("/esp/psci-ram.log", O_WRONLY | O_CREAT | O_TRUNC | O_DSYNC, 0644);
+    if (crumb >= 0) {
+        static char z[4096];
+        memset(z, '\n', sizeof z);
+        for (int i = 0; i < LOGSZ / 4096; i++)
+            write(crumb, z, sizeof z);
+        fsync(crumb);
+    }
     {
         int d = open("/esp", O_RDONLY);
         if (d >= 0) { fsync(d); close(d); }
@@ -147,6 +189,7 @@ int main(void)
     }
     say("done fail=%d; online %s", fail, (rd("/sys/devices/system/cpu/online", v, sizeof v), v));
     /* the kernel's own view of the last lines */
+    flush_log();
     close(crumb);
     sync();
     umount("/esp");
