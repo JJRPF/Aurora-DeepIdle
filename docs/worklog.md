@@ -1074,3 +1074,6 @@ Owner: hotplug tests stay banned, reboots allowed. So Phase 2 goes ahead on the 
 
 ### 2026-10-31: Phase 2a rerun with the unwind patch
 Same Aura image 16, kernel with the EFI unwind patch. `echo mem` returned rc=0 after ~8 s, no `scheduling while atomic`, no BUG/WARN in the suspend window. Phase 2a works once on the boot CPU alone (maxcpus=1). Not yet done: 20 cycles, real wake sources (PMU alarm/lid/power key instead of Aura's fixed 3 s wait), the Bluetooth timeouts after resume, and any multi-CPU suspend (needs hotplug, banned).
+
+### 2026-10-31: Phase 2a, 20 cycles
+`install.sh suspend` now runs 20 `echo mem` cycles (image 16, kernel with the unwind patch, maxcpus=1, filesystems read-only). **20 of 20 returned rc=0**, about 8 s each (3 s Aura wait plus device suspend/resume, NVMe `saveCtx` shutdown ~0.5 s), no BUG/WARN/`scheduling while atomic`, system alive afterwards. Phase 2 gate met for the boot CPU alone, with Aura's fixed 3 s wait as the wake. Open before Phase 2 is closed: real wake sources (PMU alarm via AIC, lid, power key; Aura currently ignores them), the Bluetooth hci0 -110 timeouts after resume, multi-CPU suspend (the kernel offlines secondaries first: needs the banned hotplug path to be fixed, Phase 1).
