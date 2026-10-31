@@ -1071,3 +1071,6 @@ Owner: hotplug tests stay banned, reboots allowed. So Phase 2 goes ahead on the 
 * Found: `BUG: scheduling while atomic ... Preemption disabled at efi_virtmap_load` in noirq resume. SYSTEM_SUSPEND never returns through `arm64_efi_psci_call()`, so `efi_virtmap_unload()` never ran (preempt count +1 per suspend). Kernel patch (`patches/psci-efi/linux/0001-*`): after a successful `cpu_suspend()` on the EFI conduit, unwind it (`arm64_efi_psci_resumed()`).
 * Also seen after resume, not yet analysed (Phase 4): Bluetooth hci0 opcodes time out (-110) after resume, `brcmf_c_set_joinpref_default` error -52 once. aurora-fand / apple_sep failures were already there before the suspend.
 * Next: rerun with the fixed kernel (same image 16).
+
+### 2026-10-31: Phase 2a rerun with the unwind patch
+Same Aura image 16, kernel with the EFI unwind patch. `echo mem` returned rc=0 after ~8 s, no `scheduling while atomic`, no BUG/WARN in the suspend window. Phase 2a works once on the boot CPU alone (maxcpus=1). Not yet done: 20 cycles, real wake sources (PMU alarm/lid/power key instead of Aura's fixed 3 s wait), the Bluetooth timeouts after resume, and any multi-CPU suspend (needs hotplug, banned).
