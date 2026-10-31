@@ -96,13 +96,18 @@ int main(void)
         sleep(5);
         reboot(RB_AUTOBOOT);
     }
+    crumb = open("/esp/psci-ram.log", O_WRONLY | O_CREAT | O_TRUNC | O_APPEND, 0644);
+    {
+        int d = open("/esp", O_RDONLY);
+        if (d >= 0) { fsync(d); close(d); }
+    }
+    say("ESP mounted, log open");
     /* Stock Aura back at once, as psci-efi-early.service does: any later reset boots the normal image. */
     if (copy("/boot.bin.stock", "/esp/m1n1/boot.bin.tmp") == 0 && rename("/esp/m1n1/boot.bin.tmp", "/esp/m1n1/boot.bin") == 0)
         say("stock boot.bin restored");
     else
         say("stock boot.bin restore FAILED");
     sync();
-    crumb = open("/esp/psci-ram.log", O_WRONLY | O_CREAT | O_TRUNC | O_APPEND, 0644);
     say("psci: %s", (rd("/sys/devices/system/cpu/online", v, sizeof v), v));
 
     int cycles = 3;
