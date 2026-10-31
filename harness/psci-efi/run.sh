@@ -36,9 +36,13 @@ if [ $STEP = suspend ]; then
         sync
         for m in $(findmnt -rno TARGET -t ext4,btrfs,vfat | sort -r); do mount -o remount,ro "$m" 2>&1 | head -1; done
         log "filesystems ro: $(findmnt -rno TARGET,OPTIONS -t ext4,btrfs,vfat | grep -c '\bro\b') of $(findmnt -rno TARGET -t ext4,btrfs,vfat | wc -l)"
-        log "suspending (echo mem) ..."
-        echo mem > /sys/power/state; rc=$?
-        log "back from suspend, rc=$rc"
+        for i in $(seq ${SUSPEND_CYCLES:-20}); do
+            log "suspend $i: echo mem ..."
+            echo mem > /sys/power/state; rc=$?
+            log "suspend $i: back, rc=$rc"
+            [ $rc = 0 ] || break
+            sleep 2
+        done
     else
         log "no deep sleep offered; not suspending"
     fi
