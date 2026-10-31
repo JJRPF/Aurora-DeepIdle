@@ -6,6 +6,7 @@
 #                                 brings the secondaries online one at a time from the running system (logged)
 #   sudo bash install.sh step1   the psci-efi-test kernel + Aura + patched U-Boot + PSCI DTB (GRUB next_entry)
 #   sudo bash install.sh suspend maxcpus=1 kernel, Aura with the SYSTEM_SUSPEND stub (Phase 2a): no CPU is ever offlined
+#   sudo bash install.sh ram     hotplug cycles from a RAM-only initramfs (ram/): the LUKS root and btrfs are never opened, so a hang cannot hurt them
 #   sudo bash install.sh remove  undo everything (units, GRUB entry, test kernel, stock boot.bin back)
 # Installs next to the existing kernels; none of the owner's is touched. The default GRUB entry never
 # changes and the stock boot.bin goes back early in the test boot (psci-efi-early.service); a boot that
@@ -28,7 +29,7 @@ if [ "${1:-}" = remove ]; then
     systemctl disable psci-efi-early.service psci-efi-run.service 2>/dev/null || true
     rm -f /etc/systemd/system/psci-efi-early.service /etc/systemd/system/psci-efi-run.service
     rm -f /usr/local/lib/deepidle/psci-efi-early.sh /usr/local/lib/deepidle/psci-efi-run.sh
-    rm -f /etc/grub.d/45_psci_efi /boot/vmlinuz-psci-efi-test /boot/initramfs-psci-efi-test.img
+    rm -f /etc/grub.d/46_psci_ram /boot/initramfs-psci-ram.img /etc/grub.d/45_psci_efi /boot/vmlinuz-psci-efi-test /boot/initramfs-psci-efi-test.img
     rm -rf "/usr/lib/modules/$REL"
     grub-editenv /boot/grub/grubenv unset next_entry
     stockback
@@ -38,7 +39,7 @@ if [ "${1:-}" = remove ]; then
     exit 0
 fi
 STEP=${1:?step0 | step1 | remove}
-case $STEP in step0) BIN=$BIN0; SHA=$SHA0 ;; step1) BIN=$BIN1; SHA=$SHA1 ;; step1a) BIN=$STOCK; SHA=$STOCKSHA ;; step1m) BIN=$BIN1; SHA=$SHA1 ;; suspend) BIN=$BIN2; SHA=$SHA2 ;; *) echo "step0 | step1a | step1m | step1 | suspend | remove"; exit 1 ;; esac
+case $STEP in step0) BIN=$BIN0; SHA=$SHA0 ;; step1) BIN=$BIN1; SHA=$SHA1 ;; step1a) BIN=$STOCK; SHA=$STOCKSHA ;; step1m) BIN=$BIN1; SHA=$SHA1 ;; suspend) BIN=$BIN2; SHA=$SHA2 ;; ram) BIN=$BIN1; SHA=$SHA1 ;; *) echo "step0 | step1a | step1m | step1 | suspend | ram | remove"; exit 1 ;; esac
 
 # Preconditions
 [ "$(sha256sum $STOCK | cut -c1-16)" = $STOCKSHA ] || { echo "stock boot.bin copy missing or wrong"; exit 1; }
@@ -85,6 +86,26 @@ if [ $STEP != step0 ]; then
     grep -q "id psci-efi-test-kernel " /boot/grub/grub.cfg && grep -q "id psci-efi-test-kernel-mc1" /boot/grub/grub.cfg || { echo "GRUB entries missing, see log"; exit 1; }
 fi
 
+if [ $STEP = ram ]; then
+    # Own GRUB entry: the test kernel with the RAM-only initramfs, no root= and no cryptdevice
+    bash $H/ram/build.sh /boot/initramfs-psci-ram.img.tmp >/dev/null && mv /boot/initramfs-psci-ram.img.tmp /boot/initramfs-psci-ram.img
+    cat > /etc/grub.d/46_psci_ram <<'G'
+#!/bin/sh
+cat <<'MENU'
+menuentry 'Deep idle PSCI hotplug RAM-only test' --class gnu-linux --id psci-ram-kernel {
+    insmod part_gpt
+    insmod fat
+    search --no-floppy --fs-uuid --set=root 6407-ED7C
+    linux /vmlinuz-psci-efi-test rdinit=/init panic=10 maxcpus=1 loglevel=7 psci_ram_cycles=3
+    initrd /initramfs-psci-ram.img
+}
+MENU
+G
+    chmod 755 /etc/grub.d/46_psci_ram
+    grub-mkconfig -o /boot/grub/grub.cfg > /var/lib/deepidle/grub-mkconfig-psci-ram.log 2>&1
+    grep -q "id psci-ram-kernel" /boot/grub/grub.cfg || { echo "RAM entry missing"; exit 1; }
+fi
+
 install -m 755 $H/early.sh /usr/local/lib/deepidle/psci-efi-early.sh
 install -m 755 $H/run.sh /usr/local/lib/deepidle/psci-efi-run.sh
 install -m 644 $H/psci-efi-early.service $H/psci-efi-run.service /etc/systemd/system/
@@ -94,7 +115,7 @@ systemctl enable psci-efi-early.service psci-efi-run.service
 # Arm one boot
 echo $STEP > /var/lib/deepidle/psci-efi-armed
 cp $BIN /boot/m1n1/boot.bin.tmp && sync && mv /boot/m1n1/boot.bin.tmp /boot/m1n1/boot.bin && sync
-case $STEP in step1m|suspend) NE=psci-efi-test-kernel-mc1 ;; step0) NE= ;; *) NE=psci-efi-test-kernel ;; esac
+case $STEP in step1m|suspend) NE=psci-efi-test-kernel-mc1 ;; ram) NE=psci-ram-kernel ;; step0) NE= ;; *) NE=psci-efi-test-kernel ;; esac
 [ -n "$NE" ] && grub-editenv /boot/grub/grubenv set next_entry=$NE
 echo "armed $STEP: boot.bin $(sha256sum /boot/m1n1/boot.bin | cut -c1-16)${NE:+, next_entry $NE}."
 echo "Reboot when ready. Results: /var/lib/deepidle/results-psci-efi-$STEP-*/"
