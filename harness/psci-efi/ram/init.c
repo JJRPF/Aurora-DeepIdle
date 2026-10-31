@@ -118,7 +118,9 @@ int main(void)
     if (q)
         cycles = atoi(q + 16);
     int fail = 0;
-    for (int c = 1; c <= 9 && !fail; c++) {
+    if (cycles < 0)
+        say("cycles=%d: no CPU work, boot check only", cycles);
+    for (int c = 1; cycles >= 0 && c <= 9 && !fail; c++) {
         snprintf(p, sizeof p, "/sys/devices/system/cpu/cpu%d/online", c);
         if (access(p, F_OK)) {
             say("cpu%d: no online file", c);
