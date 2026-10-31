@@ -5,6 +5,7 @@
 #   sudo bash install.sh step1m  as step1 but the kernel gets maxcpus=1: it only probes the EFI PSCI handler, then run.sh
 #                                 brings the secondaries online one at a time from the running system (logged)
 #   sudo bash install.sh step1   the psci-efi-test kernel + Aura + patched U-Boot + PSCI DTB (GRUB next_entry)
+#   sudo bash install.sh suspend maxcpus=1 kernel, Aura with the SYSTEM_SUSPEND stub (Phase 2a): no CPU is ever offlined
 #   sudo bash install.sh remove  undo everything (units, GRUB entry, test kernel, stock boot.bin back)
 # Installs next to the existing kernels; none of the owner's is touched. The default GRUB entry never
 # changes and the stock boot.bin goes back early in the test boot (psci-efi-early.service); a boot that
@@ -16,6 +17,7 @@ REL=7.1.12-psci-efi+
 STAGE=/home/jjr/Work/staging-psci-efi
 BIN0=/home/jjr/Work/psci-test/boot.bin.aura-stage2; SHA0=19d5f8f627f966a1
 BIN1=/home/jjr/Work/psci-test/boot.bin.psci-test15;  SHA1=a5e3ced5b3007515
+BIN2=/home/jjr/Work/psci-test/boot.bin.psci-test16;  SHA2=6e8cb44e2c109696
 STOCK=/var/lib/deepidle/boot.bin.stock; STOCKSHA=3630adc3b3be173c
 stockback() {
     [ "$(sha256sum /boot/m1n1/boot.bin | cut -c1-16)" = $STOCKSHA ] || {
@@ -36,7 +38,7 @@ if [ "${1:-}" = remove ]; then
     exit 0
 fi
 STEP=${1:?step0 | step1 | remove}
-case $STEP in step0) BIN=$BIN0; SHA=$SHA0 ;; step1) BIN=$BIN1; SHA=$SHA1 ;; step1a) BIN=$STOCK; SHA=$STOCKSHA ;; step1m) BIN=$BIN1; SHA=$SHA1 ;; *) echo "step0 | step1a | step1m | step1 | remove"; exit 1 ;; esac
+case $STEP in step0) BIN=$BIN0; SHA=$SHA0 ;; step1) BIN=$BIN1; SHA=$SHA1 ;; step1a) BIN=$STOCK; SHA=$STOCKSHA ;; step1m) BIN=$BIN1; SHA=$SHA1 ;; suspend) BIN=$BIN2; SHA=$SHA2 ;; *) echo "step0 | step1a | step1m | step1 | suspend | remove"; exit 1 ;; esac
 
 # Preconditions
 [ "$(sha256sum $STOCK | cut -c1-16)" = $STOCKSHA ] || { echo "stock boot.bin copy missing or wrong"; exit 1; }
@@ -92,7 +94,7 @@ systemctl enable psci-efi-early.service psci-efi-run.service
 # Arm one boot
 echo $STEP > /var/lib/deepidle/psci-efi-armed
 cp $BIN /boot/m1n1/boot.bin.tmp && sync && mv /boot/m1n1/boot.bin.tmp /boot/m1n1/boot.bin && sync
-case $STEP in step1m) NE=psci-efi-test-kernel-mc1 ;; step0) NE= ;; *) NE=psci-efi-test-kernel ;; esac
+case $STEP in step1m|suspend) NE=psci-efi-test-kernel-mc1 ;; step0) NE= ;; *) NE=psci-efi-test-kernel ;; esac
 [ -n "$NE" ] && grub-editenv /boot/grub/grubenv set next_entry=$NE
 echo "armed $STEP: boot.bin $(sha256sum /boot/m1n1/boot.bin | cut -c1-16)${NE:+, next_entry $NE}."
 echo "Reboot when ready. Results: /var/lib/deepidle/results-psci-efi-$STEP-*/"
