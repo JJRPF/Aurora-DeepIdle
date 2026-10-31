@@ -1,0 +1,71 @@
+From 4a6b22f80f39ea9448264d9f0ddf0d01ebf0e683 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Sat, 31 Oct 2026 12:38:42 -0400
+Subject: [PATCH] arm64/efi, psci: unwind the EFI call after a SYSTEM_SUSPEND
+ resume
+
+---
+ arch/arm64/include/asm/efi.h |  1 +
+ arch/arm64/kernel/efi.c      | 11 +++++++++++
+ drivers/firmware/psci/psci.c | 10 +++++++++-
+ 3 files changed, 21 insertions(+), 1 deletion(-)
+
+diff --git a/arch/arm64/include/asm/efi.h b/arch/arm64/include/asm/efi.h
+index bc7cf4dd00ae..62fae6693a94 100644
+--- a/arch/arm64/include/asm/efi.h
++++ b/arch/arm64/include/asm/efi.h
+@@ -206,5 +206,6 @@ extern struct efi_psci_table {
+ 
+ unsigned long arm64_efi_psci_call(unsigned long function_id, unsigned long arg0,
+ 				  unsigned long arg1, unsigned long arg2);
++void arm64_efi_psci_resumed(void);
+ 
+ #endif /* _ASM_EFI_H */
+diff --git a/arch/arm64/kernel/efi.c b/arch/arm64/kernel/efi.c
+index 2cb01364ff49..2daf7487afea 100644
+--- a/arch/arm64/kernel/efi.c
++++ b/arch/arm64/kernel/efi.c
+@@ -295,6 +295,17 @@ void __init arm64_efi_init(void)
+ 	arm64_efi_init_psci();
+ }
+ 
++/*
++ * SYSTEM_SUSPEND does not return through arm64_efi_psci_call(): the firmware resumes the
++ * kernel at cpu_resume, so the unwinding half of the call never ran. Do it here, after the
++ * resume path is back in the caller.
++ */
++void arm64_efi_psci_resumed(void)
++{
++	uaccess_ttbr0_disable();
++	efi_virtmap_unload();
++}
++
+ unsigned long arm64_efi_psci_call(unsigned long function_id, unsigned long arg0,
+ 				  unsigned long arg1, unsigned long arg2)
+ {
+diff --git a/drivers/firmware/psci/psci.c b/drivers/firmware/psci/psci.c
+index af022bf2cb9f..b6927520b206 100644
+--- a/drivers/firmware/psci/psci.c
++++ b/drivers/firmware/psci/psci.c
+@@ -603,9 +603,17 @@ static int psci_system_suspend(unsigned long unused)
+ 
+ static int psci_system_suspend_enter(suspend_state_t state)
+ {
++	int ret;
++
+ 	pm_set_resume_via_firmware();
+ 
+-	return cpu_suspend(0, psci_system_suspend);
++	ret = cpu_suspend(0, psci_system_suspend);
++#if IS_ENABLED(CONFIG_EFI) && IS_ENABLED(CONFIG_ARM64)
++	/* A successful suspend resumed at cpu_resume: the EFI call never unwound */
++	if (!ret && psci_conduit == SMCCC_CONDUIT_EFI)
++		arm64_efi_psci_resumed();
++#endif
++	return ret;
+ }
+ 
+ static int psci_system_suspend_begin(suspend_state_t state)
+-- 
+2.55.0
+
