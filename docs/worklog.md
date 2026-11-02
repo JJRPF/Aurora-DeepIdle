@@ -1122,3 +1122,4 @@ Setup: `harness/gh10/` (arm.sh puts a test m1n1 image on the ESP for one boot, `
 * Every boot has headless ACTIVE (omarchy-headless), so all boots of this plan are measured screen off. stock1 is kept as a record only.
 * Touch ID: `sks: bag identity mismatch` on the 7.2.11 boots and on the 11.35 boot before them: not from this work.
 * pmp-em (image 7fe60746, PMP started, energy_model: 3 domains registered, headless): Total 2.38 W, Heatpipe 1.16 W; vs pmp: -0.19 W / -0.18 W across boots (the earlier paired EM result was 61 mW, so part of this is boot-to-boot drift; em and stock2 follow).
+* em (image ea56e307, EM only, no PMP, m1n1 fix, headless): see boot-em/ab.txt; stock2 (plain stock boot.bin, headless) is next as the control.
