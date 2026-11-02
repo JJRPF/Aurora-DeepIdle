@@ -7,6 +7,7 @@
 #define _GNU_SOURCE
 #include <dirent.h>
 #include <errno.h>
+#include <time.h>
 #include <stdarg.h>
 #include <fcntl.h>
 #include <stdio.h>
@@ -60,7 +61,9 @@ static void say(const char *fmt, ...)
     va_start(ap, fmt);
     vsnprintf(b, sizeof b, fmt, ap);
     va_end(ap);
-    int n = snprintf(c, sizeof c, "psci-ram: %s\n", b);
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    int n = snprintf(c, sizeof c, "psci-ram: [%4ld.%02ld] %s\n", (long)ts.tv_sec, ts.tv_nsec / 10000000, b);
     if (kmsg >= 0)
         write(kmsg, c, n);
     if (loglen + n < LOGSZ / 2) {
@@ -160,8 +163,14 @@ int main(void)
     if (q)
         cycles = atoi(q + 16);
     int fail = 0;
-    if (cycles < 0)
+    if (cycles < 0) {
         say("cycles=%d: no CPU work, boot check only", cycles);
+        char *w = strstr(cl, "psci_ram_wait=");
+        for (int i = 0, n = w ? atoi(w + 14) : 0; i < n; i++) {
+            sleep(1);
+            say("idle %d/%d", i + 1, n);
+        }
+    }
     for (int c = 1; cycles >= 0 && c <= 9 && !fail; c++) {
         snprintf(p, sizeof p, "/sys/devices/system/cpu/cpu%d/online", c);
         if (access(p, F_OK)) {

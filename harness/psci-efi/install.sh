@@ -101,7 +101,7 @@ menuentry 'Deep idle PSCI hotplug RAM-only test' --class gnu-linux --id psci-ram
 }
 MENU
 G
-    sed -i "s/psci_ram_cycles=3/psci_ram_cycles=${RAM_CYCLES:-3}/" /etc/grub.d/46_psci_ram
+    sed -i "s/psci_ram_cycles=3/psci_ram_cycles=${RAM_CYCLES:-3}${RAM_WAIT:+ psci_ram_wait=$RAM_WAIT}/" /etc/grub.d/46_psci_ram
     chmod 755 /etc/grub.d/46_psci_ram
     grub-mkconfig -o /boot/grub/grub.cfg > /var/lib/deepidle/grub-mkconfig-psci-ram.log 2>&1
     grep -q "id psci-ram-kernel" /boot/grub/grub.cfg || { echo "RAM entry missing"; exit 1; }
