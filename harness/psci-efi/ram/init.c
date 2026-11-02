@@ -149,71 +149,9 @@ int main(void)
             say("raw log at partition offset %lld (fd %d)", (long long)rawoff, rawfd);
         }
     }
-    mkdir("/esp", 0755);
-    if (mount("/dev/nvme0n1p4", "/esp", "vfat", MS_SYNCHRONOUS | MS_NOATIME, 0)) {
-        say("cannot mount ESP: stopping");
-        sleep(5);
-        reboot(RB_AUTOBOOT);
-    }
-    if (rawfd < 0)
-        crumb = open("/esp/psci-ram.log", O_WRONLY | O_CREAT | O_TRUNC | O_DSYNC, 0644);
-    if (crumb >= 0) {
-        static char z[4096];
-        memset(z, '\n', sizeof z);
-        for (int i = 0; i < LOGSZ / 4096; i++)
-            write(crumb, z, sizeof z);
-        fsync(crumb);
-    }
-    {
-        int d = open("/esp", O_RDONLY);
-        if (d >= 0) { fsync(d); close(d); }
-    }
-    say("ESP mounted, log open");
-    {
-        /* vfat does not make O_DSYNC writes durable across a hard reset. Find where the preallocated file
-         * sits on the partition, unmount cleanly (so the FAT and directory are on disk) and from then on
-         * write the log straight to those blocks with O_SYNC. */
-        /* vfat has no FIEMAP: FIBMAP gives the partition block of each file block (the file must be contiguous) */
-        int bsz = 0;
-        int first = 0, last = 0;
-        if (rawfd < 0 && crumb >= 0 && ioctl(crumb, FIGETBSZ, &bsz) == 0 && bsz > 0) {
-            int nb = LOGSZ / bsz;
-            last = nb - 1;
-            if (ioctl(crumb, FIBMAP, &first) == 0 && ioctl(crumb, FIBMAP, &last) == 0 && first > 0 &&
-                last - first == nb - 1)
-                rawoff = (off_t)first * bsz;
-        }
-        if (rawfd >= 0)
-            ;
-        else if (rawoff > 0)
-            say("log file at partition offset %lld", (long long)rawoff);
-        else {
-            say("no contiguous block map for the log (bsz %d first %d last %d); keeping the file writes", bsz, first, last);
-            rawoff = -1;
-        }
-    }
-    /* Stock Aura back at once, as psci-efi-early.service does: any later reset boots the normal image. */
-    if (copy("/boot.bin.stock", "/esp/m1n1/boot.bin.tmp") == 0 && rename("/esp/m1n1/boot.bin.tmp", "/esp/m1n1/boot.bin") == 0)
-        say("stock boot.bin restored");
-    else
-        say("stock boot.bin restore FAILED");
-    sync();
+    /* No ESP mount at all: the stock boot.bin is put back by psci-efi-early.service of the next boot, and
+     * everything we have to say goes to the raw log region. */
     say("psci: %s", (rd("/sys/devices/system/cpu/online", v, sizeof v), v));
-    if (rawoff > 0 && rawfd < 0) {
-        close(crumb);
-        crumb = -1;
-        sync();
-        if (umount("/esp") == 0) {
-            rawfd = open("/dev/nvme0n1p4", O_WRONLY | O_SYNC);
-            if (rawfd < 0)
-                say("cannot open the partition for raw log writes");
-            else
-                say("ESP unmounted, log now written raw");
-        } else {
-            say("umount failed, log stays on the file");
-        }
-    }
-
     int cycles = 3;
     rd("/proc/cmdline", v, sizeof v); /* only the head; cycles via psci_ram_cycles=N is read below */
     char cl[1024];
@@ -258,9 +196,6 @@ int main(void)
     say("done fail=%d; online %s", fail, (rd("/sys/devices/system/cpu/online", v, sizeof v), v));
     /* the kernel's own view of the last lines */
     flush_log();
-    close(crumb);
-    sync();
-    umount("/esp");
     sleep(2);
     reboot(RB_AUTOBOOT);
     return 0;
