@@ -107,8 +107,9 @@ import struct
 f=open('/dev/nvme0n1p4','rb'); b=f.read(512)
 bps,spc,rsv,nfat=struct.unpack('<HBHB',b[11:17]); fatsz=struct.unpack('<I',b[36:40])[0]
 f.seek(rsv*bps); fat=f.read(fatsz*bps); data0=rsv+nfat*fatsz
+tot=struct.unpack('<I',b[32:36])[0]; ncl=(tot-data0)//spc+2
 need=64*4096//(bps*spc); run=0
-for i in range(len(fat)//4-1,1,-1):
+for i in range(min(ncl,len(fat)//4)-1,1,-1):
     if struct.unpack_from('<I',fat,4*i)[0]&0x0fffffff: run=0
     else:
         run+=1
