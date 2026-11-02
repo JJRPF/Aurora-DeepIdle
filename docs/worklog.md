@@ -1108,3 +1108,6 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 
 ## 2026-11-02: GH-10 step 1, first inventory pass
 Unprivileged only (no root for debugfs). Runtime PM: ISP/AVD/audio already suspended; GPU, DCP x3, dwc3-apple x3, cd321x x4, ANE report `unsupported`, so they are the candidates. `docs/idle-candidates.md` written. The root dump (pm_genpd_summary, PMGR registers, blanked and battery passes) is next and needs the owner.
+
+### 2026-11-02: genpd dump (root)
+Screen-on and blanked dumps are identical (blanking powers nothing down). 116 domains on, 84 off. Candidates and ranking in docs/idle-candidates.md. First port: HDMI rails (0.13 W, measured 2026-10-18); ATC/GPU ports need a base with runtime PM.

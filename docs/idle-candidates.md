@@ -5,14 +5,36 @@ save. This is a first, unprivileged pass (2026-11-02, kernel
 `7.1.12-2-11.35-sep-ARCH+`, on AC, load average 0.3). Nothing was changed.
 Watts are guesses until the privileged dumps below exist; no A/B has run yet.
 
-## Not yet inventoried (needs root, ask the owner)
+## genpd at idle (root, 2026-11-02)
 
-* `/sys/kernel/debug/pm_genpd/pm_genpd_summary` (debugfs is root-only here):
-  which PMGR domains are on, with their device lists.
-* PMGR registers of every domain, DCS/fabric state, CLPC/PMP votes
-  (harness tools, mmio, root).
-* A blanked-screen pass, and a battery pass (this one ran on AC).
-* Macos comparison per domain (`data/` from issue #3).
+`data/idle_erikwb/genpd-idle-screenon.txt` and `genpd-idle-blanked.txt`:
+`pm_genpd_summary` with the screen on, then DPMS-off for 25 s. **The two are
+identical: blanking the screen powers no domain down.** 116 domains are on,
+84 off. Only `port0` has a partner (the charger); the other ports are empty.
+
+Off already: all of `ispsens*`/`isp_*`, `venc_*`, `prores`, `jpg`, `avd_sys`,
+`ane_set1..4`/`ane_base`/`ane_td`/`ane_sys_mpm`, `atc*_cio*`, `mca0/1/3`,
+`uart*`, `spi0-5`, `i2c4-8`, `dpa*`, `pmp-*`.
+
+On, with devices that cannot runtime-suspend (`unsupported`), grouped:
+
+| Domains (on) | Held on by | Candidate |
+|---|---|---|
+| `gfx`, `gpx` (+ `afr`) | `406400000.gpu` (asahi), no runtime PM | GPU idle (#455, #582) |
+| `atc0..2_usb` (+ `atc3_usb`), `atc0..3_common`, `*_usb_aon` | per port: PHY, mux, tunables `unsupported`; DARTs active | idle USB-C ports (#528) |
+| `disp0_*`, `dispext0/1_*` | DCP `unsupported`, one device each | static display (#830); E4 found no gain from the externals |
+| `ane_cpu`, `ane_sys` | two IOMMUs active (no ANE driver) | ANE: check |
+| `apcie_*`, `ans2` | Wi-Fi, SD, NVMe in use | stay (PCIe is banned to touch) |
+| `dcs_00..15`, `amcc0..3`, `afnc*`, `soc_dpe`, `pms*` | no devices: PMGR-owned fabric/DRAM | memory floor (#582): needs PMP/CLPC votes, not genpd |
+| `i2c0..3`, `fpwm0`, `gpio`, `sep`, `nub_*` | one `unsupported` device each | small, probably not worth it |
+
+## Measured earlier (no new work)
+
+From `status.md`/`deep-idle-research.md`: HDMI and DP-to-HDMI rails off
+saves **0.13 W** awake (12 of 12 rounds; SMC GPIOs `gP17`/`gP06`; patch
+`patches/hdmi-rails-off-in-sleep.patch`, built, not booted). SD link L1
+substates and the external DCPs: nothing. Removing the SD reader costs 0.37 W
+and killed Wi-Fi (banned).
 
 ## What sysfs shows without root
 
@@ -39,18 +61,17 @@ SMC (`hwmon1`): Total System Power, AC Input Power, 3.8 V rail (reads 0),
 Heatpipe Power (SoC package). The battery power node reads 0 on AC.
 `tools/idle-ab.py` logs all SMC sensors, so it will measure each change.
 
-## Ranking (guesses, to be replaced by measurements)
+## Ranking
 
-1. Memory/fabric floor held by the GPU (#582): 0.2 to 0.4 W on J713; unknown here.
-2. USB-C ATC domains with nothing plugged in (#528): three ports, each with a
-   USB and a common domain; status above is `unsupported`, so they are probably on.
-3. cd321x runtime PM (#833): up to ~0.2 W per controller on J713's SN201202x; check
-   the 3.3 V rail here, four controllers.
-4. GPU idle state (#455).
-5. Display pipe while blanked (#830): large but needs DCP resume, tied to GH-8.
-6. ANE, ISP: ISP already suspended; ANE unknown.
+| # | Candidate | Estimate | Cost to port | Status |
+|---|---|---|---|---|
+| 1 | HDMI/DP-to-HDMI rails off while no cable | **0.13 W measured** | small (a GPIO policy); patch exists | needs the soak and a hot-plug check, then a patch |
+| 2 | Idle USB-C ATC domains (#528) | 90 to 130 mW on J713 | large: our base has no runtime PM in `dwc3-apple` or the ATC PHY, so #528 needs the T8132 series' preconditions rebased | not started |
+| 3 | GPU/DCS floor held only while busy (#582) | 0.2 to 0.4 W on J713 | large: the T6020 GPU has no runtime PM; needs CLPC/PMP votes read first | needs PMP register reads (root) |
+| 4 | cd321x runtime PM (#833) | up to 0.2 W per controller on J713 | medium; the 3.3 V rail is not on the SMC list (reads 0) | measure first |
+| 5 | Blanked display (#830) | unknown | blocked on DCP resume (GH-8) | defer |
+| 6 | ANE `ane_cpu`/`ane_sys` | unknown | needs a driver or a PMGR hold | measure first |
 
-## Next
-
-Root dump of genpd and PMGR state at idle (screen on, then blanked), then
-rank by measured watts and port one change at a time with `tools/idle-ab.py`.
+Everything below #1 is a kernel change that needs a build of the base
+(`~/Work/deepidle-11.35`) and a boot of it; each boot step needs the owner's
+reboot, which was given on 2026-11-02.
