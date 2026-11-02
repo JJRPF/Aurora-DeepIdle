@@ -160,17 +160,20 @@ int main(void)
         /* vfat does not make O_DSYNC writes durable across a hard reset. Find where the preallocated file
          * sits on the partition, unmount cleanly (so the FAT and directory are on disk) and from then on
          * write the log straight to those blocks with O_SYNC. */
-        struct { struct fiemap fm; struct fiemap_extent ex[8]; } f;
-        memset(&f, 0, sizeof f);
-        f.fm.fm_length = ~0ULL;
-        f.fm.fm_flags = FIEMAP_FLAG_SYNC;
-        f.fm.fm_extent_count = 8;
-        if (crumb >= 0 && ioctl(crumb, FS_IOC_FIEMAP, &f) == 0 && f.fm.fm_mapped_extents >= 1 &&
-            f.ex[0].fe_length >= LOGSZ) {
-            rawoff = f.ex[0].fe_physical;
+        /* vfat has no FIEMAP: FIBMAP gives the partition block of each file block (the file must be contiguous) */
+        int bsz = 0;
+        int first = 0, last = 0;
+        if (crumb >= 0 && ioctl(crumb, FIGETBSZ, &bsz) == 0 && bsz > 0) {
+            int nb = LOGSZ / bsz;
+            last = nb - 1;
+            if (ioctl(crumb, FIBMAP, &first) == 0 && ioctl(crumb, FIBMAP, &last) == 0 && first > 0 &&
+                last - first == nb - 1)
+                rawoff = (off_t)first * bsz;
+        }
+        if (rawoff > 0)
             say("log file at partition offset %lld", (long long)rawoff);
-        } else {
-            say("no FIEMAP extent for the log; keeping the file writes");
+        else {
+            say("no contiguous block map for the log (bsz %d first %d last %d); keeping the file writes", bsz, first, last);
             rawoff = -1;
         }
     }
