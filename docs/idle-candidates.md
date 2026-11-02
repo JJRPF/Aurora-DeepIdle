@@ -61,17 +61,68 @@ SMC (`hwmon1`): Total System Power, AC Input Power, 3.8 V rail (reads 0),
 Heatpipe Power (SoC package). The battery power node reads 0 on AC.
 `tools/idle-ab.py` logs all SMC sensors, so it will measure each change.
 
-## Ranking
+## Results on 7.2.11 (2026-11-02)
 
-| # | Candidate | Estimate | Cost to port | Status |
+Kernel: the packaged `linux-aurora 7.2.11.aurora14`, now the default. The
+stock 7.2.11 boot has none of the three proven changes (PMP disabled, CPU PD
+residency 10 ms, no CPU energy model), so the "5.38 W" baseline of the issue
+is not what a plain boot gives. Each test image was one boot, headless (screen
+off, power-saver, as every boot here is), 180 s settle, then 16 windows of 30 s
+(`harness/gh10/measure.sh`, `data/idle_erikwb/boot-*`). Means with standard
+error over the windows; the difference is against `stock2`, a plain-stock boot
+in the same state. An image differs from stock only by the m1n1 DT-headroom fix
+plus the DTB named.
+
+| Boot | Total | SoC (Heatpipe) | Total vs stock2 | SoC vs stock2 |
 |---|---|---|---|---|
-| 1 | HDMI/DP-to-HDMI rails off while no cable | **0.13 W measured** | small (a GPIO policy); patch exists | needs the soak and a hot-plug check, then a patch |
-| 2 | Idle USB-C ATC domains (#528) | 90 to 130 mW on J713 | large: our base has no runtime PM in `dwc3-apple` or the ATC PHY, so #528 needs the T8132 series' preconditions rebased | not started |
-| 3 | GPU/DCS floor held only while busy (#582) | 0.2 to 0.4 W on J713 | large: the T6020 GPU has no runtime PM; needs CLPC/PMP votes read first | needs PMP register reads (root) |
-| 4 | cd321x runtime PM (#833) | up to 0.2 W per controller on J713 | medium; the 3.3 V rail is not on the SMC list (reads 0) | measure first |
-| 5 | Blanked display (#830) | unknown | blocked on DCP resume (GH-8) | defer |
-| 6 | ANE `ane_cpu`/`ane_sys` | unknown | needs a driver or a PMGR hold | measure first |
+| stock2 (plain stock) | 3.485 +- 0.012 | 1.990 +- 0.020 | | |
+| em (energy model) | 3.307 +- 0.006 | 1.953 +- 0.022 | -0.178 +- 0.013 W | -0.037 +- 0.030 W (not significant) |
+| pmp | 2.566 +- 0.007 | 1.341 +- 0.014 | **-0.919 +- 0.014 W** | -0.649 +- 0.024 W |
+| pmp + em | 2.378 +- 0.004 | 1.159 +- 0.007 | **-1.107 +- 0.013 W** | -0.831 +- 0.021 W |
 
-Everything below #1 is a kernel change that needs a build of the base
-(`~/Work/deepidle-11.35`) and a boot of it; each boot step needs the owner's
-reboot, which was given on 2026-11-02.
+* `stock1` (7.35 W / 2.37 W) was taken with the screen on and is not
+  comparable; it is kept only as a record.
+* These are across-boot comparisons, one boot per image, so they carry
+  boot-to-boot drift the standard errors do not show. The PMP result matches
+  the earlier campaign (0.9 to 1.15 W). EM saves 0.18 W of system power here
+  but the SoC sensor shows nothing significant, against 61 mW measured paired
+  earlier: treat EM as 0.06 to 0.18 W.
+* CPU PD "always" (runtime, no reboot): **-0.54 W of system power, lower in 10
+  of 10 paired rounds** (`ab-7.2.11-pd.txt`, screen on, 20 s windows). Installed
+  now through `/etc/tmpfiles.d/cpuidle-pd-always.conf`. It was not re-measured
+  on top of the PMP.
+* With the PMP running, genpd shows `pmp-disp0`, `pmp-dispext0/1`,
+  `pmp-isp-sys` and `isp_sys` on; the rest is unchanged. The PMP drives the
+  memory/fabric/DCS floor itself, which is the #582 technique's target on the
+  J713, so on T6020 that candidate is covered by booting the PMP.
+
+Sum against a plain stock 7.2.11 boot, headless: **PMP + EM -1.1 W, plus PD
+always about -0.5 W**, about 1.6 W of about 3.5 W, or of the 7.35 W screen-on
+desktop about 22%. The PMP and EM are staged, not adopted (below).
+
+## What is not done, and why
+
+* **Idle USB-C ports (#528).** 7.2.11's `dwc3-apple` has runtime PM, but the
+  ATC PHY (`phy-apple-atc`) does not, so `atc*_usb` stays on. #528's PHY change
+  is for PHYs without DisplayPort (`idle_power_off`); the J414s ports carry
+  DisplayPort and Thunderbolt, which I cannot test here (no dock or display),
+  and the estimate is 90 to 130 mW. Not ported.
+* **GPU/DCS floor (#582, #455).** The PMP boot covers the floor; the GPU still
+  has no runtime PM. Needs a code change in the asahi driver, not measured.
+* **cd321x runtime PM (#833).** The 3.8 V rail reads 0 on the SMC, so the
+  saving cannot be measured here. Not started.
+* **HDMI rails.** 0.13 W measured earlier, but lowering them while awake would
+  break HDMI hot-plug unless HPD works with the converter off; untestable here.
+* **Display pipe while blanked (#830).** Blocked on DCP resume (GH-8).
+* **1 h soak, wake latency, hot-plug after the domain was off:** not run;
+  nothing adopted needs them except PMP/EM below.
+
+## Staged, needs the owner
+
+* `~/Work/gh10-boot/boot.bin.pmp-em`: m1n1 (the installed tree plus the DT
+  headroom fix, `m1n1/pmp-fix-test.patch`) with the 7.2.11 DTBs and the PMP+EM
+  J414s DTB. Installing it as the default changes the bootloader chain:
+  `/etc/default/update-m1n1` must use that m1n1 and the PMP+EM DTB, or the next
+  kernel package update regenerates a stock `boot.bin`. Not done.
+* `patches/gh10-t602x-energy-model-7.2.11.patch` (the EM, derived not measured
+  on T602x). No upstream PR was opened or prepared; nothing here passed a soak.
