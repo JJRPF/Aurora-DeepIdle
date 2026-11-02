@@ -36,11 +36,18 @@ There are two goals:
   * Understood and tested: the SMC handshake, which also showed that `slpa`
     must come last.
   * Understood, fix untried: the PMP wake.
-  * Built, waiting for their first boot: CPU_OFF and CPU_ON (Phase 1).
+  * CPU_ON works for all nine secondaries; CPU_OFF then CPU_ON hangs the
+    SoC (Phase 1, paused). SYSTEM_SUSPEND on the boot CPU alone works, 20 of
+    20 cycles (Phase 2a, 2026-10-31).
   * Open: PMGR's last steps and the boot CPU's wake hand-back, which the
     macOS hypervisor trace (Phase 3) is meant to answer, and DCP resume,
     the long pole.
-* **Next:** Phase 1's boot test (not started: each boot step needs the
+* **Progress, 2026-11-02: about 30% of the way to working S2R** (risk-weighted
+  guess, wide error bar). Done: timed wake, SMC handshake, macOS trace
+  method, CPU_ON, a firmware that hands the boot CPU back. Not done:
+  hotplug (CPU_OFF/CPU_ON), real wake sources in Aura, PMGR and SoC sleep
+  steps (Phase 3/5), device resume from power loss, DCP above all.
+* **Older next step:** Phase 1's boot test (not started: each boot step needs the
   owner), and finishing the macOSTest guest runs. State on 2026-10-25: the
   guest is **macOS 14.8.9** (14.8.3 is gone from Apple's catalog), installed
   on its own volume with Aura as its boot object; it boots under the

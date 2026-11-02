@@ -81,12 +81,17 @@ machine and what it showed.
   did not restart it, and a PMGR reset of `ps_pmp` crashed the whole SoC.
   `ps_pmp` is pinned on by iBoot. What is left to try is macOS's DART and
   outbox steps around RUN.
-* **S2R plan and Phase 1** ([docs/s2r-plan.md](docs/s2r-plan.md),
-  [docs/psci-efi.md](docs/psci-efi.md)). Phase 1, PSCI CPU_ON and CPU_OFF
-  through the PSCI-via-EFI RFC, is built in the kernel, in Aura and in
-  U-Boot, and is not booted yet. The macOS sleep trace under the hypervisor
-  uses a separate macOS 14.8.3 volume, the pinned guest version (newer XNU
-  needs SPTM).
+* **S2R plan, Phase 1 and Phase 2a** ([docs/s2r-plan.md](docs/s2r-plan.md),
+  [docs/psci-efi.md](docs/psci-efi.md)). PSCI CPU_ON through the
+  PSCI-via-EFI RFC boots all nine secondaries (also from a RAM-only boot).
+  CPU_OFF followed by CPU_ON (hotplug) still hangs the SoC and is unproven;
+  it is paused because the hard reset loses the NVMe's cached writes, which
+  damaged the owner's filesystem. SYSTEM_SUSPEND on the boot CPU alone
+  (`maxcpus=1`, Aura waits 3 s and hands back) works: 20 of 20 full Linux
+  suspend/resume cycles. Estimate: about 30% of the way to working S2R, with
+  the SoC sleep steps and the DCP resume still ahead. The macOS sleep trace
+  under the hypervisor uses a separate macOS 14.8.9 volume (newer XNU needs
+  SPTM).
 * **The HDMI port's rails cost 0.13 W with nothing plugged in**, outside the
   SoC (12 paired rounds, lower in 12 of 12). The DCP driver never lowers them
   on T6020; `patches/hdmi-rails-off-in-sleep.patch` lowers them in system
