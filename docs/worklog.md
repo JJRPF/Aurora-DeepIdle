@@ -1105,3 +1105,6 @@ Run 16 of `ram` (-1, idle 5, raw log): complete log, clean. So the raw 256 KB O_
 
 ## 2026-11-02: paused for a separate project (owner)
 All work is on main (nothing ahead of origin/main, tree clean), so there is no PR to open from GH-8-S2R-NextSteps; issue #8 stays open and the worktree stays for the S2R work. Nothing is armed (no psci-efi-armed file, no next_entry, stock boot.bin 3630adc3b3be173c on the ESP); psci-efi-run.service disabled. Next when resuming: the proxy-based park/wake test of CPU_OFF/CPU_ON (no OS, no disk), Phase 2b wake sources, then the guarded read-only hotplug test if the owner agrees.
+
+## 2026-11-02: GH-10 step 1, first inventory pass
+Unprivileged only (no root for debugfs). Runtime PM: ISP/AVD/audio already suspended; GPU, DCP x3, dwc3-apple x3, cd321x x4, ANE report `unsupported`, so they are the candidates. `docs/idle-candidates.md` written. The root dump (pm_genpd_summary, PMGR registers, blanked and battery passes) is next and needs the owner.
