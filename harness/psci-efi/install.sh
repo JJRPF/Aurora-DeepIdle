@@ -101,7 +101,22 @@ menuentry 'Deep idle PSCI hotplug RAM-only test' --class gnu-linux --id psci-ram
 }
 MENU
 G
-    sed -i "s/psci_ram_cycles=3/psci_ram_cycles=${RAM_CYCLES:-3}${RAM_WAIT:+ psci_ram_wait=$RAM_WAIT}/" /etc/grub.d/46_psci_ram
+    # a free run of 64 ESP clusters (256 KB) at the top of the FAT, for the raw log
+    RAWOFF=$(python3 -I - <<'PY'
+import struct
+f=open('/dev/nvme0n1p4','rb'); b=f.read(512)
+bps,spc,rsv,nfat=struct.unpack('<HBHB',b[11:17]); fatsz=struct.unpack('<I',b[36:40])[0]
+f.seek(rsv*bps); fat=f.read(fatsz*bps); data0=rsv+nfat*fatsz
+need=64*4096//(bps*spc); run=0
+for i in range(len(fat)//4-1,1,-1):
+    if struct.unpack_from('<I',fat,4*i)[0]&0x0fffffff: run=0
+    else:
+        run+=1
+        if run>=need: print((data0+(i-2)*spc)*bps); break
+PY
+)
+    [ -n "$RAWOFF" ] || { echo "no free ESP run for the raw log"; exit 1; }
+    sed -i "s/psci_ram_cycles=3/psci_ram_raw=$RAWOFF psci_ram_cycles=3/;s/psci_ram_cycles=3/psci_ram_cycles=${RAM_CYCLES:-3}${RAM_WAIT:+ psci_ram_wait=$RAM_WAIT}/" /etc/grub.d/46_psci_ram
     chmod 755 /etc/grub.d/46_psci_ram
     grub-mkconfig -o /boot/grub/grub.cfg > /var/lib/deepidle/grub-mkconfig-psci-ram.log 2>&1
     grep -q "id psci-ram-kernel" /boot/grub/grub.cfg || { echo "RAM entry missing"; exit 1; }

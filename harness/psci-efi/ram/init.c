@@ -137,13 +137,26 @@ int main(void)
 
     for (int i = 0; i < 100 && access("/dev/nvme0n1p4", F_OK); i++)
         usleep(200000);
+    {
+        /* Durable log: raw synchronous writes into a free run of ESP clusters picked by install.sh (vfat
+         * keeps files and their size in cache, so a hard reset loses them). Read back with dd next boot. */
+        char c0[1024];
+        rd("/proc/cmdline", c0, sizeof c0);
+        char *r = strstr(c0, "psci_ram_raw=");
+        if (r) {
+            rawoff = atoll(r + 13);
+            rawfd = open("/dev/nvme0n1p4", O_WRONLY | O_SYNC);
+            say("raw log at partition offset %lld (fd %d)", (long long)rawoff, rawfd);
+        }
+    }
     mkdir("/esp", 0755);
     if (mount("/dev/nvme0n1p4", "/esp", "vfat", MS_SYNCHRONOUS | MS_NOATIME, 0)) {
         say("cannot mount ESP: stopping");
         sleep(5);
         reboot(RB_AUTOBOOT);
     }
-    crumb = open("/esp/psci-ram.log", O_WRONLY | O_CREAT | O_TRUNC | O_DSYNC, 0644);
+    if (rawfd < 0)
+        crumb = open("/esp/psci-ram.log", O_WRONLY | O_CREAT | O_TRUNC | O_DSYNC, 0644);
     if (crumb >= 0) {
         static char z[4096];
         memset(z, '\n', sizeof z);
@@ -163,14 +176,16 @@ int main(void)
         /* vfat has no FIEMAP: FIBMAP gives the partition block of each file block (the file must be contiguous) */
         int bsz = 0;
         int first = 0, last = 0;
-        if (crumb >= 0 && ioctl(crumb, FIGETBSZ, &bsz) == 0 && bsz > 0) {
+        if (rawfd < 0 && crumb >= 0 && ioctl(crumb, FIGETBSZ, &bsz) == 0 && bsz > 0) {
             int nb = LOGSZ / bsz;
             last = nb - 1;
             if (ioctl(crumb, FIBMAP, &first) == 0 && ioctl(crumb, FIBMAP, &last) == 0 && first > 0 &&
                 last - first == nb - 1)
                 rawoff = (off_t)first * bsz;
         }
-        if (rawoff > 0)
+        if (rawfd >= 0)
+            ;
+        else if (rawoff > 0)
             say("log file at partition offset %lld", (long long)rawoff);
         else {
             say("no contiguous block map for the log (bsz %d first %d last %d); keeping the file writes", bsz, first, last);
@@ -184,7 +199,7 @@ int main(void)
         say("stock boot.bin restore FAILED");
     sync();
     say("psci: %s", (rd("/sys/devices/system/cpu/online", v, sizeof v), v));
-    if (rawoff > 0) {
+    if (rawoff > 0 && rawfd < 0) {
         close(crumb);
         crumb = -1;
         sync();
