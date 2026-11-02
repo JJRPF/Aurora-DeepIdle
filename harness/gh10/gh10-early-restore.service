@@ -1,0 +1,13 @@
+[Unit]
+Description=GH-10: restore the stock m1n1 image early in boot after a test image
+DefaultDependencies=no
+RequiresMountsFor=/boot /var/lib/gh10
+ConditionPathExists=/var/lib/gh10/armed
+Before=systemd-udevd.service systemd-udev-trigger.service sysinit.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/gh10/early.sh
+
+[Install]
+WantedBy=sysinit.target
