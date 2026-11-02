@@ -1,0 +1,13 @@
+2026-11-02 17:33:45
+7.2.11-14-1-ARCH
+BOOT_IMAGE=/vmlinuz-linux-aurora root=UUID=725346d2-f127-47bc-b464-9dd46155e8d6 rw rootflags=subvol=@ cryptdevice=UUID=4604ccf8-656d-4a22-8178-395cdb242503:root:allow-discards loglevel=3 quiet splash
+18acd905066a249d
+2026-11-02 17:20:30 restored stock 18acd905066a249d
+2026-11-02 17:33:16 booted 7fe6074632cfea4f kernel 7.2.11-14-1-ARCH
+2026-11-02 17:33:17 restored stock 18acd905066a249d
+sched_energy_aware=1
+cpuidle state0 disable:      10 1 
+energy_model domains: 3
+Not charging
+1
+load: 1.32 0.32 0.10 4/772 5121
