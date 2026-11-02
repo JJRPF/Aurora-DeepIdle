@@ -7,6 +7,9 @@
 #define _GNU_SOURCE
 #include <dirent.h>
 #include <errno.h>
+#include <linux/fiemap.h>
+#include <linux/fs.h>
+#include <sys/ioctl.h>
 #include <time.h>
 #include <stdarg.h>
 #include <fcntl.h>
@@ -18,7 +21,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-static int kmsg = -1, crumb = -1;
+static int kmsg = -1, crumb = -1, rawfd = -1;
+static off_t rawoff;
 
 #define LOGSZ (256 * 1024)
 static char logbuf[LOGSZ], kbuf[96 * 1024];
@@ -28,7 +32,7 @@ static int loglen;
  * writes into already-allocated clusters, so a hang right after loses nothing that was said before it. */
 static void flush_log(void)
 {
-    if (crumb < 0)
+    if (crumb < 0 && rawfd < 0)
         return;
     int n = loglen, kl = 0;
     int k = open("/dev/kmsg", O_RDONLY | O_NONBLOCK);
@@ -50,7 +54,12 @@ static void flush_log(void)
             memmove(kbuf, kbuf + kl - (LOGSZ - n - 1), LOGSZ - n - 1), kl = LOGSZ - n - 1;
     }
     memcpy(logbuf + n, kbuf, kl);
-    pwrite(crumb, logbuf, n + kl, 0);
+    if (rawfd >= 0) {
+        memset(logbuf + n + kl, '\n', LOGSZ - n - kl);
+        pwrite(rawfd, logbuf, LOGSZ, rawoff);
+    } else {
+        pwrite(crumb, logbuf, n + kl, 0);
+    }
     logbuf[n] = 0;
 }
 
@@ -147,6 +156,24 @@ int main(void)
         if (d >= 0) { fsync(d); close(d); }
     }
     say("ESP mounted, log open");
+    {
+        /* vfat does not make O_DSYNC writes durable across a hard reset. Find where the preallocated file
+         * sits on the partition, unmount cleanly (so the FAT and directory are on disk) and from then on
+         * write the log straight to those blocks with O_SYNC. */
+        struct { struct fiemap fm; struct fiemap_extent ex[8]; } f;
+        memset(&f, 0, sizeof f);
+        f.fm.fm_length = ~0ULL;
+        f.fm.fm_flags = FIEMAP_FLAG_SYNC;
+        f.fm.fm_extent_count = 8;
+        if (crumb >= 0 && ioctl(crumb, FS_IOC_FIEMAP, &f) == 0 && f.fm.fm_mapped_extents >= 1 &&
+            f.ex[0].fe_length >= LOGSZ) {
+            rawoff = f.ex[0].fe_physical;
+            say("log file at partition offset %lld", (long long)rawoff);
+        } else {
+            say("no FIEMAP extent for the log; keeping the file writes");
+            rawoff = -1;
+        }
+    }
     /* Stock Aura back at once, as psci-efi-early.service does: any later reset boots the normal image. */
     if (copy("/boot.bin.stock", "/esp/m1n1/boot.bin.tmp") == 0 && rename("/esp/m1n1/boot.bin.tmp", "/esp/m1n1/boot.bin") == 0)
         say("stock boot.bin restored");
@@ -154,6 +181,20 @@ int main(void)
         say("stock boot.bin restore FAILED");
     sync();
     say("psci: %s", (rd("/sys/devices/system/cpu/online", v, sizeof v), v));
+    if (rawoff > 0) {
+        close(crumb);
+        crumb = -1;
+        sync();
+        if (umount("/esp") == 0) {
+            rawfd = open("/dev/nvme0n1p4", O_WRONLY | O_SYNC);
+            if (rawfd < 0)
+                say("cannot open the partition for raw log writes");
+            else
+                say("ESP unmounted, log now written raw");
+        } else {
+            say("umount failed, log stays on the file");
+        }
+    }
 
     int cycles = 3;
     rd("/proc/cmdline", v, sizeof v); /* only the head; cycles via psci_ram_cycles=N is read below */
