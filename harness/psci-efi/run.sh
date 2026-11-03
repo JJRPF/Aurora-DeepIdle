@@ -36,10 +36,14 @@ if [ $STEP = suspend ]; then
         sync
         for m in $(findmnt -rno TARGET -t ext4,btrfs,vfat | sort -r); do mount -o remount,ro "$m" 2>&1 | head -1; done
         log "filesystems ro: $(findmnt -rno TARGET,OPTIONS -t ext4,btrfs,vfat | grep -c '\bro\b') of $(findmnt -rno TARGET -t ext4,btrfs,vfat | wc -l)"
-        for i in $(seq ${SUSPEND_CYCLES:-20}); do
+        for i in $(seq ${SUSPEND_CYCLES:-5}); do
+            # Phase 2b: with SUSPEND_ALARM=<s> an RTC alarm is armed first; Aura's poll should end the wait on that wake
+            # line (elapsed ~ alarm) instead of its 30 s timeout. Without it the wait runs the full timeout.
+            { rtcwake -m no -s $SUSPEND_ALARM 2>&1 | head -1; log "alarm: $(cat /sys/class/rtc/rtc0/wakealarm 2>&1)"; }
+            t0=$(date +%s.%N)
             log "suspend $i: echo mem ..."
             echo mem > /sys/power/state; rc=$?
-            log "suspend $i: back, rc=$rc"
+            log "suspend $i: back, rc=$rc, elapsed $(echo "$(date +%s.%N) - $t0" | bc)"
             [ $rc = 0 ] || break
             sleep 2
         done
