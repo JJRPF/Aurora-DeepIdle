@@ -18,7 +18,7 @@ REL=7.2.11-psci-efi+
 STAGE=/home/jjr/Work/staging-psci-efi
 BIN0=/home/jjr/Work/psci-test/boot.bin.aura-stage2; SHA0=19d5f8f627f966a1
 BIN1=/home/jjr/Work/psci-test/boot.bin.psci-test15;  SHA1=a5e3ced5b3007515
-BIN2=/home/jjr/Work/psci-test/boot.bin.psci-test18;  SHA2=4efd481353338b14
+BIN2=/home/jjr/Work/psci-test/boot.bin.psci-test19;  SHA2=8ef550e278ca5bab
 STOCK=/var/lib/deepidle/boot.bin.default; STOCKSHA=76f850895fed53d1
 stockback() {
     [ "$(sha256sum /boot/m1n1/boot.bin | cut -c1-16)" = $STOCKSHA ] || {
@@ -123,6 +123,7 @@ PY
     grep -q "id psci-ram-kernel" /boot/grub/grub.cfg || { echo "RAM entry missing"; exit 1; }
 fi
 
+gcc -O2 -o /usr/local/lib/deepidle/mmio-read $H/../mmio/mmio-read.c || exit 1
 install -m 755 $H/early.sh /usr/local/lib/deepidle/psci-efi-early.sh
 install -m 755 $H/run.sh /usr/local/lib/deepidle/psci-efi-run.sh
 install -m 644 $H/psci-efi-early.service $H/psci-efi-run.service /etc/systemd/system/

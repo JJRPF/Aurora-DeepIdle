@@ -1126,3 +1126,7 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 
 ## 2026-11-03 (09:30): Phase 2b run 2: still no alarm, stale DTB (image 18)
 * Run with the rebuilt kernel (alarm driver back): same 31 s timeouts, no `wakealarm`; the live DT's `rtc` node had only `rtc_offset`. Cause: `t6020-j414s-psci.dtb` is not in the kernel Makefile, so `make dtbs` never rebuilt it (stale from 00:24, older than the alarm cells), and image 17/rebuild embedded that stale file (hence the identical sha). Rebuilt it by hand (cpp + dtc, recipe in the kernel's own dtb rule) into image 18 (4efd4813...). Armed `suspend` again; rebooting.
+
+## 2026-11-03 (09:45): Phase 2b run 3 (image 18): alarm armed and fires, Aura's poll does not see it
+* wakealarm now exists (stale DTB fixed). Three cycles: alarm armed 10 s ahead (`alarm: <epoch>`), but each `echo mem` still took 31.3 s (Aura's 30 s timeout). The macsmc-rtc IRQ count was 3 after the three cycles (and +1 for a plain alarm on the running system), so the PMU alarm does fire and the kernel services it after resume; only Aura's ISR_EL1 poll never saw it.
+* Suspicion: Linux runs at EL2 with E2H/TGE (VHE); with HCR_EL2.IMO/FMO effectively 1, ISR_EL1 reports the virtual pending state, not the physical one. Image 19 (8ef550e2...) records HCR_EL2, DAIF, exit reason, last ISR value and elapsed ticks in `psci_dbg[]` (ELF 0x1472c8), `run.sh` reads it back after each cycle through the new `mmio-read` helper (`/dev/mem` via dd/pread gives EFAULT; the mmap helper works). Armed `suspend`; rebooting.
