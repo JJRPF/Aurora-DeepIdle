@@ -59,13 +59,13 @@ There are two goals:
   is tracked in the GitHub Project "S2R on M2 Pro (J414s)" and the repo is
   now pushed to directly (no PR per step).
 
-* **Progress, 2026-11-02 (GH-10, awake idle on 7.2.11):** the default kernel is now
-  `linux-aurora 7.2.11.aurora14` (fallback GRUB entry for 11.35). A plain 7.2.11 boot has none
-  of the three proven changes. Measured against it, headless, one boot per image: PMP -0.92 W
-  of system power, PMP + energy model -1.11 W, and CPU PD always another -0.54 W (installed).
-  PMP + EM is staged as `~/Work/gh10-boot/boot.bin.pmp-em`, not installed (bootloader chain,
-  owner). The USB-C ATC, GPU and cd321x ports from erikwb's PRs are not done
-  (`docs/idle-candidates.md`).
+* **Progress, 2026-11-03 (GH-10, awake idle on 7.2.11):** default kernel `linux-aurora 7.2.11.aurora14`
+  (fallback GRUB entry for 11.35); PMP + energy model are the default boot (m1n1 fix + PMP+EM DTB via
+  `/etc/default/update-m1n1`, gated on the package version). Headless idle 3.485 W (plain stock) ->
+  2.39 W total, SoC 1.99 -> 1.16 W; 1 h soak clean (2.36 W, 0 of 3695 pings lost); wake latency
+  unchanged; PD-always adds nothing on top of the PMP (-0.015 W). Upstream patches and PR texts
+  staged in `patches/upstream/`, not posted. ATC PHY, GPU, ANE, cd321x ports not done (driver work
+  or untestable here). Details: `docs/idle-candidates.md`.
 
 ## Timeline
 

@@ -114,15 +114,44 @@ desktop about 22%. The PMP and EM are staged, not adopted (below).
 * **HDMI rails.** 0.13 W measured earlier, but lowering them while awake would
   break HDMI hot-plug unless HPD works with the converter off; untestable here.
 * **Display pipe while blanked (#830).** Blocked on DCP resume (GH-8).
-* **1 h soak, wake latency, hot-plug after the domain was off:** not run;
-  nothing adopted needs them except PMP/EM below.
+* **Hot-plug after a domain was off:** banned (FS damage); nothing adopted turns a domain off at runtime.
+
+## Installed and tested (2026-11-02/03)
+
+PMP + energy model are the default boot now (owner order, 2026-11-02): `/etc/default/update-m1n1`
+sources `harness/gh10/update-m1n1.pmp-em.sh`, which uses `/usr/local/lib/gh10/m1n1-pmpfix.bin` and
+`t6020-j414s-pmp-em.dtb` while `linux-aurora` is still 7.2.11.aurora14-1 (`/usr/local/lib/gh10/PKGVER`).
+After a kernel update the stock DTBs go in instead and a line lands in `/var/log/gh10-pmp-em.log`;
+the DTB must then be rebuilt from the new source (`patches/upstream/0001`, `0002`) and PKGVER bumped.
+Backups: `/var/lib/gh10/boot.bin.stock*`, original config `/var/lib/gh10/update-m1n1.default.orig`.
+
+| Check (installed default, headless) | Result |
+|---|---|
+| Boot | PMP firmware ready, `pmp-*` domains, energy model on 3 clusters, state0 disabled on 10 CPUs |
+| Idle power, 16 x 30 s | 2.39 W total, 1.16 W SoC (stock2 control 3.485 / 1.99) |
+| 1 h soak, 120 x 30 s | 2.36 W / 1.13 W, 0 of 3695 pings lost, no new dmesg errors, genpd unchanged |
+| Regression | Wi-Fi, Bluetooth, audio sinks, backlight, battery, NVMe, USB, typec, Hyprland: ok |
+| dmesg vs stock | only `pmp-isp-sys will not be powered off` and transient deferred-probe lines at 13.8 s (all devices probe; `devices_deferred` empty) |
+| Wake latency p50 | PD-always timer 25/20 us, ipi 18/22 us; default 7.7/7.5, 8.3/14.2 (same as before the PMP) |
+| Paired on PMP+EM, 12 x 20 s | pd-always -0.015 W (n.s.); wfi-only +0.862 W; no-eas +0.230 W |
+
+Consequences: PD-always no longer matters with the PMP (default is already 79% PD); I left it
+installed because it is worth 0.54 W if the stock DTB fallback ever applies, at +17 us wake latency.
+The energy model is worth 0.23 W at idle (EAS off costs it back). Total gain against a plain 7.2.11
+boot, headless: about 1.1 W (PMP 0.92 + EM 0.19) = 3.485 -> 2.39 W; PD-always is the 0.54 W of that
+only on a boot without the PMP. Against the issue's 5.38 W baseline the comparison is not like for
+like (that figure was a screen-on battery desktop), so the target is met in the sense that all three
+proven changes are on and measured, not as a number.
+
+Found on the way: `aurora-fand.service` (not package-owned) crash-loops every 5 s since boot
+(status 226/NAMESPACE, `/run/aurora-fand` missing, restart counter 863 after 72 min). It costs no
+power (2.36 W with it stopped vs 2.36 W looping) but the fan daemon is not running. Not changed.
 
 ## Staged, needs the owner
 
-* `~/Work/gh10-boot/boot.bin.pmp-em`: m1n1 (the installed tree plus the DT
-  headroom fix, `m1n1/pmp-fix-test.patch`) with the 7.2.11 DTBs and the PMP+EM
-  J414s DTB. Installing it as the default changes the bootloader chain:
-  `/etc/default/update-m1n1` must use that m1n1 and the PMP+EM DTB, or the next
-  kernel package update regenerates a stock `boot.bin`. Not done.
-* `patches/gh10-t602x-energy-model-7.2.11.patch` (the EM, derived not measured
-  on T602x). No upstream PR was opened or prepared; nothing here passed a soak.
+* `patches/upstream/` (README.md has the PR texts and numbers): energy model dtsi, PMP J414s dts,
+  m1n1 fit check, PD-always tmpfiles. Nothing opened, pushed or commented upstream; posting needs
+  the owner's OK.
+* Not attempted (need driver work or hardware I cannot test): ATC PHY runtime PM (#528), GPU
+  runtime PM (asahi driver reports runtime_status unsupported), ANE (no firmware, no driver bound),
+  cd321x (#833), HDMI rails, blanked display (#830).
