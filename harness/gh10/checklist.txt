@@ -1,0 +1,11 @@
+GH-10 checklist (tick = append DONE <item> to this file)
+1. verify boot (PMP up, EM, PD always)
+2. idle power confirmation on the installed default: sudo harness/gh10/measure.sh default-pmp-em 16 (vs stock2 control in data/idle_erikwb/boot-stock2)
+3. regression checks: wifi (ping + iperf-less download), bluetooth up, audio sink present, brightness/backlight, USB-C ports enumerate, NVMe, battery readout, hyprland up, headless toggle (omarchy-headless), dmesg errors vs stock2 dmesg
+4. wake latency from CPU idle (tools/wakelat.c) with PMP+EM vs recorded stock numbers
+5. 1 h soak: idle (headless) log power + dmesg + ping; no hangs, no new errors
+6. second paired A/B for PD always on top of PMP+EM (tools/idle-ab.py: pd vs wfi settings)
+7. try the rest if safe: GPU/gfx domain runtime state, cd321x/ATC findings (document; no hotplug)
+8. stage patches/upstream/ branches + PR texts (NOT posted): pmp+em dts, PD always, any kernel change; owner OK needed to post
+9. docs: idle-candidates.md, status.md, worklog.md final totals; commit+push
+10. GH-8 handoff: tell the GH-8 agent (session b00687d8-28dd-4b63-8d60-e14d50d972ad, worktree GH-8-S2R-NextSteps) GH-10 is ready, S2R may continue, may reboot as needed; pass: don't stop until done, update any test kernels to the latest aurora version, if something needs approval work on something else and notify the owner with agentmail and agent-notify (hey@jjrpf.com). Restore the boot hook to the GH-8 originals (~/.local/bin/deepidle-resume.gh8-bak, ~/.local/state/deepidle/boot-prompt.gh8-bak.txt) with the handoff text prepended.
