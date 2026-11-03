@@ -45,7 +45,7 @@ case $STEP in step0) BIN=$BIN0; SHA=$SHA0 ;; step1) BIN=$BIN1; SHA=$SHA1 ;; step
 [ "$(sha256sum $STOCK | cut -c1-16)" = $STOCKSHA ] || { echo "stock boot.bin copy missing or wrong"; exit 1; }
 [ "$(sha256sum $BIN | cut -c1-16)" = $SHA ] || { echo "test boot.bin $BIN missing or wrong"; exit 1; }
 [ "$(sha256sum /boot/m1n1/boot.bin | cut -c1-16)" = $STOCKSHA ] || { echo "ESP boot.bin is not stock; stopping"; exit 1; }
-[ -z "$(grub-editenv /boot/grub/grubenv list | grep next_entry || true)" ] || { echo "a next_entry is already set; stopping"; exit 1; }
+[ -z "$(grub-editenv /boot/grub/grubenv list | grep -E "^next_entry=.+" || true)" ] || { echo "a next_entry is already set; stopping"; exit 1; }
 systemctl cat linux-modules-cleanup.service | grep -q keep-pinned || { echo "keep-pinned drop-in missing"; exit 1; }
 for d in /usr/lib/modules/*/; do
     [ -e "$d/.keep" ] || pacman -Qoq "$d" >/dev/null 2>&1 || { echo "unprotected module tree $d"; exit 1; }
