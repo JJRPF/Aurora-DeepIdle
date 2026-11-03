@@ -1,0 +1,71 @@
+== wifi
+wlan0            UP             6c:7e:67:bf:c7:03 <BROADCAST,MULTICAST,UP,LOWER_UP> 
+	Interface wlan0
+		ssid LiveFreeOrDie
+--- 1.1.1.1 ping statistics ---
+5 packets transmitted, 5 received, 0% packet loss, time 4006ms
+rtt min/avg/max/mdev = 6.217/7.005/9.774/1.386 ms
+== bluetooth
+Controller 6C:7E:67:CA:E2:2E (public)
+	Powered: yes
+== audio
+ ├─ Sinks:
+ │      35. Built-in Audio Stereo               [vol: 0.40]
+ │      47. Built-in Audio Headphones           [vol: 1.00]
+ │      63. Built-in Audio Stereo               [vol: 0.40]
+ │     125. AsahiMicrophone                     [vol: 0.90]
+ │  
+ ├─ Sources:
+--
+== backlight/led
+/sys/class/backlight:
+apple-panel-bl
+
+/sys/class/leds:
+input11::capslock
+input11::compose
+input11::kana
+input11::numlock
+input11::scrolllock
+input3::capslock
+== battery
+Not charging
+82
+12203000
+0
+== nvme
+NAME      SIZE MODEL
+zram0    30.9G 
+nvme0n1 931.8G APPLE SSD AP1024Z
+nvme0n2     3M APPLE SSD AP1024Z
+sudo: smartctl: command not found
+== usb
+Bus 001 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub
+Bus 001 Device 002: ID fee3:10b8 Thomas Haukland cheapino2
+Bus 002 Device 001: ID 1d6b:0003 Linux Foundation 3.0 root hub
+Bus 003 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub
+Bus 003 Device 002: ID 046d:c548 Logitech, Inc. Logi Bolt Receiver
+Bus 004 Device 001: ID 1d6b:0003 Linux Foundation 3.0 root hub
+port0
+port0-partner
+port1
+port1-partner
+port2
+port2-partner
+port3
+port3-partner
+== wm
+Hyprland 0.56.2 built from branch v0.56.2 at commit efb50993780079460b0cbed1363e2166a2de1d9f clean ([gha] Nix: update inputs).
+== thermal
+tas2764-i2c-1-38
+Adapter: PA Semi SMBus adapter (39b044000.i2c)
+temp1:          FAULT  
+
+tas2764-i2c-3-3c
+Adapter: PA Semi SMBus adapter (39b04c000.i2c)
+temp1:          FAULT  
+
+tas2764-i2c-3-3d
+Adapter: PA Semi SMBus adapter (39b04c000.i2c)
+temp1:          FAULT  
+

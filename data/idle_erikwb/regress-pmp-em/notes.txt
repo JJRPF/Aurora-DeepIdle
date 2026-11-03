@@ -1,0 +1,1 @@
+Deferred-probe lines at 13.8 s on PMP boots only: all five devices probed afterwards (/sys/kernel/debug/devices_deferred empty), stock boots probe them 1.4 s earlier. Touch ID error is pre-existing.

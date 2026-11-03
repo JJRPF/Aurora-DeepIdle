@@ -1,0 +1,64 @@
+[    0.079117] apple-dart 3860e8000.iommu: PM domain pmp-isp-sys will not be powered off
+[    8.176663] systemd[1]: /etc/systemd/system/aurora-fand.service:28: Invalid device node path '/sys/class/hwmon', ignoring.
+[    8.176672] systemd[1]: /etc/systemd/system/aurora-fand.service:29: Invalid device node path '/sys/devices/platform/macsmc*', ignoring.
+[   13.711417] kauditd_printk_skb: 82 callbacks suppressed
+[   13.816764] platform led-controller: deferred probe pending: leds_pwm: unable to request PWM for kbd_backlight
+[   13.816773] platform macsmc-rtc: deferred probe pending: platform: wait for supplier /soc/spmi@29e114000/pmic@f/nvmem-layout/rtc-offset@1411
+[   13.816776] i2c 0-0038: deferred probe pending: (reason unknown)
+[   13.816777] i2c 0-003f: deferred probe pending: (reason unknown)
+[   13.816779] i2c 0-003b: deferred probe pending: (reason unknown)
+[   13.817807] ane_t6021 284000000.ane: Direct firmware load for apple/ane/t602x_ane0_fw_selene_rc4x.macho failed with error -2
+[   13.817811] ane_t6021 284000000.ane: cannot load firmware apple/ane/t602x_ane0_fw_selene_rc4x.macho: -2; install it with omarchy-ane-firmware-fetch (or equivalent for your distribution)
+[   13.817815] ane_t6021 284000000.ane: error -ENOENT: firmware preflight failed
+[   13.817822] ane_t6021 284000000.ane: probe with driver ane_t6021 failed with error -2
+[   13.930737] tas2764 1-003a: supply SDZ not found, using dummy regulator
+[   13.936601] tas2764 1-0038: supply SDZ not found, using dummy regulator
+[   13.938046] tas2764 1-0039: supply SDZ not found, using dummy regulator
+[   13.938320] spi-nor spi0.0: supply vcc not found, using dummy regulator
+[   13.945651] tas2764 3-003d: supply SDZ not found, using dummy regulator
+[   13.946337] tas2764 3-003b: supply SDZ not found, using dummy regulator
+[   13.946748] tas2764 3-003c: supply SDZ not found, using dummy regulator
+[   13.990304] hci_bcm4377 0000:01:00.1: resetting
+[   14.099372] hci_bcm4377 0000:01:00.1: reset done
+[   15.383391] ieee80211 phy0: brcmf_c_set_joinpref_default: Set join_pref error (-52)
+[   15.653658] ieee80211 phy0: brcmf_c_set_joinpref_default: Set join_pref error (-52)
+[   16.255523] Bluetooth: hci0: HCI LE Coded PHY feature bit is set, but its usage is not supported.
+[   16.324111] Bluetooth: hci0: Failed to read codec capabilities (-22)
+[   16.325148] Bluetooth: hci0: Failed to read codec capabilities (-22)
+[   16.326620] Bluetooth: hci0: Failed to read codec capabilities (-22)
+[   16.327640] Bluetooth: hci0: Failed to read codec capabilities (-22)
+[   16.331593] Bluetooth: hci0: Failed to read codec capabilities (-22)
+[   16.332615] Bluetooth: hci0: Failed to read codec capabilities (-22)
+[   16.333633] Bluetooth: hci0: Failed to read codec capabilities (-22)
+[   16.335569] Bluetooth: hci0: Failed to read codec capabilities (-22)
+[   16.336582] Bluetooth: hci0: Failed to read codec capabilities (-22)
+[   16.337598] Bluetooth: hci0: Failed to read codec capabilities (-22)
+[   16.489696] ieee80211 phy0: brcmf_p2p_set_firmware: failed to update device address ret -52
+[   16.490708] ieee80211 phy0: brcmf_p2p_create_p2pdev: set p2p_disc error
+[   16.490715] ieee80211 phy0: brcmf_cfg80211_add_iface: add iface p2p-dev-wlan0 type 10 failed: err=-52
+[   17.748197] apple_sep 396400000.sep: sks: load succeeded but bag identity mismatch: stored UUID 8e de 0f 3c 6c a6 46 07 9e e6 60 c1 b4 a3 36 4c, loaded UUID 91 00 f0 60 90 0f 42 a0 a4 d4 b8 e2 e7 cb 63 bc
+[   17.748608] apple_sep 396400000.sep: Touch ID: the persisted identity keybag did not recover
+[   17.748615] apple_sep 396400000.sep: Touch ID: the keybag was made by the 13.5 key store, but this enclave speaks variant 5; if macOS was updated past 26.2, start Touch ID over (install-aurora-sep.sh --reset-touchid) and enrol again
+[   17.748617] apple_sep 396400000.sep: Touch ID activation failed: EIO; refusing retries this boot because a partial keybag load is not safely repeatable
+[   19.700074] kauditd_printk_skb: 179 callbacks suppressed
+[   21.583075] ieee80211 phy0: brcmf_c_set_joinpref_default: Set join_pref error (-52)
+[   21.787253] ieee80211 phy0: brcmf_get_assoc_ies: could not get assoc info (-52)
+[   23.712616] warning: `ThreadPoolForeg' uses wireless extensions which will stop working for Wi-Fi 7 hardware; use nl80211
+[   24.951199] kauditd_printk_skb: 3 callbacks suppressed
+[   25.071853] [UFW BLOCK] IN=wlan0 OUT= MAC=6c:7e:67:bf:c7:03:54:3a:d6:a6:97:c8:08:00 SRC=192.168.1.89 DST=192.168.1.64 LEN=344 TOS=0x00 PREC=0x00 TTL=64 ID=30130 DF PROTO=UDP SPT=57363 DPT=59297 LEN=324 
+[   25.071862] [UFW BLOCK] IN=wlan0 OUT= MAC=6c:7e:67:bf:c7:03:54:3a:d6:a6:97:c8:08:00 SRC=192.168.1.89 DST=192.168.1.64 LEN=355 TOS=0x00 PREC=0x00 TTL=64 ID=30131 DF PROTO=UDP SPT=55848 DPT=59297 LEN=335 
+[   25.071868] [UFW BLOCK] IN=wlan0 OUT= MAC=6c:7e:67:bf:c7:03:54:3a:d6:a6:97:c8:08:00 SRC=192.168.1.89 DST=192.168.1.64 LEN=353 TOS=0x00 PREC=0x00 TTL=64 ID=30132 DF PROTO=UDP SPT=46818 DPT=59297 LEN=333 
+[   25.071925] [UFW BLOCK] IN=wlan0 OUT= MAC=6c:7e:67:bf:c7:03:54:3a:d6:a6:97:c8:08:00 SRC=192.168.1.89 DST=192.168.1.64 LEN=364 TOS=0x00 PREC=0x00 TTL=64 ID=30133 DF PROTO=UDP SPT=44101 DPT=59297 LEN=344 
+[   25.071931] [UFW BLOCK] IN=wlan0 OUT= MAC=6c:7e:67:bf:c7:03:54:3a:d6:a6:97:c8:08:00 SRC=192.168.1.89 DST=192.168.1.64 LEN=400 TOS=0x00 PREC=0x00 TTL=64 ID=30134 DF PROTO=UDP SPT=59173 DPT=59297 LEN=380 
+[   25.071936] [UFW BLOCK] IN=wlan0 OUT= MAC=6c:7e:67:bf:c7:03:54:3a:d6:a6:97:c8:08:00 SRC=192.168.1.89 DST=192.168.1.64 LEN=405 TOS=0x00 PREC=0x00 TTL=64 ID=30135 DF PROTO=UDP SPT=53893 DPT=59297 LEN=385 
+[   25.071940] [UFW BLOCK] IN=wlan0 OUT= MAC=6c:7e:67:bf:c7:03:54:3a:d6:a6:97:c8:08:00 SRC=192.168.1.89 DST=192.168.1.64 LEN=408 TOS=0x00 PREC=0x00 TTL=64 ID=30136 DF PROTO=UDP SPT=51936 DPT=59297 LEN=388 
+[   25.071945] [UFW BLOCK] IN=wlan0 OUT= MAC=6c:7e:67:bf:c7:03:54:3a:d6:a6:97:c8:08:00 SRC=192.168.1.89 DST=192.168.1.64 LEN=359 TOS=0x00 PREC=0x00 TTL=64 ID=30141 DF PROTO=UDP SPT=37041 DPT=59297 LEN=339 
+[   25.071949] [UFW BLOCK] IN=wlan0 OUT= MAC=6c:7e:67:bf:c7:03:54:3a:d6:a6:97:c8:08:00 SRC=192.168.1.89 DST=192.168.1.64 LEN=417 TOS=0x00 PREC=0x00 TTL=64 ID=30137 DF PROTO=UDP SPT=40454 DPT=59297 LEN=397 
+[   25.071954] [UFW BLOCK] IN=wlan0 OUT= MAC=6c:7e:67:bf:c7:03:54:3a:d6:a6:97:c8:08:00 SRC=192.168.1.89 DST=192.168.1.64 LEN=410 TOS=0x00 PREC=0x00 TTL=64 ID=30138 DF PROTO=UDP SPT=52697 DPT=59297 LEN=390 
+[   30.072703] kauditd_printk_skb: 94 callbacks suppressed
+[   45.713750] kauditd_printk_skb: 9 callbacks suppressed
+[   51.122258] kauditd_printk_skb: 1 callbacks suppressed
+[   53.147077] [UFW BLOCK] IN=wlan0 OUT= MAC=6c:7e:67:bf:c7:03:54:3a:d6:a6:97:c8:08:00 SRC=192.168.1.89 DST=192.168.1.64 LEN=355 TOS=0x00 PREC=0x00 TTL=64 ID=31060 DF PROTO=UDP SPT=56728 DPT=50967 LEN=335 
+[   75.416886] [UFW BLOCK] IN=wlan0 OUT= MAC=6c:7e:67:bf:c7:03:54:3a:d6:a6:97:c8:08:00 SRC=192.168.1.89 DST=192.168.1.64 LEN=364 TOS=0x00 PREC=0x00 TTL=64 ID=36483 DF PROTO=UDP SPT=38524 DPT=38063 LEN=344 
+[   99.614449] [UFW BLOCK] IN=wlan0 OUT= MAC=6c:7e:67:bf:c7:03:54:3a:d6:a6:97:c8:08:00 SRC=192.168.1.89 DST=192.168.1.64 LEN=364 TOS=0x00 PREC=0x00 TTL=64 ID=38261 DF PROTO=UDP SPT=51879 DPT=40131 LEN=344 
+[  121.803998] [UFW BLOCK] IN=wlan0 OUT= MAC=6c:7e:67:bf:c7:03:54:3a:d6:a6:97:c8:08:00 SRC=192.168.1.89 DST=192.168.1.64 LEN=355 TOS=0x00 PREC=0x00 TTL=64 ID=38275 DF PROTO=UDP SPT=39039 DPT=59849 LEN=335 
