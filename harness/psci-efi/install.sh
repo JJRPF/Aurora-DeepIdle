@@ -18,8 +18,8 @@ REL=7.2.11-psci-efi+
 STAGE=/home/jjr/Work/staging-psci-efi
 BIN0=/home/jjr/Work/psci-test/boot.bin.aura-stage2; SHA0=19d5f8f627f966a1
 BIN1=/home/jjr/Work/psci-test/boot.bin.psci-test15;  SHA1=a5e3ced5b3007515
-BIN2=/home/jjr/Work/psci-test/boot.bin.psci-test16;  SHA2=6e8cb44e2c109696
-STOCK=/var/lib/deepidle/boot.bin.stock; STOCKSHA=3630adc3b3be173c
+BIN2=/home/jjr/Work/psci-test/boot.bin.psci-test17;  SHA2=42f22aaefef66922
+STOCK=/var/lib/deepidle/boot.bin.default; STOCKSHA=76f850895fed53d1
 stockback() {
     [ "$(sha256sum /boot/m1n1/boot.bin | cut -c1-16)" = $STOCKSHA ] || {
         cp $STOCK /boot/m1n1/boot.bin.tmp && sync && mv /boot/m1n1/boot.bin.tmp /boot/m1n1/boot.bin && sync; }
