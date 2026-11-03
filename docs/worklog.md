@@ -1111,3 +1111,9 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 * Test kernel rebased onto `origin/integration/aurora` (7.2.11); the two RTC wake patches were dropped (upstream has the PMU alarm). Built clean (`7.2.11-psci-efi+`), staged in `~/Work/staging-psci-efi` (modules, Image); `install.sh` REL updated. Not installed to /boot, no reboot.
 * Default `/boot/m1n1/boot.bin` is now the GH-10 PMP+EM image; our test images are still built from `/var/lib/deepidle/boot.bin.stock` (plain) and restored by the early service as before. Keep a copy of the default before any boot.bin swap and restore that one.
 * Approval: the guarded hotplug test needs the owner's yes. Asked by push (agentmail has no API key on this Mac). Meanwhile: wake sources (Phase 2b).
+
+## 2026-11-03 (09:10): second resume, Phase 2b test armed
+* Why we booted: another reboot of the 7.2.11 update (uptime 1 min, running 7.2.11-14-1-ARCH). Pi watcher was already running.
+* Finding: `/boot` (ESP, fstab `nofail`, 5 s device timeout) failed to mount at early boot ("Dependency failed for /boot"), so `psci-efi-early.service` (RequiresMountsFor=/boot) did not run and test image 17 stayed as the live `boot.bin` (the normal kernel still booted). Mounted by hand and restored the PMP+EM default (sha 76f85089...). If this recurs, the restore has to be done by hand; consider a longer device timeout for /boot.
+* Fixed `install.sh`: the "next_entry already set" check matched an empty `next_entry=` line and refused to arm. `run.sh` now defaults to 3 cycles with a 10 s RTC alarm.
+* Armed `install.sh suspend` (image 17 = wake poll on ISR_EL1, 7.2.11-psci-efi+ with maxcpus=1, filesystems ro): each cycle sets an RTC alarm 10 s ahead and `echo mem`; expect elapsed ~10 s (alarm wakes Aura's poll) instead of the 30 s timeout. No hotplug involved. Rebooting now.
