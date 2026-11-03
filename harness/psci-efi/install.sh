@@ -14,7 +14,7 @@
 set -eu
 [ "$(id -u)" = 0 ] || { echo "run with sudo"; exit 1; }
 H=$(cd "$(dirname "$0")" && pwd)
-REL=7.1.12-psci-efi+
+REL=7.2.11-psci-efi+
 STAGE=/home/jjr/Work/staging-psci-efi
 BIN0=/home/jjr/Work/psci-test/boot.bin.aura-stage2; SHA0=19d5f8f627f966a1
 BIN1=/home/jjr/Work/psci-test/boot.bin.psci-test15;  SHA1=a5e3ced5b3007515

@@ -1105,3 +1105,9 @@ Run 16 of `ram` (-1, idle 5, raw log): complete log, clean. So the raw 256 KB O_
 
 ## 2026-11-02: paused for a separate project (owner)
 All work is on main (nothing ahead of origin/main, tree clean), so there is no PR to open from GH-8-S2R-NextSteps; issue #8 stays open and the worktree stays for the S2R work. Nothing is armed (no psci-efi-armed file, no next_entry, stock boot.bin 3630adc3b3be173c on the ESP); psci-efi-run.service disabled. Next when resuming: the proxy-based park/wake test of CPU_OFF/CPU_ON (no OS, no disk), Phase 2b wake sources, then the guarded read-only hotplug test if the owner agrees.
+
+## 2026-11-03: resumed (handoff from GH-10), kernel updated to 7.2.11
+* Why we booted: the owner's/GH-10's kernel update and reboots (uptime 1h43 at start; running 7.2.11-14-1-ARCH). Headless was ACTIVE. The Pi watcher was not running; started it (tag s2r-resume). Nothing armed.
+* Test kernel rebased onto `origin/integration/aurora` (7.2.11); the two RTC wake patches were dropped (upstream has the PMU alarm). Built clean (`7.2.11-psci-efi+`), staged in `~/Work/staging-psci-efi` (modules, Image); `install.sh` REL updated. Not installed to /boot, no reboot.
+* Default `/boot/m1n1/boot.bin` is now the GH-10 PMP+EM image; our test images are still built from `/var/lib/deepidle/boot.bin.stock` (plain) and restored by the early service as before. Keep a copy of the default before any boot.bin swap and restore that one.
+* Approval: the guarded hotplug test needs the owner's yes. Asked by push (agentmail has no API key on this Mac). Meanwhile: wake sources (Phase 2b).
