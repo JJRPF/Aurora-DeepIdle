@@ -124,6 +124,7 @@ PY
 fi
 
 gcc -O2 -o /usr/local/lib/deepidle/mmio-read $H/../mmio/mmio-read.c || exit 1
+gcc -O2 -o /usr/local/lib/deepidle/scan-magic $H/../mmio/scan-magic.c || exit 1
 install -m 755 $H/early.sh /usr/local/lib/deepidle/psci-efi-early.sh
 install -m 755 $H/run.sh /usr/local/lib/deepidle/psci-efi-run.sh
 install -m 644 $H/psci-efi-early.service $H/psci-efi-run.service /etc/systemd/system/
