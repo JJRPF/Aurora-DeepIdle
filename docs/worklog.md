@@ -1205,3 +1205,9 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 
 - With the owner present, a suspend with a 100 s RTC alarm backup was run by hand on the running test boot (`echo mem`, 20 s after the alarm was armed). The owner pressed the power key; the Mac resumed after 28 s, not 100 s, and the wake line recorded by Aura was 865 (0x361), the SMC mailbox `recv-not-empty` line, not the alarm line 724. `rc=0`, the system stayed up.
 - So a power-key event wakes the WFI through the SMC mailbox line. Lid wake goes through the same SMC notifications and is expected to work the same way; it is not tested separately yet.
+
+## 2026-11-04 18:15: image 30, suspend with the PMP on (3/3)
+
+- Update from GH-10: its upstream PRs are posted (aurora-silicon/m1n1#63, linux#932 energy model, linux#933 DRAFT enable PMP on J414s); #933 says S2R with the PMP is not qualified. Per GH-10, #933 is updated only with the owner's OK, so nothing was posted from here.
+- Image 30 (m1n1 image 87c6ecf96828bd9f): Aura with the PMP DT-headroom port and a PSCI DTB that includes the PMP. Test boot on the psci-efi kernel with the PMP running, 3 cycles with a 10 s alarm: all 3 returned `rc=0`. Cycle 1 woke after 3.5 s on line 865 (an SMC mailbox event, no key pressed; unexplained, probably an SMC notification at suspend), cycles 2 and 3 woke on the alarm line 724 at 11.5 s and 11.7 s. So the PMP being on does not break the suspend/WFI wake path.
+- To report to the owner for #933: with the PMP on, the PSCI SYSTEM_SUSPEND stub plus WFI wake (alarm and SMC key line) works 3/3; real power-down is not attempted yet, so S2R with the PMP is still only qualified for this stub level.
