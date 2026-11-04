@@ -1170,3 +1170,8 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 ## 2026-11-04 17:30: image 27: hardware-watchdog safety net around SYSTEM_SUSPEND
 * Why: a hang inside the handler (image 22) kept the Mac away for 42 min until someone reset it; further experiments (deep WFI instead of the busy wait) can hang too and an unattended recovery is the point. The NVMe has already done its clean shutdown (`saveCtx`) by then, so a hardware reset at that point does not lose data.
 * Aura now arms the reset watchdog (WD1, the one `wdt_reboot` uses) for 120 s at SYSTEM_SUSPEND entry and disarms it right before resuming; the WDT registers are in the EFI runtime map (`wdt_psci_base()` is looked up when the ranges are built). Image 27 (the same alarm wake as image 26): expect 3 x ~11 s and no reset. Then a deliberate-hang image to prove the reset really happens. Armed `suspend`; rebooting.
+
+## 2026-11-04 17:15: image 27 result, and the deliberate-hang test of the watchdog
+* Image 27 (watchdog armed 120 s at entry, disarmed on exit): 3 cycles, elapsed 10.85 / 10.83 / 11.06 s, exit reason 1, no reset: the arm/disarm path is harmless.
+* Found again: after that run `/boot/m1n1/boot.bin` was still the test image (the early restore did not run, `/boot` mounts late/fails sometimes); restored by hand.
+* Now image 27-hang (3a4f7aa5...): identical, but after the wake it loops forever instead of disarming. Expected: the watchdog resets the machine ~120 s after entry, the Mac comes back by itself (normal kernel; the test image is restored by the early service or by me). If it does not come back, the watchdog does not work as a safety net on this SoC and the owner has to power-cycle. Armed `suspend`; rebooting.
