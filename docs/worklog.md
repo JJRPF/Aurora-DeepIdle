@@ -1186,3 +1186,9 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 - Second try of `psci-test27-hang`: the psci-efi kernel logged `suspend 1: echo mem ...` at 17:17:48. The Mac then stayed dead (no kernel logs) and the next boot began about 25 s after the 120 s mark (17:20), on the normal kernel: the hardware watchdog armed by Aura's SYSTEM_SUSPEND reset the machine when the handler hung, with no hand reset. This is the unattended recovery net for the S2R work.
 - `psci-efi-early.service` restored the default `boot.bin` (sha 76f850895fed53d1; `/boot` mounted this time) and cleared `next_entry`. The Wi-Fi guard saw Wi-Fi connected at 45 s uptime on both later boots.
 - `install.sh` BIN2 is back to image 27 (the good one, sha 2c1e32f120e35841). Next: replace the busy wait in Aura with a WFI wake under the same watchdog.
+
+## 2026-11-04 17:45: image 28, WFI wake works (3/3)
+
+- Image 28 (`psci-test28`, sha c3716af0e9cb815b): after the 500 ms ignore window, SYSTEM_SUSPEND masks DAIF, unmasks AIC IRQ 724 (the PMU alarm line), runs `wfi`, and on wake checks that HW_STATE for 724 newly asserted, re-masks 724 and returns to Linux. The 120 s watchdog stays armed throughout.
+- Result: 3 of 3 cycles woke at the alarm, `rc=0`, elapsed 11.48 s / 10.77 s / 10.93 s (alarm 10 s + suspend work). Debug words: wake flag 1, exactly one `wfi` return per cycle (no spurious wakes), woke through WFI (flag 1), IRQ 724 masked again afterwards. So the AIC delivers the line to the boot CPU even with DAIF masked, and the busy wait is gone: the core now sleeps in WFI for the whole suspend.
+- Still not a deep sleep (WFI only, no SoC power-down). Next: lid/power-key wake lines (SMC mailbox), then the deeper steps.
