@@ -42,10 +42,13 @@ There are two goals:
   * Open: PMGR's last steps and the boot CPU's wake hand-back, which the
     macOS hypervisor trace (Phase 3) is meant to answer, and DCP resume,
     the long pole.
-* **Progress, 2026-11-02: about 30% of the way to working S2R** (risk-weighted
+* **Progress, 2026-11-04: about 33% of the way to working S2R** (risk-weighted
   guess, wide error bar). Done: timed wake, SMC handshake, macOS trace
-  method, CPU_ON, a firmware that hands the boot CPU back. Not done:
-  hotplug (CPU_OFF/CPU_ON), real wake sources in Aura, PMGR and SoC sleep
+  method, CPU_ON, a firmware that hands the boot CPU back and wakes it on
+  the RTC alarm (Aura watches the AIC's HW_STATE for the PMU alarm line;
+  the kernel's AIC syscore suspend masks every line, so unmasked-IRQ polling
+  does not work, and the real wake must come from the PMU/SMC side). Not
+  done: hotplug (CPU_OFF/CPU_ON), lid/power-key wake in Aura, PMGR and SoC sleep
   steps (Phase 3/5), device resume from power loss, DCP above all.
 * **Older next step:** Phase 1's boot test (not started: each boot step needs the
   owner), and finishing the macOSTest guest runs. State on 2026-10-25: the
