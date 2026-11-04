@@ -1,0 +1,147 @@
+From f19876f4a785303ce0401cc8fb914c022dd02564 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Wed, 4 Nov 2026 18:49:10 -0500
+Subject: [PATCH] TEST: macsmc SetAPPower IDLE across suspend; apple_wdt armed
+ across suspend
+
+---
+ drivers/mfd/macsmc.c            | 38 +++++++++++++++++++++++++++++++++
+ drivers/soc/apple/rtkit.c       |  7 ++++++
+ drivers/watchdog/apple_wdt.c    | 20 +++++++++++++++++
+ include/linux/soc/apple/rtkit.h |  2 ++
+ 4 files changed, 67 insertions(+)
+
+diff --git a/drivers/mfd/macsmc.c b/drivers/mfd/macsmc.c
+index fb9e1d7fa0ba..c0960e14e8ea 100644
+--- a/drivers/mfd/macsmc.c
++++ b/drivers/mfd/macsmc.c
+@@ -534,6 +534,43 @@ static int apple_smc_probe(struct platform_device *pdev)
+ 	return 0;
+ }
+ 
++/*
++ * Test option: tell the SMC the AP is idle (RTKit SetAPPower 0x201, as macOS does at sleep) in suspend_late and on
++ * again in resume_early. Without it the SMC keeps sending syslog messages that end the sleep within seconds.
++ * No slpa: this does not ask the SMC to take the system to sleep.
++ */
++static bool ap_idle_in_suspend = true;
++module_param(ap_idle_in_suspend, bool, 0644);
++MODULE_PARM_DESC(ap_idle_in_suspend, "SetAPPower IDLE to the SMC across system suspend");
++
++static int apple_smc_suspend_late(struct device *dev)
++{
++	struct apple_smc *smc = dev_get_drvdata(dev);
++	int ret;
++
++	if (!ap_idle_in_suspend || !smc)
++		return 0;
++	ret = apple_rtkit_set_ap_power(smc->rtk, 0x201);
++	dev_info(dev, "SetAPPower IDLE: %d\n", ret);
++	return 0;
++}
++
++static int apple_smc_resume_early(struct device *dev)
++{
++	struct apple_smc *smc = dev_get_drvdata(dev);
++	int ret;
++
++	if (!ap_idle_in_suspend || !smc)
++		return 0;
++	ret = apple_rtkit_set_ap_power(smc->rtk, 0x20);
++	dev_info(dev, "SetAPPower ON: %d\n", ret);
++	return 0;
++}
++
++static const struct dev_pm_ops apple_smc_pm_ops = {
++	LATE_SYSTEM_SLEEP_PM_OPS(apple_smc_suspend_late, apple_smc_resume_early)
++};
++
+ static const struct of_device_id apple_smc_of_match[] = {
+ 	{ .compatible = "apple,t8103-smc" },
+ 	{ .compatible = "apple,smc" },
+@@ -545,6 +582,7 @@ static struct platform_driver apple_smc_driver = {
+ 	.driver = {
+ 		.name = "macsmc",
+ 		.of_match_table = apple_smc_of_match,
++		.pm = pm_sleep_ptr(&apple_smc_pm_ops),
+ 	},
+ 	.probe = apple_smc_probe,
+ };
+diff --git a/drivers/soc/apple/rtkit.c b/drivers/soc/apple/rtkit.c
+index 11334b3f68fa..11284c6cd088 100644
+--- a/drivers/soc/apple/rtkit.c
++++ b/drivers/soc/apple/rtkit.c
+@@ -1433,6 +1433,13 @@ int apple_rtkit_poweroff(struct apple_rtkit *rtk)
+ }
+ EXPORT_SYMBOL_GPL(apple_rtkit_poweroff);
+ 
++/* Tell the co-processor the AP's power state (e.g. IDLE 0x201 around system sleep), leaving its own state alone */
++int apple_rtkit_set_ap_power(struct apple_rtkit *rtk, unsigned int state)
++{
++	return apple_rtkit_set_ap_power_state(rtk, state);
++}
++EXPORT_SYMBOL_GPL(apple_rtkit_set_ap_power);
++
+ int apple_rtkit_idle(struct apple_rtkit *rtk)
+ {
+ 	int ret;
+diff --git a/drivers/watchdog/apple_wdt.c b/drivers/watchdog/apple_wdt.c
+index 6b9b0f9b05ce..a7e014c8376d 100644
+--- a/drivers/watchdog/apple_wdt.c
++++ b/drivers/watchdog/apple_wdt.c
+@@ -195,12 +195,25 @@ static int apple_wdt_probe(struct platform_device *pdev)
+ 	return devm_watchdog_register_device(dev, &wdt->wdd);
+ }
+ 
++/*
++ * Test option: keep the watchdog armed across system suspend, with this many seconds, so that a hang in the
++ * last steps of a suspend (or in firmware) resets the machine instead of needing a hand at the power key.
++ * 0 stops it in suspend as before.
++ */
++static unsigned int suspend_timeout = 120;
++module_param(suspend_timeout, uint, 0644);
++MODULE_PARM_DESC(suspend_timeout, "seconds the watchdog stays armed across suspend (0: stopped)");
++
+ static int apple_wdt_resume(struct device *dev)
+ {
+ 	struct apple_wdt *wdt = dev_get_drvdata(dev);
+ 
++	if (suspend_timeout)
++		apple_wdt_set_timeout(&wdt->wdd, wdt->wdd.timeout);
+ 	if (watchdog_active(&wdt->wdd) || watchdog_hw_running(&wdt->wdd))
+ 		apple_wdt_start(&wdt->wdd);
++	else if (suspend_timeout)
++		apple_wdt_stop(&wdt->wdd);
+ 
+ 	return 0;
+ }
+@@ -209,6 +222,13 @@ static int apple_wdt_suspend(struct device *dev)
+ {
+ 	struct apple_wdt *wdt = dev_get_drvdata(dev);
+ 
++	if (suspend_timeout) {
++		writel_relaxed(0, wdt->regs + APPLE_WDT_WD1_CTRL);
++		writel_relaxed(0, wdt->regs + APPLE_WDT_WD1_CUR_TIME);
++		writel_relaxed(wdt->clk_rate * suspend_timeout, wdt->regs + APPLE_WDT_WD1_BITE_TIME);
++		writel_relaxed(APPLE_WDT_CTRL_RESET_EN, wdt->regs + APPLE_WDT_WD1_CTRL);
++		return 0;
++	}
+ 	if (watchdog_active(&wdt->wdd) || watchdog_hw_running(&wdt->wdd))
+ 		apple_wdt_stop(&wdt->wdd);
+ 
+diff --git a/include/linux/soc/apple/rtkit.h b/include/linux/soc/apple/rtkit.h
+index 1ba27a92e2b1..f75786e73068 100644
+--- a/include/linux/soc/apple/rtkit.h
++++ b/include/linux/soc/apple/rtkit.h
+@@ -197,6 +197,8 @@ int apple_rtkit_poweroff(struct apple_rtkit *rtk);
+  */
+ int apple_rtkit_idle(struct apple_rtkit *rtk);
+ 
++int apple_rtkit_set_ap_power(struct apple_rtkit *rtk, unsigned int state);
++
+ /*
+  * Checks if RTKit is running and ready to handle messages.
+  */
+-- 
+2.55.0
+
