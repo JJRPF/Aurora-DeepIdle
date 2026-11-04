@@ -1199,3 +1199,4 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 - Result with the RTC alarm only: 3 of 3 woke on line 724 (0x2d4), `rc=0`, 11.1 / 11.0 / 11.1 s, one WFI return each; line 865 stayed quiet, so it causes no false wakes.
 - Open: whether a power-key or lid event really raises 865 during suspend. That needs a person to press the key during a long-alarm suspend (the owner; I cannot do it unattended). Wi-Fi and Bluetooth after resume are still the other open items.
 - Project board: item added for the WFI wake (Done).
+- Resume quality in image 29's three cycles: no `hci0` errors or timeouts and no Wi-Fi firmware crash after resume; the only Wi-Fi line is `brcmf_netdev_start_xmit: xmit rejected` while the stack is being suspended, which is harmless. The earlier Bluetooth/Wi-Fi problems were not reproduced, so they are parked rather than fixed.
