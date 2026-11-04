@@ -1,0 +1,10 @@
+[Unit]
+Description=Reboot if Wi-Fi is not connected 120 s after boot
+After=NetworkManager.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/lib/deepidle/wifi-guard.sh
+
+[Install]
+WantedBy=multi-user.target
