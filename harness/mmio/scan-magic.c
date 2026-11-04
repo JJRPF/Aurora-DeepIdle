@@ -29,7 +29,7 @@ int main(int argc, char **argv)
 		for (uint64_t i = 0; i < len / 8; i++)
 			if (p[i] == magic) {
 				printf("0x%llx:", (unsigned long long)(a + i * 8));
-				for (int k = 1; k <= 8 && i + k < len / 8; k++)
+				for (int k = 1; k <= 24 && i + k < len / 8; k++)
 					printf(" %llx", (unsigned long long)p[i + k]);
 				printf("\n");
 			}
