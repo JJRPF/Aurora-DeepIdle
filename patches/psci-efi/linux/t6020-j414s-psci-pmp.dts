@@ -1,0 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0+ OR MIT
+/* Test variant: PSCI-via-EFI conduit (t6020-j414s-psci.dts) with the PMP booted (t6020-j414s-pmp.dts). */
+#define APPLE_USE_PMP
+#include "t6020-j414s-psci.dts"
