@@ -1,0 +1,458 @@
+diff --git i/src/aic.c w/src/aic.c
+index e7f02d49..83706465 100644
+--- i/src/aic.c
++++ w/src/aic.c
+@@ -210,3 +210,22 @@ uint32_t aic_ack(void)
+ {
+     return read32(aic->base + aic->regs.event);
+ }
++
++/* Unmask the interrupt an event word (as read by aic_ack) names, so a still-asserted line is delivered again */
++void aic_unmask_event(uint32_t ev)
++{
++    u32 die = (ev >> 24) & 0xff;
++    u32 irq = ev & 0xffff;
++    write32(aic->base + aic->regs.mask_clr + die * aic->intmaskclear_stride + MASK_REG(irq), MASK_BIT(irq));
++}
++
++/*
++ * Read (and so acknowledge) the AP event register. AIC2 keeps it in its own 16K page after the 0xc000 bytes of
++ * core registers (the DT's second "event" reg), not at AIC_EVENT as on AIC1. Not for AIC3, which returns 0.
++ */
++uint32_t aic_poll_event(void)
++{
++    if (!aic || aic->version != 2)
++        return 0;
++    return read32(aic->base + 0xc000);
++}
+diff --git i/src/aic.h w/src/aic.h
+index fb377041..f417c7b8 100644
+--- i/src/aic.h
++++ w/src/aic.h
+@@ -41,5 +41,7 @@ void aic_init(void);
+ void aic_set_sw(int irq, bool active);
+ void aic_write(u32 reg, u32 val);
+ uint32_t aic_ack(void);
++void aic_unmask_event(uint32_t ev);
++uint32_t aic_poll_event(void);
+ 
+ #endif
+diff --git i/src/kboot.c w/src/kboot.c
+index d594ea6e..28729c81 100644
+--- i/src/kboot.c
++++ w/src/kboot.c
+@@ -3906,6 +3906,29 @@ static bool skip_pmp_prop(const char *prop_name)
+     return false;
+ }
+ 
++/*
++ * Bytes dt_set_pmp() adds to the device tree: one "apple,tunable-<name>" property per PMP tunable,
++ * each with its FDT property header, its value padded to four bytes and its name in the strings.
++ * A T6020 has 81 of them, about 16K, which the 96K of headroom does not hold once the rest of
++ * kboot_prepare_dt() has used it.
++ */
++static u32 pmp_tunables_size(void)
++{
++    int pmp_iop_anode = adt_path_offset(adt, "/arm-io/pmp/iop-pmp-nub");
++    u32 need = 0;
++
++    if (pmp_iop_anode < 0)
++        return 0;
++    ADT_FOREACH_PROPERTY(adt, pmp_iop_anode, prop)
++    {
++        if (skip_pmp_prop(prop->name))
++            continue;
++        need += sizeof(struct fdt_property) + ALIGN_UP(prop->size & 0x7fffffff, 4) +
++                strlen("apple,tunable-") + strlen(prop->name) + 1;
++    }
++    return need;
++}
++
+ static int dt_set_pmp(void)
+ {
+     int pmp_node = fdt_path_offset(dt, "pmp");
+@@ -3927,6 +3950,20 @@ static int dt_set_pmp(void)
+         bail("ADT: failed to get dram vendor id\n");
+     ADT_GETPROP(adt, pmp_iop_anode, "dram-capacity", &dram_capacity);
+ 
++    /*
++     * Copy the tunables only if they fit with room left for what runs after this: a copy that
++     * stops half way leaves a PMP node with some of its tunables, and a bail() here ends the boot.
++     * Without the copy the node keeps its status from the device tree (disabled), so the Mac boots
++     * without the PMP and says why.
++     */
++    u32 need = pmp_tunables_size();
++    u32 free_space = fdt_totalsize(dt) - fdt_off_dt_strings(dt) - fdt_size_dt_strings(dt);
++    if (need + SZ_16K > free_space) {
++        printf("FDT: pmp left disabled: its tunables need %u bytes, %u free (raise the headroom)\n",
++               need, free_space);
++        return 0;
++    }
++
+     if (fdt_setprop_u32(dt, pmp_node, "apple,board-id", board_id))
+         bail("FDT: failed to set board id\n");
+     if (fdt_setprop_u32(dt, pmp_node, "apple,dram-vendor-id", dram_vendor_id))
+@@ -4697,6 +4734,9 @@ int kboot_prepare_dt(void *fdt)
+     assert(dt_bufsize);
+ 
+     dt_bufsize += 6 * SZ_16K; // Add 96K of buffer for modifications
++    // A device tree with a pmp alias takes the PMP tunables (about 16K on a T6020)
++    if (fdt_path_offset(fdt, "pmp") >= 0)
++        dt_bufsize += ALIGN_UP(pmp_tunables_size(), SZ_16K) + SZ_16K;
+     dt = memalign(DT_ALIGN, dt_bufsize);
+ 
+     if (fdt_open_into(fdt, dt, dt_bufsize) < 0)
+diff --git i/src/psci.c w/src/psci.c
+index 444d71e5..2f2c4cc7 100644
+--- i/src/psci.c
++++ w/src/psci.c
+@@ -1,14 +1,17 @@
+ /* SPDX-License-Identifier: MIT */
+ 
++#include "memory.h"
++#include "aic.h"
+ #include "psci.h"
++#include "wdt.h"
+ #include "smp.h"
+ #include "types.h"
+ 
+ /*
+  * CPU_ON, CPU_OFF and AFFINITY_INFO for the secondaries; the CPU work is in
+  * smp.c (smp_psci_*), next to the spin table and the PMGR CPU start/stop it
+- * reuses. CPU_SUSPEND and SYSTEM_SUSPEND are not offered yet: cpuidle stays
+- * with the kernel's Apple driver, and system suspend is the next phase.
++ * reuses. CPU_SUSPEND is not offered: cpuidle stays with the kernel's Apple
++ * driver. SYSTEM_SUSPEND is a wait-and-resume stub for now (Phase 2a).
+  */
+ 
+ static unsigned long psci_affinity_info(unsigned long target_affinity,
+@@ -20,6 +23,154 @@ static unsigned long psci_affinity_info(unsigned long target_affinity,
+     return smp_psci_affinity_info(target_affinity);
+ }
+ 
++/*
++ * SYSTEM_SUSPEND with the SoC kept on (S2R plan, Phase 2): the kernel has quiesced everything and masked
++ * interrupts. The boot CPU powers down in WFI without state retention (CYC_OVRD WFI_MODE 3 + DISABLE_WFI_RET,
++ * as a parked secondary does) and the AIC wakes it on a wake line; it then comes back through its RVBAR into
++ * _cpu_reset_c(), which calls psci_suspend_rvbar() below instead of m1n1_main(), and that resumes the kernel at
++ * its entry point, MMU and caches off, as a PSCI resume. If the core keeps its state after all, the WFI just
++ * returns and the same wake handling runs here.
++ */
++#define SUSPEND_MIN_MS 500 /* ignore wake lines for this long after entry */
++#define SUSPEND_WDT_S  120 /* hardware reset if no wake line ever brings the CPU back */
++#define RESUME_MAGIC   0x5253554d45ULL /* "RSUME" */
++
++/* Debug words Linux reads back (found by scan-magic): see run.sh for the layout */
++volatile u64 psci_dbg[24] __attribute__((used));
++
++/* Wake lines (AIC2 event numbers): 724 nub-spmi0 (PMU alarm), 865 smc mailbox recv-not-empty (key/lid events) */
++static const unsigned wake_irq[2] = {724, 865};
++
++/* What the RVBAR re-entry needs, cleaned to the PoC: it runs with the MMU and caches off */
++static volatile struct {
++    u64 magic, entry, context, start, frq;
++    u32 basew[2];
++} psci_resume __attribute__((aligned(64)));
++
++static u64 wake_hw_word(unsigned i)
++{
++    return aic->base + aic->regs.mask_clr + 4 * (aic->max_irq >> 5) + 4 * (wake_irq[i] >> 5);
++}
++
++/* The wake line that newly asserted since entry, or -1 */
++static int psci_wake_line(void)
++{
++    for (unsigned i = 0; i < 2; i++) {
++        u32 w = read32(wake_hw_word(i)) & BIT(wake_irq[i] & 31);
++        if (w & ~psci_resume.basew[i])
++            return wake_irq[i];
++    }
++    return -1;
++}
++
++static void psci_sleep_core(void)
++{
++    /* Power the core down without retention; a wake restarts it at RVBAR (or returns here if it retained) */
++    reg_mask(SYS_IMP_APL_CYC_OVRD, CYC_OVRD_WFI_MODE_MASK, CYC_OVRD_WFI_MODE(3) | CYC_OVRD_DISABLE_WFI_RET);
++    asm volatile("dsb sy\n isb\n wfi\n isb" ::: "memory");
++}
++
++static void __attribute__((noreturn)) psci_resume_kernel(int line, int via_rvbar)
++{
++    u64 now;
++
++    for (unsigned i = 0; i < 2; i++)
++        write32(aic->base + aic->regs.mask_set + 4 * (wake_irq[i] >> 5), BIT(wake_irq[i] & 31));
++    asm volatile("isb\n mrs %0, cntpct_el0" : "=r"(now));
++    wdt_psci_disarm();
++    psci_resume.magic = 0;
++    psci_dbg[3] = 1;
++    psci_dbg[4] = line;
++    psci_dbg[5] = now - psci_resume.start;
++    psci_dbg[13] = via_rvbar ? 2 : 1; /* 2: the core lost its state and came back through RVBAR */
++    psci_dbg[15] = mrs(SYS_IMP_APL_CYC_OVRD);
++    psci_dbg[0] = 0xA0AA0001;
++    dc_civac_range((void *)&psci_resume, sizeof(psci_resume));
++    dc_civac_range((void *)psci_dbg, sizeof(psci_dbg));
++    psci_enter(psci_resume.entry, psci_resume.context);
++}
++
++bool psci_suspend_resuming(void)
++{
++    dc_ivac_range((void *)&psci_resume, sizeof(psci_resume));
++    return psci_resume.magic == RESUME_MAGIC;
++}
++
++/* RVBAR re-entry of the boot CPU from psci_system_suspend(), after init_cpu() and exception_initialize() */
++void __attribute__((noreturn)) psci_suspend_rvbar(void)
++{
++    int line;
++
++    asm volatile("msr daifset, #0xf\n isb" ::: "memory");
++    dc_ivac_range((void *)psci_dbg, sizeof(psci_dbg));
++    psci_dbg[12]++;
++    while ((line = psci_wake_line()) < 0) {
++        /* not a wake line (a stray event): sleep again */
++        psci_sleep_core();
++        psci_dbg[12]++;
++    }
++    psci_resume_kernel(line, 1);
++}
++
++static unsigned long psci_system_suspend(unsigned long entry, unsigned long context)
++{
++    u64 now, hcr, daif;
++    int line;
++
++    wdt_psci_arm(SUSPEND_WDT_S);
++    asm volatile("mrs %0, hcr_el2" : "=r"(hcr));
++    asm volatile("mrs %0, daif" : "=r"(daif));
++    for (unsigned i = 0; i < 24; i++)
++        psci_dbg[i] = 0;
++    psci_dbg[1] = hcr;
++    psci_dbg[2] = daif;
++    psci_dbg[14] = mrs(SYS_IMP_APL_CYC_OVRD);
++
++    if (!aic || aic->version != 2) {
++        psci_dbg[3] = 2;
++        wdt_psci_disarm();
++        psci_dbg[0] = 0xA0AA0001;
++        dc_civac_range((void *)psci_dbg, sizeof(psci_dbg));
++        psci_enter(entry, context);
++    }
++
++    psci_resume.entry = entry;
++    psci_resume.context = context;
++    asm volatile("mrs %0, cntfrq_el0" : "=r"(psci_resume.frq));
++    asm volatile("isb\n mrs %0, cntpct_el0" : "=r"(psci_resume.start));
++    /* Ignore wake sources for the first SUSPEND_MIN_MS (Linux is still finishing its own suspend work) */
++    do {
++        asm volatile("isb\n mrs %0, cntpct_el0" : "=r"(now));
++    } while (now - psci_resume.start < psci_resume.frq / 1000 * SUSPEND_MIN_MS);
++
++    for (unsigned i = 0; i < 2; i++)
++        psci_resume.basew[i] = read32(wake_hw_word(i)) & BIT(wake_irq[i] & 31);
++    psci_dbg[11] = 0x100000000UL | psci_resume.basew[0] | ((u64)psci_resume.basew[1] << 16);
++    psci_resume.magic = RESUME_MAGIC;
++
++    /*
++     * All of DAIF masked (WFI still wakes on a pending interrupt, and Linux's vectors never run); the wake lines
++     * unmasked at the AIC for the wait and masked again afterwards as Linux's syscore suspend left them. A line
++     * already asserted would end every WFI at once, so it stays masked.
++     */
++    asm volatile("msr daifset, #0xf\n isb" ::: "memory");
++    for (unsigned i = 0; i < 2; i++)
++        if (!psci_resume.basew[i])
++            write32(aic->base + aic->regs.mask_clr + 4 * (wake_irq[i] >> 5), BIT(wake_irq[i] & 31));
++    dc_civac_range((void *)&psci_resume, sizeof(psci_resume));
++    dc_civac_range((void *)psci_dbg, sizeof(psci_dbg));
++    dc_civac_range((void *)aic, sizeof(*aic));
++    dc_civac_range((void *)&aic, sizeof(aic));
++
++    for (;;) {
++        psci_sleep_core();
++        psci_dbg[12]++;
++        if ((line = psci_wake_line()) >= 0)
++            break;
++    }
++    psci_resume_kernel(line, 0);
++}
++
+ unsigned long psci_efi_handler(unsigned long fid, unsigned long arg0, unsigned long arg1,
+                                unsigned long arg2)
+ {
+@@ -34,6 +185,8 @@ unsigned long psci_efi_handler(unsigned long fid, unsigned long arg0, unsigned l
+             return smp_psci_cpu_off();
+         case PSCI_0_2_FN64_CPU_ON:
+             return smp_psci_cpu_on(arg0, arg1, arg2);
++        case PSCI_1_0_FN64_SYSTEM_SUSPEND:
++            return psci_system_suspend(arg0, arg1);
+         case PSCI_0_2_FN64_AFFINITY_INFO:
+             return psci_affinity_info(arg0, arg1);
+         default:
+@@ -53,5 +206,6 @@ const struct psci_efi_table psci_efi_table = {
+             [PSCI_FN(PSCI_0_2_FN_CPU_OFF)] = PSCI_RET_SUCCESS,
+             [PSCI_FN(PSCI_0_2_FN64_CPU_ON)] = PSCI_RET_SUCCESS,
+             [PSCI_FN(PSCI_0_2_FN64_AFFINITY_INFO)] = PSCI_RET_SUCCESS,
++            [PSCI_FN(PSCI_1_0_FN64_SYSTEM_SUSPEND)] = PSCI_RET_SUCCESS,
+         },
+ };
+diff --git i/src/psci.h w/src/psci.h
+index 92d225ab..896f0489 100644
+--- i/src/psci.h
++++ w/src/psci.h
+@@ -31,6 +31,7 @@ enum psci_fn_id {
+     PSCI_0_2_FN64_CPU_ON = 0xc4000003,
+     PSCI_0_2_FN64_AFFINITY_INFO = 0xc4000004,
+     PSCI_1_0_FN_PSCI_FEATURES = 0x8400000a,
++    PSCI_1_0_FN64_SYSTEM_SUSPEND = 0xc400000e,
+ };
+ 
+ enum psci_ret {
+@@ -63,6 +64,9 @@ struct psci_efi_table {
+ 
+ extern const struct psci_efi_table psci_efi_table;
+ 
++bool psci_suspend_resuming(void);
++void psci_suspend_rvbar(void) __attribute__((noreturn));
++
+ unsigned long psci_efi_handler(unsigned long fid, unsigned long arg0, unsigned long arg1,
+                                unsigned long arg2);
+ 
+diff --git i/src/smp.c w/src/smp.c
+index 4c866a6c..aad97a9d 100644
+--- i/src/smp.c
++++ w/src/smp.c
+@@ -4,6 +4,7 @@
+ #include "psci.h"
+ #include "adt.h"
+ #include "aic.h"
++#include "wdt.h"
+ #include "aic_regs.h"
+ #include "cpu_regs.h"
+ #include "memory.h"
+@@ -1064,7 +1065,7 @@ int smp_psci_cpu_on(u64 mpidr, u64 entry, u64 context)
+  * us stays reachable), HCR_EL2 back to its reset value (the kernel ran as a VHE host), then
+  * x0 = context, branch to the entry.
+  */
+-void psci_enter(u64 entry, u64 context) __attribute__((noreturn));
++
+ asm(".text\n.globl psci_enter\npsci_enter:\n"
+     "mrs x2, sctlr_el2\n"
+     "bic x2, x2, #(1 << 0)\n"
+@@ -1162,8 +1163,14 @@ int smp_psci_mmio_ranges(u64 *ranges, int max)
+         smp_psci_add_range(ranges, max, &n, cpu_start_base + cpu_info[i].die * PMGR_DIE_OFFSET,
+                            0x100);
+     }
+-    if (!cpu_features->fast_ipi && aic)
+-        smp_psci_add_range(ranges, max, &n, aic->base, SZ_16K);
++    u64 wdt = wdt_psci_base();
++    if (wdt)
++        smp_psci_add_range(ranges, max, &n, wdt, 0x20);
++    if (aic) {
++        /* the AIC's event page sits at +0xc000 (AIC2); the system-suspend wake poll reads it */
++        u64 aic_size = aic->version == 2 ? 0xd000 : SZ_16K;
++        smp_psci_add_range(ranges, max, &n, aic->base, aic_size);
++    }
+ 
+     return n;
+ }
+diff --git i/src/smp.h w/src/smp.h
+index 9f9840e5..79ebc951 100644
+--- i/src/smp.h
++++ w/src/smp.h
+@@ -50,6 +50,7 @@ static inline int smp_id(void)
+ /* PSCI-via-EFI CPU operations (psci.c); return PSCI codes, CPU_OFF only on failure. */
+ int smp_psci_cpu_on(u64 mpidr, u64 entry, u64 context);
+ int smp_psci_cpu_off(void);
++void psci_enter(u64 entry, u64 context) __attribute__((noreturn));
+ int smp_psci_affinity_info(u64 mpidr);
+ int smp_psci_mmio_ranges(u64 *ranges, int max);
+ 
+diff --git i/src/startup.c w/src/startup.c
+index 1b4aabe8..984efd57 100644
+--- i/src/startup.c
++++ w/src/startup.c
+@@ -14,6 +14,7 @@
+ #include "string.h"
+ #include "types.h"
+ #include "uart.h"
++#include "psci.h"
+ #include "utils.h"
+ #include "xnuboot.h"
+ 
+@@ -270,6 +271,8 @@ void _cpu_reset_c(void *stack)
+ 
+     if (!is_boot_cpu())
+         smp_secondary_entry();
++    else if (psci_suspend_resuming())
++        psci_suspend_rvbar(); /* the boot CPU powered down in PSCI SYSTEM_SUSPEND */
+     else
+         m1n1_main();
+ }
+diff --git i/src/wdt.c w/src/wdt.c
+index a509a577..8a7321b2 100644
+--- i/src/wdt.c
++++ w/src/wdt.c
+@@ -82,3 +82,43 @@ int wdt_arm_seconds(unsigned seconds)
+     wdt_base = primary;
+     return 0;
+ }
++
++/*
++ * Safety net for firmware calls that may never return (PSCI SYSTEM_SUSPEND experiments): the reset watchdog
++ * (WD1, as in wdt_reboot) armed for a number of seconds, and disarmed again on the way back. The base is looked
++ * up once at init so the handler need not touch the ADT later.
++ */
++static u64 wdt_psci;
++
++u64 wdt_psci_base(void)
++{
++    int path[8];
++    u64 base, size;
++
++    if (wdt_psci)
++        return wdt_psci;
++    int node = adt_path_offset_trace(adt, "/arm-io/wdt", path);
++    if (node < 0 || adt_get_reg(adt, path, "reg", 0, &base, &size) || (base & 3) || size < 0x20)
++        return 0;
++    wdt_psci = base;
++    return base;
++}
++
++void wdt_psci_arm(unsigned seconds)
++{
++    if (!wdt_psci)
++        return;
++    write32(wdt_psci + WDT_CTL, 0);
++    write32(wdt_psci + WDT_COUNT, 0);
++    write32(wdt_psci + WDT_ALARM, seconds * 24000000u);
++    write32(wdt_psci + WDT_CTL, 4);
++    sysop("dsb sy");
++}
++
++void wdt_psci_disarm(void)
++{
++    if (!wdt_psci)
++        return;
++    write32(wdt_psci + WDT_CTL, 0);
++    sysop("dsb sy");
++}
+diff --git i/src/wdt.h w/src/wdt.h
+index dc4f9f0c..494d4647 100644
+--- i/src/wdt.h
++++ w/src/wdt.h
+@@ -3,8 +3,13 @@
+ #ifndef __WDT_H__
+ #define __WDT_H__
+ 
++#include "types.h"
++
+ void wdt_disable(void);
+ void wdt_reboot(void);
+ int wdt_arm_seconds(unsigned seconds);
++u64 wdt_psci_base(void);
++void wdt_psci_arm(unsigned seconds);
++void wdt_psci_disarm(void);
+ 
+ #endif
