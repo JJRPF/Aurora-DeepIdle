@@ -1,7 +1,8 @@
 [Unit]
 Description=PSCI-via-EFI test: restore the stock m1n1 image early in boot
 DefaultDependencies=no
-RequiresMountsFor=/boot /var/lib/deepidle
+RequiresMountsFor=/var/lib/deepidle
+After=systemd-udev-trigger.service
 ConditionPathExists=/var/lib/deepidle/psci-efi-armed
 Before=sysinit.target
 
