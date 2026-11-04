@@ -87,8 +87,9 @@ machine and what it showed.
   CPU_OFF followed by CPU_ON (hotplug) still hangs the SoC and is unproven;
   it is paused because the hard reset loses the NVMe's cached writes, which
   damaged the owner's filesystem. SYSTEM_SUSPEND on the boot CPU alone
-  (`maxcpus=1`, Aura waits 3 s and hands back) works: 20 of 20 full Linux
-  suspend/resume cycles. Estimate: about 30% of the way to working S2R, with
+  (`maxcpus=1`) works: 20 of 20 full Linux suspend/resume cycles, and Aura now
+  ends its wait on a real wake source, the PMU RTC alarm (3 of 3, about 11 s
+  for a 10 s alarm). Estimate: about 33% of the way to working S2R, with
   the SoC sleep steps and the DCP resume still ahead. The macOS sleep trace
   under the hypervisor uses a separate macOS 14.8.9 volume (newer XNU needs
   SPTM).
