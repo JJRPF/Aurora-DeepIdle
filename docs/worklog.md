@@ -1155,3 +1155,8 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 ## 2026-11-04 16:55: Phase 2b run 10 (image 24): the AIC sees many lines asserted; image 25 looks at IRQ 724 only
 * Image 24 (3 cycles, same 31 s timeouts): debug words show `max_irq` 0x1000 and non-zero HW_STATE words 9, 0xb, 0xe, 0xf, 0x11, 0x12, 0x13 (many unrelated lines asserted) before the list filled up (7 slots); word 22 (IRQ 724 = nub-spmi0, 22*32+20) was beyond it, so no conclusion yet.
 * Image 25: records exactly IRQ 724's HW_STATE word (at ~0.5 s, before the alarm, and at the end), the mask word and the IRQ_CFG word. Armed `suspend`; rebooting.
+
+## 2026-11-04 17:05: Phase 2b run 11 (image 25): why the AIC poll sees nothing; image 26 polls HW_STATE
+* Image 25 words: IRQ 724's HW_STATE word was 0x8 before the alarm and 0x100008 at the end (bit 20 = IRQ 724 asserted: the alarm line does rise during Aura's wait), but its mask word reads 0xffffffff (all lines masked). Reason: the 7.2.11 AIC driver's syscore suspend (`aic_syscore_suspend`: save IRQ_CFG, `aic_mask_all`) runs for PSCI SYSTEM_SUSPEND, as it should for real S2R (macOS masks everything too), so the AP event register never reports it. On the running system word 22 = 0xffefc07f (bit 20 clear = unmasked), so the mask readback semantics are 1 = masked.
+* Consequence for the design: in the real S2R the wake cannot come from an unmasked AIC line. The firmware side has to detect the wake from the PMU/SPMI/SMC side (alarm line in HW_STATE here, power key/lid via the SMC). The stub uses HW_STATE of IRQ 724 because it is non-destructive.
+* Image 26 (HW_STATE bit 20 of word 22 newly set ends the wait). Armed `suspend`; rebooting. Expect elapsed ~10-11 s and exit reason 1.
