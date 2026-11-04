@@ -1200,3 +1200,8 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 - Open: whether a power-key or lid event really raises 865 during suspend. That needs a person to press the key during a long-alarm suspend (the owner; I cannot do it unattended). Wi-Fi and Bluetooth after resume are still the other open items.
 - Project board: item added for the WFI wake (Done).
 - Resume quality in image 29's three cycles: no `hci0` errors or timeouts and no Wi-Fi firmware crash after resume; the only Wi-Fi line is `brcmf_netdev_start_xmit: xmit rejected` while the stack is being suspended, which is harmless. The earlier Bluetooth/Wi-Fi problems were not reproduced, so they are parked rather than fixed.
+
+## 2026-11-04 17:55: key wake works (owner at the Mac, image 29)
+
+- With the owner present, a suspend with a 100 s RTC alarm backup was run by hand on the running test boot (`echo mem`, 20 s after the alarm was armed). The owner pressed the power key; the Mac resumed after 28 s, not 100 s, and the wake line recorded by Aura was 865 (0x361), the SMC mailbox `recv-not-empty` line, not the alarm line 724. `rc=0`, the system stayed up.
+- So a power-key event wakes the WFI through the SMC mailbox line. Lid wake goes through the same SMC notifications and is expected to work the same way; it is not tested separately yet.
