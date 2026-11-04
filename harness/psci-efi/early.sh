@@ -3,6 +3,12 @@
 # so any later boot (watchdog reset, power cycle) is the normal one. Runs only while armed.
 STOCK=/var/lib/deepidle/boot.bin.default
 STOCK_SHA=76f850895fed53d1
+# The test kernel finds the NVMe late; fstab's 5 s device timeout then gives up on /boot (nofail). Wait for it here.
+if ! findmnt -n /boot >/dev/null; then
+    for i in $(seq 90); do [ -e /dev/disk/by-uuid/6407-ED7C ] && break; sleep 1; done
+    mount /boot || { echo "no /boot after ${i}s"; exit 0; }
+    echo "mounted /boot after ${i}s"
+fi
 sha=$(sha256sum /boot/m1n1/boot.bin | cut -c1-16)
 echo "$sha" > /run/psci-efi-booted-sha
 if [ "$sha" != "$STOCK_SHA" ] && [ "$(sha256sum $STOCK | cut -c1-16)" = "$STOCK_SHA" ]; then
