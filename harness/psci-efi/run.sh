@@ -42,7 +42,14 @@ if [ $STEP = suspend ]; then
             { rtcwake -m no -s ${SUSPEND_ALARM:-10} 2>&1 | head -1; log "alarm: $(cat /sys/class/rtc/rtc0/wakealarm 2>&1)"; }
             t0=$(date +%s.%N)
             log "suspend $i: echo mem ..."
-            echo mem > /sys/power/state; rc=$?
+            if [ -e /var/lib/deepidle/suspend-via-systemd ]; then
+                # the real path: runs the /etc/systemd/system-sleep hooks (radios off/on, fprintd) around the suspend
+                systemctl suspend -i; rc=$?
+                log "radios after resume: $(nmcli radio | tail -1); rfkill: $(rfkill -n -o TYPE,SOFT | tr '\n' ' ')"
+                log "sleep hooks: $(journalctl -b --no-pager -o cat -u systemd-suspend.service -n 12 | tr '\n' '|' | cut -c1-400)"
+            else
+                echo mem > /sys/power/state; rc=$?
+            fi
             # Aura's debug words (psci_dbg, ELF symbol 0x1472c8 from the image base): magic, HCR_EL2, DAIF, exit (1 wake line, 2 timeout), last ISR_EL1, ticks
             AB=$(xxd -p /proc/device-tree/chosen/aura,psci-runtime-code | cut -c1-16)
             log "aura dbg (words, low/high pairs): $(/usr/local/lib/deepidle/mmio-read $((0x$AB + 0x1472c8)) 16 | awk '{printf "%s ", $2}')"
