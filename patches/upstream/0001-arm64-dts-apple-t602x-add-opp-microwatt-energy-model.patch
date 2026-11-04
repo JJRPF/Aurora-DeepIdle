@@ -1,7 +1,38 @@
-diff --git i/arch/arm64/boot/dts/apple/t602x-common.dtsi w/arch/arm64/boot/dts/apple/t602x-common.dtsi
+From a174b73a0b0be559ad1f8aa491fc043d477b736e Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Wed, 4 Nov 2026 17:59:56 -0500
+Subject: [PATCH] arm64: dts: apple: t602x: add the CPU energy model (enables
+ EAS on M2 Pro/Max)
+
+T602x has no CPU energy model, so energy-aware scheduling stays off even though
+apple-soc-cpufreq already registers the model from the OPP table: the cluster
+OPP tables carry no opp-microwatt, while T8103, T600x, T8112, T8132 and T8140
+do. Add opp-microwatt to every OPP of both core types.
+
+The values are derived, not measured on T602x: T8112 (M2) has the same cores,
+Blizzard and Avalanche, on the same process, and its opp-microwatt was
+measured with the SMC cluster power meters. Its per-OPP power is fitted to
+P = (a + b f) V^2 f per core type with T6020's voltage for each OPP (from the
+ADT's pmgr voltage-states), and the fit gives T6020's OPPs, within 6% rms of
+T8112's measurements for both core types. The energy per cycle rises from each
+OPP to the next, so no OPP is marked inefficient and cpufreq keeps choosing
+among all of them; only the scheduler's placement changes.
+
+Same-boot A/B on a J414s (M2 Pro), headless idle, kernel.sched_energy_aware 1
+vs 0, 12 paired rounds of 20 s: system power is 0.230 W lower with the energy
+model (lower in 12 of 12; SoC power 0.156 W). All six T602x boards build with
+W=1 and no new warnings.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01RuRMQncGu3ukpyW44vHHjQ
+---
+ arch/arm64/boot/dts/apple/t602x-common.dtsi | 23 +++++++++++++++++++++
+ 1 file changed, 23 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/apple/t602x-common.dtsi b/arch/arm64/boot/dts/apple/t602x-common.dtsi
 index e7b88dfff6bc..b5275a098397 100644
---- i/arch/arm64/boot/dts/apple/t602x-common.dtsi
-+++ w/arch/arm64/boot/dts/apple/t602x-common.dtsi
+--- a/arch/arm64/boot/dts/apple/t602x-common.dtsi
++++ b/arch/arm64/boot/dts/apple/t602x-common.dtsi
 @@ -268,31 +268,37 @@ opp02 {
  			opp-hz = /bits/ 64 <912000000>;
  			opp-level = <2>;
@@ -146,3 +177,6 @@ index e7b88dfff6bc..b5275a098397 100644
  			turbo-mode;
  		};
  	};
+-- 
+2.55.0
+

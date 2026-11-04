@@ -1,0 +1,49 @@
+From cf51795bae01dc63675689f638d046b157940770 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Wed, 4 Nov 2026 18:01:04 -0500
+Subject: [PATCH] arm64: dts: apple: t6020-j414s: enable PMP
+
+Let m1n1 boot the Power Management Processor on the 14-inch MacBook Pro
+(M2 Pro), as t6000-j314s does. With the PMP up, the fabric and DCS p-states
+are the PMP's (pmgr-misc reports "PMP manages fabric and DCS p-states") and
+the DCP, AVD and ISP power domains follow the PMP's report entries (pmp-disp0,
+pmp-dispext0/1, pmp-isp-sys).
+
+Measured on a J414s, headless, nothing attached, the same kernel with and
+without the PMP, one boot each, 16 windows of 30 s: system power 3.485 W ->
+2.566 W (-0.919 W), SoC (heatpipe) 1.990 W -> 1.341 W (-0.649 W). Held for a
+1 h soak with the energy model on top: 2.36 W, 0 of 3695 pings lost, no new
+kernel messages.
+
+This needs an m1n1 that makes room for the PMP's tunables (81 properties,
+about 16K, which the 96K device tree headroom does not hold on a T6020);
+with an older m1n1 the boot stops in m1n1 proxy mode ("failed to transfer pmp tunable", no payload). Merge the
+m1n1 change first. Suspend with the PMP on the J414s is not qualified here
+(it is the S2R work in progress), so only enable this once that is.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01RuRMQncGu3ukpyW44vHHjQ
+---
+ arch/arm64/boot/dts/apple/t6020-j414s.dts | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/apple/t6020-j414s.dts b/arch/arm64/boot/dts/apple/t6020-j414s.dts
+index a227069727dd..7a813db58d80 100644
+--- a/arch/arm64/boot/dts/apple/t6020-j414s.dts
++++ b/arch/arm64/boot/dts/apple/t6020-j414s.dts
+@@ -9,6 +9,12 @@
+ 
+ /dts-v1/;
+ 
++/*
++ * Let m1n1 boot the PMP, which takes over the fabric and DCS p-states
++ * (needs an m1n1 that makes room for the PMP's tunables).
++ */
++#define APPLE_USE_PMP
++
+ #include "t6020.dtsi"
+ #include "t602x-j414-j416.dtsi"
+ 
+-- 
+2.55.0
+
