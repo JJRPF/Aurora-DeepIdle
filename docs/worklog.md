@@ -1192,3 +1192,10 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 - Image 28 (`psci-test28`, sha c3716af0e9cb815b): after the 500 ms ignore window, SYSTEM_SUSPEND masks DAIF, unmasks AIC IRQ 724 (the PMU alarm line), runs `wfi`, and on wake checks that HW_STATE for 724 newly asserted, re-masks 724 and returns to Linux. The 120 s watchdog stays armed throughout.
 - Result: 3 of 3 cycles woke at the alarm, `rc=0`, elapsed 11.48 s / 10.77 s / 10.93 s (alarm 10 s + suspend work). Debug words: wake flag 1, exactly one `wfi` return per cycle (no spurious wakes), woke through WFI (flag 1), IRQ 724 masked again afterwards. So the AIC delivers the line to the boot CPU even with DAIF masked, and the busy wait is gone: the core now sleeps in WFI for the whole suspend.
 - Still not a deep sleep (WFI only, no SoC power-down). Next: lid/power-key wake lines (SMC mailbox), then the deeper steps.
+
+## 2026-11-04 17:50: image 29, WFI wake on two lines (alarm still 3/3)
+
+- Image 29 (`psci-test29`, sha 858beeaece821076): SYSTEM_SUSPEND now waits in WFI with two AIC lines unmasked: 724 (PMU alarm) and 865 (SMC mailbox `recv-not-empty`, where the SMC reports key/lid events). A line already asserted before the wait is left masked (it would end every WFI at once). The debug word for the wake records which line woke it.
+- Result with the RTC alarm only: 3 of 3 woke on line 724 (0x2d4), `rc=0`, 11.1 / 11.0 / 11.1 s, one WFI return each; line 865 stayed quiet, so it causes no false wakes.
+- Open: whether a power-key or lid event really raises 865 during suspend. That needs a person to press the key during a long-alarm suspend (the owner; I cannot do it unattended). Wi-Fi and Bluetooth after resume are still the other open items.
+- Project board: item added for the WFI wake (Done).
