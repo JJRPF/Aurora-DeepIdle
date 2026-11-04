@@ -1151,3 +1151,7 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 ## 2026-11-04 16:50: Phase 2b run 9 (image 23): no hang, but the AIC event page stays empty; image 24
 * Image 23: the three `echo mem` cycles ran (no hang: the AIC mapping fixed the image-22 fault) but again ended at the 30 s timeout with `psci_dbg[4]` (event) = 0 and ISR 0: the AIC's AP event register never showed the alarm while Aura waited, although the kernel handles the alarm IRQ right after resume.
 * Image 24 (adds to the debug words): `max_irq` and the first non-zero AIC2 HW_STATE words (index, value) at the end of the wait, non-destructive: tells whether any interrupt line is asserted at the AIC at all while the kernel is suspended (and which). Armed `suspend`; rebooting.
+
+## 2026-11-04 16:55: Phase 2b run 10 (image 24): the AIC sees many lines asserted; image 25 looks at IRQ 724 only
+* Image 24 (3 cycles, same 31 s timeouts): debug words show `max_irq` 0x1000 and non-zero HW_STATE words 9, 0xb, 0xe, 0xf, 0x11, 0x12, 0x13 (many unrelated lines asserted) before the list filled up (7 slots); word 22 (IRQ 724 = nub-spmi0, 22*32+20) was beyond it, so no conclusion yet.
+* Image 25: records exactly IRQ 724's HW_STATE word (at ~0.5 s, before the alarm, and at the end), the mask word and the IRQ_CFG word. Armed `suspend`; rebooting.
