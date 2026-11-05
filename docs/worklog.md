@@ -1483,3 +1483,12 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 - New Image installed as `/boot/vmlinuz-psci-efi-test` (a6c7ebd748545320, old one in `/var/lib/deepidle/vmlinuz-psci-efi-test.pre-sart`), staging updated. Modules unchanged.
 - The dead-man snapshot also reads the SART’s 16 size words (v3 layout: config `0x00`, address `0x40`, size `0x80`).
 - Armed: image 49, `suspendall`, no `slpa` flags, modes `deep` and `s2idle`, 2 cycles each, 120 s alarm. Expect 4 of 4 back, `entries kept across suspend` 4 times, and identical snapshots.
+
+## 2026-11-05 06:50: SART save and restore: a no-op on normal wakes (4 of 4)
+
+- The test boot came up as planned (06:38, `reboot.sh`, headless ACTIVE, watcher running; the default boot.bin was back early in the boot). Image 49, `suspendall`, no `slpa`, 120 s alarm.
+- **4 of 4 back** (`deep` 122.3 and 122.4 s, `s2idle` 121.0 and 120.4 s), `online 0-9`, 0 device errors, the dead-man switch `disk ok` every time.
+- `apple-sart 34bc50000.sart: entries kept across suspend` 4 times, no `changed` line, so nothing was written. The restore costs nothing on a normal wake.
+- The dead-man snapshots match every cycle (`ps_ans2 1f0000ff`; ANS cpu `00000010 00000028`; SART entries 0 to 5 the same), except **SART entries 6 and 7, whose addresses change every cycle** (`10180dbc`/`1016ced0`, then `100a55b0`/`1000ed44`, …). Those are the NVMe driver’s own RTKit buffers, freed and requested again by its reset after each resume. That happens after `resume_noirq`, so the SART patch does not see them as lost. Entries 0 to 5 (iBoot’s firmware windows) are the ones that matter after `slpa`.
+- The energy figures read 0 W: the Mac was on AC at the 80% limit (“Not charging”), so this run says nothing about power.
+- Ready for the next owner-attended `slpa` run. It now logs whether the SART was cleared (and restores it), and the dead-man snapshot shows the ANS and PMGR state if the disk still fails.
