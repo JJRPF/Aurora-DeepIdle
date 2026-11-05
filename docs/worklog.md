@@ -1374,3 +1374,8 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 - Harness quirk: in cycle 1 `systemctl suspend -i` returned at once (0.67 s, the job was queued) and the suspend ran just after the "back" line; cycles 2 to 20 waited normally. Harmless for the result; noted.
 - A drain measurement is not possible right now: the Mac is on AC and the battery reads "Not charging" at 99%, so `charge_now` does not move. It needs the charger unplugged (owner), and it is only worth doing once SoC sleep steps exist; for now the SoC stays up as in s2idle.
 - The `suspend-via-systemd` flag is removed again.
+
+## 2026-11-04 21:25: image 48, the clean build of image 47
+
+- Image 48 (afaef3840b21e459): image 47 without the diagnostic watchdog stamps (CPU_OFF, park, AFFINITY_INFO, CPU_ON and SYSTEM_SUSPEND stages B to E). SYSTEM_SUSPEND keeps one safety arm, 120 s from entry, disarmed again on the wake (as in image 31); the RVBAR backstop path keeps its own. With the stamps, image 47 re-armed the dog to 95 s for the wait, which would have reset any suspend longer than that. Still test-only: both this 120 s arm and the test kernel's apple_wdt `suspend_timeout=120` cap a suspend at two minutes; real use needs both off.
+- Run: `suspendall`, 20 cycles, `echo mem`, 10 s alarm.

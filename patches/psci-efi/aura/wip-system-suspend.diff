@@ -124,7 +124,7 @@ index d594ea6e..28729c81 100644
  
      if (fdt_open_into(fdt, dt, dt_bufsize) < 0)
 diff --git i/src/psci.c w/src/psci.c
-index 444d71e5..e4d9989d 100644
+index 444d71e5..3ad98a64 100644
 --- i/src/psci.c
 +++ w/src/psci.c
 @@ -1,14 +1,17 @@
@@ -147,7 +147,7 @@ index 444d71e5..e4d9989d 100644
   */
  
  static unsigned long psci_affinity_info(unsigned long target_affinity,
-@@ -20,9 +23,202 @@ static unsigned long psci_affinity_info(unsigned long target_affinity,
+@@ -20,9 +23,198 @@ static unsigned long psci_affinity_info(unsigned long target_affinity,
      return smp_psci_affinity_info(target_affinity);
  }
  
@@ -160,8 +160,7 @@ index 444d71e5..e4d9989d 100644
 + * returns and the same wake handling runs here.
 + */
 +#define SUSPEND_MIN_MS 500 /* ignore wake lines for this long after entry */
-+#define SUSPEND_WDT_S  115 /* image 43: 115, apart from the kernel apple_wdt 120 */ 
-+#define SUSPEND_WDT_S_OLD 120 /* hardware reset if no wake line ever brings the CPU back */
++#define SUSPEND_WDT_S  120 /* hardware reset if no wake line ever brings the CPU back */
 +#define RESUME_MAGIC   0x5253554d45ULL /* "RSUME" */
 +
 +/* Debug words Linux reads back (found by scan-magic): see run.sh for the layout */
@@ -229,7 +228,7 @@ index 444d71e5..e4d9989d 100644
 +        write32(aic->base + aic->regs.mask_set + 4 * (wake_irq[i] >> 5), BIT(wake_irq[i] & 31));
 +    asm volatile("isb\n mrs %0, cntpct_el0" : "=r"(now));
 +    if (!via_rvbar)
-+        wdt_psci_arm(65); /* image 40 stage E: 65 s; the kernel's apple_wdt resume takes the watchdog back */
++        wdt_psci_disarm();
 +    psci_resume.magic = 0;
 +    if (via_rvbar)
 +        wdt_psci_arm(75); /* stage 2: reset 45 s from here unless the kernel's resume takes over its watchdog */
@@ -305,7 +304,6 @@ index 444d71e5..e4d9989d 100644
 +        asm volatile("isb\n mrs %0, cntpct_el0" : "=r"(now));
 +    } while (now - psci_resume.start < psci_resume.frq / 1000 * SUSPEND_MIN_MS);
 +
-+    wdt_psci_arm(105); /* image 40 stage B: after the SUSPEND_MIN_MS wait */
 +    for (unsigned i = 0; i < 2; i++)
 +        psci_resume.basew[i] = read32(wake_hw_word(i)) & BIT(wake_irq[i] & 31);
 +    psci_dbg[11] = 0x100000000UL | psci_resume.basew[0] | ((u64)psci_resume.basew[1] << 16);
@@ -329,14 +327,12 @@ index 444d71e5..e4d9989d 100644
 +    /* image 39: the whole-image clean (images 35 to 38) is left out: 37 and 38 hung with it, 31 passed without */
 +    dc_civac_range((void *)&psci_resume, sizeof(psci_resume));
 +
-+    wdt_psci_arm(95); /* image 40 stage C: entering the WFI loop */
 +    for (;;) {
 +        psci_sleep_core();
 +        psci_dbg[12]++;
 +        if ((line = psci_wake_line()) >= 0)
 +            break;
 +    }
-+    wdt_psci_arm(80); /* image 40 stage D: woken on a wake line */
 +    psci_resume_kernel(line, 0);
 +}
 +
@@ -350,7 +346,7 @@ index 444d71e5..e4d9989d 100644
      switch (fid) {
          case PSCI_0_2_FN_PSCI_VERSION:
              return PSCI_VERSION_1_0;
-@@ -34,6 +230,8 @@ unsigned long psci_efi_handler(unsigned long fid, unsigned long arg0, unsigned l
+@@ -34,6 +226,8 @@ unsigned long psci_efi_handler(unsigned long fid, unsigned long arg0, unsigned l
              return smp_psci_cpu_off();
          case PSCI_0_2_FN64_CPU_ON:
              return smp_psci_cpu_on(arg0, arg1, arg2);
@@ -359,7 +355,7 @@ index 444d71e5..e4d9989d 100644
          case PSCI_0_2_FN64_AFFINITY_INFO:
              return psci_affinity_info(arg0, arg1);
          default:
-@@ -53,5 +251,6 @@ const struct psci_efi_table psci_efi_table = {
+@@ -53,5 +247,6 @@ const struct psci_efi_table psci_efi_table = {
              [PSCI_FN(PSCI_0_2_FN_CPU_OFF)] = PSCI_RET_SUCCESS,
              [PSCI_FN(PSCI_0_2_FN64_CPU_ON)] = PSCI_RET_SUCCESS,
              [PSCI_FN(PSCI_0_2_FN64_AFFINITY_INFO)] = PSCI_RET_SUCCESS,
@@ -390,7 +386,7 @@ index 92d225ab..8356847a 100644
                                 unsigned long arg2);
  
 diff --git i/src/smp.c w/src/smp.c
-index 4c866a6c..dbddb491 100644
+index 4c866a6c..842f66bd 100644
 --- i/src/smp.c
 +++ w/src/smp.c
 @@ -4,6 +4,7 @@
@@ -410,33 +406,7 @@ index 4c866a6c..dbddb491 100644
          printf("  Index: %d (table: %p)\n\n", index, me);
  
      me->mpidr = mpidr;
-@@ -1004,7 +1005,16 @@ int smp_psci_affinity_info(u64 mpidr)
-      * after its last memory access, just before the power-down.
-      */
-     dc_civac_range(&psci_cpu_state[index], 1);
--    return psci_cpu_state[index] == PSCI_CPU_ON ? PSCI_AFFINITY_INFO_ON : PSCI_AFFINITY_INFO_OFF;
-+    if (psci_cpu_state[index] == PSCI_CPU_ON) {
-+        if (index == 1)
-+            wdt_psci_arm(90); /* the boot CPU asked, the core still reads ON */
-+        return PSCI_AFFINITY_INFO_ON;
-+    }
-+    if (index == 1)
-+        wdt_psci_arm(100); /* reported off */
-+    else
-+        wdt_psci_arm(110); /* a later core reported off */
-+    return PSCI_AFFINITY_INFO_OFF;
- }
- 
- /* Hand a parked CPU its entry point, as smp_call4() does, without waiting. */
-@@ -1044,6 +1054,7 @@ int smp_psci_cpu_on(u64 mpidr, u64 entry, u64 context)
-         return PSCI_RET_INVALID_ADDRESS;
-     if (index == boot_cpu_idx)
-         return PSCI_RET_ALREADY_ON;
-+    wdt_psci_arm(100 + 5 * index); /* image 47 stamp: CPU_ON of this core, 5 s apart per core */
- 
-     dc_civac_range(&psci_cpu_state[index], 1);
-     switch (psci_cpu_state[index]) {
-@@ -1064,7 +1075,7 @@ int smp_psci_cpu_on(u64 mpidr, u64 entry, u64 context)
+@@ -1064,7 +1065,7 @@ int smp_psci_cpu_on(u64 mpidr, u64 entry, u64 context)
   * us stays reachable), HCR_EL2 back to its reset value (the kernel ran as a VHE host), then
   * x0 = context, branch to the entry.
   */
@@ -445,7 +415,7 @@ index 4c866a6c..dbddb491 100644
  asm(".text\n.globl psci_enter\npsci_enter:\n"
      "mrs x2, sctlr_el2\n"
      "bic x2, x2, #(1 << 0)\n"
-@@ -1090,15 +1101,33 @@ void psci_park_c(u64 index)
+@@ -1090,15 +1091,27 @@ void psci_park_c(u64 index)
      struct spin_table *me = &spin_table[index];
      u64 target;
  
@@ -463,17 +433,11 @@ index 4c866a6c..dbddb491 100644
 +        reg_mask(SYS_IMP_APL_CYC_OVRD, CYC_OVRD_WFI_MODE_MASK | CYC_OVRD_DISABLE_WFI_RET, CYC_OVRD_WFI_MODE(3));
 +        sysop("isb");
 +    }
-+    if (index == 1)
-+        wdt_psci_arm(70); /* parked, on the Aura stack */
-+    bool first = true;
      while (1) {
          /* Plain load: the mapping is inner-shareable write-back, the other CPU's civac-ed store is visible. */
          if ((target = *(volatile u64 *)&me->target))
              break;
 +        _deep_wfi_helper();
-+        if (index == 1 && first)
-+            wdt_psci_arm(80); /* first return from the park WFI (once only: a loop must not keep the dog fed) */
-+        first = false;
 +    }
 +    /* the kernel must not inherit WFI_MODE 3: give the core back the CYC_OVRD it had when it called CPU_OFF */
 +    if (cpu_features->apple_sysregs_unlocked) {
@@ -483,43 +447,7 @@ index 4c866a6c..dbddb491 100644
      }
      sysop("dmb sy");
      me->flag++;
-@@ -1109,10 +1138,17 @@ void psci_park_c(u64 index)
- 
- int smp_psci_cpu_off(void)
- {
-+    static bool first_off = true;
-+    if (first_off)
-+        wdt_psci_arm(30); /* image 46: the first CPU_OFF call reached Aura */
-     int index = smp_psci_index(mrs(MPIDR_EL1));
- 
--    if (index < 0 || index == boot_cpu_idx)
-+    if (index < 0 || index == boot_cpu_idx) {
-+        if (first_off)
-+            wdt_psci_arm(index < 0 ? 50 : 70); /* image 46: DENIED (the kernel then BUG()s in cpu_die) */
-         return PSCI_RET_DENIED;
-+    }
-+    first_off = false;
- 
-     /*
-      * Not the PMGR stop request: a core stopped that way did not come back from any start
-@@ -1123,10 +1159,16 @@ int smp_psci_cpu_off(void)
-     /* The entry this core was started with is still in the table (the kernel never returns). */
-     spin_table[index].target = 0;
-     dc_civac_range(&spin_table[index], sizeof(struct spin_table));
-+    if (index == 1)
-+        wdt_psci_arm(40); /* spin_table target cleared (index 1) */
-     psci_cpu_state[index] = PSCI_CPU_OFF;
-     dc_civac_range(&psci_cpu_state[index], 1);
-+    if (index == 1)
-+        wdt_psci_arm(50); /* OFF written */
-     dcsw_op_level1(DCSW_OP_DCCISW);
-     sysop("dsb sy");
-+    if (index == 1)
-+        wdt_psci_arm(60); /* L1 cleaned */
-     u64 sp = (u64)secondary_stacks[index] + SECONDARY_STACK_SIZE;
-     asm volatile("mov sp, %0\n mov x0, %1\n b psci_park_c" ::"r"(sp), "r"((u64)index) : "x0");
-     __builtin_unreachable();
-@@ -1162,8 +1204,14 @@ int smp_psci_mmio_ranges(u64 *ranges, int max)
+@@ -1162,8 +1175,14 @@ int smp_psci_mmio_ranges(u64 *ranges, int max)
          smp_psci_add_range(ranges, max, &n, cpu_start_base + cpu_info[i].die * PMGR_DIE_OFFSET,
                             0x100);
      }
