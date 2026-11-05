@@ -1,0 +1,115 @@
+From 9eb9197d24528c80e78f7fa3556de6f219fad7c7 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Thu, 5 Nov 2026 07:41:58 -0500
+Subject: [PATCH 2/2] TEST: macsmc-reboot: deep_steps bit 16, enable macOS's AP
+ wake sources in the PMGR mask across suspend to RAM
+
+ApplePMGR::initAON/restoreHW write valid & ~enabled (1 = disabled) to PMGR range 42 +0x0c (9 words).
+iBoot leaves NUB.SPMI0Sw1IRQ/Sw3IRQ and AOP.GPIO.IRQ6 disabled; this clears those bits for the suspend
+and logs the wake status words (+0x30) on resume. Default off; owner-attended slpa runs only.
+---
+ drivers/power/reset/macsmc-reboot.c | 46 ++++++++++++++++++++++++++++-
+ 1 file changed, 45 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/power/reset/macsmc-reboot.c b/drivers/power/reset/macsmc-reboot.c
+index 02946bc87396..d7276ae33db3 100644
+--- a/drivers/power/reset/macsmc-reboot.c
++++ b/drivers/power/reset/macsmc-reboot.c
+@@ -5,6 +5,7 @@
+  */
+ 
+ #include <linux/delay.h>
++#include <linux/io.h>
+ #include <linux/mfd/core.h>
+ #include <linux/mfd/macsmc.h>
+ #include <linux/module.h>
+@@ -14,6 +15,8 @@
+ #include <linux/slab.h>
+ #include <linux/suspend.h>
+ 
++#define WAKEMASK_WORDS		9 /* PMGR AP wake-source mask words (test option below) */
++
+ struct macsmc_reboot_nvmem {
+ 	struct nvmem_cell *shutdown_flag;
+ 	struct nvmem_cell *boot_stage;
+@@ -50,6 +53,8 @@ struct macsmc_reboot {
+ 	bool slpa_sent;
+ 	bool stage_set;
+ 	int saved_stage;
++	bool mask_set;
++	u32 saved_mask[WAKEMASK_WORDS];
+ };
+ 
+ /*
+@@ -65,6 +70,16 @@ struct macsmc_reboot {
+ #define MACSMC_SLEEP_SLPA	BIT(2)
+ /* Suspend to RAM only: boot_stage 0x50 before slpa, the old value back on wake (macOS 13.5 does this) */
+ #define MACSMC_SLEEP_STAGE	BIT(3)
++/*
++ * Suspend to RAM only: enable in the PMGR's AP wake-source mask (1 = disabled) the sources macOS 13.5
++ * enables (ADT ap-wake-sources, ApplePMGR::initAON), keeping every other bit, and put the old words
++ * back on wake. iBoot leaves NUB.SPMI0Sw1IRQ/Sw3IRQ (bits 52, 54) and AOP.GPIO.IRQ6 (14) disabled.
++ */
++#define MACSMC_SLEEP_WAKEMASK	BIT(4)
++#define WAKEMASK_PHYS		0x404ea800cULL
++static const u32 macos_wake_sources[WAKEMASK_WORDS] = {
++	0x0c005000, 0x005e0900, 0x04200000, 0xc0000000, 0x0000003f, 0, 0x80000000, 0, 0,
++};
+ 
+ static unsigned int s2idle_steps;
+ module_param(s2idle_steps, uint, 0644);
+@@ -76,7 +91,7 @@ MODULE_PARM_DESC(s2idle_steps, "SMC sleep handshake in s2idle, bit mask: 1 WKTP,
+  */
+ static unsigned int deep_steps;
+ module_param(deep_steps, uint, 0644);
+-MODULE_PARM_DESC(deep_steps, "SMC sleep handshake in suspend to RAM, bit mask as s2idle_steps plus 8: PMU boot_stage 0x50 (default 0, off; test only)");
++MODULE_PARM_DESC(deep_steps, "SMC sleep handshake in suspend to RAM, bit mask as s2idle_steps plus 8: PMU boot_stage 0x50, 16: macOS's AP wake sources (default 0, off; test only)");
+ 
+ /* Helpers to read/write a u8 given a struct nvmem_cell */
+ static int nvmem_cell_get_u8(struct nvmem_cell *cell)
+@@ -356,6 +371,21 @@ static int macsmc_reboot_pm_suspend_late(struct device *dev)
+ 		reboot->stage_set = ret >= 0;
+ 		dev_info(dev, "sleep: boot_stage %#x -> %#x (%d)\n", reboot->saved_stage, BOOT_STAGE_SLEEP, ret);
+ 	}
++	if ((reboot->sleep_steps & MACSMC_SLEEP_WAKEMASK) && pm_suspend_target_state == PM_SUSPEND_MEM) {
++		void __iomem *m = ioremap(WAKEMASK_PHYS, 4 * WAKEMASK_WORDS);
++
++		if (m) {
++			for (int i = 0; i < WAKEMASK_WORDS; i++) {
++				reboot->saved_mask[i] = readl(m + 4 * i);
++				writel(reboot->saved_mask[i] & ~macos_wake_sources[i], m + 4 * i);
++			}
++			reboot->mask_set = true;
++			dev_info(dev, "sleep: wake mask %08x %08x %08x %08x -> %08x %08x %08x %08x\n",
++				 reboot->saved_mask[0], reboot->saved_mask[1], reboot->saved_mask[2],
++				 reboot->saved_mask[3], readl(m), readl(m + 4), readl(m + 8), readl(m + 12));
++			iounmap(m);
++		}
++	}
+ 	if (reboot->sleep_steps & MACSMC_SLEEP_SLPA) {
+ 		ret = apple_smc_write_u32(reboot->smc, SMC_KEY(MBSE), SMC_KEY(slpa));
+ 		reboot->slpa_sent = ret >= 0;
+@@ -371,6 +401,20 @@ static int macsmc_reboot_pm_resume_early(struct device *dev)
+ 	u8 mbsw[8] = {};
+ 	int r1, r2, ret;
+ 
++	if (reboot->mask_set) {
++		void __iomem *m = ioremap(WAKEMASK_PHYS, 4 * WAKEMASK_WORDS);
++		u32 st[4] = {};
++
++		reboot->mask_set = false;
++		if (m) {
++			for (int i = 0; i < 4; i++)
++				st[i] = readl(m + 0x24 + 4 * i);
++			for (int i = 0; i < WAKEMASK_WORDS; i++)
++				writel(reboot->saved_mask[i], m + 4 * i);
++			iounmap(m);
++		}
++		dev_info(dev, "sleep: wake status %08x %08x %08x %08x; wake mask restored\n", st[0], st[1], st[2], st[3]);
++	}
+ 	if (reboot->stage_set) {
+ 		reboot->stage_set = false;
+ 		ret = nvmem_cell_set_u8(reboot->nvm.boot_stage, reboot->saved_stage);
+-- 
+2.55.0
+

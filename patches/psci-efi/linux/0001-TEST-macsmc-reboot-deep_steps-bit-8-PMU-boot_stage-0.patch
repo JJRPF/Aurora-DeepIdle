@@ -1,8 +1,8 @@
 From 3cac959da6cec2a4cb7ed4a868985a17927e941d Mon Sep 17 00:00:00 2001
 From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
 Date: Thu, 5 Nov 2026 07:33:45 -0500
-Subject: [PATCH] TEST: macsmc-reboot: deep_steps bit 8, PMU boot_stage 0x50
- across suspend to RAM (as macOS 13.5)
+Subject: [PATCH 1/2] TEST: macsmc-reboot: deep_steps bit 8, PMU boot_stage
+ 0x50 across suspend to RAM (as macOS 13.5)
 
 AppleARMWatchdogTimer's IOPlatformSleepAction writes IOPMUBootStage 0x50 and its wake action puts the old
 value back. Default off; for owner-attended slpa runs only.
