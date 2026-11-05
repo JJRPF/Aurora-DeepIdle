@@ -1476,3 +1476,10 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 - `install.sh` takes a flag file `/var/lib/deepidle/pmp-sleep` that adds `macsmc.pmp_sleep=1` to the test entry. `run.sh` treats that like `slpa` (root read-only before the suspend). Note for that run: the PMP wake from IDLE failed 0 of 3 on 10-23, so expect the PMP to stay down after the wake unless the SoC really powered down. Nothing is armed.
 - Issue #9 (CoreyH, M1 Pro J314s, same Maverick PMU): answered with the owner’s OK. Yes to porting the RTC alarm upstream, the license terms from the README (GPL-2.0 patches, `GPL-2.0+ OR MIT` DTS), the two alarm patches (the fired-bit fix included), the drain A/B, the `slpa` warning and a link to this page.
 - Battery back to `auto`, 80/75.
+
+## 2026-11-05 06:50: SART save and restore in the test kernel; short test boot armed (no `slpa`)
+
+- Test kernel patch `patches/psci-efi/linux/0001-TEST-soc-apple-sart-save-the-entries-at-suspend-rest.patch`: the SART driver saves all 16 entries in `suspend_noirq` (before genpd can gate `ps_ans2`). In `resume_noirq` (after genpd powers it back, before NVMe’s reset in the resume phase) it compares them, logs the first changed entry, restores any that changed, and logs `entries kept across suspend` otherwise. A normal wake should log “kept” and write nothing. After `slpa`, the same line answers the SART question, and the restore tests the fix in the same run.
+- New Image installed as `/boot/vmlinuz-psci-efi-test` (a6c7ebd748545320, old one in `/var/lib/deepidle/vmlinuz-psci-efi-test.pre-sart`), staging updated. Modules unchanged.
+- The dead-man snapshot also reads the SART’s 16 size words (v3 layout: config `0x00`, address `0x40`, size `0x80`).
+- Armed: image 49, `suspendall`, no `slpa` flags, modes `deep` and `s2idle`, 2 cycles each, 120 s alarm. Expect 4 of 4 back, `entries kept across suspend` 4 times, and identical snapshots.

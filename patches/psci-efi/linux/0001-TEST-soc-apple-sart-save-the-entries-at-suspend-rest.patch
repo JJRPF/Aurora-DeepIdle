@@ -1,0 +1,112 @@
+From a36e5aa3f7f3f55da8849ca7904e0bac7551d19e Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Thu, 5 Nov 2026 06:35:42 -0500
+Subject: [PATCH] TEST: soc: apple: sart: save the entries at suspend, restore
+ any that changed
+
+The SART sits in the ANS power domain. A PMGR gate keeps its entries;
+after the SMC's slpa the ANS never boots again, and a cleared SART is one
+explanation. Log what changed and restore it.
+---
+ drivers/soc/apple/sart.c | 64 ++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 64 insertions(+)
+
+diff --git a/drivers/soc/apple/sart.c b/drivers/soc/apple/sart.c
+index b0b208c92741..4e7d4a8847d8 100644
+--- a/drivers/soc/apple/sart.c
++++ b/drivers/soc/apple/sart.c
+@@ -74,6 +74,12 @@ struct apple_sart_ops {
+ 	size_t size_max;
+ };
+ 
++struct apple_sart_entry {
++	u8 flags;
++	phys_addr_t paddr;
++	size_t size;
++};
++
+ struct apple_sart {
+ 	struct device *dev;
+ 	void __iomem *regs;
+@@ -82,6 +88,9 @@ struct apple_sart {
+ 
+ 	unsigned long protected_entries;
+ 	unsigned long used_entries;
++
++	/* the entries as they were at suspend, bootloader ones included */
++	struct apple_sart_entry saved[APPLE_SART_MAX_ENTRIES];
+ };
+ 
+ static void sart0_get_entry(struct apple_sart *sart, int index, u8 *flags,
+@@ -371,6 +380,60 @@ static void apple_sart_shutdown(struct platform_device *pdev)
+ 	}
+ }
+ 
++/*
++ * The SART sits in its coprocessor's power domain. A PMGR power gate keeps
++ * its entries, but deeper sleep states may not, and without them the
++ * coprocessor cannot reach its firmware. Save every entry when the domain may
++ * go down and put back any that changed.
++ */
++static int apple_sart_suspend_noirq(struct device *dev)
++{
++	struct apple_sart *sart = dev_get_drvdata(dev);
++	struct apple_sart_entry *e;
++	int i;
++
++	for (i = 0; i < APPLE_SART_MAX_ENTRIES; ++i) {
++		e = &sart->saved[i];
++		sart->ops->get_entry(sart, i, &e->flags, &e->paddr, &e->size);
++	}
++
++	return 0;
++}
++
++static int apple_sart_resume_noirq(struct device *dev)
++{
++	struct apple_sart *sart = dev_get_drvdata(dev);
++	struct apple_sart_entry *e, cur;
++	int i, lost = 0;
++
++	for (i = 0; i < APPLE_SART_MAX_ENTRIES; ++i) {
++		e = &sart->saved[i];
++		sart->ops->get_entry(sart, i, &cur.flags, &cur.paddr, &cur.size);
++		if (cur.flags == e->flags && cur.paddr == e->paddr &&
++		    cur.size == e->size)
++			continue;
++
++		if (!lost++)
++			dev_warn(dev,
++				 "entry %d changed across suspend: flags 0x%02x paddr %pa size 0x%zx, was 0x%02x %pa 0x%zx\n",
++				 i, cur.flags, &cur.paddr, cur.size, e->flags,
++				 &e->paddr, e->size);
++		sart->ops->set_entry(sart, i, e->flags,
++				     e->paddr >> sart->ops->paddr_shift,
++				     e->size >> sart->ops->size_shift);
++	}
++
++	if (lost)
++		dev_warn(dev, "%d entries changed across suspend, restored\n", lost);
++	else
++		dev_info(dev, "entries kept across suspend\n");
++
++	return 0;
++}
++
++static DEFINE_NOIRQ_DEV_PM_OPS(apple_sart_pm_ops, apple_sart_suspend_noirq,
++			       apple_sart_resume_noirq);
++
+ static const struct of_device_id apple_sart_of_match[] = {
+ 	{
+ 		.compatible = "apple,t6000-sart",
+@@ -392,6 +455,7 @@ static struct platform_driver apple_sart_driver = {
+ 	.driver = {
+ 		.name = "apple-sart",
+ 		.of_match_table = apple_sart_of_match,
++		.pm = pm_sleep_ptr(&apple_sart_pm_ops),
+ 	},
+ 	.probe = apple_sart_probe,
+ 	.shutdown = apple_sart_shutdown,
+-- 
+2.55.0
+

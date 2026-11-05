@@ -45,8 +45,8 @@ evidence() {
 }
 # Read-only snapshot of the storage controller (static mmio-read in RAM): the PMGR domain ps_ans2 (die 0,
 # 0x28e080000 + 0x1a8), and only while that reports on (actual state, bits 7:4, 0xf; a read of a block
-# without power can stop the bus): the ANS CPU_CONTROL/STATUS, its mailbox A2I/I2A_CONTROL and the SART's
-# 16 config and 16 address words. Normal wakes give the baseline; after slpa it shows what was lost.
+# without power can stop the bus): the ANS CPU_CONTROL/STATUS, its mailbox A2I/I2A_CONTROL and the SART’s
+# 16 config, address and size words (SART v3). Normal wakes give the baseline; after slpa it shows what was lost.
 regs() {
     local r=$D/mmio-read ps out
     [ -x $r ] || return 0
@@ -54,7 +54,7 @@ regs() {
     ps=$(words 0x28e0801a8)
     out="ps_ans2 $ps"
     if [ -n "$ps" ] && [ $(( (0x$ps >> 4) & 0xf )) = 15 ]; then
-        out+="; ANS cpu $(words 0x347400044 2); mbox $(words 0x347408110 2); SART cfg $(words 0x34bc50000 16); SART pa $(words 0x34bc50040 16)"
+        out+="; ANS cpu $(words 0x347400044 2); mbox $(words 0x347408110 2); SART cfg $(words 0x34bc50000 16); SART pa $(words 0x34bc50040 16); SART size $(words 0x34bc50080 16)"
     else
         out+=" (domain not on: ANS and SART not read)"
     fi
