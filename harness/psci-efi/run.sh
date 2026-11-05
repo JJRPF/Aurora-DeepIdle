@@ -59,6 +59,17 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
             LOGF=/run/psci-efi-run-ro.log
             log "slpa run: emergency read-only remount: superblock ro $(findmnt -rno TARGET,FS-OPTIONS -t ext4,btrfs,vfat | grep -c '\bro\b') of $(findmnt -rno TARGET -t ext4,btrfs,vfat | wc -l)"
         fi
+        # /var/lib/deepidle/poke-wakemask: write macOS's PMGR AP wake-source mask while awake (after the read-only
+        # remount, kmsg still streaming), read it back after 10 s and put the old words back, before any cycle
+        W=/usr/local/lib/deepidle/wakemask
+        if [ -e /var/lib/deepidle/poke-wakemask ] && [ -x $W ]; then
+            OLD=$($W show | sed -n 's/^before mask \([0-9a-f ]*\); .*/\1/p')
+            log "wakemask: old $OLD; writing macOS's value"
+            log "wakemask: $($W macos | tail -1)"
+            sleep 10
+            log "wakemask: 10 s later $($W show | sed 's/^before //')"
+            log "wakemask: restore: $($W write $OLD | tail -1)"
+        fi
         # Modes from /var/lib/deepidle/sleep-modes (default deep), e.g. "deep s2idle" for a drain A/B on one boot.
         # In s2idle Aura is not involved, so nothing would pet the test kernel's watchdog: its suspend arm is off then.
         BAT=/sys/class/power_supply/macsmc-battery

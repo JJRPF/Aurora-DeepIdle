@@ -1,7 +1,7 @@
 From 9eb9197d24528c80e78f7fa3556de6f219fad7c7 Mon Sep 17 00:00:00 2001
 From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
 Date: Thu, 5 Nov 2026 07:41:58 -0500
-Subject: [PATCH 2/2] TEST: macsmc-reboot: deep_steps bit 16, enable macOS's AP
+Subject: [PATCH 2/3] TEST: macsmc-reboot: deep_steps bit 16, enable macOS's AP
  wake sources in the PMGR mask across suspend to RAM
 
 ApplePMGR::initAON/restoreHW write valid & ~enabled (1 = disabled) to PMGR range 42 +0x0c (9 words).

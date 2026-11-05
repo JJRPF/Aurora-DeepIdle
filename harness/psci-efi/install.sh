@@ -30,7 +30,7 @@ if [ "${1:-}" = remove ]; then
     rm -f /var/lib/deepidle/psci-efi-armed
     systemctl disable psci-efi-early.service psci-efi-run.service 2>/dev/null || true
     rm -f /etc/systemd/system/psci-efi-early.service /etc/systemd/system/psci-efi-run.service
-    rm -f /usr/local/lib/deepidle/psci-efi-early.sh /usr/local/lib/deepidle/psci-efi-run.sh /usr/local/lib/deepidle/deadman.sh /usr/local/lib/deepidle/mmio-read-static
+    rm -f /usr/local/lib/deepidle/psci-efi-early.sh /usr/local/lib/deepidle/psci-efi-run.sh /usr/local/lib/deepidle/deadman.sh /usr/local/lib/deepidle/mmio-read-static /usr/local/lib/deepidle/wakemask
     rm -f /etc/grub.d/46_psci_ram /boot/initramfs-psci-ram.img /etc/grub.d/45_psci_efi /boot/vmlinuz-psci-efi-test /boot/initramfs-psci-efi-test.img
     rm -rf "/usr/lib/modules/$REL"
     grub-editenv /boot/grub/grubenv unset next_entry
@@ -139,6 +139,7 @@ install -m 755 $H/early.sh /usr/local/lib/deepidle/psci-efi-early.sh
 install -m 755 $H/run.sh /usr/local/lib/deepidle/psci-efi-run.sh
 install -m 755 $H/deadman.sh /usr/local/lib/deepidle/deadman.sh
 gcc -static -O2 -o /usr/local/lib/deepidle/mmio-read-static $H/../mmio/mmio-read.c   # the dead-man's register snapshot
+gcc -static -O2 -o /usr/local/lib/deepidle/wakemask $H/../mmio/wakemask.c   # run.sh's poke-wakemask step
 install -m 644 $H/psci-efi-early.service $H/psci-efi-run.service /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable psci-efi-early.service psci-efi-run.service

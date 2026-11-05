@@ -1,0 +1,73 @@
+From 66cfe60f4d56b7e45a95107d511ded2f59caee06 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Thu, 5 Nov 2026 07:52:53 -0500
+Subject: [PATCH 3/3] TEST: macsmc-reboot: deep_steps bit 16 fix: the mask is
+ PMGR reg 7 (0x29e00400c), write macOS's value
+
+RegMap 42 is initialised from ADT pmgr reg 7, not reg 42; 0x404ea800c was a live block (it changes
+between reads) and writing it stopped the suspend. Linux finds the real mask at 0.
+---
+ drivers/power/reset/macsmc-reboot.c | 20 ++++++++++++--------
+ 1 file changed, 12 insertions(+), 8 deletions(-)
+
+diff --git a/drivers/power/reset/macsmc-reboot.c b/drivers/power/reset/macsmc-reboot.c
+index d7276ae33db3..6e5eee9dab56 100644
+--- a/drivers/power/reset/macsmc-reboot.c
++++ b/drivers/power/reset/macsmc-reboot.c
+@@ -71,12 +71,16 @@ struct macsmc_reboot {
+ /* Suspend to RAM only: boot_stage 0x50 before slpa, the old value back on wake (macOS 13.5 does this) */
+ #define MACSMC_SLEEP_STAGE	BIT(3)
+ /*
+- * Suspend to RAM only: enable in the PMGR's AP wake-source mask (1 = disabled) the sources macOS 13.5
+- * enables (ADT ap-wake-sources, ApplePMGR::initAON), keeping every other bit, and put the old words
+- * back on wake. iBoot leaves NUB.SPMI0Sw1IRQ/Sw3IRQ (bits 52, 54) and AOP.GPIO.IRQ6 (14) disabled.
++ * Suspend to RAM only: write the PMGR's AP wake-source mask (1 = disabled) as macOS 13.5 does
++ * (AppleT6020PMGR::setAPWakeupSources from ApplePMGR::initAON: valid & ~enabled, only the ADT's
++ * ap-wake-sources enabled), and put the old words back on wake. PMGR RegMap 42 is ADT pmgr reg 7;
++ * Linux finds the mask at 0 (every source enabled).
+  */
+ #define MACSMC_SLEEP_WAKEMASK	BIT(4)
+-#define WAKEMASK_PHYS		0x404ea800cULL
++#define WAKEMASK_PHYS		0x29e00400cULL
++static const u32 wake_valid[WAKEMASK_WORDS] = {
++	0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff, 0x0000007f,
++};
+ static const u32 macos_wake_sources[WAKEMASK_WORDS] = {
+ 	0x0c005000, 0x005e0900, 0x04200000, 0xc0000000, 0x0000003f, 0, 0x80000000, 0, 0,
+ };
+@@ -91,7 +95,7 @@ MODULE_PARM_DESC(s2idle_steps, "SMC sleep handshake in s2idle, bit mask: 1 WKTP,
+  */
+ static unsigned int deep_steps;
+ module_param(deep_steps, uint, 0644);
+-MODULE_PARM_DESC(deep_steps, "SMC sleep handshake in suspend to RAM, bit mask as s2idle_steps plus 8: PMU boot_stage 0x50, 16: macOS's AP wake sources (default 0, off; test only)");
++MODULE_PARM_DESC(deep_steps, "SMC sleep handshake in suspend to RAM, bit mask as s2idle_steps plus 8: PMU boot_stage 0x50, 16: macOS's AP wake-source mask (default 0, off; test only)");
+ 
+ /* Helpers to read/write a u8 given a struct nvmem_cell */
+ static int nvmem_cell_get_u8(struct nvmem_cell *cell)
+@@ -372,12 +376,12 @@ static int macsmc_reboot_pm_suspend_late(struct device *dev)
+ 		dev_info(dev, "sleep: boot_stage %#x -> %#x (%d)\n", reboot->saved_stage, BOOT_STAGE_SLEEP, ret);
+ 	}
+ 	if ((reboot->sleep_steps & MACSMC_SLEEP_WAKEMASK) && pm_suspend_target_state == PM_SUSPEND_MEM) {
+-		void __iomem *m = ioremap(WAKEMASK_PHYS, 4 * WAKEMASK_WORDS);
++		void __iomem *m = ioremap(WAKEMASK_PHYS, 0x40);
+ 
+ 		if (m) {
+ 			for (int i = 0; i < WAKEMASK_WORDS; i++) {
+ 				reboot->saved_mask[i] = readl(m + 4 * i);
+-				writel(reboot->saved_mask[i] & ~macos_wake_sources[i], m + 4 * i);
++				writel(wake_valid[i] & ~macos_wake_sources[i], m + 4 * i);
+ 			}
+ 			reboot->mask_set = true;
+ 			dev_info(dev, "sleep: wake mask %08x %08x %08x %08x -> %08x %08x %08x %08x\n",
+@@ -402,7 +406,7 @@ static int macsmc_reboot_pm_resume_early(struct device *dev)
+ 	int r1, r2, ret;
+ 
+ 	if (reboot->mask_set) {
+-		void __iomem *m = ioremap(WAKEMASK_PHYS, 4 * WAKEMASK_WORDS);
++		void __iomem *m = ioremap(WAKEMASK_PHYS, 0x40);
+ 		u32 st[4] = {};
+ 
+ 		reboot->mask_set = false;
+-- 
+2.55.0
+

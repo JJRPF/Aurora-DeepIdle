@@ -52,9 +52,9 @@ regs() {
     [ -x $r ] || return 0
     words() { local a v w=''; while read -r a v; do w+="${v#0x} "; done < <($r "$@"); printf '%s' "${w% }"; }
     ps=$(words 0x28e0801a8)
-    # PMGR AP wake sources (the AOP global block, always on): 9 mask words (1 = disabled, macOS's
+    # PMGR AP wake sources (PMGR RegMap 42 = ADT pmgr reg 7, 0x29e004000): 9 mask words (1 = disabled, macOS's
     # setAPWakeupSources) and 9 status words (what woke the SoC from S2R, getAPWakeupSources)
-    out="wake mask $(words 0x404ea800c 9); wake status $(words 0x404ea8030 9); ps_ans2 $ps"
+    out="wake mask $(words 0x29e00400c 9); wake status $(words 0x29e004030 9); ps_ans2 $ps"
     if [ -n "$ps" ] && [ $(( (0x$ps >> 4) & 0xf )) = 15 ]; then
         out+="; ANS cpu $(words 0x347400044 2); mbox $(words 0x347408110 2); SART cfg $(words 0x34bc50000 16); SART pa $(words 0x34bc50040 16); SART size $(words 0x34bc50080 16)"
     else
