@@ -390,7 +390,7 @@ index 92d225ab..8356847a 100644
                                 unsigned long arg2);
  
 diff --git i/src/smp.c w/src/smp.c
-index 4c866a6c..52fdf3a6 100644
+index 4c866a6c..dbddb491 100644
 --- i/src/smp.c
 +++ w/src/smp.c
 @@ -4,6 +4,7 @@
@@ -432,7 +432,7 @@ index 4c866a6c..52fdf3a6 100644
          return PSCI_RET_INVALID_ADDRESS;
      if (index == boot_cpu_idx)
          return PSCI_RET_ALREADY_ON;
-+    wdt_psci_arm(140 + 2 * index); /* image 43 stamp: CPU_ON of this core */
++    wdt_psci_arm(100 + 5 * index); /* image 47 stamp: CPU_ON of this core, 5 s apart per core */
  
      dc_civac_range(&psci_cpu_state[index], 1);
      switch (psci_cpu_state[index]) {
@@ -445,7 +445,7 @@ index 4c866a6c..52fdf3a6 100644
  asm(".text\n.globl psci_enter\npsci_enter:\n"
      "mrs x2, sctlr_el2\n"
      "bic x2, x2, #(1 << 0)\n"
-@@ -1090,15 +1101,27 @@ void psci_park_c(u64 index)
+@@ -1090,15 +1101,33 @@ void psci_park_c(u64 index)
      struct spin_table *me = &spin_table[index];
      u64 target;
  
@@ -458,6 +458,7 @@ index 4c866a6c..52fdf3a6 100644
 +     * 32 to 36), and on 2026-10-25 one such core restarted through RVBAR into the kernel by itself.
 +     */
 +    extern void _deep_wfi_helper(void);
++    u64 cyc_ovrd = cpu_features->apple_sysregs_unlocked ? mrs(SYS_IMP_APL_CYC_OVRD) : 0;
 +    if (cpu_features->apple_sysregs_unlocked) {
 +        reg_mask(SYS_IMP_APL_CYC_OVRD, CYC_OVRD_WFI_MODE_MASK | CYC_OVRD_DISABLE_WFI_RET, CYC_OVRD_WFI_MODE(3));
 +        sysop("isb");
@@ -469,16 +470,20 @@ index 4c866a6c..52fdf3a6 100644
          /* Plain load: the mapping is inner-shareable write-back, the other CPU's civac-ed store is visible. */
          if ((target = *(volatile u64 *)&me->target))
              break;
--        sysop("isb");
--        sysop("wfi");
 +        _deep_wfi_helper();
 +        if (index == 1 && first)
 +            wdt_psci_arm(80); /* first return from the park WFI (once only: a loop must not keep the dog fed) */
 +        first = false;
++    }
++    /* the kernel must not inherit WFI_MODE 3: give the core back the CYC_OVRD it had when it called CPU_OFF */
++    if (cpu_features->apple_sysregs_unlocked) {
++        msr(SYS_IMP_APL_CYC_OVRD, cyc_ovrd);
+         sysop("isb");
+-        sysop("wfi");
      }
      sysop("dmb sy");
      me->flag++;
-@@ -1109,10 +1132,17 @@ void psci_park_c(u64 index)
+@@ -1109,10 +1138,17 @@ void psci_park_c(u64 index)
  
  int smp_psci_cpu_off(void)
  {
@@ -497,7 +502,7 @@ index 4c866a6c..52fdf3a6 100644
  
      /*
       * Not the PMGR stop request: a core stopped that way did not come back from any start
-@@ -1123,10 +1153,16 @@ int smp_psci_cpu_off(void)
+@@ -1123,10 +1159,16 @@ int smp_psci_cpu_off(void)
      /* The entry this core was started with is still in the table (the kernel never returns). */
      spin_table[index].target = 0;
      dc_civac_range(&spin_table[index], sizeof(struct spin_table));
@@ -514,7 +519,7 @@ index 4c866a6c..52fdf3a6 100644
      u64 sp = (u64)secondary_stacks[index] + SECONDARY_STACK_SIZE;
      asm volatile("mov sp, %0\n mov x0, %1\n b psci_park_c" ::"r"(sp), "r"((u64)index) : "x0");
      __builtin_unreachable();
-@@ -1162,8 +1198,14 @@ int smp_psci_mmio_ranges(u64 *ranges, int max)
+@@ -1162,8 +1204,14 @@ int smp_psci_mmio_ranges(u64 *ranges, int max)
          smp_psci_add_range(ranges, max, &n, cpu_start_base + cpu_info[i].die * PMGR_DIE_OFFSET,
                             0x100);
      }
