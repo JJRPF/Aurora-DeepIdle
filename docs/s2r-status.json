@@ -124,7 +124,7 @@
       "short": "The SoC powers down, DRAM in self-refresh",
       "state": "active",
       "pct": 10,
-      "summary": "Aura’s `SYSTEM_SUSPEND` gains the SoC steps in macOS’s order: PMGR quiesce, the S2R timer, the PMU SPMI quiesce and `slpa`, then `restoreHW` on wake. Four `slpa` runs so far (11-04 21:32, 11-05 07:01, runs A and B at 15:14 and 15:21): each came back on the alarm with the SoC still up and the storage controller dead (`ANS did not boot`). The PMU boot stage 0x50 (run B) changed nothing. macOS’s PMP steps after `slpa` (run C) are next.",
+      "summary": "Aura’s `SYSTEM_SUSPEND` gains the SoC steps in macOS’s order: PMGR quiesce, the S2R timer, the PMU SPMI quiesce and `slpa`, then `restoreHW` on wake. Five `slpa` runs (11-04 and 11-05, the last three owner-attended): each came back on the alarm with the storage controller dead (`ANS did not boot`). In run C the PMGR’s counters proved the SoC stayed AWAKE throughout, the SART was intact, and macOS’s PMP IDLE step crashed the PMP. So `slpa` alone does not start the SoC’s sleep; the PMGR’s own entry is next.",
       "done": [
         "The PMGR, SMC and PMP sleep actions read from the macOS 13.5 kernelcache",
         "Test kernel flag `macsmc_reboot.deep_steps`: `slpw` in prepare, `slpa` in suspend_late, `waka` on wake",
@@ -139,10 +139,12 @@
         "First long suspend under Aura (image 50, 2026-11-05): 1 h 46 min on battery, 106 heartbeats, 1.444 W, 0 device errors; it woke early on an SMC mailbox event",
         "Image 51: an RVBAR entry after a real S2R wake now resumes Linux (on the boot CPU) instead of resetting; ready for the owner-attended `slpa` runs",
         "PMGR state counters readable from Linux (`pmgrcnt`): with the SoC up only `AWAKE` counts; `SLP_S2R` is the proof to look for in the next `slpa` run",
-        "Owner-attended runs A and B (image 51, 30 s alarm, 2026-11-05 15:14 and 15:21; B with the PMU boot stage 0x50): both resumed with the SoC up and the storage controller dead, and the dead-man switch reset the Mac. Boot stage 0x50 changed nothing. Disk clean"
+        "Owner-attended runs A and B (image 51, 30 s alarm, 2026-11-05 15:14 and 15:21; B with the PMU boot stage 0x50): both resumed with the SoC up and the storage controller dead, and the dead-man switch reset the Mac. Boot stage 0x50 changed nothing. Disk clean",
+        "Run C (2026-11-05 16:00, `slpa` plus the PMP steps): the PMP firmware crashed on IDLE; resumed with the ANS dead; `apple-sart: entries kept`; PMGR counters `AWAKE` 65 s, `SLP_S2R` 0: the SoC never left AWAKE"
       ],
       "next": [
-        "Run C: macOS’s PMP steps after `slpa` (`pmp_sleep`); the dead-man snapshot now also pushes the PMGR counters and Aura’s debug words",
+        "Static: what macOS does to start the ANS after a sleep wake, and what the PMP needs before IDLE (it crashed when sent IDLE after `slpa`)",
+        "The PMGR’s own S2R entry (S2R timer, PMGR quiesce) from Aura, so `SLP_S2R` counts; owner-attended",
         "After a first real S2R wake: restart the nine secondaries from Aura at runtime (design in the worklog, 2026-11-05 10:11)",
         "More `slpa` runs only when the owner is ready to reset by hand",
         "Lid wake, not tested separately yet"
@@ -224,7 +226,8 @@
     { "n": "51-counters", "what": "Image 51 with the PMGR’s system-state counters turned on (`SLP_S2R`, `AWAKE` and the rest), one `deep` and one `s2idle` cycle of 120 s", "result": "2 of 2 back; only `AWAKE`/`SYS_AWAKE` count (24 MHz, the whole time), `SLP_S2R` and the other sleep states stay 0: the SoC never left AWAKE", "outcome": "pass" },
     { "n": "51-90min", "what": "Image 51, one 90 min suspend to RAM on battery with the PMGR state counters on", "result": "Back on the alarm, 0 device errors, disk ok; 1.489 W; AWAKE for the whole sleep, every sleep-state counter 0", "outcome": "pass" },
     { "n": "51-slpa-A", "what": "Image 51, owner-attended `slpa` (`deep_steps=6`), 1 `deep` cycle, 30 s alarm, PMGR counters on, root read-only", "result": "Resumed on the alarm (SoC up), storage controller dead (`ANS did not boot`), the dead-man switch reset the Mac; disk clean", "outcome": "fail" },
-    { "n": "51-slpa-B", "what": "As 51-slpa-A, plus the PMU boot stage 0x50 across the suspend (`deep_steps=14`)", "result": "The same: resumed on the alarm, `ANS did not boot`, dead-man reset; boot stage 0x50 changed nothing", "outcome": "fail" }
+    { "n": "51-slpa-B", "what": "As 51-slpa-A, plus the PMU boot stage 0x50 across the suspend (`deep_steps=14`)", "result": "The same: resumed on the alarm, `ANS did not boot`, dead-man reset; boot stage 0x50 changed nothing", "outcome": "fail" },
+    { "n": "51-slpa-C", "what": "As 51-slpa-B, plus macOS’s PMP IDLE steps after `slpa` (`pmp_sleep`)", "result": "The PMP firmware crashed on IDLE (-62); resumed on the alarm, `ANS did not boot`, dead-man reset; SART kept; PMGR `AWAKE` 65 s, `SLP_S2R` 0", "outcome": "fail" }
   ],
   "macos_sleep": [
     { "step": "SMC `MSxb` writes from every CPU", "linux": "Housekeeping, not needed yet" },
@@ -271,7 +274,9 @@
     { "title": "macOS writes the storage controller’s SART back on every start", "body": "`IOSARTMapper::_setActive(true)` (13.5) copies the SART’s 16 config and 16 address words the first time, and writes them back every later time. The ANS start after sleep runs it. So macOS expects the SART to lose its entries in S2R, and the Linux SART driver had nothing for that. The test kernel now does the same." },
     "macOS tells the PMU the AP is asleep (`IOPMUBootStage` 0x50) in its sleep action, and gives the SMC a 10 s AP-watchdog deadline at the last quiesce step; Linux leaves 0x30 (“OS running”) through suspend, so a reset from sleep counts as a boot error",
     "The PMGR’s AP wake-source mask (`0x29e00400c`, 1 = disabled) is 0 under Linux. macOS’s value, with only its 22 sources enabled, also stops the alarm and the EL2 timer from waking the boot CPU out of Aura’s deep WFI",
-    "The PMGR keeps per-state time counters (`AWAKE`, `SLP_S2R`, `SYS_S2R_AOP`, …), off under Linux. Turned on, they show the SoC stays AWAKE through Aura’s suspend and s2idle; in an `slpa` run that comes back they can prove a real S2R"
+    "The PMGR keeps per-state time counters (`AWAKE`, `SLP_S2R`, `SYS_S2R_AOP`, …), off under Linux. Turned on, they show the SoC stays AWAKE through Aura’s suspend and s2idle; in an `slpa` run that comes back they can prove a real S2R",
+    "PMGR counters after `slpa` plus the PMP steps (run C, 2026-11-05): `AWAKE` the whole 65 s, `SLP_S2R` 0. `slpa` does not put the SoC to sleep by itself; it only takes the storage controller down",
+    "The SART is intact after `slpa` (run C: `entries kept across suspend`); the ANS failure after `slpa` has another cause"
   ],
   "rules": [
     "Never remove and rescan PCI devices: it kills Wi-Fi until a reboot.",
@@ -289,7 +294,7 @@
     "Whether a DCP with nothing attached can be shut down and restarted.",
     "What the PMP’s VLPM tunables control.",
     "Why an inline `dsb sy; isb; wfi` in `SYSTEM_SUSPEND` never woke when `deep_wfi()` does.",
-    "What brings NVMe back after `slpa`: the SART restore (macOS does it on every ANS start) is in the test kernel and untested after `slpa`; the ANS boot itself may need more"
+    "What brings NVMe back after `slpa`: not the SART (kept, run C); the ANS CPU never reaches status 0x28"
   ],
   "upstream": [
     { "name": "aurora-silicon/m1n1#63", "what": "DT headroom for the PMP tunables" },

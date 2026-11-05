@@ -80,8 +80,12 @@ There are two goals:
   stage 0x50, as macOS does). Both came back on the alarm with the SoC still up and the storage controller dead,
   and the dead-man switch reset the Mac, as in the two earlier `slpa` runs. Boot stage 0x50 changed nothing. A
   first reading of run A ("the AP went down and booted cold") was wrong and is corrected in the worklog (15:57).
-  The dead-man switch now also pushes the PMGR counters and the SART restore's result. Run C, macOS's PMP
-  steps after `slpa`, is next.
+  The dead-man switch now also pushes the PMGR counters and the SART restore's result.
+* **2026-11-05, 16:00: run C** (`slpa` plus macOS's PMP IDLE steps): the PMP firmware crashed on IDLE, Linux
+  resumed on the alarm, and the storage controller was dead again. Two firm answers this time: the SART was intact
+  (not the cause), and the PMGR's counters show the SoC stayed AWAKE through the whole cycle (`SLP_S2R` 0). So
+  `slpa` takes the storage controller down but does not start the SoC's sleep. The PMGR's own sleep entry, and how
+  macOS restarts the ANS after a wake, are next (static work first).
 * **Earlier the same day, before Phase 2 closed: 33%** (risk-weighted
   guess, wide error bar). Done: timed wake, SMC handshake, macOS trace
   method, CPU_ON, a firmware that hands the boot CPU back and wakes it on

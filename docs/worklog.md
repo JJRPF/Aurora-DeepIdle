@@ -1746,3 +1746,16 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 - The SART restore's log line and the PMGR counters after the cycle were lost: `run.sh` stalls on the dead disk before logging them, and the dead-man evidence filter dropped `apple-sart` lines. The register snapshot shows SART entries 4, 6 and 7 empty against a healthy boot (`10006400`, `10015f9c`, `1000c734`), but the driver itself frees those (`apple_rtkit_reinit`, `shmem_destroy`) before the failed boot, so that says nothing about the restore. ANS CPU status 0x08 against 0x28 healthy, `ps_ans2` on.
 - Fixed in the harness: the dead-man snapshot now also pushes the PMGR counters and Aura's `psci_dbg` words (static `pmgrcnt` and the debug address copied to `/run` before the suspend), and the evidence filter keeps `sart`, `pmp` and `SetIOPPower` lines. Checked on this boot: the snapshot reads the counters.
 - Lesson kept for every `slpa` run: read the ntfy dead-man pushes first.
+
+## 2026-11-05 16:03: owner-attended run C (`slpa` plus macOS's PMP steps): the PMP crashed; resumed, ANS dead; the SART kept; the SoC stayed AWAKE
+
+- Image 51, `deep_steps=14`, `pmp_sleep=1`, 1 `deep` cycle, 30 s alarm, counters on, root read-only. `echo mem` 16:00:39, alarm 16:01:09, the watcher's stream ended at 16:01:13 (the resume), dead-man push 16:01:42, next kernel 16:02:12 (93 s after entry).
+- The dead-man push (with the 15:57 additions):
+  - `PMP SetAPPower/SetIOPPower IDLE: -62`: the **PMP firmware crashed** on the IDLE request after `slpa` (RTKit crashlog, its last messages `00b0000000000201`). So the PMP side of macOS's sequence needs more than the two messages.
+  - The CPUs went off, the alarm woke them, `SetAPPower ON`, `waka`, `PM: suspend exit`, then `IOP power acknowledgment failed: -62`, `ANS did not boot`, as in every `slpa` run.
+  - **`apple-sart: entries kept across suspend`**: the SART had not changed, so it is not why the ANS fails after `slpa`.
+  - **PMGR counters after the cycle: `AWAKE` 1,562,564,648 ticks = 65.1 s at 24 MHz** (from the enable through the suspend to the snapshot), `SLP_S2R`, `DEEP_WAIT`, `SYS_S2R_AOP`, `SLP_DDR` all 0. **The SoC never left AWAKE**, even after `slpa` and the PMP steps. That is the first direct proof, and it fits the four earlier runs.
+  - Aura's `psci_dbg` words read all 0 from the new snapshot: the address or the static reader is wrong. To check on the next test boot (`run.sh` read them fine through the disk-resident `mmio-read`).
+  - `ps_ans2` read `1f0000ff` (run B `1f0002ff`), ANS CPU status 0x08 (healthy 0x28), mailbox `0002ff01 00109a01`.
+- Disk clean (`device stats` 0, no btrfs or NVMe errors), PMU boot error from the reset, boot.bin 76f850895fed53d1, `next_entry` unset, flags removed.
+- Where this leaves Phase 5: `slpa` makes the SMC take the storage controller down, but by itself does not start the SoC's sleep. The PMGR's own sleep entry (the S2R timer and the PMGR quiesce, read statically from macOS 13.5) has to come from the AP side, and with the SoC up the ANS does not come back. Next, static: what macOS does to start the ANS after a sleep wake (`AppleANS3`/`IOSARTMapper` and the PMGR), and the PMP's IDLE preconditions. No more `slpa` runs without the owner.
