@@ -1529,3 +1529,16 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
   - **H1, the SoC went down:** `slpa` took the SoC into S2R this time, so Aura, its heartbeat and WD1 (all in the AP’s power domain) stopped. The 60 s alarm woke the PMU, and with no resume path armed (unknown 1, the reconfig engine and boot RVBAR), iBoot started cold, which would make a PMU wake to Linux take about 64 s. In the first `slpa` run, the 10 s alarm came before the SMC had finished, so Aura woke in WFI with the SoC still up but the ANS already cut.
   - **H2, an SMC sleep timeout:** the SMC waits a fixed time (about 100 s) for the AP to go down after `slpa` and resets the system when it does not.
 - Next owner-attended run to tell them apart: the same setup with a **30 s alarm**. H1 predicts a kernel start about 64 s after the alarm (about 96 s after entry), or a resume like the first run if the SMC is not done by then, which would also test the SART restore. H2 predicts 124 s again.
+
+## 2026-11-05 07:55: image 50, reset times that name the RVBAR stage; regression run armed
+
+- Image 49’s RVBAR path arms WD1 for 50 s on entry (stage 1, looking for the wake line) and 75 s when it resumes the kernel (stage 2). The 07:01 reset (about 100 s after entry) would fit stage 1 only if the boot CPU had come back through RVBAR about 50 s after entry, which matches no known wake. The chain from a reset to the next kernel is 144 to 145 s minus 120 on four WD1 resets of 11-04 (19:23, 19:29, 19:35, 19:57: from `echo mem` to the next kernel start, taken from each boot’s RTC line minus its uptime), so about 24 s.
+- Image 50 (537df561fbdf13e3): image 49 with `RVBAR_WDT_S` 10 s and `RESUME_WDT_S` 150 s, which are unlike the 120 s dogs and the reset seen at about 100 s. With a 30 s alarm at the next owner-attended `slpa` run, the next kernel would start, counted from `echo mem`, at about:
+  - 64 s: the boot CPU came back through RVBAR on the alarm but found no wake line (the AIC lost its state);
+  - 84 s: an RVBAR entry about 50 s after entry, whatever the cause;
+  - 94 s: a cold boot from the alarm, if that takes about 64 s as the 07:01 run would suggest;
+  - 124 s: the SMC resets the system about 100 s after `slpa`;
+  - about 205 s: RVBAR on the alarm, the wake line found, then the kernel’s resume hangs;
+  - or it resumes, as the first run did after 10 s.
+- A DRAM breadcrumb that survives the reset was considered and dropped for now: Aura’s runtime region moves on every boot (iBoot’s slide, 50 different bases in the result folders), and the PMU’s scratch cells are read by iBoot (a wrong panic count can mean recovery mode), so neither is safe without the owner.
+- Armed the regression run for image 50 (normal path, no `slpa`): `suspendall`, 2 `deep` cycles with a 120 s alarm (each crosses one heartbeat), root read-only first, test kernel with the SART restore.
