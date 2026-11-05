@@ -56,6 +56,12 @@ There are two goals:
   read-only); no watchdog fired, and the owner reset the Mac by hand after about 15 min. A read-only scrub
   afterwards found no errors. More `slpa` runs wait until the owner is ready to reset by hand. What macOS does
   between `slpa` and the power-down (the PMP CPU-complex clears, `SetAPPower` to the PMP, the CPU stops) is next.
+* **2026-11-05: why the disk died, and a fix to try.** The watcher's log shows the SMC cuts the storage
+  controller's (ANS) power after `slpa`, and it never boots again. macOS rewrites the ANS's SART (its DMA
+  windows, set up by iBoot) every time it starts the ANS (`IOSARTMapper::_setActive`); Linux never did. The
+  test kernel now saves the SART at suspend and restores what changed (a no-op on 4 of 4 normal wakes), and
+  the dead-man switch reads the ANS, mailbox and SART state after each wake. Next: the same `slpa` run with
+  both, when the owner can reset by hand. Drain A/B on battery: suspend to RAM 1.37 W, s2idle 1.39 to 1.41 W.
 * **Earlier the same day, before Phase 2 closed: 33%** (risk-weighted
   guess, wide error bar). Done: timed wake, SMC handshake, macOS trace
   method, CPU_ON, a firmware that hands the boot CPU back and wakes it on
