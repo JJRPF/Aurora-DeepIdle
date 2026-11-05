@@ -1626,3 +1626,16 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 - The wake came **13.5 min before the alarm, on line 0x361 = AIC 865, the SMC mailbox** (the alarm is 724): an SMC event, most likely from the battery or the forced discharge (the 10-23 overnight s2idle saw the same kind of mailbox wakes). The wake path took it as a normal wake line and resumed.
 - Afterwards `charge_behaviour` is back to `auto` and the thresholds to 80/75; flags removed, boot.bin 76f850895fed53d1, `next_entry` unset.
 - Also fixed today’s worklog headings from 07:12 on: several carried estimated times instead of the clock; they now show each entry’s commit time.
+
+## 2026-11-05 10:10: `MBSE` on wake is macOS’s SMC wake reason; the plan for the owner-attended runs
+
+- `AppleSMC::callPlatformFunction(IOPlatformWakeAction)` reads `MBSE` and claims it as the system wake event `SMC.MBSE.%02x` (`IOPMrootDomain::claimSystemWakeEvent`), then reads 8 bytes of `MBSW` and sends `waka`. So the `MBSE 00010730` after the first `slpa` run (11-04 21:32) was the SMC’s wake reason; its codes are in the SMC firmware (inside the encrypted iBoot), so it cannot be decoded here.
+- The owner-attended runs, in order, each one boot with the owner at the power key (long press only after 10 min with no push and no chat message):
+
+| Run | Flags (`/var/lib/deepidle/…`) | Question | Reading of the next kernel start, from `echo mem` |
+|---|---|---|---|
+| A | `deep-steps` 6, `suspend-cycles` 1, `suspend-alarm` 30, image 50 | Does the SoC go down after `slpa`? | resume: SoC still up (then SART restore results); about 64 s: RVBAR on the alarm (SoC went down, wake path reached Aura); about 94 s: cold boot from the alarm; 124 s: SMC timeout |
+| B | as A, plus `deep-steps` 14 (PMU boot stage 0x50) | Does iBoot treat the wake as a sleep wake once the PMU says the AP is asleep? | as A; a change from A’s reading is the answer |
+| C | as A or B, plus `pmp-sleep` | macOS’s PMP steps after `slpa` | as A |
+
+- Arming each: write the flag files, `findmnt /boot`, `sudo bash harness/psci-efi/install.sh suspendall`, send the owner the ntfy instructions, then `reboot.sh` with a prompt naming the run. The dead-man snapshot (wake mask and status, ANS, SART) and the watcher on `core-node-ts` record what happens.
