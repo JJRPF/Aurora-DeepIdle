@@ -390,7 +390,7 @@ index 92d225ab..8356847a 100644
                                 unsigned long arg2);
  
 diff --git i/src/smp.c w/src/smp.c
-index 4c866a6c..31783500 100644
+index 4c866a6c..a115c1f5 100644
 --- i/src/smp.c
 +++ w/src/smp.c
 @@ -4,6 +4,7 @@
@@ -410,19 +410,25 @@ index 4c866a6c..31783500 100644
          printf("  Index: %d (table: %p)\n\n", index, me);
  
      me->mpidr = mpidr;
-@@ -1004,7 +1005,10 @@ int smp_psci_affinity_info(u64 mpidr)
+@@ -1004,7 +1005,16 @@ int smp_psci_affinity_info(u64 mpidr)
       * after its last memory access, just before the power-down.
       */
      dc_civac_range(&psci_cpu_state[index], 1);
 -    return psci_cpu_state[index] == PSCI_CPU_ON ? PSCI_AFFINITY_INFO_ON : PSCI_AFFINITY_INFO_OFF;
-+    if (psci_cpu_state[index] == PSCI_CPU_ON)
++    if (psci_cpu_state[index] == PSCI_CPU_ON) {
++        if (index == 1)
++            wdt_psci_arm(40); /* the boot CPU asked, the core still reads ON */
 +        return PSCI_AFFINITY_INFO_ON;
-+    wdt_psci_arm(41 + 2 * index); /* image 43 stamp: this core reported off */
++    }
++    if (index == 1)
++        wdt_psci_arm(44); /* reported off */
++    else
++        wdt_psci_arm(48); /* a later core reported off */
 +    return PSCI_AFFINITY_INFO_OFF;
  }
  
  /* Hand a parked CPU its entry point, as smp_call4() does, without waiting. */
-@@ -1044,6 +1048,7 @@ int smp_psci_cpu_on(u64 mpidr, u64 entry, u64 context)
+@@ -1044,6 +1054,7 @@ int smp_psci_cpu_on(u64 mpidr, u64 entry, u64 context)
          return PSCI_RET_INVALID_ADDRESS;
      if (index == boot_cpu_idx)
          return PSCI_RET_ALREADY_ON;
@@ -430,7 +436,7 @@ index 4c866a6c..31783500 100644
  
      dc_civac_range(&psci_cpu_state[index], 1);
      switch (psci_cpu_state[index]) {
-@@ -1064,7 +1069,7 @@ int smp_psci_cpu_on(u64 mpidr, u64 entry, u64 context)
+@@ -1064,7 +1075,7 @@ int smp_psci_cpu_on(u64 mpidr, u64 entry, u64 context)
   * us stays reachable), HCR_EL2 back to its reset value (the kernel ran as a VHE host), then
   * x0 = context, branch to the entry.
   */
@@ -439,7 +445,7 @@ index 4c866a6c..31783500 100644
  asm(".text\n.globl psci_enter\npsci_enter:\n"
      "mrs x2, sctlr_el2\n"
      "bic x2, x2, #(1 << 0)\n"
-@@ -1090,15 +1095,21 @@ void psci_park_c(u64 index)
+@@ -1090,15 +1101,27 @@ void psci_park_c(u64 index)
      struct spin_table *me = &spin_table[index];
      u64 target;
  
@@ -456,6 +462,9 @@ index 4c866a6c..31783500 100644
 +        reg_mask(SYS_IMP_APL_CYC_OVRD, CYC_OVRD_WFI_MODE_MASK | CYC_OVRD_DISABLE_WFI_RET, CYC_OVRD_WFI_MODE(3));
 +        sysop("isb");
 +    }
++    if (index == 1)
++        wdt_psci_arm(32); /* parked, on the Aura stack */
++    bool first = true;
      while (1) {
          /* Plain load: the mapping is inner-shareable write-back, the other CPU's civac-ed store is visible. */
          if ((target = *(volatile u64 *)&me->target))
@@ -463,18 +472,36 @@ index 4c866a6c..31783500 100644
 -        sysop("isb");
 -        sysop("wfi");
 +        _deep_wfi_helper();
++        if (index == 1 && first)
++            wdt_psci_arm(36); /* first return from the park WFI (once only: a loop must not keep the dog fed) */
++        first = false;
      }
      sysop("dmb sy");
      me->flag++;
-@@ -1113,6 +1124,7 @@ int smp_psci_cpu_off(void)
+@@ -1113,6 +1136,9 @@ int smp_psci_cpu_off(void)
  
      if (index < 0 || index == boot_cpu_idx)
          return PSCI_RET_DENIED;
-+    wdt_psci_arm(20 + 2 * index); /* image 43 stamp: CPU_OFF entered on this core */
++    /* image 44 stamps, first secondary only (index 1): reset time after echo mem minus ~24 s firmware */
++    if (index == 1)
++        wdt_psci_arm(20); /* CPU_OFF entered */
  
      /*
       * Not the PMGR stop request: a core stopped that way did not come back from any start
-@@ -1162,8 +1174,14 @@ int smp_psci_mmio_ranges(u64 *ranges, int max)
+@@ -1125,8 +1151,12 @@ int smp_psci_cpu_off(void)
+     dc_civac_range(&spin_table[index], sizeof(struct spin_table));
+     psci_cpu_state[index] = PSCI_CPU_OFF;
+     dc_civac_range(&psci_cpu_state[index], 1);
++    if (index == 1)
++        wdt_psci_arm(24); /* OFF written */
+     dcsw_op_level1(DCSW_OP_DCCISW);
+     sysop("dsb sy");
++    if (index == 1)
++        wdt_psci_arm(28); /* L1 cleaned */
+     u64 sp = (u64)secondary_stacks[index] + SECONDARY_STACK_SIZE;
+     asm volatile("mov sp, %0\n mov x0, %1\n b psci_park_c" ::"r"(sp), "r"((u64)index) : "x0");
+     __builtin_unreachable();
+@@ -1162,8 +1192,14 @@ int smp_psci_mmio_ranges(u64 *ranges, int max)
          smp_psci_add_range(ranges, max, &n, cpu_start_base + cpu_info[i].die * PMGR_DIE_OFFSET,
                             0x100);
      }
