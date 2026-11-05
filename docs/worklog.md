@@ -1722,3 +1722,8 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 - 47.378 to 45.144 Wh: **2.234 Wh, 1.489 W**. With the 10:01 `deep` run (1.444 W) and the 12:01 `s2idle` run (1.478 W), the three long runs spread 1.44 to 1.49 W: the difference between suspend to RAM with parked CPUs and s2idle is inside the run-to-run spread. Parking the CPUs buys nothing measurable while the SoC stays up.
 - Counters over the cycle: `AWAKE` and `SYS_AWAKE` +130.35 G ticks (5431 s at 24 MHz, the suspend plus the half minute around it); `SLP_DDR`, `SLP_S2R`, `DEEP_WAIT`, `SYS_S2R_AOP`, `SYS_SLP_DDR` 0. The PMGR stayed AWAKE for the whole 90 min.
 - Afterwards `charge_behaviour` `auto`, 80/75; flags removed, boot.bin 76f850895fed53d1, `next_entry` unset, nothing armed. The log is appended to `data/drain-ab/2026-11-05-image50-51-long-deep-vs-s2idle.log`. End of today’s unattended runs; the owner-attended runs A to C are next (`attended.sh`).
+
+## 2026-11-05 15:00: day summary sent; the Mac is on the default kernel
+
+- The owner was sent the day's summary by ntfy (the open question about the 07:01 run, the withdrawn wake-line claim, the PMGR state counters, the long-sleep drain, image 51, the run C caveat, and that runs A to C are one command each with `attended.sh`). Nothing posted to #933.
+- The Mac is on the default kernel (7.2.11-14-1-ARCH), boot.bin 76f850895fed53d1, `next_entry` unset, no test flags, battery `auto` 80/75, headless on, the Pi watcher running. No test boots armed; the next `slpa` runs wait for the owner to say they are ready.
