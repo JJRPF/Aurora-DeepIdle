@@ -1880,3 +1880,10 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
   - Bit 8 is steps 6 and 7.
 - `attended.sh` gains G (aura-ctl 7: E plus the domains) and H (15: plus the clocks and PLL-off). Both wait for the owner.
 - Regression armed, unattended and without `slpa`: image 53, aura-ctl 0x80, 2 `deep` cycles of 60 s, root read-only. It checks the extra runtime ranges and the normal path; none of the new steps run.
+
+## 2026-11-05 17:31: image 53 regression: 2 of 2
+
+- Results dir `results-psci-efi-suspendall-20261105-1726`: aura-ctl 0x80 at `0x10003a77380`.
+- Both cycles came back, rc 0, after 62.7 and 62.8 s on the alarm line (724), with all 10 CPUs online and 0 device errors.
+- `psci_dbg[17]` read `5300000080`; `[18..23]` were 0 (no new step ran).
+- The extra runtime MMIO ranges are harmless. Flags cleared; default boot.bin, no next_entry. G and H are ready for the owner.
