@@ -1705,3 +1705,7 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 ## 2026-11-05 12:32: `attended.sh`: one command per owner-attended run
 
 - `harness/psci-efi/attended.sh A|B|C [--dry]` arms a run from the 10:02 plan with today’s changes (image 51, `pmgr-counters`, 1 `deep` cycle, 30 s alarm, root read-only): A `deep_steps` 6; B 14 (adds the PMU boot stage 0x50); C 14 plus `pmp-sleep`. It checks `/boot` and the default boot.bin, writes the flags, runs `install.sh suspendall`, sends the owner the ntfy instructions (when to hold power), writes the boot prompt for the result (what each reading means) and reboots. Run only after the owner says they are at the Mac. Dry runs of A and C pass.
+
+## 2026-11-05 12:43: awake idle never leaves the PMGR's AWAKE state either
+
+- Image 51 test kernel, the counters left on after the run, 10 min headless awake idle (12:32:23 to 12:42:23, this session the only load): `AWAKE` and `SYS_AWAKE` +14.398 G ticks = **599.9 s of 600**, `SLP_DDR`, `DEEP_WAIT`, `SLP_S2R`, `SYS_S2R_AOP` and `SYS_SLP_DDR` **0**. So with Linux, the SoC sits in AWAKE all the time, awake or suspended; the SoC-level idle and sleep states the PMGR knows (DDR sleep, deep wait, S2R) are reached by none of today's paths. This is the gap behind both the awake idle power (GH-10) and the 1.44 W suspend.
