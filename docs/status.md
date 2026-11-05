@@ -67,6 +67,11 @@ There are two goals:
   long-press logs none). Either `slpa` really took the SoC down and the alarm woke it into a cold boot (there is
   no resume path yet), or the SMC timed out waiting. Disk and filesystem clean. A 30 s alarm run, owner present,
   tells the two apart.
+* **2026-11-05, morning (static, from macOS 13.5):** macOS tells the PMU the AP is asleep (boot stage 0x50) and
+  gives the SMC a 10 s deadline as it sleeps; Linux does neither (test options staged, off). The PMGR's AP
+  wake-source mask is all open under Linux; macOS's narrower mask stops even Aura's normal deep-WFI wake, so
+  it is not a drop-in. Image 50 times its RVBAR stages so the next `slpa` run can tell a real SoC sleep from an
+  SMC timeout.
 * **Earlier the same day, before Phase 2 closed: 33%** (risk-weighted
   guess, wide error bar). Done: timed wake, SMC handshake, macOS trace
   method, CPU_ON, a firmware that hands the boot CPU back and wakes it on

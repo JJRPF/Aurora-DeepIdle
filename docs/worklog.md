@@ -1602,3 +1602,8 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 ## 2026-11-05 08:05: armed: which wake-status bits a deep-WFI wake sets (mask 0)
 
 - Image 50, `suspendall`, normal path (no `deep_steps`), root read-only, 2 `deep` cycles with a 90 s alarm (each crosses one 60 s heartbeat before the alarm). The dead-man snapshot after each wake reads the mask (expect 0) and the 9 status words at `0x29e004030`.
+
+## 2026-11-05 08:10: wake status after deep-WFI wakes: all 0
+
+- Image 50, normal path, mask left at 0, 2 `deep` cycles with a 90 s alarm (each crossing one heartbeat): **2 of 2 back** (92.0 and 92.4 s), 0 device errors. The dead-man snapshot after each wake: mask 0, **status 0** in all nine words. So the status words do not latch on a wake from Aura’s deep WFI with the SoC up; they are for a wake from real S2R (or need setting up first). They stay in the snapshot for the next `slpa` run, where they would name the wake source if the SoC went down.
+- Disarmed: `force-ro` removed, boot.bin 76f850895fed53d1, `next_entry` unset.
