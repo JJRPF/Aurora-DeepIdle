@@ -1694,3 +1694,10 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 
 - Same run on a fresh boot where the AOP came up normally (`AOP IS READY`, no shutdown timeouts): counters “enabled” as before, then 2 `deep` cycles of 120 s: **2 of 2 back** (122.1 and 122.3 s), **`online 0-9`**, 0 device errors. So the per-counter config write is harmless and the 12:20 loss of the secondaries (and the SMC command failures) came with the AOP’s failed probe; the AOP failure itself is a one-off so far (1 of the last 8 boots).
 - The counters still did not count. `ApplePMGR::_enableSOCPerfCounters(group, true)` sets bit 0 of the group’s control word (block 0 `+0`, which reads `0x00030000`, bit 0 clear) after the per-counter configs; `pmgrcnt enable` now does that last step too. One more short run with it.
+
+## 2026-11-05 12:31: the PMGR’s state counters work: with the SoC up, only `AWAKE` counts
+
+- Image 51, AOP healthy, `pmgrcnt enable` with the group bit (control `0x30000` → bit 0 set), then one `deep` and one `s2idle` cycle of 120 s: **2 of 2 back, `online 0-9`, 0 device errors**.
+- The counters run at 24 MHz and count time in each state: 2 s after enabling, `AWAKE` and `SYS_AWAKE` (and their second counters) read 48.2 M ticks; after the `deep` cycle 3.040 G (+124.6 s), after the `s2idle` cycle 6.049 G (+125.4 s). **`SLP_DDR`, `SLP_S2R`, `DEEP_WAIT`, `SYS_S2R_AOP` and `SYS_SLP_DDR` stayed at 0 throughout**: the PMGR’s own record that the SoC never left AWAKE during Aura’s suspend or s2idle, the first direct measurement of that (it fits the drain: 1.44 W against 1.48 W).
+- So in an `slpa` run that comes back (a resume, or Linux through image 51’s RVBAR path), `SLP_S2R` and `SYS_S2R_AOP` above 0 would prove the SoC went down, and their ticks say for how long. A cold boot resets the PMGR, so they cannot tell anything after a reset.
+- Added to the owner-attended plan (10:10 table): **every run also sets `/var/lib/deepidle/pmgr-counters`**. The counters stay off by default.

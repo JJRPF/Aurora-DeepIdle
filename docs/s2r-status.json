@@ -137,7 +137,8 @@
         "Image 50: the RVBAR path’s watchdog stages (10 s, 150 s) differ from every other reset, for the next `slpa` run; 2 of 2 on the normal path",
         "macOS 13.5 watchdog kext read: PMU boot stage 0x50 at sleep, a 10 s SMC deadline at quiesce. Test kernel option `deep_steps` bit 8 (boot stage 0x50 across suspend) staged, off",
         "First long suspend under Aura (image 50, 2026-11-05): 1 h 46 min on battery, 106 heartbeats, 1.444 W, 0 device errors; it woke early on an SMC mailbox event",
-        "Image 51: an RVBAR entry after a real S2R wake now resumes Linux (on the boot CPU) instead of resetting; ready for the owner-attended `slpa` runs"
+        "Image 51: an RVBAR entry after a real S2R wake now resumes Linux (on the boot CPU) instead of resetting; ready for the owner-attended `slpa` runs",
+        "PMGR state counters readable from Linux (`pmgrcnt`): with the SoC up only `AWAKE` counts; `SLP_S2R` is the proof to look for in the next `slpa` run"
       ],
       "next": [
         "Owner-attended run A: image 51, `slpa`, 30 s alarm. A resume, a reset about 204 s after `echo mem` (Linux resumed through RVBAR, then hung), about 94 s (a cold boot) or 124 s (an SMC timeout) each name a different cause",
@@ -220,7 +221,8 @@
     { "n": "50-wakestatus", "what": "Image 50, normal path, wake mask 0, 2 `deep` cycles of 90 s; the dead-man reads the PMGR wake status after each wake", "result": "2 of 2 back; status 0 both times, so it does not latch on a deep-WFI wake", "outcome": "pass" },
     { "n": "50-2h", "what": "Image 50, one 2 h suspend to RAM on battery, all CPUs, normal path", "result": "Back after 6391 s (an SMC mailbox wake 13 min before the alarm), 0 device errors, disk ok; 106 heartbeats; 1.444 W average", "outcome": "pass" },
     { "n": "51", "what": "Image 50, but the RVBAR path resumes the kernel even with no wake line (a real S2R wake); 2 `deep` cycles of 120 s, no `slpa`", "result": "2 of 2 back, 0 device errors, disk ok; the normal path is unchanged", "outcome": "pass" },
-    { "n": "51-s2idle-long", "what": "Image 51 test kernel, one `s2idle` cycle of 6300 s on battery (the long A/B partner of 50-2h)", "result": "Back on the alarm, 0 device errors, disk ok; 1.478 W against `deep`’s 1.444 W", "outcome": "info" }
+    { "n": "51-s2idle-long", "what": "Image 51 test kernel, one `s2idle` cycle of 6300 s on battery (the long A/B partner of 50-2h)", "result": "Back on the alarm, 0 device errors, disk ok; 1.478 W against `deep`’s 1.444 W", "outcome": "info" },
+    { "n": "51-counters", "what": "Image 51 with the PMGR’s system-state counters turned on (`SLP_S2R`, `AWAKE` and the rest), one `deep` and one `s2idle` cycle of 120 s", "result": "2 of 2 back; only `AWAKE`/`SYS_AWAKE` count (24 MHz, the whole time), `SLP_S2R` and the other sleep states stay 0: the SoC never left AWAKE", "outcome": "pass" }
   ],
   "macos_sleep": [
     { "step": "SMC `MSxb` writes from every CPU", "linux": "Housekeeping, not needed yet" },
@@ -266,7 +268,8 @@
     { "title": "A PMGR gate alone does not lose the storage controller", "body": "genpd switched `ps_ans2` (the ANS, its mailbox and its SART) off in each of last night’s 4 suspends, and NVMe came back every time. So `slpa` takes away more than that gate does, perhaps the rail itself. The SART’s entries (8 of 16 used) are the first thing to check after the next `slpa` run." },
     { "title": "macOS writes the storage controller’s SART back on every start", "body": "`IOSARTMapper::_setActive(true)` (13.5) copies the SART’s 16 config and 16 address words the first time, and writes them back every later time. The ANS start after sleep runs it. So macOS expects the SART to lose its entries in S2R, and the Linux SART driver had nothing for that. The test kernel now does the same." },
     "macOS tells the PMU the AP is asleep (`IOPMUBootStage` 0x50) in its sleep action, and gives the SMC a 10 s AP-watchdog deadline at the last quiesce step; Linux leaves 0x30 (“OS running”) through suspend, so a reset from sleep counts as a boot error",
-    "The PMGR’s AP wake-source mask (`0x29e00400c`, 1 = disabled) is 0 under Linux. macOS’s value, with only its 22 sources enabled, also stops the alarm and the EL2 timer from waking the boot CPU out of Aura’s deep WFI"
+    "The PMGR’s AP wake-source mask (`0x29e00400c`, 1 = disabled) is 0 under Linux. macOS’s value, with only its 22 sources enabled, also stops the alarm and the EL2 timer from waking the boot CPU out of Aura’s deep WFI",
+    "The PMGR keeps per-state time counters (`AWAKE`, `SLP_S2R`, `SYS_S2R_AOP`, …), off under Linux. Turned on, they show the SoC stays AWAKE through Aura’s suspend and s2idle; in an `slpa` run that comes back they can prove a real S2R"
   ],
   "rules": [
     "Never remove and rescan PCI devices: it kills Wi-Fi until a reboot.",
