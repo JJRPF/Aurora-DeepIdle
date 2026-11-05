@@ -1274,3 +1274,9 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 - Cause, from the diff against image 31 (which worked 3/3 with the same deep WFI): image 31 used `deep_wfi()`, which restores CYC_OVRD after the WFI. Image 37's inline WFI left WFI_MODE 3 set on return, so the kernel resumed with every idle WFI on the boot core turned into a deep WFI. That is the most likely hang.
 - Image 38 (667e1478dc27a9f8): `psci_sleep_core()` saves CYC_OVRD, sets WFI_MODE 3 (retention on) for the WFI, and restores it afterwards. Otherwise the same as 37. Re-armed the 20-cycle gate (maxcpus=1, 10 s alarm, SetAPPower kernel).
 - The owner approved the all-CPU suspend test (CPU offlining inside suspend). It comes after this gate.
+
+## 2026-11-04 19:50: image 38 also hung on cycle 1; rerun image 31 as the baseline
+
+- Image 38 (CYC_OVRD restored): `echo mem` 19:43:40, next boot 19:46:04: a reset about 120 s after entry again, on cycle 1. So the CYC_OVRD left set was not the cause.
+- The Pi's kmsg stream ends at `Filesystems sync` in every hung run (Wi-Fi is down from device suspend on; in good runs the rest is delivered after resume), so it does not show where it hangs.
+- Image 31's source was not saved (the WIP diff starts at image 32), but its binary is. Rerunning image 31 for the 20 cycles on the same kernel: if it passes, the hang is in Aura's changes since 31 (resident-image PoC clean, `psci_resume`/`psci_runtime` globals, the RVBAR stamp in `start.S`); if it fails, something outside Aura changed.
