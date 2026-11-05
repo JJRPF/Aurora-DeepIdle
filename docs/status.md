@@ -75,9 +75,13 @@ There are two goals:
   on the PMP side: before `slpa`, macOS has released every PMP power
   request but the two CPU complexes (`0x300`); Linux still holds ISP and
   the three display ones (`0xf000`).
+* **2026-11-05, 18:04: run A again, attended:** `slpa` does not clear the
+  storage controller's boot address, so that lead is wrong. Its firmware
+  does start after `slpa` (it answers the first handshake), but it never
+  acknowledges power-on. Most likely the storage power the SMC cut at
+  `slpa` only comes back with a real SoC sleep and wake. So the SoC sleep
+  comes first. The Mac reset itself, and the disk is clean.
 * **Next (owner-attended):**
-  * run A again (`slpa` only) with the IO RVBAR restore: does the storage
-    controller boot after `slpa` now?
   * run C again (`slpa` plus the PMP's IDLE, now sent once);
   * runs G and H: image 53's PMGR quiesce steps before the S2R timer;
   * then the cluster power-off step, the PMP, and the devices that lose
@@ -194,7 +198,7 @@ wakes cost milliwatts. The 1.4 W is power left on.
 | Recovery | **works** | SoC watchdog around SYSTEM_SUSPEND (proven by a deliberate hang); dead-man switch after `slpa` runs | |
 | SMC handshake | **tested** | `WKTP` and `slpw` are harmless. `slpa` makes the SMC cut the ANS's power; the Mac still resumes on the alarm | `slpa` goes last, after the PMGR's own entry |
 | PMGR sleep entry | **started** (image 52) | Aura writes the S2R timer (`MPMGR_AON` + 0x4000); it resets the SoC about 60 s later unless the entry completes, and it does not complete with `slpa` and every core powered down (runs D to F) | `quiesceHW`'s clock gates, PLL-off and GPU steps before the timer |
-| NVMe (ANS) | **fails after `slpa`**, fix to test | Clean in every Phase 2 cycle. After `slpa` the ANS CPU never boots (status 0x08, `IOP power acknowledgment failed: -62`). The SART is intact. Lead: its IO RVBAR (boot address, `0x347050000`), which macOS rewrites on every start; the test kernel restores it | Run A again with the restore (owner-attended) |
+| NVMe (ANS) | **fails after `slpa`** | Clean in every Phase 2 cycle. After `slpa` the ANS firmware starts (answers the RTKit HELLO) but never acks IOP power-on (`-62`), CPU status 0x08. The SART and its boot address (IO RVBAR) are intact (run A, 11-05 18:04). Likely waits on the storage power the SMC cut, which only a real S2R wake restores | Comes after the SoC sleep (runs C, G, H) |
 | PMP | IDLE works, the wake does not | IDLE acks in about 400 us in s2idle. Run C's crash after `slpa` was the test kernel's double SetAPPower (fixed 11-05). RUN alone: 0 of 3. A PMGR reset of `ps_pmp` crashes the SoC | Run C again (attended); release the display and ISP requests before `slpa`, as macOS |
 | Devices (PCIe L2, Wi-Fi, DCP) | s2idle only | DCP cannot resume from power loss today | Phase 4 |
 

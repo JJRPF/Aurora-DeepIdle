@@ -1932,3 +1932,17 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
   - Risk: if the PMP powers the display complexes down and DCP cannot restart afterwards, the display stays dark until reboot. That is acceptable headless, and it is the same problem a real S2R has anyway.
   - It is a DT-only test change. For an attended run, not unattended: it changes what the PMP powers in a normal suspend.
 - Board: the PMP item notes run C's real cause.
+
+## 2026-11-05 18:06: owner-attended run A again (`slpa`, IO RVBAR restore): the IO RVBAR is kept, the lead is wrong; the ANS does start
+
+- Owner-attended (5 min window), image 53, `deep_steps=6`, aura-ctl 0, 1 `deep` cycle, 30 s alarm, counters on, root read-only. Test kernel `254c93bd5410a827`. The run started at 18:01:37 (ntfy). Dead-man push at 18:04:50. The Mac reset itself and came back on the default kernel at 18:05. The owner did not reset it by hand.
+- From the dead-man push (run.log never reached the dead disk):
+  - Resumed on the alarm.
+  - `TEST iorvbar: kept 0x10000004001`: **`slpa` does not clear the ANS wrapper's IO RVBAR**. The dead-man snapshot reads `IORVBAR 00004001 00000100`, the same value.
+  - Then `RTKit: Initializing (protocol version 12)`, `IOP power acknowledgment failed: -62`, `ANS did not boot`. ANS CPU status `0x10`/`0x08`, as in every `slpa` run.
+  - `apple-sart: entries kept`. PMGR counters `AWAKE` only (`SLP_S2R` 0). `psci_dbg[17]` 0x5300000000 (aura-ctl 0).
+- Reading, and a correction to the 17:36 lead: `RTKit: Initializing (protocol version 12)` means the ANS firmware runs and answered the management HELLO. That was already in runs A to C, so the IO RVBAR lead could have been ruled out from the logs. The ANS boots; what it does not do is ack the IOP power-on.
+  - Most likely it is stuck behind the storage power the SMC cut at `slpa` (NAND and its rails). The SMC only brings that back in its own S2R wake, and `waka` from a running AP does not (finding of 11-04).
+  - So the ANS failure follows from the SoC never going down, and the ANS is not a separate bug to fix first. What counts next is the SoC sleep itself: runs C, G and H.
+- After the run: test flags removed; default boot.bin `76f850895fed53d1`, `next_entry` unset. btrfs error counters all 0, no errors in the kernel log, so no scrub. Headless on.
+- The IO RVBAR restore stays in the test kernel: it is a logged no-op, and it keeps logging the value.
