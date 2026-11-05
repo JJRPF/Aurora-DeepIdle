@@ -1839,3 +1839,26 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 - Run F (aura-ctl 2, the cores without the timer) is the control.
   - About 144 s (WD1): the cores really do power down, and nothing restarts them without S2R.
   - A resume on the alarm: bit 2 does not really power them down, and E did not test what it meant to.
+
+## 2026-11-05 17:08: run F (the cores without the timer): WD1 at 120 s, so the cores really power down. What D to F settle
+
+- Owner-attended run F: image 52, `deep_steps=6`, aura-ctl 2 (set at `0x100024df380`), 30 s alarm. `echo mem` at 17:04:23.9. The next kernel started at 17:06:49.0 (RTC 22:07:03 UTC at uptime 14.0 s): 145.1 s later, which is WD1's 120 s plus the chain. No dead-man push.
+- So with aura-ctl 2 every core really powers down (macOS's `cpu_sleep(true)`), the alarm cannot restart them, and only Aura's watchdog brings the Mac back, as with images 32 to 36. Run E therefore tested what it meant to.
+- What D to F settle:
+
+  | Run | Steps (all with `slpa`) | `echo mem` to next kernel | What reset the Mac |
+  |---|---|---|---|
+  | D | S2R timer, 30 s alarm | 86 s | the S2R timer |
+  | D2 | S2R timer, 90 s alarm | 84.8 s (before the alarm) | the S2R timer |
+  | E | S2R timer plus every core into deep sleep | 85.7 s | the S2R timer |
+  | F | every core into deep sleep, no timer | 145.1 s | WD1 (120 s) |
+
+  - Writing 1 to MPMGR_AON + 0x4000 starts a timer that resets the SoC about 60 s later unless the S2R entry completes. It is the first PMGR write from our side that the SoC acts on.
+  - With `slpa` done and every core powered down macOS's way, the entry still does not complete. What macOS does before the timer and we do not:
+    - `quiesceHW`'s SoC-East clock gates (0x1c0, 0x1e0), the ClkGen PLL-off writes (0x38158 to 0x3816c, bit 31 on and a wait on bit 30) and the GPU PMGR quiesce;
+    - the PMP's IDLE;
+    - the AIC and PMU SPMI quiesce actions;
+    - the SMC's AP watchdog deadline.
+  - Any of them may be what the reconfig engine waits on.
+- No damage: every run reset cleanly, the filesystems are clean, and no PMU boot error was logged. Flags cleared; default boot.bin and no next_entry.
+- Next (static, then owner-attended): decode `AppleT6020PMGR::quiesceHW`'s indirect calls (vtable +0xbd0, +0xdc0, +0x9b0, +0x958) into register writes. Then an image 53 step that does them in macOS's order before the timer. Also find what macOS's AIC and PMU quiesce actions write.
