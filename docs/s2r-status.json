@@ -135,7 +135,8 @@
         "SART save and restore across suspend (test kernel): a no-op on normal wakes (4 of 4 “kept”), ready to test after `slpa`",
         "Second `slpa` run (image 49, 60 s alarm, 2026-11-05 07:01): no resume; the Mac reset about 100 s after entry, before any 120 s watchdog, with a PMU boot error. Either the SoC really went down and the alarm woke it into a cold boot, or the SMC timed out. Disk and FS clean",
         "Image 50: the RVBAR path’s watchdog stages (10 s, 150 s) differ from every other reset, for the next `slpa` run; 2 of 2 on the normal path",
-        "macOS 13.5 watchdog kext read: PMU boot stage 0x50 at sleep, a 10 s SMC deadline at quiesce. Test kernel option `deep_steps` bit 8 (boot stage 0x50 across suspend) staged, off"
+        "macOS 13.5 watchdog kext read: PMU boot stage 0x50 at sleep, a 10 s SMC deadline at quiesce. Test kernel option `deep_steps` bit 8 (boot stage 0x50 across suspend) staged, off",
+        "First long suspend under Aura (image 50, 2026-11-05): 1 h 46 min on battery, 106 heartbeats, 1.444 W, 0 device errors; it woke early on an SMC mailbox event"
       ],
       "next": [
         "Owner-attended `slpa` run with a 30 s alarm: a reset about 64 s after the alarm means the SoC went down (then the wake path is next); 124 s again means an SMC timeout",
@@ -215,7 +216,8 @@
     { "n": "50", "what": "Image 49 with RVBAR stage dogs of 10 s and 150 s, so a reset time after `slpa` names how far the wake got; 2 `deep` cycles of 120 s, no `slpa`", "result": "2 of 2 back, 0 device errors, disk ok, SART kept; Aura’s words as in image 49", "outcome": "pass" },
     { "n": "50-wakemask", "what": "Image 50, normal suspend with the test step that enables macOS’s AP wake sources in the PMGR mask (`deep_steps=16`, no `slpa`)", "result": "No wake: the next kernel 145 s after entry, a 120 s dog reset. Either the register write or the changed mask stops the suspend; disk clean", "outcome": "fail" },
     { "n": "50-wakemask2", "what": "Image 50: macOS’s AP wake mask written while awake (`0x29e00400c`), then a normal suspend with it in place", "result": "The write reads back and restores cleanly; with the mask on, neither the heartbeat nor the alarm woke the AP, so a 120 s dog reset. The mask gates deep-WFI wakes too", "outcome": "info" },
-    { "n": "50-wakestatus", "what": "Image 50, normal path, wake mask 0, 2 `deep` cycles of 90 s; the dead-man reads the PMGR wake status after each wake", "result": "2 of 2 back; status 0 both times, so it does not latch on a deep-WFI wake", "outcome": "pass" }
+    { "n": "50-wakestatus", "what": "Image 50, normal path, wake mask 0, 2 `deep` cycles of 90 s; the dead-man reads the PMGR wake status after each wake", "result": "2 of 2 back; status 0 both times, so it does not latch on a deep-WFI wake", "outcome": "pass" },
+    { "n": "50-2h", "what": "Image 50, one 2 h suspend to RAM on battery, all CPUs, normal path", "result": "Back after 6391 s (an SMC mailbox wake 13 min before the alarm), 0 device errors, disk ok; 106 heartbeats; 1.444 W average", "outcome": "pass" }
   ],
   "macos_sleep": [
     { "step": "SMC `MSxb` writes from every CPU", "linux": "Housekeeping, not needed yet" },
@@ -235,7 +237,7 @@
     { "change": "SD reader link with ASPM L1", "saving": "0.37 W", "detail": "Without L1 the all-off night drained 2.1 W." }
   ],
   "sleep": [
-    { "what": "Suspend to RAM, image 49 (CPUs in deep WFI)", "value": "1.37 W", "detail": "30 min on battery; `s2idle` in the same boot 1.39 to 1.41 W" },
+    { "what": "Suspend to RAM, image 49/50 (CPUs in deep WFI)", "value": "1.37 to 1.44 W", "detail": "30 min and 1 h 46 min on battery; `s2idle` in the same boot 1.39 to 1.41 W" },
     { "what": "s2idle, PMP running", "value": "1.39 to 1.46 W", "detail": "9.6 h, 23% of the battery a night" },
     { "what": "s2idle, stock, on battery", "value": "1.41 W", "detail": "" },
     { "what": "s2idle, everything optional off", "value": "2.1 W", "detail": "The SD link without L1" },

@@ -1516,7 +1516,7 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 - Armed: image 49, `suspendall`, `macsmc_reboot.deep_steps=6` (`slpw` and `slpa`), **no** `pmp_sleep`, 1 `deep` cycle, 60 s alarm. Test kernel with the SART save and restore; dead-man switch with the register snapshot; root read-only before the suspend; the watcher on `core-node-ts` streams kmsg. Instructions went to the owner by ntfy.
 - The question: after `slpa`, does `apple-sart` report entries changed, and does the ANS boot once they are restored?
 
-## 2026-11-05 07:40: owner-attended `slpa` run (image 49, 60 s alarm): no resume; the Mac cold-booted about 100 s after entry
+## 2026-11-05 07:12: owner-attended `slpa` run (image 49, 60 s alarm): no resume; the Mac cold-booted about 100 s after entry
 
 - Image 49, `suspendall`, `deep_steps=6`, test kernel with the SART restore, `panic=0`, 1 `deep` cycle. `echo mem` at 07:01:04 (kernel 64.56 s). The PMU alarm was set for 07:02:04 (60 s). Root was read-only first (`filesystems ro: 1 of 4`, then the suspend).
 - Nothing more from that boot: no `PM: suspend exit`, no dead-man line, no `apple-sart` line. The next kernel started at **07:03:08** (`uptime -s`; the default kernel, which saw the default image and did not suspend). Disk and btrfs clean (`device stats` all 0, no errors in `dmesg`); test disarmed, `next_entry` unset, boot.bin back at 76f850895fed53d1.
@@ -1530,7 +1530,7 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
   - **H2, an SMC sleep timeout:** the SMC waits a fixed time (about 100 s) for the AP to go down after `slpa` and resets the system when it does not.
 - Next owner-attended run to tell them apart: the same setup with a **30 s alarm**. H1 predicts a kernel start about 64 s after the alarm (about 96 s after entry), or a resume like the first run if the SMC is not done by then, which would also test the SART restore. H2 predicts 124 s again.
 
-## 2026-11-05 07:55: image 50, reset times that name the RVBAR stage; regression run armed
+## 2026-11-05 07:18: image 50, reset times that name the RVBAR stage; regression run armed
 
 - Image 49’s RVBAR path arms WD1 for 50 s on entry (stage 1, looking for the wake line) and 75 s when it resumes the kernel (stage 2). The 07:01 reset (about 100 s after entry) would fit stage 1 only if the boot CPU had come back through RVBAR about 50 s after entry, which matches no known wake. The chain from a reset to the next kernel is 144 to 145 s minus 120 on four WD1 resets of 11-04 (19:23, 19:29, 19:35, 19:57: from `echo mem` to the next kernel start, taken from each boot’s RTC line minus its uptime), so about 24 s.
 - Image 50 (537df561fbdf13e3): image 49 with `RVBAR_WDT_S` 10 s and `RESUME_WDT_S` 150 s, which are unlike the 120 s dogs and the reset seen at about 100 s. With a 30 s alarm at the next owner-attended `slpa` run, the next kernel would start, counted from `echo mem`, at about:
@@ -1543,12 +1543,12 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 - A DRAM breadcrumb that survives the reset was considered and dropped for now: Aura’s runtime region moves on every boot (iBoot’s slide, 50 different bases in the result folders), and the PMU’s scratch cells are read by iBoot (a wrong panic count can mean recovery mode), so neither is safe without the owner.
 - Armed the regression run for image 50 (normal path, no `slpa`): `suspendall`, 2 `deep` cycles with a 120 s alarm (each crosses one heartbeat), root read-only first, test kernel with the SART restore.
 
-## 2026-11-05 07:28: image 50 regression run: 2 of 2
+## 2026-11-05 07:27: image 50 regression run: 2 of 2
 
 - Image 50 (537df561fbdf13e3), `suspendall`, 2 `deep` cycles, 120 s alarm, root read-only first, test kernel with the SART restore, no `slpa`: **2 of 2 back** (122.0 and 122.4 s), `online 0-9`, 0 device errors, dead-man switch `disk ok` both times, `apple-sart: entries kept across suspend`, register snapshot as before (`ps_ans2 1f0002ff`, ANS cpu `00000010 00000028`). Aura’s debug words match image 49’s 06:41 run word for word, so the normal path is unchanged (as expected: only the RVBAR stages moved).
 - Disarmed: `force-ro` removed, boot.bin back at 76f850895fed53d1, `next_entry` unset. Image 50 is ready for the next owner-attended `slpa` run (30 s alarm).
 
-## 2026-11-05 07:40: macOS’s watchdog kext at sleep: PMU boot stage 0x50, and a 10 s SMC deadline at quiesce (13.5, static)
+## 2026-11-05 07:34: macOS’s watchdog kext at sleep: PMU boot stage 0x50, and a 10 s SMC deadline at quiesce (13.5, static)
 
 - The SMC firmware cannot be read: it is not in the IPSW as a file of its own (`Firmware/rt13m0` is the USB-C retimer; `EFI/SMCPayloads` are Intel Macs’), so on Apple silicon it comes inside iBoot, which is encrypted. Whether the SMC has a sleep timeout (H2) cannot be settled statically.
 - `AppleARMWatchdogTimer::callPlatformFunction` (disassembled now, `dis/AppleARMWatchdogTimer.s`, not committed) handles the platform actions:
@@ -1560,7 +1560,7 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 - Test kernel option, staged and off: `macsmc_reboot.deep_steps` bit 8 writes `boot_stage` 0x50 in `suspend_late` (just before `slpa`) and puts the old value back in `resume_early` (patch `0001-TEST-macsmc-reboot-deep_steps-bit-8-...`, module installed, old one at `/var/lib/deepidle/macsmc-reboot.ko.pre-bootstage`). Not tried unattended: if a reset came with 0x50 in the PMU, what iBoot does then is unknown, so it waits for the owner like `slpa`. Proposed order with the owner present: image 50, `deep_steps=6`, 30 s alarm first (H1 against H2); then the same with `deep_steps=14` (adds the boot stage).
 - The deadline register was not read: no Linux node maps that block, and an unclocked read would end in an SError.
 
-## 2026-11-05 08:15: macOS’s sleep-action map; the PMGR’s AP wake-source mask, read on Linux
+## 2026-11-05 07:40: macOS’s sleep-action map; the PMGR’s AP wake-source mask, read on Linux
 
 - Every kext that handles a platform action (GOT references to `gIOPlatform{Sleep,Quiesce,Active,Wake,Panic}ActionKey` in the 13.5 kernelcache), for the S2R list: ARMWatchdogTimer, AVD, DockChannel, EmbeddedPCIE, EmbeddedTempSensor, GPIOIC, IIS, InterruptControllerV2 (Quiesce, Active), MCA2, PMGR, PMP, I2C, NCO, DWI, SEPKeyStore, SEPManager (Quiesce), SMC, SPMI, SPMIPMU, SmartIO2, Stockholm, the DARTs (Sleep), T6000PCIeC, T6020 (MCC and IO), the CLPCs, SOCTuner, TCA7408 GPIO, ThunderboltNHI, IODARTFamily.
 - **PMU (AppleDialogSPMIPMU)**: Sleep locks its SPMI bus (`_lockBus(true)`); Quiesce programs the RTC wake alarm once more (`scheduleRTCWakeAlarm`, log “pmu go hib”). Its alarm registers are the ones our rtc-macsmc patch uses (`info-rtc_alarm_offset` 0x140c, `_ctrl` 0x1401 bit 6, `_event` 0x14c0, `rtc_irq_mask_offset` 0x14c2), so the alarm set-up is not where Linux differs.
@@ -1570,13 +1570,13 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 - Read on Linux (read only, after a `sync`; the block answered): mask `0000ca00 27d00000 00000202 16f83e04 0 0 0 0 0`, status all 0 (these wakes were from WFI, not from S2R). So iBoot leaves almost every source enabled, but **disables 14 (AOP.GPIO.IRQ6), 52 and 54 (NUB.SPMI0Sw1IRQ, SPMI0Sw3IRQ)**, which macOS enables; macOS disables everything except its 22 sources. Which SPMI line carries the PMU alarm is not known yet. If it is Sw1 or Sw3, the alarm cannot wake a SoC that is really in S2R, which fits the 07:01 run (no wake at 60 s).
 - The dead-man switch’s register snapshot now also reads the mask and the status words, so the next wake from a real S2R says which source woke it (installed; dry run OK).
 
-## 2026-11-05 08:30: test option for the wake mask; unattended code-path check armed
+## 2026-11-05 07:42: test option for the wake mask; unattended code-path check armed
 
 - The PMU alarm is AIC 724, the second of `nub-spmi0`’s interrupts (`[256, 724, 260, …]`), so most likely `NUB.SPMI0Sw1IRQ`: **wake bit 52, which iBoot leaves disabled**. If so, the alarm cannot wake the SoC from a real S2R (an inference from the order, not proven).
 - Test kernel option `macsmc_reboot.deep_steps` bit 16 (patch `0002-TEST-macsmc-reboot-deep_steps-bit-16-...`): in `suspend_late` it clears, in the PMGR mask, the bits of the 22 sources macOS enables (keeping all others), and on wake it logs the 9 status words’ first 4 and writes the old mask back. Default off.
 - Bit 16 is only a PMGR register write that matters once the SoC is really in S2R, with no PMU write and no `slpa`, so its code path is checked unattended: image 50, `suspendall`, 2 `deep` cycles, 120 s alarm, root read-only, `deep_steps=16`. Expected: 2 of 2 back, the mask line before each suspend (`0000ca00 27d00000 …` -> `00008a00 27800000 …`), status 0 and the mask restored on each wake.
 
-## 2026-11-05 07:55: the wake-mask step broke the normal suspend: no wake, a 120 s dog reset
+## 2026-11-05 07:49: the wake-mask step broke the normal suspend: no wake, a 120 s dog reset
 
 - Image 50, `suspendall`, root read-only, `deep_steps=16` (no `slpa`): `echo mem` at 07:44:48 (kernel 71.47 s) and nothing after it; the next kernel started at **07:47:13, 145 s after entry, the signature of a 120 s dog** (four 11-04 WD1 resets: 144 to 145 s). PMU boot error logged, disk and btrfs clean. The image 50 baseline without the step passed 2 of 2 at 07:21.
 - The step’s own `sleep: wake mask …` line is printed in `suspend_late`, after the console has gone and Wi-Fi is down, so it never reached the Pi. Two places it can have gone wrong, the dog cannot tell which (the kernel’s `apple_wdt` arm and Aura’s `SYSTEM_SUSPEND` arm are both 120 s and about a second apart):
@@ -1585,9 +1585,9 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 - After the reset the mask reads `0000ca00 27d00000 00000202 10f83e04 0…` (bits 121 and 122 now clear), so iBoot writes it on every boot and not quite the same each time.
 - Next (unattended, root read-only, Pi streaming): write the same value from user space while the system is awake and the network up, read it back, wait, restore, and only then suspend normally. A hang at the write points to the write; a clean pass points to the suspend interaction.
 
-## 2026-11-05 08:05: correction: the wake mask is PMGR reg 7 (`0x29e004000`), not `0x404ea8000`; Linux finds it at 0
+## 2026-11-05 07:53: correction: the wake mask is PMGR reg 7 (`0x29e004000`), not `0x404ea8000`; Linux finds it at 0
 
-- **The 08:15 and 08:30 readings were of the wrong block.** `writeAOPGlobalReg` passes ApplePMGR’s own `RegMap` enum 42, and `AppleT6020PMGR`’s init binds RegMap 42 to **ADT pmgr reg index 7** (`initRegMap(42, 7, 0, 0)`), `0x9E004000` (0x1000 long), Linux **`0x29e004000`**, mask at +0x0c, status at +0x30. The block at `0x404ea8000` (ADT reg 42, also in `event-log-handler`) is live state: sampled every 2 s, its words 2 and 3 change on every read (`00f80e54`, `02f80e54`, `06f80e54`, `10f83e04`, …). Writing it in `suspend_late` is the likeliest reason the 07:44 suspend never came back.
+- **The 07:40 and 07:42 readings were of the wrong block.** `writeAOPGlobalReg` passes ApplePMGR’s own `RegMap` enum 42, and `AppleT6020PMGR`’s init binds RegMap 42 to **ADT pmgr reg index 7** (`initRegMap(42, 7, 0, 0)`), `0x9E004000` (0x1000 long), Linux **`0x29e004000`**, mask at +0x0c, status at +0x30. The block at `0x404ea8000` (ADT reg 42, also in `event-log-handler`) is live state: sampled every 2 s, its words 2 and 3 change on every read (`00f80e54`, `02f80e54`, `06f80e54`, `10f83e04`, …). Writing it in `suspend_late` is the likeliest reason the 07:44 suspend never came back.
 - The real mask reads **all 0** on Linux (three reads; status 0 too): with 1 = disabled, every AP wake source is enabled (or the block was never written; iBoot does not set it, unlike macOS’s `initAON`). So the claim that iBoot disables the PMU alarm’s line (bit 52) is withdrawn; the alarm’s line is not masked, and the 07:01 run is not explained by the mask.
 - Fixed: the dead-man snapshot reads `0x29e00400c`/`0x29e004030`; `harness/mmio/wakemask.c` (show, `macos`, `write`) is limited to that page; the test kernel’s `deep_steps` bit 16 now writes macOS’s value (`valid & ~enabled`: everything but the 22 ADT sources disabled) at `0x29e00400c` and restores the old words on wake (patch `0003-…-fix-the-mask-is…`).
 - Armed (unattended, root read-only, Pi streaming): image 50, `suspendall`, `poke-wakemask` (macOS’s value written while awake, read back after 10 s, old value restored, all logged to kmsg before any cycle), then 2 `deep` cycles of 120 s with `deep_steps=16`. A hang at the poke points to the write; a hang in the cycles to macOS’s mask during a suspend with the SoC up.
@@ -1599,21 +1599,30 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 - So the PMGR’s AP wake mask also gates the AP’s wake from deep WFI with the SoC up, and Linux’s all-zero mask (every source enabled) is what lets the alarm and the heartbeat through. The mask is not the reason the 07:01 `slpa` run failed. In macOS’s mask the alarm’s path into the PMGR evidently is not one of the enabled bits (or needs the SPMI controller set up as macOS does).
 - Next, unattended and on the normal path: read the wake status words after each wake with the mask left at 0 (the dead-man snapshot now reads the right block). If they latch on a deep-WFI wake, they name the bit the PMU alarm (and the heartbeat) use, which an S2R mask must keep enabled.
 
-## 2026-11-05 08:05: armed: which wake-status bits a deep-WFI wake sets (mask 0)
+## 2026-11-05 08:01: armed: which wake-status bits a deep-WFI wake sets (mask 0)
 
 - Image 50, `suspendall`, normal path (no `deep_steps`), root read-only, 2 `deep` cycles with a 90 s alarm (each crosses one 60 s heartbeat before the alarm). The dead-man snapshot after each wake reads the mask (expect 0) and the 9 status words at `0x29e004030`.
 
-## 2026-11-05 08:10: wake status after deep-WFI wakes: all 0
+## 2026-11-05 08:07: wake status after deep-WFI wakes: all 0
 
 - Image 50, normal path, mask left at 0, 2 `deep` cycles with a 90 s alarm (each crossing one heartbeat): **2 of 2 back** (92.0 and 92.4 s), 0 device errors. The dead-man snapshot after each wake: mask 0, **status 0** in all nine words. So the status words do not latch on a wake from Aura’s deep WFI with the SoC up; they are for a wake from real S2R (or need setting up first). They stay in the snapshot for the next `slpa` run, where they would name the wake source if the SoC went down.
 - Disarmed: `force-ro` removed, boot.bin 76f850895fed53d1, `next_entry` unset.
 
-## 2026-11-05 08:25: what an S2R resume must restore: the AIC is covered, the system cache needs no flush (13.5, static)
+## 2026-11-05 08:09: what an S2R resume must restore: the AIC is covered, the system cache needs no flush (13.5, static)
 
 - **AIC** (`AppleInterruptControllerV2::callPlatformFunction`): Quiesce reads each die’s mask words (the mask-set bank read at +0x200) into a copy and masks everything (0xffffffff to `0x6400 + die × 0x4a00`), saves the shared-timestamp table (`0x1800 + 0x10 × i`, `#shared-timestamps` entries) and `AIC2_CONFIG` (0x14). Active writes `AIC2_CONFIG` back, re-applies `_configureExternalInterruptMap` (ADT `aic-ext-intr-cfg`: 3-byte entries, IRQ number and a 4-bit config OR’d into that IRQ’s `IRQ_CFG` at `0x2000 + die × 0x4a00 + 4 × irq`), the masks (set and clear banks) and the timestamp table. The test kernel’s AIC syscore save and restore (commit `1585343af9f8`) already covers `AIC2_CONFIG`, every `IRQ_CFG` (which includes the external map) and the masks; the timestamp table is for interrupt timestamps, which Linux does not use. Nothing to add there.
 - **System-level cache**: on H14, `ml_arm_sleep()` (xnu-8796.141.3 `osfmk/arm64/cpu.c`) does not clean the memory cache before S2R: `platform_cache_shutdown()` is only on the `WITH_CLASSIC_S2R` (iBoot sleep token) path, which H14 does not use, so the SLC is left to the hardware (the MCC and the reconfig engine). `AppleT6020MemCacheFlushFunction` (`_mccFlush`) is a published platform function used elsewhere, and the MCC’s own Quiesce and Wake handlers save and restore its performance counters (tables of 0xa0-byte entries). So Linux does not need its own SLC flush before `slpa`.
 - What a working S2R resume still needs on the Linux side, from today’s reading: the RVBAR resume into the kernel (Aura has the path; it never ran on real S2R), the SART restore (in the test kernel), the AIC restore (in the test kernel), the ANS boot after the wake, and the PMU boot stage (staged, off).
 
-## 2026-11-05 08:30: armed: the 2 h suspend to RAM on battery (long-sleep check)
+## 2026-11-05 08:09: armed: the 2 h suspend to RAM on battery (long-sleep check)
 
 - Image 50, test kernel (SART and AIC restore), normal path (no `slpa`, mask 0), all CPUs, `deep`, **one cycle with a 7200 s alarm**, root read-only, on battery via the SMC’s forced discharge (`discharge` flag; limit 20/15 for the run, 80/75 put back afterwards). Battery 85%. Expect about 120 heartbeats, a wake on the alarm after about 7200 s, and about 2.8 Wh used at 1.4 W. It is the first sleep longer than 30 min under Aura.
+
+## 2026-11-05 10:01: the first long suspend under Aura: 1 h 46 min on battery, 1.44 W, clean
+
+- Image 50, test kernel, normal path, all CPUs, `deep`, one cycle with a 7200 s alarm, root read-only, on battery (forced discharge from 85%): **back after 6390.6 s** (08:12:27 to 09:59:00), `online 0-9`, 0 device errors, dead-man switch `disk ok`, `apple-sart: entries kept across suspend`.
+- Energy 49.727 to 47.162 Wh: **2.565 Wh, 1.444 W average** (85% to 84%), the same as the 30 min runs (1.365 W; s2idle 1.39 to 1.41 W): parking every CPU in Aura saves nothing measurable while the SoC stays up.
+- Aura’s debug words: **106 heartbeats** (word 15 = 0x6a; 6390 s / 60 = 106.5) and 107 WFI returns, so the 60 s heartbeat held the dog off for the whole sleep with no slip.
+- The wake came **13.5 min before the alarm, on line 0x361 = AIC 865, the SMC mailbox** (the alarm is 724): an SMC event, most likely from the battery or the forced discharge (the 10-23 overnight s2idle saw the same kind of mailbox wakes). The wake path took it as a normal wake line and resumed.
+- Afterwards `charge_behaviour` is back to `auto` and the thresholds to 80/75; flags removed, boot.bin 76f850895fed53d1, `next_entry` unset.
+- Also fixed today’s worklog headings from 07:12 on: several carried estimated times instead of the clock; they now show each entry’s commit time.
