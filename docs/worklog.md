@@ -1234,3 +1234,8 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 - Side effect: with the AP marked idle, `apple_rtkit_is_running()` is false, so SMC key reads issued between suspend_late and resume_early fail (`Endpoint 0x20 is not running`, 281 lines in 3 cycles). Harmless here, but the real path must stop SMC users before AP idle.
 - `/boot` fix confirmed: `psci-efi-early.sh: mounted /boot after 1s`, the ESP was back to the default (76f850895fed53d1) without a hand restore.
 - For Phase 5: `SetAPPower` IDLE alone is safe; the trace's order (`slpa`, then SetAPPower 0x201 to the SMC and the PMP) means the core power-down is triggered by `slpa` or by the PMP message, not by the SMC's AP state.
+
+## 2026-11-04 19:05: image 32 first try was not image 32
+
+- The arm step for image 32 printed "Reboot when ready", but the test boot ran the default image (`booted m1n1 image 76f850895fed53d1`): the ESP copy had failed silently (most likely `/boot` was still read-only from the previous suspend run's remount). The default image offers PSCI too, and its SYSTEM_SUSPEND hung after `echo mem` (18:57:39). About two minutes later the Mac reset by itself and came back on the normal kernel: the test kernel's apple_wdt (armed at 120 s across suspend) did its job, since the default Aura arms no watchdog.
+- Fixes: `install.sh` now checks the ESP sha after the copy and refuses to arm on a mismatch; `run.sh` refuses to suspend when the booted image is the default one. Re-armed image 32 (5e3c98aeae91a352, checked on the ESP).
