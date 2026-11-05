@@ -50,8 +50,13 @@ There are two goals:
   back properly), and a re-onlined core inherited CYC_OVRD WFI_MODE 3 from the park. Kernel side, two
   unwinds of the EFI call that never returns (SYSTEM_SUSPEND, CPU_OFF). This is suspend with the CPUs in
   deep WFI; the SoC and DRAM stay up, so the drain is still near s2idle's until Phase 3/5's SoC steps.
-  Estimate: about 45% of the way to S2R.
-* **Progress, 2026-11-04: about 33% of the way to working S2R** (risk-weighted
+  Estimate: about 45% of the way to working S2R (risk-weighted guess, wide error bar).
+* **2026-11-04, 21:32: the first `slpa` inside a real suspend** (image 48, all CPUs, `macsmc_reboot.deep_steps=6`)
+  did not power the SoC down. The kernel ran on and every NVMe read and write failed (btrfs `-5`, root
+  read-only); no watchdog fired, and the owner reset the Mac by hand after about 15 min. A read-only scrub
+  afterwards found no errors. More `slpa` runs wait until the owner is ready to reset by hand. What macOS does
+  between `slpa` and the power-down (the PMP CPU-complex clears, `SetAPPower` to the PMP, the CPU stops) is next.
+* **Earlier the same day, before Phase 2 closed: 33%** (risk-weighted
   guess, wide error bar). Done: timed wake, SMC handshake, macOS trace
   method, CPU_ON, a firmware that hands the boot CPU back and wakes it on
   the RTC alarm (Aura watches the AIC's HW_STATE for the PMU alarm line;

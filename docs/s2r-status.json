@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "updated": "2026-11-04",
-  "overall": 33,
+  "overall": 45,
   "overall_note": "Risk-weighted guess with a wide error bar. The page prefers the live figure in `docs/status.md` when it can read one.",
   "machine": "14-inch MacBook Pro, M2 Pro (`T6020`, `apple,j414s`), Aurora Silicon Linux",
   "goal": {
@@ -26,7 +26,8 @@
         "The Raspberry Pi 5 streams the kernel log off the machine during risky runs"
       ],
       "next": [
-        "A sleep that never wakes in full S2R still needs the owner at the power key"
+        "A sleep that never wakes in full S2R still needs the owner at the power key",
+        "A dead-man switch for `slpa` runs: the first one left a live kernel with no disk, which no watchdog caught"
       ],
       "gate": "Unattended runs recover from a hang without hands."
     },
@@ -35,18 +36,22 @@
       "trail": "Hotplug",
       "name": "CPU_ON and CPU_OFF",
       "short": "PSCI hotplug through EFI",
-      "state": "paused",
-      "pct": 55,
-      "summary": "PSCI-via-EFI is built in the kernel, Aura and U-Boot. CPU_ON brings all nine secondaries up. CPU_OFF followed by CPU_ON still hangs the SoC, and testing is paused because the hard resets lost the NVMe's cached writes.",
+      "state": "partial",
+      "pct": 85,
+      "summary": "CPU_OFF and CPU_ON work since image 47. Inside suspend all nine secondaries go off into Aura’s park and come back, every cycle of the Phase 2 gates. Runtime hotplug outside suspend has not been rerun.",
       "done": [
         "Kernel: the PSCI-via-EFI RFC's six patches plus `t6020-j414s-psci.dts`",
         "Aura: `psci.c`, `smp_psci_*`, `dt_set_psci()`; U-Boot: `efi_platform_register()`",
         "CPU_ON of cpu1 to cpu9 in 0.25 s, also from a RAM-only boot that never touches the root filesystem",
-        "Found why RAM-only logs vanished: the ANS firmware caches writes until a clean `saveCtx` shutdown"
+        "Found why RAM-only logs vanished: the ANS firmware caches writes until a clean `saveCtx` shutdown",
+        "The park uses deep WFI **with** retention; without it a core never came back properly (image 43)",
+        "The park restores `CYC_OVRD` before entering the kernel; re-onlined cores had inherited WFI_MODE 3 (image 47)",
+        "Kernel: a CPU_OFF that never returns no longer leaks the EFI virtmap preempt count (“scheduling while atomic” ×45 gone)",
+        "180 CPU_OFF/CPU_ON pairs per 20-cycle gate, 20 per core, 0 errors"
       ],
       "next": [
-        "Park the core with a plain WFI instead of deep WFI, one change per image",
-        "Read-only root and the Pi’s kmsg stream, with the owner’s yes"
+        "Runtime hotplug (offline and online without suspend), 100 times per core, with `panic=0` and the watchdog",
+        "RVBAR re-entry for a core that really loses power"
       ],
       "gate": "Each secondary offline and online 100 times, deep idle not worse, RVBAR re-entry works."
     },
@@ -55,21 +60,21 @@
       "trail": "Suspend",
       "name": "SYSTEM_SUSPEND, SoC on",
       "short": "Linux’s full suspend path with a firmware that hands back",
-      "state": "active",
-      "pct": 85,
-      "summary": "`mem_sleep` offers `deep`. On the boot CPU alone (`maxcpus=1`) the whole Linux suspend and resume path runs, and Aura sleeps the core in deep WFI until a real wake source fires.",
+      "state": "done",
+      "pct": 100,
+      "summary": "Done on the full system. PSCI `SYSTEM_SUSPEND` through Aura’s EFI runtime handler, with the PMP on and all 10 CPUs: 20 of 20 cycles back in Linux, 0 device errors, through `echo mem` and through `systemctl suspend`. The SoC and DRAM stay up, so the drain is still near s2idle’s.",
       "done": [
         "20 of 20 suspend/resume cycles with Aura’s fixed wait (image 16), after a kernel fix for the EFI virtmap unwind",
         "Wakes on the PMU RTC alarm (3 of 3, about 11 s for a 10 s alarm)",
         "Wakes on the power key through the SMC mailbox line 865",
         "Works with the PMP running, and through `systemctl suspend` with the sleep hooks",
-        "Deep WFI with state retention on the boot core (image 31)"
+        "Deep WFI with state retention on the boot core (image 31)",
+        "Image 37 to 40 hung on cycle 1: an inline `dsb sy; isb; wfi` never woke. Back to `deep_wfi()` in image 41: 20 of 20",
+        "All 10 CPUs: 20 of 20 with image 47 and the CPU_OFF preempt fix, 0 device errors",
+        "The real path on all CPUs, `systemctl suspend -i` with the sleep hooks: 20 of 20",
+        "Image 48, the clean build with no diagnostic stamps: 20 of 20 on all CPUs. It is the reference image"
       ],
-      "next": [
-        "Image 37: the 20-cycle gate with deep WFI and the RVBAR backstop",
-        "Lid wake, not tested separately yet",
-        "Multi-CPU suspend, which needs Phase 1’s hotplug"
-      ],
+      "next": [],
       "gate": "20 of 20 cycles back in Linux with no device errors."
     },
     {
@@ -116,14 +121,19 @@
       "trail": "Full S2R",
       "name": "Full S2R",
       "short": "The SoC powers down, DRAM in self-refresh",
-      "state": "started",
-      "pct": 5,
-      "summary": "Aura’s `SYSTEM_SUSPEND` gains the SoC steps in macOS’s order: PMGR quiesce, the S2R timer, the PMU SPMI quiesce and `slpa`, then `restoreHW` on wake.",
+      "state": "active",
+      "pct": 10,
+      "summary": "Aura’s `SYSTEM_SUSPEND` gains the SoC steps in macOS’s order: PMGR quiesce, the S2R timer, the PMU SPMI quiesce and `slpa`, then `restoreHW` on wake. The first `slpa` inside a real suspend did not power the SoC down, and it left NVMe dead.",
       "done": [
-        "The PMGR, SMC and PMP sleep actions read from the macOS 13.5 kernelcache"
+        "The PMGR, SMC and PMP sleep actions read from the macOS 13.5 kernelcache",
+        "Test kernel flag `macsmc_reboot.deep_steps`: `slpw` in prepare, `slpa` in suspend_late, `waka` on wake",
+        "First `slpa` inside a real suspend (image 48, all CPUs, 2026-11-04 21:32): the kernel kept running, but every NVMe read and write failed (btrfs `-5`, root read-only). No watchdog fired; the owner reset the Mac by hand after about 15 min. The filesystem has 0 error counts afterwards"
       ],
       "next": [
-        "First cycle with the PMU alarm as the only wake and the owner at the power key"
+        "Find what macOS does between `slpa` and the power-down that this run skipped: the PMP PCPM clears, `SetAPPower` to the PMP, the CPU stops",
+        "Log the post-`slpa` state without the disk (pstore or the Pi), and a dead-man switch that resets the Mac if the disk is gone",
+        "More `slpa` runs only when the owner is ready to reset by hand",
+        "Lid wake, not tested separately yet"
       ],
       "gate": "20 of 20 cycles; lid, key, keyboard and alarm wakes; about 0.3 W on battery."
     },
@@ -142,12 +152,12 @@
   ],
   "pieces": [
     { "name": "Timed wake", "state": "works", "known": "The PMU RTC alarm on SPMI irq 2, AIC 724. The “fired” bit must be cleared before re-arming. Upstream’s alarm is T6030-only, so the T602x patches are still needed.", "next": "Shape it for upstream; power-on from off is untested" },
-    { "name": "Boot CPU hand-back", "state": "works", "known": "`SYSTEM_SUSPEND` returns through the kernel’s `cpu_resume`, 20 of 20. With retention the core sleeps and comes back. Powered down without retention, it never re-enters at RVBAR (images 32 to 36).", "next": "Full S2R wakes through a different route" },
+    { "name": "Boot CPU hand-back", "state": "works", "known": "`SYSTEM_SUSPEND` returns through the kernel’s `cpu_resume`, 20 of 20 on all CPUs (image 48). It works with retention through `deep_wfi()`; an inline `dsb sy; isb; wfi` never woke (images 37 to 40). Powered down without retention, the core never re-enters at RVBAR (images 32 to 36).", "next": "Full S2R wakes through a different route" },
     { "name": "Wake sources", "state": "works", "known": "Deep WFI with AIC lines 724 (alarm) and 865 (SMC mailbox) unmasked. The power key wakes on 865.", "next": "Lid; stop the SMC’s early `Elec Cause` syslog wakes" },
     { "name": "AIC", "state": "works", "known": "Save and mask every bank, restore on resume (syscore). It runs on every Phase 2 cycle. Because it masks everything, wake detection has to come from the PMU/SMC side.", "next": "—" },
-    { "name": "SMC handshake", "state": "tested", "known": "`WKTP` and `slpw` are harmless. `slpa` makes NVMe I/O fail after resume and outlasts a warm reboot. `SetAPPower` IDLE is acked and safe.", "next": "`slpa` last, on the real path only" },
+    { "name": "SMC handshake", "state": "tested", "known": "`WKTP` and `slpw` are harmless. `slpa` makes NVMe I/O fail after resume, in s2idle and in a real suspend with all CPUs off (2026-11-04), and outlasts a warm reboot. On its own it does not power the SoC down. `SetAPPower` IDLE is acked and safe.", "next": "The rest of macOS’s sequence after `slpa`, and a way back for NVMe" },
     { "name": "PMP", "state": "partial", "known": "IDLE works. RUN alone woke it 0 of 3. Gating `ps_pms_sram` does not restart it, and a PMGR reset of `ps_pmp` crashes the SoC.", "next": "DART off/on and outbox steps around RUN" },
-    { "name": "Secondary CPUs", "state": "partial", "known": "CPU_ON works for all nine. CPU_OFF then CPU_ON hangs the SoC.", "next": "Plain-WFI park, guarded test" },
+    { "name": "Secondary CPUs", "state": "works", "known": "CPU_OFF parks the core in Aura’s retention deep WFI loop; CPU_ON hands it back through the spin table, with `CYC_OVRD` restored first. 20 of 20 suspend cycles with all nine.", "next": "Runtime hotplug outside suspend; RVBAR re-entry after real power loss" },
     { "name": "PMGR quiesce, S2R timer", "state": "open", "known": "Read statically from macOS 13.5. The last write goes to an always-on PMGR block Linux does not map.", "next": "The wake half of the trace" },
     { "name": "Devices", "state": "open", "known": "s2idle only. DCP cannot resume from power loss today.", "next": "Phase 4, in the traced order" }
   ],
@@ -173,16 +183,29 @@
     { "n": "34", "what": "`debug_putc` silenced", "result": "Byte-identical to 33; same result", "outcome": "info" },
     { "n": "35", "what": "Whole resident image cleaned to PoC first", "result": "Reset at 120 s again", "outcome": "fail" },
     { "n": "36", "what": "Watchdog stamp in the first RVBAR instructions", "result": "The powered-down core never reaches RVBAR", "outcome": "fail" },
-    { "n": "37", "what": "Retention deep WFI with the RVBAR backstop, 20 cycles", "result": "The Phase 2 gate run", "outcome": "running" }
+    { "n": "37", "what": "Retention deep WFI with the RVBAR backstop, 20 cycles", "result": "Hung on cycle 1; the watchdog reset the Mac at 120 s", "outcome": "fail" },
+    { "n": "38", "what": "`CYC_OVRD` restored after the inline WFI", "result": "Hung on cycle 1 again", "outcome": "fail" },
+    { "n": "31-rerun", "what": "Image 31’s binary as the baseline, 20 cycles", "result": "20 of 20, 0 device errors: the Phase 2 gate on the boot CPU", "outcome": "pass" },
+    { "n": "39", "what": "No whole-image clean to PoC", "result": "Hung on cycle 1", "outcome": "fail" },
+    { "n": "40", "what": "Watchdog stamps at each `SYSTEM_SUSPEND` stage", "result": "Stuck in the WFI loop: the alarm never ends the wait", "outcome": "info" },
+    { "n": "41", "what": "`deep_wfi()` as in image 31, `psci_runtime` on its own cache line", "result": "20 of 20, 0 device errors", "outcome": "pass" },
+    { "n": "42", "what": "`deep_wfi()` with an `isb` after the `CYC_OVRD` write", "result": "3 of 3; the inline WFI’s hang stays unexplained", "outcome": "pass" },
+    { "n": "43", "what": "All CPUs: the CPU_OFF park with retention, stamps", "result": "Reset 45 s after `echo mem`", "outcome": "fail" },
+    { "n": "44", "what": "Stamps along core 1’s CPU_OFF", "result": "45 s again; stamps too close to read", "outcome": "info" },
+    { "n": "45", "what": "Stamps 10 s apart", "result": "45 s again: a `panic=10` reboot, not a stamp", "outcome": "info" },
+    { "n": "46", "what": "CPU_OFF entry stamps, `panic=0`", "result": "All CPU_OFFs and the suspend work; dies at CPU_ON", "outcome": "info" },
+    { "n": "47", "what": "The park restores `CYC_OVRD` before the kernel", "result": "5 of 5, then 20 of 20 with the CPU_OFF preempt fix; 20 of 20 through `systemctl suspend`", "outcome": "pass" },
+    { "n": "48", "what": "Image 47 without the diagnostic stamps", "result": "20 of 20 on all CPUs, 0 device errors", "outcome": "pass" },
+    { "n": "48-slpa", "what": "Image 48 with `slpw` and `slpa` sent in the suspend (`deep_steps=6`)", "result": "No SoC power-down; the kernel ran on with NVMe dead, reset by hand", "outcome": "fail" }
   ],
   "macos_sleep": [
     { "step": "SMC `MSxb` writes from every CPU", "linux": "Housekeeping, not needed yet" },
     { "step": "SMC `MBSE` = `slpw`: the sleep warning", "linux": "Tested in s2idle: harmless" },
     { "step": "PMP target writes take the displays and GPU down until only the CPU complexes (PCPM0, PCPM1) are requested", "linux": "Read in the trace; not reproduced" },
-    { "step": "SMC `MBSE` = `slpa`: the sleep trigger", "linux": "Tested in s2idle: takes NVMe away. Last on the real path only" },
+    { "step": "SMC `MBSE` = `slpa`: the sleep trigger", "linux": "Sent in a real suspend (2026-11-04): NVMe dies and the SoC stays up. Held until the owner can reset by hand" },
     { "step": "`SetAPPower` 0x201 to the SMC and the PMP, then PMP `SetIOPPower` 0x201", "linux": "SMC side tested: acked, safe. PMP IDLE works; its wake does not" },
     { "step": "CPU start/stop writes, PCPM1 and PCPM0 cleared, a PMGR USB0 always-on write", "linux": "Not reproduced" },
-    { "step": "Every core sets `CYC_OVRD` WFI_MODE 3 and idles; the SMC and PMP power the cores down", "linux": "Deep WFI with retention works on the boot core" }
+    { "step": "Every core sets `CYC_OVRD` WFI_MODE 3 and idles; the SMC and PMP power the cores down", "linux": "Works on every core: the boot CPU in `SYSTEM_SUSPEND`, the nine secondaries in Aura’s CPU_OFF park" }
   ],
   "awake": [
     { "change": "Booting the PMP", "saving": "0.9 to 1.15 W", "detail": "Quiet desktop 6.28 to 5.38 W on battery; busy 7.52 to 6.36 W. Needs 160 KiB of m1n1 DT headroom." },
@@ -208,23 +231,29 @@
     { "title": "The kernel masks the whole AIC for suspend", "body": "`aic_syscore_suspend` masks every line, as macOS does. In real S2R the wake must be detected from the PMU/SMC side." },
     { "title": "A core powered down without retention doesn’t come back on an IRQ", "body": "Across images 32 to 36 the boot core never re-entered at RVBAR. Secondaries only return through a PMGR CPU-start written by another core." },
     { "title": "NVMe drops cached writes on a hard reset", "body": "The ANS firmware caches until a clean `saveCtx` shutdown. That explained the lost logs and the filesystem damage after hotplug hangs." },
-    { "title": "The PMU RTC alarm is the timed wake", "body": "Linux had no driver for the alarm macOS uses for dark wakes. `rtcwake -m freeze -s 30` woke after about 31 s, 3 of 3." }
+    { "title": "The PMU RTC alarm is the timed wake", "body": "Linux had no driver for the alarm macOS uses for dark wakes. `rtcwake -m freeze -s 30` woke after about 31 s, 3 of 3." },
+    { "title": "Parked cores need retention, and must not keep WFI_MODE 3", "body": "The October hotplug deaths came from two things: the CPU_OFF park powered cores down without retention, and a re-onlined core inherited `CYC_OVRD` WFI_MODE 3 from the park. With both fixed, all nine secondaries go off and come back every suspend cycle." },
+    { "title": "A CPU_OFF that never returns leaks a preempt count", "body": "The kernel’s EFI call path disables preemption around the firmware call. A successful CPU_OFF never comes back, so the re-onlined core started with one count too many (“scheduling while atomic”, once per core per cycle). Fixed in the test kernel." },
+    { "title": "`slpa` alone does not put the SoC to sleep", "body": "With every CPU in Aura and the boot core in deep WFI, `slpa` still left the SoC running. The kernel woke and found NVMe gone, as in s2idle. macOS does more between `slpa` and the power-down: the PMP CPU-complex clears, `SetAPPower` to the PMP, the CPU stops." },
+    { "title": "A live kernel with no disk is not a hang", "body": "After the `slpa` run the watchdogs saw a healthy kernel, so nothing reset the Mac for about 15 min. Unattended `slpa` runs need a dead-man switch tied to the disk." }
   ],
   "rules": [
     "Never remove and rescan PCI devices: it kills Wi-Fi until a reboot.",
-    "No `slpa` without the owner at the power key and the Pi watcher on.",
+    "No `slpa` runs unless the owner is ready to reset the Mac by hand.",
     "Never reset `ps_pmp`.",
     "Keep a `.keep` file in module trees pacman doesn’t own.",
     "No hotplug tests on a boot that can hurt the root filesystem.",
-    "Check the ESP sha after every copy, and refuse to suspend on the default image."
+    "Check the ESP sha after every copy, and refuse to suspend on the default image.",
+    "Test GRUB entries use `panic=0`, so a panic hangs and the watchdog stamps tell where it died."
   ],
   "unknowns": [
     "Whether iBoot arms the wake path (reconfig engine, boot CPU RVBAR) for a raw image as it does for a kernelcache.",
     "What restarts the AP on wake in macOS, and through which RVBAR.",
     "What the reconfig engine runs on `SLP_S2R`, and what each quiesce action writes.",
-    "Why CPU_OFF followed by CPU_ON hangs the SoC.",
     "Whether a DCP with nothing attached can be shut down and restarted.",
-    "What the PMP’s VLPM tunables control."
+    "What the PMP’s VLPM tunables control.",
+    "Why an inline `dsb sy; isb; wfi` in `SYSTEM_SUSPEND` never woke when `deep_wfi()` does.",
+    "What brings NVMe back after `slpa`, short of a cold power cycle."
   ],
   "upstream": [
     { "name": "aurora-silicon/m1n1#63", "what": "DT headroom for the PMP tunables" },
