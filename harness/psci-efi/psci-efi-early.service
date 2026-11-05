@@ -8,6 +8,7 @@ Before=sysinit.target
 
 [Service]
 Type=oneshot
+RemainAfterExit=yes
 ExecStart=/usr/local/lib/deepidle/psci-efi-early.sh
 
 [Install]

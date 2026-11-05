@@ -9,6 +9,8 @@ if ! findmnt -n /boot >/dev/null; then
     mount /boot || { echo "no /boot after ${i}s"; exit 0; }
     echo "mounted /boot after ${i}s"
 fi
+# Once per boot: a second run would read the image restored by the first and record that instead
+[ -e /run/psci-efi-booted-sha ] && { echo "already ran this boot ($(cat /run/psci-efi-booted-sha))"; exit 0; }
 sha=$(sha256sum /boot/m1n1/boot.bin | cut -c1-16)
 echo "$sha" > /run/psci-efi-booted-sha
 if [ "$sha" != "$STOCK_SHA" ] && [ "$(sha256sum $STOCK | cut -c1-16)" = "$STOCK_SHA" ]; then
