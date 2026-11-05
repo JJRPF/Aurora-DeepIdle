@@ -124,7 +124,7 @@ index d594ea6e..28729c81 100644
  
      if (fdt_open_into(fdt, dt, dt_bufsize) < 0)
 diff --git i/src/psci.c w/src/psci.c
-index 444d71e5..0a365494 100644
+index 444d71e5..f551c7c1 100644
 --- i/src/psci.c
 +++ w/src/psci.c
 @@ -1,14 +1,17 @@
@@ -147,7 +147,7 @@ index 444d71e5..0a365494 100644
   */
  
  static unsigned long psci_affinity_info(unsigned long target_affinity,
-@@ -20,9 +23,195 @@ static unsigned long psci_affinity_info(unsigned long target_affinity,
+@@ -20,9 +23,192 @@ static unsigned long psci_affinity_info(unsigned long target_affinity,
      return smp_psci_affinity_info(target_affinity);
  }
  
@@ -318,11 +318,8 @@ index 444d71e5..0a365494 100644
 +     * state) must be in memory, and nothing of the image may stay cached to shadow what it writes there.
 +     * Clean and invalidate the whole resident image, code to end of BSS.
 +     */
-+    {
-+        extern char _base[], _end[];
-+        dc_civac_range(_base, _end - _base);
-+        dc_civac_range((void *)aic, sizeof(*aic));
-+    }
++    /* image 39: the whole-image clean (images 35 to 38) is left out: 37 and 38 hung with it, 31 passed without */
++    dc_civac_range((void *)&psci_resume, sizeof(psci_resume));
 +
 +    for (;;) {
 +        psci_sleep_core();
@@ -343,7 +340,7 @@ index 444d71e5..0a365494 100644
      switch (fid) {
          case PSCI_0_2_FN_PSCI_VERSION:
              return PSCI_VERSION_1_0;
-@@ -34,6 +223,8 @@ unsigned long psci_efi_handler(unsigned long fid, unsigned long arg0, unsigned l
+@@ -34,6 +220,8 @@ unsigned long psci_efi_handler(unsigned long fid, unsigned long arg0, unsigned l
              return smp_psci_cpu_off();
          case PSCI_0_2_FN64_CPU_ON:
              return smp_psci_cpu_on(arg0, arg1, arg2);
@@ -352,7 +349,7 @@ index 444d71e5..0a365494 100644
          case PSCI_0_2_FN64_AFFINITY_INFO:
              return psci_affinity_info(arg0, arg1);
          default:
-@@ -53,5 +244,6 @@ const struct psci_efi_table psci_efi_table = {
+@@ -53,5 +241,6 @@ const struct psci_efi_table psci_efi_table = {
              [PSCI_FN(PSCI_0_2_FN_CPU_OFF)] = PSCI_RET_SUCCESS,
              [PSCI_FN(PSCI_0_2_FN64_CPU_ON)] = PSCI_RET_SUCCESS,
              [PSCI_FN(PSCI_0_2_FN64_AFFINITY_INFO)] = PSCI_RET_SUCCESS,

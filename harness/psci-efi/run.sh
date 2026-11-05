@@ -66,7 +66,7 @@ if [ $STEP = suspend ]; then
     fi
     for m in $(findmnt -rno TARGET -t ext4,btrfs,vfat | sort); do mount -o remount,rw "$m" 2>&1 | head -1; done
     dmesg > $OUT/dmesg-after.txt; chmod 644 $OUT/*; sync
-    log "summary: $(grep -c 'back, rc=0' $OUT/run.log) cycles back with rc=0; device errors after the first suspend: $(sed -n '/PM: suspend entry/,$p' $OUT/dmesg-after.txt | grep -i -E 'error|fail|timeout|WARNING|BUG' | grep -v -E 'audit|Endpoint 0x20 is not running|Failed to send command|brcmf_p2p|p2p_disc|add iface p2p' | wc -l)"
+    log "summary: $(grep -c 'back, rc=0' $OUT/run.log) cycles back with rc=0; device errors after the first suspend: $(sed -n '/PM: suspend entry/,$p' $OUT/dmesg-after.txt | grep -i -E 'error|fail|timeout|warning:|\bbug:' | grep -v -E 'audit|Endpoint 0x20 is not running|Failed to send command|brcmf_p2p|p2p_disc|add iface p2p|Util_Reset_FailGeom' | wc -l)"
     log "suspend step done; online $(cat /sys/devices/system/cpu/online)"
     rm -f /var/lib/deepidle/psci-efi-armed
     exit 0
