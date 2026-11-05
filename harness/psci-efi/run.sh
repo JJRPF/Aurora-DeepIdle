@@ -31,7 +31,9 @@ if [ $STEP = suspend ]; then
     # Phase 2a: one system suspend on the boot CPU alone (maxcpus=1, nothing is ever offlined). Aura waits 3 s and
     # resumes the kernel. Filesystems go read-only first so a hang cannot leave them dirty.
     log "mem_sleep: $(cat /sys/power/mem_sleep); state: $(cat /sys/power/state); online $(cat /sys/devices/system/cpu/online)"
-    if grep -q "deep" /sys/power/mem_sleep; then
+    if [ "$(cat /run/psci-efi-booted-sha 2>/dev/null)" = 76f850895fed53d1 ]; then
+        log "booted the default image, not the test image: not suspending"
+    elif grep -q "deep" /sys/power/mem_sleep; then
         echo deep > /sys/power/mem_sleep
         sync
         for m in $(findmnt -rno TARGET -t ext4,btrfs,vfat | sort -r); do mount -o remount,ro "$m" 2>&1 | head -1; done

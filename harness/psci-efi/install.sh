@@ -134,6 +134,7 @@ systemctl enable psci-efi-early.service psci-efi-run.service
 # Arm one boot
 echo $STEP > /var/lib/deepidle/psci-efi-armed
 cp $BIN /boot/m1n1/boot.bin.tmp && sync && mv /boot/m1n1/boot.bin.tmp /boot/m1n1/boot.bin && sync
+[ "$(sha256sum /boot/m1n1/boot.bin | cut -c1-16)" = "$(sha256sum $BIN | cut -c1-16)" ] || { echo "ESP copy failed (read-only /boot?)"; rm -f /var/lib/deepidle/psci-efi-armed; exit 1; }
 case $STEP in step1m|suspend) NE=psci-efi-test-kernel-mc1 ;; ram) NE=psci-ram-kernel ;; step0) NE= ;; *) NE=psci-efi-test-kernel ;; esac
 [ -n "$NE" ] && grub-editenv /boot/grub/grubenv set next_entry=$NE
 echo "armed $STEP: boot.bin $(sha256sum /boot/m1n1/boot.bin | cut -c1-16)${NE:+, next_entry $NE}."
