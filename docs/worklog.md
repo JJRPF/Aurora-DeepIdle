@@ -1367,3 +1367,10 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 
 - `docs/status.md` brought up to date (Phase 2 done on the full system, about 45%). Owner told (agent-notify) that the hotplug approval is no longer needed, and given the #933 draft (`docs/gh933-s2r-draft.md`, not posted).
 - Next run: the user's path, `systemctl suspend -i` with the system-sleep hooks (flag `suspend-via-systemd`), all 10 CPUs, image 47, 20 cycles.
+
+## 2026-11-04 21:20: the real path on all CPUs: 20 of 20
+
+- `systemctl suspend -i` (system-sleep hooks: radios off/on, fprintd), all 10 CPUs, image 47, fixed test kernel, 10 s alarm: **20 of 20 suspends, `online 0-9` after each, 0 device errors**; 20 `PM: suspend entry (deep)` in the log; Wi-Fi reconnected after the run, rfkill unblocked. About 13.5 to 14 s per cycle.
+- Harness quirk: in cycle 1 `systemctl suspend -i` returned at once (0.67 s, the job was queued) and the suspend ran just after the "back" line; cycles 2 to 20 waited normally. Harmless for the result; noted.
+- A drain measurement is not possible right now: the Mac is on AC and the battery reads "Not charging" at 99%, so `charge_now` does not move. It needs the charger unplugged (owner), and it is only worth doing once SoC sleep steps exist; for now the SoC stays up as in s2idle.
+- The `suspend-via-systemd` flag is removed again.
