@@ -1542,3 +1542,8 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
   - or it resumes, as the first run did after 10 s.
 - A DRAM breadcrumb that survives the reset was considered and dropped for now: Aura’s runtime region moves on every boot (iBoot’s slide, 50 different bases in the result folders), and the PMU’s scratch cells are read by iBoot (a wrong panic count can mean recovery mode), so neither is safe without the owner.
 - Armed the regression run for image 50 (normal path, no `slpa`): `suspendall`, 2 `deep` cycles with a 120 s alarm (each crosses one heartbeat), root read-only first, test kernel with the SART restore.
+
+## 2026-11-05 07:28: image 50 regression run: 2 of 2
+
+- Image 50 (537df561fbdf13e3), `suspendall`, 2 `deep` cycles, 120 s alarm, root read-only first, test kernel with the SART restore, no `slpa`: **2 of 2 back** (122.0 and 122.4 s), `online 0-9`, 0 device errors, dead-man switch `disk ok` both times, `apple-sart: entries kept across suspend`, register snapshot as before (`ps_ans2 1f0002ff`, ANS cpu `00000010 00000028`). Aura’s debug words match image 49’s 06:41 run word for word, so the normal path is unchanged (as expected: only the RVBAR stages moved).
+- Disarmed: `force-ro` removed, boot.bin back at 76f850895fed53d1, `next_entry` unset. Image 50 is ready for the next owner-attended `slpa` run (30 s alarm).
