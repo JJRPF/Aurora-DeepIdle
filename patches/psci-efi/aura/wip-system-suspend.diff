@@ -124,7 +124,7 @@ index d594ea6e..28729c81 100644
  
      if (fdt_open_into(fdt, dt, dt_bufsize) < 0)
 diff --git i/src/psci.c w/src/psci.c
-index 444d71e5..f022a653 100644
+index 444d71e5..e4d9989d 100644
 --- i/src/psci.c
 +++ w/src/psci.c
 @@ -1,14 +1,17 @@
@@ -147,7 +147,7 @@ index 444d71e5..f022a653 100644
   */
  
  static unsigned long psci_affinity_info(unsigned long target_affinity,
-@@ -20,9 +23,201 @@ static unsigned long psci_affinity_info(unsigned long target_affinity,
+@@ -20,9 +23,202 @@ static unsigned long psci_affinity_info(unsigned long target_affinity,
      return smp_psci_affinity_info(target_affinity);
  }
  
@@ -160,7 +160,8 @@ index 444d71e5..f022a653 100644
 + * returns and the same wake handling runs here.
 + */
 +#define SUSPEND_MIN_MS 500 /* ignore wake lines for this long after entry */
-+#define SUSPEND_WDT_S  120 /* hardware reset if no wake line ever brings the CPU back */
++#define SUSPEND_WDT_S  115 /* image 43: 115, apart from the kernel apple_wdt 120 */ 
++#define SUSPEND_WDT_S_OLD 120 /* hardware reset if no wake line ever brings the CPU back */
 +#define RESUME_MAGIC   0x5253554d45ULL /* "RSUME" */
 +
 +/* Debug words Linux reads back (found by scan-magic): see run.sh for the layout */
@@ -349,7 +350,7 @@ index 444d71e5..f022a653 100644
      switch (fid) {
          case PSCI_0_2_FN_PSCI_VERSION:
              return PSCI_VERSION_1_0;
-@@ -34,6 +229,8 @@ unsigned long psci_efi_handler(unsigned long fid, unsigned long arg0, unsigned l
+@@ -34,6 +230,8 @@ unsigned long psci_efi_handler(unsigned long fid, unsigned long arg0, unsigned l
              return smp_psci_cpu_off();
          case PSCI_0_2_FN64_CPU_ON:
              return smp_psci_cpu_on(arg0, arg1, arg2);
@@ -358,7 +359,7 @@ index 444d71e5..f022a653 100644
          case PSCI_0_2_FN64_AFFINITY_INFO:
              return psci_affinity_info(arg0, arg1);
          default:
-@@ -53,5 +250,6 @@ const struct psci_efi_table psci_efi_table = {
+@@ -53,5 +251,6 @@ const struct psci_efi_table psci_efi_table = {
              [PSCI_FN(PSCI_0_2_FN_CPU_OFF)] = PSCI_RET_SUCCESS,
              [PSCI_FN(PSCI_0_2_FN64_CPU_ON)] = PSCI_RET_SUCCESS,
              [PSCI_FN(PSCI_0_2_FN64_AFFINITY_INFO)] = PSCI_RET_SUCCESS,
@@ -389,7 +390,7 @@ index 92d225ab..8356847a 100644
                                 unsigned long arg2);
  
 diff --git i/src/smp.c w/src/smp.c
-index 4c866a6c..55d1a892 100644
+index 4c866a6c..31783500 100644
 --- i/src/smp.c
 +++ w/src/smp.c
 @@ -4,6 +4,7 @@
@@ -409,7 +410,27 @@ index 4c866a6c..55d1a892 100644
          printf("  Index: %d (table: %p)\n\n", index, me);
  
      me->mpidr = mpidr;
-@@ -1064,7 +1065,7 @@ int smp_psci_cpu_on(u64 mpidr, u64 entry, u64 context)
+@@ -1004,7 +1005,10 @@ int smp_psci_affinity_info(u64 mpidr)
+      * after its last memory access, just before the power-down.
+      */
+     dc_civac_range(&psci_cpu_state[index], 1);
+-    return psci_cpu_state[index] == PSCI_CPU_ON ? PSCI_AFFINITY_INFO_ON : PSCI_AFFINITY_INFO_OFF;
++    if (psci_cpu_state[index] == PSCI_CPU_ON)
++        return PSCI_AFFINITY_INFO_ON;
++    wdt_psci_arm(41 + 2 * index); /* image 43 stamp: this core reported off */
++    return PSCI_AFFINITY_INFO_OFF;
+ }
+ 
+ /* Hand a parked CPU its entry point, as smp_call4() does, without waiting. */
+@@ -1044,6 +1048,7 @@ int smp_psci_cpu_on(u64 mpidr, u64 entry, u64 context)
+         return PSCI_RET_INVALID_ADDRESS;
+     if (index == boot_cpu_idx)
+         return PSCI_RET_ALREADY_ON;
++    wdt_psci_arm(140 + 2 * index); /* image 43 stamp: CPU_ON of this core */
+ 
+     dc_civac_range(&psci_cpu_state[index], 1);
+     switch (psci_cpu_state[index]) {
+@@ -1064,7 +1069,7 @@ int smp_psci_cpu_on(u64 mpidr, u64 entry, u64 context)
   * us stays reachable), HCR_EL2 back to its reset value (the kernel ran as a VHE host), then
   * x0 = context, branch to the entry.
   */
@@ -418,7 +439,42 @@ index 4c866a6c..55d1a892 100644
  asm(".text\n.globl psci_enter\npsci_enter:\n"
      "mrs x2, sctlr_el2\n"
      "bic x2, x2, #(1 << 0)\n"
-@@ -1162,8 +1163,14 @@ int smp_psci_mmio_ranges(u64 *ranges, int max)
+@@ -1090,15 +1095,21 @@ void psci_park_c(u64 index)
+     struct spin_table *me = &spin_table[index];
+     u64 target;
+ 
+-    if (cpu_features->apple_sysregs_unlocked)
+-        reg_mask(SYS_IMP_APL_CYC_OVRD, CYC_OVRD_WFI_MODE_MASK,
+-                 CYC_OVRD_WFI_MODE(3) | CYC_OVRD_DISABLE_WFI_RET);
++    /*
++     * Deep WFI with state retention, as the boot CPU's SYSTEM_SUSPEND wait (2026-11-04 images 41/42). This set
++     * DISABLE_WFI_RET before: a core powered down without retention is not woken back into this loop (images
++     * 32 to 36), and on 2026-10-25 one such core restarted through RVBAR into the kernel by itself.
++     */
++    extern void _deep_wfi_helper(void);
++    if (cpu_features->apple_sysregs_unlocked) {
++        reg_mask(SYS_IMP_APL_CYC_OVRD, CYC_OVRD_WFI_MODE_MASK | CYC_OVRD_DISABLE_WFI_RET, CYC_OVRD_WFI_MODE(3));
++        sysop("isb");
++    }
+     while (1) {
+         /* Plain load: the mapping is inner-shareable write-back, the other CPU's civac-ed store is visible. */
+         if ((target = *(volatile u64 *)&me->target))
+             break;
+-        sysop("isb");
+-        sysop("wfi");
++        _deep_wfi_helper();
+     }
+     sysop("dmb sy");
+     me->flag++;
+@@ -1113,6 +1124,7 @@ int smp_psci_cpu_off(void)
+ 
+     if (index < 0 || index == boot_cpu_idx)
+         return PSCI_RET_DENIED;
++    wdt_psci_arm(20 + 2 * index); /* image 43 stamp: CPU_OFF entered on this core */
+ 
+     /*
+      * Not the PMGR stop request: a core stopped that way did not come back from any start
+@@ -1162,8 +1174,14 @@ int smp_psci_mmio_ranges(u64 *ranges, int max)
          smp_psci_add_range(ranges, max, &n, cpu_start_base + cpu_info[i].die * PMGR_DIE_OFFSET,
                             0x100);
      }
