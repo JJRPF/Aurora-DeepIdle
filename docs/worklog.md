@@ -1504,3 +1504,8 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 - The SART windows the ANS uses (from the snapshot, `paddr << 12`): entries 0 and 1 at `0x2a2414000` and `0x2a2434000`, inside the SMC’s ASC block (ADT `smc` at `0xA2400000`, size `0x6C000`); entry 2 at `0x29e2cc000`, one of the `apcie` node’s registers (ADT `0x9E2CC000`, size `0x2100`); entries 3 to 7 in DRAM.
 - iBoot (`iBoot.j414s.RELEASE.bin` from the IPSW) is encrypted (entropy 8.0 bits a byte), so what iBoot does on an S2R wake cannot be read from it.
 - Next `slpa` run (owner-attended), expected outcomes: `apple-sart: N entries changed across suspend, restored`, then the ANS boots. If it still does not, the dead-man snapshot shows the ANS CPU and mailbox state for the next step.
+
+## 2026-11-05 07:25: armed: one 2 h suspend to RAM on battery (the long-sleep check)
+
+- Nothing else is left to do without the owner (the next `slpa` run needs them; notified). Per the owner’s standing instruction for that case, a sleep check on battery with the charge limit at 20%: image 49, test kernel (SART restore), all CPUs, `deep`, **one cycle with a 7200 s alarm**. It is the first sleep longer than 30 min under Aura. Expect about 120 heartbeats (`psci_dbg[16]`), a wake on the PMU alarm at about 7200 s, and about 2.8 Wh used at 1.4 W.
+- `run.sh` takes `/var/lib/deepidle/discharge`: it sets `charge_behaviour` = `auto-discharge` before the cycles (it resets to `auto` at every boot) and puts back `auto` and the thresholds named in the file (`80 75`) afterwards. Limit now 20/15.

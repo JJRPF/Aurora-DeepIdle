@@ -62,6 +62,12 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
         # Modes from /var/lib/deepidle/sleep-modes (default deep), e.g. "deep s2idle" for a drain A/B on one boot.
         # In s2idle Aura is not involved, so nothing would pet the test kernel's watchdog: its suspend arm is off then.
         BAT=/sys/class/power_supply/macsmc-battery
+        # On battery with the charger in: /var/lib/deepidle/discharge asks for the SMC's force-discharge
+        # (charge_behaviour resets to auto at every boot; the thresholds persist and set where it stops)
+        if [ -e /var/lib/deepidle/discharge ]; then
+            echo auto-discharge > $BAT/charge_behaviour; sleep 30
+            log "discharge on: $(cat $BAT/status), limit $(cat $BAT/charge_control_end_threshold)%, capacity $(cat $BAT/capacity)%"
+        fi
         for MODE in $(cat /var/lib/deepidle/sleep-modes 2>/dev/null || echo deep); do
         echo $MODE > /sys/power/mem_sleep
         WDT_P=/sys/module/apple_wdt/parameters/suspend_timeout
@@ -100,6 +106,13 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
         [ $rc = 0 ] || break
         done
         [ -e $WDT_P ] && echo 120 > $WDT_P
+        if [ -e /var/lib/deepidle/discharge ]; then
+            # the file may name the thresholds to put back: "<end> <start>", e.g. "80 75"
+            read -r DE DS2 < /var/lib/deepidle/discharge || true
+            echo auto > $BAT/charge_behaviour
+            [ -n "${DS2:-}" ] && { echo $DE > $BAT/charge_control_end_threshold; echo $DS2 > $BAT/charge_control_start_threshold; }
+            log "discharge off: $(cat $BAT/status), limit $(cat $BAT/charge_control_end_threshold)/$(cat $BAT/charge_control_start_threshold)"
+        fi
     else
         log "no deep sleep offered; not suspending"
     fi
