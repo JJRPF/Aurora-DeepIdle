@@ -1825,3 +1825,17 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
   - Reset at about 85 s again: the timer needs more than the cores off, i.e. quiesceHW's clock and PLL steps.
   - A resume, or a reset timed by the alarm: the SoC got further.
   - About 144 s: the cores powered down but the timer did not reset, and WD1 did, at 120 s.
+
+## 2026-11-05 17:02: run E (timer plus macOS's all-core deep sleep): the same reset at about 86 s; run F (the control) armed
+
+- Owner-attended run E: image 52, `deep_steps=6`, aura-ctl 3 (set at `0x10003bff380`), 30 s alarm. `echo mem` at 16:59:39.3. The next kernel started at 17:01:05.0 (RTC 22:01:19 UTC at uptime 14.0 s), 85.7 s later. No dead-man push.
+- Same as D (86 s) and D2 (84.8 s). The reset was not timed by the alarm, and it was not WD1 (that would be about 144 s). With every core sent into macOS's deep sleep after the timer, the S2R timer still resets the Mac about 60 s after it starts.
+- Unless the cores did not really power down: F tells.
+- Reading: the cores alone are not what the S2R entry is waiting for. Left from macOS's sequence before the timer:
+  - `quiesceHW`'s SoC-East clock gates, the ClkGen PLL-off writes and the GPU PMGR quiesce;
+  - the PMP's IDLE `SetAPPower`/`SetIOPPower` (which crashed the PMP after `slpa` in run C);
+  - the AIC and PMU SPMI quiesce (97000, 98000) after it;
+  - the SMC's AP watchdog deadline (`0x29e2a002c`) at quiesce.
+- Run F (aura-ctl 2, the cores without the timer) is the control.
+  - About 144 s (WD1): the cores really do power down, and nothing restarts them without S2R.
+  - A resume on the alarm: bit 2 does not really power them down, and E did not test what it meant to.
