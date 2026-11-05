@@ -1909,3 +1909,15 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 - Both cycles came back, rc 0, after 62.9 and 62.4 s, with all 10 CPUs online and 0 device errors.
 - genpd gates `ps_ans2` during a normal suspend (11-05 06:40), so a PMGR power gate does not clear the IO RVBAR. Whether the SMC's `slpa` cut does is what the next attended `slpa` run shows: the dead-man snapshot now reads it, and the restore is in place.
 - Flags cleared; default boot.bin, no next_entry.
+
+## 2026-11-05 17:51: the PMP crash in run C was a double SetAPPower (test kernel bug), fixed; regression armed
+
+- Run C's dead-man push (16:01) has the PMP's crashlog mailbox tail: `#029`, `#030`, `#031` are all `00b0000000000201` (management endpoint, type 0xb = SetAPPower, state 0x201), after a long quiet gap.
+- The test kernel's `apple_pmp_sleep_power` sent `set_ap_power(0x201)` and then `RtKit::idle`, and `apple_rtkit_idle` sends SetAPPower 0x201 itself before SetIOPPower 0x201. So the PMP got the same AP state twice: request, ack, request again.
+- The PMP firmware (`t6020pmp` from 13.5, `__TEXT` at 0x1000000) handles management type 0xb at 0x1044f28. It maps the state to an internal value (0x201 → 8; 0x20 → 0x21; 0x10 → 0x20) and **panics with `Invalid AP power: %d` when the new value equals the current one** (0x1044f48: `cmp`, `b.eq` to the panic at 0x1044fac).
+- That matches the 10-23 PMP test, where `idle()` alone was acked (`0x20 -> 0x201`). So run C's crash says nothing about the PMP's sleep preconditions; it was my bug.
+- Fix (kernel patch `0001-TEST-pmp-send-the-PMP-s-sleep-IDLE-once-…`): `idle()` only, which is macOS's order (SetAPPower 0x201, then SetIOPPower 0x201). Image `254c93bd5410a827` installed; the old one in `/var/lib/deepidle/vmlinuz-psci-efi-test.pre-pmpidle`; staging updated. `macsmc.pmp_sleep` stays off by default, so only attended run C uses it.
+- On the AP side, macOS's `ApplePMP::_powerStateHandlerGated` only checks that no PMP command is pending (`_eHubCommandPending == NULL`, `_pmCommandPending[i] == NULL`) before sleep; it sends nothing itself.
+- One more difference, not acted on: the PMP's power-request word (`0x28e3c2000`, ack at `+0x80`) reads `0xf000` on Linux now: ISP_SYS, DISP0, DISPEXT0 and DISPEXT1 (report entries 0xc to 0xf; the display ones are always-on in the DT). In the macOS trace it is `0x300` (only the CPU complexes PCPM0 and PCPM1) when `slpa` is sent. If the PMP or the PMGR waits for those domains, clearing them before `slpa` is the next PMP-side step.
+- `attended.sh`: the boot prompt now has readings for A (the IO RVBAR restore) and C (the PMP IDLE once).
+- Regression armed (unattended, no `slpa`, no `pmp_sleep`, image 53, aura-ctl 0x80, 2 `deep` cycles of 60 s): it only checks that the new Image boots and suspends.

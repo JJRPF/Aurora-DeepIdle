@@ -1,0 +1,54 @@
+From 216c61f778081f38ee037542a4cb2b0c877b8ff1 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Thu, 5 Nov 2026 17:50:49 -0500
+Subject: [PATCH] TEST: pmp: send the PMP's sleep IDLE once (SetAPPower 0x201
+ twice crashed the firmware)
+
+apple_pmp_sleep_power sent SetAPPower 0x201 and then apple_rtkit_idle(), which sends SetAPPower 0x201
+again before SetIOPPower 0x201. The t6020pmp firmware (13.5) panics with "Invalid AP power: %d" when
+the AP state it is given equals the current one, which is what run C's crashlog shows (three
+00b0000000000201 mailbox entries: request, ack, repeated request). idle() alone is macOS's order.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/soc/apple/pmp.rs | 15 ++++++---------
+ 1 file changed, 6 insertions(+), 9 deletions(-)
+
+diff --git a/drivers/soc/apple/pmp.rs b/drivers/soc/apple/pmp.rs
+index 7cf19b35115c..3ccd728fb4cb 100644
+--- a/drivers/soc/apple/pmp.rs
++++ b/drivers/soc/apple/pmp.rs
+@@ -456,6 +456,10 @@ unsafe impl Sync for PmpData {}
+ /// TEST (S2R): the PMP's part of macOS's sleep entry after `slpa`: `SetAPPower` 0x201, then `SetIOPPower` 0x201
+ /// (RTKit IDLE). With `sleep` false: RTKit wake (IOP INIT, then AP ON).
+ ///
++/// `RtKit::idle` sends both messages. `SetAPPower` must go only once: the firmware panics ("Invalid AP power")
++/// when asked for the AP state it already has, which crashed the PMP in run C (2026-11-05) when this sent it
++/// before `idle` as well.
++///
+ /// # Safety
+ /// `data` must point to the live PmpData registered by PmpDriver.
+ #[export]
+@@ -463,17 +467,10 @@ unsafe impl Sync for PmpData {}
+     // SAFETY: The C bridge serializes calls against unregister in Drop.
+     let data = unsafe { &*data.cast::<PmpData>() };
+     let mut guard = data.rtkit.lock();
+-    let Some(mut rtk) = guard.as_mut().as_pin_mut() else {
++    let Some(rtk) = guard.as_mut().as_pin_mut() else {
+         return ENODEV.to_errno();
+     };
+-    let ret = if sleep {
+-        match rtk.as_mut().set_ap_power(0x201) {
+-            Ok(()) => rtk.idle(),
+-            Err(e) => Err(e),
+-        }
+-    } else {
+-        rtk.wake()
+-    };
++    let ret = if sleep { rtk.idle() } else { rtk.wake() };
+     match ret {
+         Ok(()) => 0,
+         Err(e) => e.to_errno(),
+-- 
+2.55.0
+
