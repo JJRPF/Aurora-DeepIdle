@@ -1649,3 +1649,13 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 ## 2026-11-05 10:11: image 51 regression run: 2 of 2
 
 - Image 51 (eb1904c3373bd624), `suspendall`, 2 `deep` cycles of 120 s, root read-only, normal path: **2 of 2 back** (121.7 and 122.4 s), `online 0-9`, 0 device errors, dead-man `disk ok`, SART kept, Aura’s debug words the same as image 50’s. Image 51 is the image for the owner-attended runs. Disarmed.
+
+## 2026-11-05 10:20: design note: restarting the secondaries after a real S2R (not built yet)
+
+- After S2R the nine secondaries are powered off with their park loops gone, so Aura’s `CPU_ON` (which only hands an entry to a parked core through the spin table) cannot bring them back; Linux would time out on each (about 5 s apiece) and run on the boot CPU. Linux `linux-aurora 7.2.11.aurora14-1` is still the newest package, so the test kernel’s base is current.
+- What a runtime cold start needs, from `smp_start_cpu()` (boot time, `src/smp.c`):
+  - each core’s implementation registers (`cpu_info[i].impl_reg`, from the ADT `cpu-impl-reg`): RVBAR is written there (`write64(impl_reg, _vectors_start)`; T6020 has `apple_sysregs_unlocked`). They are **not** in `aura,psci-runtime-mmio` today (only the CPU-start block, the WDT and the AIC are), so Linux does not map them for the EFI call;
+  - the PMGR CPU-start block (already mapped): the system start bit at +0x4 and the per-cluster start word at +0x8;
+  - a reset stack per core and the spin-table flag handshake, without `printf`/`udelay` from boot (the UART is not mapped at runtime) and without `mmu_add_mapping`;
+  - the secondary’s RVBAR entry (`_cpu_reset_c`, quiet when `psci_runtime`) then reaches `smp_secondary_entry()` and parks, after which the normal `CPU_ON` dispatch works.
+- Plan: on an RVBAR resume of the boot CPU with no wake line (`psci_dbg[13]` 3), mark every secondary as lost; `CPU_ON` for a lost core runs the cold start above, then dispatches. It can only be exercised after a real S2R wake, so it waits until run A shows the boot CPU coming back through RVBAR.
