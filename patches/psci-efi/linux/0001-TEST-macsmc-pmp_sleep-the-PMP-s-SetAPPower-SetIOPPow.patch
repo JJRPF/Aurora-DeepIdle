@@ -1,0 +1,180 @@
+From d2b2b265eac5d6974f5a7a9d5ae114be5ae85dc5 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Wed, 4 Nov 2026 22:11:33 -0500
+Subject: [PATCH] TEST: macsmc pmp_sleep: the PMP's SetAPPower/SetIOPPower IDLE
+ after slpa in suspend to RAM (default off)
+
+---
+ drivers/mfd/macsmc.c           | 22 ++++++++++++++++++++++
+ drivers/soc/apple/pmp-export.c | 10 ++++++++++
+ drivers/soc/apple/pmp.rs       | 27 +++++++++++++++++++++++++++
+ include/linux/soc/apple/pmp.h  |  7 +++++++
+ rust/kernel/soc/apple/rtkit.rs | 13 +++++++++++++
+ 5 files changed, 79 insertions(+)
+
+diff --git a/drivers/mfd/macsmc.c b/drivers/mfd/macsmc.c
+index c0960e14e8ea..f6fb81e9fc17 100644
+--- a/drivers/mfd/macsmc.c
++++ b/drivers/mfd/macsmc.c
+@@ -20,6 +20,8 @@
+ #include <linux/of_platform.h>
+ #include <linux/overflow.h>
+ #include <linux/platform_device.h>
++#include <linux/soc/apple/pmp.h>
++#include <linux/suspend.h>
+ #include <linux/soc/apple/rtkit.h>
+ #include <linux/unaligned.h>
+ 
+@@ -543,6 +545,16 @@ static bool ap_idle_in_suspend = true;
+ module_param(ap_idle_in_suspend, bool, 0644);
+ MODULE_PARM_DESC(ap_idle_in_suspend, "SetAPPower IDLE to the SMC across system suspend");
+ 
++/*
++ * Test option (S2R): after the SMC's SetAPPower IDLE, give the PMP its part of macOS's sleep entry: SetAPPower 0x201
++ * and SetIOPPower 0x201 (RTKit IDLE). In macOS this follows slpa and is what takes the CPU complexes down. Off by
++ * default; only meaningful with macsmc_reboot.deep_steps including slpa.
++ */
++static bool pmp_sleep;
++module_param(pmp_sleep, bool, 0644);
++MODULE_PARM_DESC(pmp_sleep, "PMP SetAPPower/SetIOPPower IDLE after the SMC's SetAPPower IDLE in system suspend");
++static bool pmp_slept;
++
+ static int apple_smc_suspend_late(struct device *dev)
+ {
+ 	struct apple_smc *smc = dev_get_drvdata(dev);
+@@ -552,6 +564,11 @@ static int apple_smc_suspend_late(struct device *dev)
+ 		return 0;
+ 	ret = apple_rtkit_set_ap_power(smc->rtk, 0x201);
+ 	dev_info(dev, "SetAPPower IDLE: %d\n", ret);
++	if (pmp_sleep && pm_suspend_target_state == PM_SUSPEND_MEM) {
++		ret = apple_pmp_sleep(true);
++		pmp_slept = !ret;
++		dev_info(dev, "sleep: PMP SetAPPower/SetIOPPower IDLE: %d\n", ret);
++	}
+ 	return 0;
+ }
+ 
+@@ -564,6 +581,11 @@ static int apple_smc_resume_early(struct device *dev)
+ 		return 0;
+ 	ret = apple_rtkit_set_ap_power(smc->rtk, 0x20);
+ 	dev_info(dev, "SetAPPower ON: %d\n", ret);
++	if (pmp_slept) {
++		pmp_slept = false;
++		ret = apple_pmp_sleep(false);
++		dev_info(dev, "sleep: PMP wake: %d\n", ret);
++	}
+ 	return 0;
+ }
+ 
+diff --git a/drivers/soc/apple/pmp-export.c b/drivers/soc/apple/pmp-export.c
+index 09804b23b760..77c200476318 100644
+--- a/drivers/soc/apple/pmp-export.c
++++ b/drivers/soc/apple/pmp-export.c
+@@ -110,3 +110,13 @@ int apple_pmp_t6030_gpu_ready(void)
+ 	return apple_pmp_report_set_t6030_gfx(pmp_device, true);
+ }
+ EXPORT_SYMBOL_GPL(apple_pmp_t6030_gpu_ready);
++
++/* TEST (S2R): the PMP's sleep entry after slpa (AP 0x201, IOP IDLE), or its wake. */
++int apple_pmp_sleep(bool sleep)
++{
++	guard(mutex)(&pmp_lock);
++	if (!pmp_data)
++		return -ENODEV;
++	return apple_pmp_sleep_power(pmp_data, sleep);
++}
++EXPORT_SYMBOL_GPL(apple_pmp_sleep);
+diff --git a/drivers/soc/apple/pmp.rs b/drivers/soc/apple/pmp.rs
+index 10b884006978..7cf19b35115c 100644
+--- a/drivers/soc/apple/pmp.rs
++++ b/drivers/soc/apple/pmp.rs
+@@ -453,6 +453,33 @@ unsafe impl Sync for PmpData {}
+     0
+ }
+ 
++/// TEST (S2R): the PMP's part of macOS's sleep entry after `slpa`: `SetAPPower` 0x201, then `SetIOPPower` 0x201
++/// (RTKit IDLE). With `sleep` false: RTKit wake (IOP INIT, then AP ON).
++///
++/// # Safety
++/// `data` must point to the live PmpData registered by PmpDriver.
++#[export]
++pub unsafe extern "C" fn apple_pmp_sleep_power(data: *const core::ffi::c_void, sleep: bool) -> i32 {
++    // SAFETY: The C bridge serializes calls against unregister in Drop.
++    let data = unsafe { &*data.cast::<PmpData>() };
++    let mut guard = data.rtkit.lock();
++    let Some(mut rtk) = guard.as_mut().as_pin_mut() else {
++        return ENODEV.to_errno();
++    };
++    let ret = if sleep {
++        match rtk.as_mut().set_ap_power(0x201) {
++            Ok(()) => rtk.idle(),
++            Err(e) => Err(e),
++        }
++    } else {
++        rtk.wake()
++    };
++    match ret {
++        Ok(()) => 0,
++        Err(e) => e.to_errno(),
++    }
++}
++
+ struct NoBuffer;
+ impl rtkit::Buffer for NoBuffer {
+     fn iova(&self) -> Result<usize> {
+diff --git a/include/linux/soc/apple/pmp.h b/include/linux/soc/apple/pmp.h
+index 8b329bf5d4dd..e8382921c5fd 100644
+--- a/include/linux/soc/apple/pmp.h
++++ b/include/linux/soc/apple/pmp.h
+@@ -10,6 +10,8 @@ int apple_pmp_link_device(struct device *consumer);
+ int apple_pmp_set_device_power(u8 command, u16 device_id, u32 enabled);
+ /* After the acknowledged AGX vote and successful GPU firmware startup. */
+ int apple_pmp_t6030_gpu_ready(void);
++/* TEST (S2R): the PMP's sleep entry (AP 0x201, IOP IDLE) or its wake. */
++int apple_pmp_sleep(bool sleep);
+ #else
+ static inline int apple_pmp_link_device(struct device *consumer)
+ {
+@@ -23,10 +25,15 @@ static inline int apple_pmp_t6030_gpu_ready(void)
+ {
+ 	return -ENODEV;
+ }
++static inline int apple_pmp_sleep(bool sleep)
++{
++	return -ENODEV;
++}
+ #endif
+ /* Registration is private to the PMP Rust driver and its C bridge. */
+ int apple_pmp_register(struct device *dev, const void *data);
+ void apple_pmp_unregister(const void *data);
+ int apple_pmp_send_power_command(const void *data, u8 command,
+ 				u16 device_id, u32 enabled);
++int apple_pmp_sleep_power(const void *data, bool sleep);
+ #endif
+diff --git a/rust/kernel/soc/apple/rtkit.rs b/rust/kernel/soc/apple/rtkit.rs
+index 87ec3bd73658..3baaaa30d196 100644
+--- a/rust/kernel/soc/apple/rtkit.rs
++++ b/rust/kernel/soc/apple/rtkit.rs
+@@ -298,6 +298,19 @@ pub fn wake(self: Pin<&mut Self>) -> Result {
+         to_result(unsafe { bindings::apple_rtkit_wake(self.rtk) })
+     }
+ 
++    /// Puts the coprocessor into the IOP power state IDLE (0x201), state kept, as macOS does for the PMP at system
++    /// sleep. Undo with [`RtKit::wake`].
++    pub fn idle(self: Pin<&mut Self>) -> Result {
++        // SAFETY: `rtk` is valid per the type invariant.
++        to_result(unsafe { bindings::apple_rtkit_idle(self.rtk) })
++    }
++
++    /// Tells the coprocessor the AP's power state (e.g. 0x201 at system sleep), leaving its own state alone.
++    pub fn set_ap_power(self: Pin<&mut Self>, state: u32) -> Result {
++        // SAFETY: `rtk` is valid per the type invariant.
++        to_result(unsafe { bindings::apple_rtkit_set_ap_power(self.rtk, state) })
++    }
++
+     /// Waits for the RTKit coprocessor to finish booting.
+     pub fn boot(self: Pin<&mut Self>) -> Result {
+         // SAFETY: `rtk` is valid per the type invariant.
+-- 
+2.55.0
+

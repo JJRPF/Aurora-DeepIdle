@@ -44,6 +44,7 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
         for m in $(findmnt -rno TARGET -t ext4,btrfs,vfat | sort -r); do mount -o remount,ro "$m" 2>&1 | head -1; done
         log "filesystems ro: $(findmnt -rno TARGET,OPTIONS -t ext4,btrfs,vfat | grep -c '\bro\b') of $(findmnt -rno TARGET -t ext4,btrfs,vfat | wc -l)"
         NCYC=$(cat /var/lib/deepidle/suspend-cycles 2>/dev/null || echo ${SUSPEND_CYCLES:-3})
+        SUSPEND_ALARM=$(cat /var/lib/deepidle/suspend-alarm 2>/dev/null || echo ${SUSPEND_ALARM:-10})
         # Dead-man switch (deadman.sh): after each wake it reads the NVMe directly and resets the Mac if the
         # disk is gone (what `slpa` did on 2026-11-04). Everything it needs lives in RAM.
         DM=/run/psci-deadman; mkdir -p $DM; cp /usr/bin/dd $(dirname $0)/deadman.sh $DM/; [ -p $DM/fifo ] || mkfifo $DM/fifo

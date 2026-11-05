@@ -1434,3 +1434,13 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
   - The PMU cells come from `spmi_nvmem0` on the test kernel (`spmi_nvmem2` on the default). `run.sh` now globs for it.
   - The 3 “device errors” were the dead-man’s own `timeout` lines and Wi-Fi `join_pref -52`, now filtered.
   - `fault-shadow` reads `1012…` after the hand reset and after a normal reboot alike, so it does not tell them apart.
+
+## 2026-11-04 22:20: image 49 (watchdog heartbeat for long sleeps); test kernel with `macsmc.pmp_sleep` (off)
+
+- Every suspend so far was capped at about two minutes, and not only by choice. WD1 counts a 32-bit value at 24 MHz, so it cannot be armed for more than about 178 s. Image 49 (391648c0e69c7d80) adds a heartbeat to `psci_system_suspend()`:
+  - It arms the EL2 physical timer (CNTHP; Linux runs on the EL2 virtual timer) for 60 s.
+  - A wake that is not a wake line, once the time has passed, re-arms the dog (120 s) and the timer, counts in `psci_dbg[16]`, and sleeps again.
+  - The timer’s CTL and CVAL are restored before the return to the kernel.
+  If Aura stops running, nothing re-arms the dog and the Mac resets as before. Source: `patches/psci-efi/aura/wip-system-suspend.diff` (image 48’s is in git at the image 48 commit).
+- Test kernel rebuilt and installed (old Image, `macsmc.ko` and initramfs kept as `/var/lib/deepidle/*.pre-pmpsleep`), patch `patches/psci-efi/linux/0001-TEST-macsmc-pmp_sleep-...`. New option `macsmc.pmp_sleep` (default off): in suspend to RAM, right after the SMC’s `SetAPPower IDLE`, send the PMP `SetAPPower 0x201` and `SetIOPPower 0x201` (RTKit IDLE), and wake it after `SetAPPower ON`. That is macOS’s step 5 after `slpa`. It is staged for the next `slpa` run, which waits for the owner.
+- `run.sh` takes the alarm from `/var/lib/deepidle/suspend-alarm`. Armed: image 49, `suspendall`, 2 cycles, **300 s alarm**. Without a working heartbeat the dog resets the Mac about 120 s in; with it, both cycles come back after about 300 s with `psci_dbg[16]` at 4 or 5.
