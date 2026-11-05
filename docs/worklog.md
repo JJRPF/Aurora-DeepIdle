@@ -1799,3 +1799,17 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 - `results-psci-efi-suspendall-20261105-1641`: no `slpa`, aura-ctl 0x80. `aura-ctl` found exactly one block (`0x10002bf3380`) before each `echo mem`.
 - Both cycles came back, rc 0, after 62.5 and 61.4 s on the alarm line (`psci_dbg[4]` 0x2d4 = 724), all 10 CPUs online, 0 device errors. `psci_dbg[17]` = `5300000080` (the word Aura read), `[18]` 0 (no timer write). PMGR counters: `AWAKE` only.
 - So the normal path is image 51's, and the control word reaches Aura. Flags cleared; boot.bin is the default again and next_entry is unset. Next: owner-attended run D (`slpa` plus the PMGR S2R timer).
+
+## 2026-11-05 16:52: run D (`slpa` plus the PMGR S2R timer): reset without a resume record, earlier than the dead-man would; D2 armed
+
+- Owner-attended run D: image 52, `deep_steps=6`, aura-ctl 1, 30 s alarm. `aura-ctl` set 0x1 at `0x10002b77380`. `echo mem` at 16:47:32.2; the alarm was due at 16:48:03.
+- The next kernel started at 16:48:58: its RTC line at 21:49:12 UTC, uptime 14.0 s. That is 86 s after `echo mem`, against about 93 s in runs A to C.
+- **No dead-man push** (ntfy has only the run's start push). The watcher's stream stopped after `PM: suspend entry`, as in every run (it ends about 34 s after the Mac goes quiet, even in the regression's 60 s cycles, so its end says nothing about the alarm).
+- The test boot's journal ends at `echo mem`. The PMGR counters and `psci_dbg` are lost: their RAM is System RAM in the default boot. The PMU boot lines are the same as after every reset today.
+- Reading:
+  - The dead-man resets only after a push succeeds, or after 6 failed tries 10 s apart. A reset by it without a push would come later than A to C's, not 7 s earlier. So this was not the dead-man, and the timer write changed the outcome.
+  - Assuming the usual 24 s from reset to kernel, the reset came at about `echo mem` + 62 s: about 59 s after the timer write, 32 s after the alarm.
+  - Two readings fit:
+    1. The SoC entered S2R, and the alarm woke it into a cold boot: no warm path, or Aura's RVBAR path failed inside its 10 s stage, with a firmware chain longer than a dog reset's.
+    2. The S2R timer resets the SoC about 60 s after it starts if the AP never powers down. In run D only the S2R timer ran, and the cores stayed in retention.
+- **Run D2 tells them apart:** the same steps with a 90 s alarm. A next kernel at about 86 s again means reading 2 (the timer, not the alarm). At about 146 s (the alarm plus 56 s) it means reading 1 (the SoC slept). A dead-man push means Linux resumed with the SoC up.
