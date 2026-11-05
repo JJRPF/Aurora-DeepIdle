@@ -1379,3 +1379,7 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 
 - Image 48 (afaef3840b21e459): image 47 without the diagnostic watchdog stamps (CPU_OFF, park, AFFINITY_INFO, CPU_ON and SYSTEM_SUSPEND stages B to E). SYSTEM_SUSPEND keeps one safety arm, 120 s from entry, disarmed again on the wake (as in image 31); the RVBAR backstop path keeps its own. With the stamps, image 47 re-armed the dog to 95 s for the wait, which would have reset any suspend longer than that. Still test-only: both this 120 s arm and the test kernel's apple_wdt `suspend_timeout=120` cap a suspend at two minutes; real use needs both off.
 - Run: `suspendall`, 20 cycles, `echo mem`, 10 s alarm.
+
+## 2026-11-04 21:30: image 48 (clean) passes 20 of 20 on all CPUs
+
+- Image 48 (afaef3840b21e459), `suspendall`, `echo mem`, 20 cycles: **20 of 20 back, `online 0-9` after each, 0 device errors**. Image 48 is the Phase 2 reference image from here on (source: `patches/psci-efi/aura/wip-system-suspend.diff` at this commit).
