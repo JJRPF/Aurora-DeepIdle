@@ -14,9 +14,11 @@ machine or in source is marked as an unknown.
   cycles with all 10 CPUs and the PMP on (Phase 2 of `s2r-plan.md`). It
   draws the same 1.4 to 1.5 W as s2idle. The SoC itself never powers down
   yet: the PMGR's own state counters, now readable from Linux, show only
-  `AWAKE` in every Linux suspend, including five runs with the SMC's `slpa`.
+  `AWAKE` in every Linux suspend, including ten runs with the SMC's `slpa`.
   `slpa` cuts the storage controller's power without starting the SoC's
-  sleep; the PMGR's S2R entry is next. Details in "S2R work, 2026-10-25 to
+  sleep. Written from Aura, the PMGR's S2R timer starts the entry, but the
+  SoC resets about 60 s later because the entry does not complete; the rest
+  of macOS's PMGR quiesce is built (image 53) and waits for attended runs. Details in "S2R work, 2026-10-25 to
   11-05" below; the current one-page summary is `status.md`. The bullets
   that follow are the October findings, kept as written.
 * **CPU deep idle already works.** Asahi's downstream `apple_idle` driver
@@ -1524,7 +1526,34 @@ runs A, B and C that afternoon; each inside a real all-CPU suspend):
 * The PMU boot stage 0x50 that macOS writes at sleep (from its watchdog
   kext) changed nothing (run B).
 * macOS's PMP `SetAPPower`/`SetIOPPower` IDLE after `slpa` crashed the PMP
-  firmware (run C).
+  firmware (run C). That was a test kernel bug: it sent `SetAPPower` 0x201
+  twice, and the PMP firmware (`t6020pmp`, 13.5) panics with `Invalid AP
+  power` when it is given the AP state it already has. Fixed; run C goes
+  again.
+
+**Evening of 11-05** (images 52 and 53, `psci-efi.md`):
+
+* The PMGR's S2R timer (1 to `MPMGR_AON` + 0x4000, macOS's last PMGR write)
+  is the first PMGR write the SoC acts on. With `slpa` it resets the SoC
+  about 60 s after the write, whatever the alarm does (runs D, D2), and the
+  same with every core powered down macOS's way (run E). The cores alone,
+  without the timer, end in Aura's watchdog reset at about 145 s (run F):
+  they really power down, and nothing restarts them.
+* The rest of `AppleT6020PMGR::quiesceHW` is decoded and built behind
+  control bits: the GPU fabric domain off, the SmartIO domains' auto
+  power-on off, the clock-generator writes and the PLL-off mode. The
+  cluster power-off step's register is probably the CPU complexes' power
+  states (`0x28e080060`, `+8`, `+0x10`, ADT ECPM/PCPM0/PCPM1). Attended
+  runs G and H are next.
+* The ANS after `slpa`: its firmware does start (it answers the RTKit
+  HELLO) but never acks power-on. Its boot address (the ASC wrapper's IO
+  RVBAR, which macOS rewrites on every start) survives `slpa` (run A
+  again), as does its SART. So it most likely waits on the storage power
+  that the SMC only restores in a real S2R wake.
+* The PMP's power requests: macOS has released all but the CPU complexes'
+  (`0x300`) by `slpa`, while Linux held the three display requests and ISP's
+  (`0xf000`). A test switch now withdraws the display ones for sleep and
+  asserts them on resume; the PMP acks both (2 of 2).
 
 **Read statically from macOS 13.5** since: the PMU boot stage and a 10 s SMC
 deadline at sleep (the watchdog kext); `MBSE` on wake is the SMC's wake
@@ -1651,12 +1680,13 @@ tables.
   raw image as it does for a kernelcache. Still open on 2026-11-05: no
   Linux suspend has taken the SoC down yet, so no wake has been tried.
 * What starts the SoC's sleep. Not the SMC's `slpa` alone (2026-11-05: the
-  PMGR counters stay in `AWAKE`); presumably the PMGR's own entry (the S2R
-  timer at `MPMGR_AON` + 0x4000 after the quiesce), which Aura does not do
-  yet.
-* How macOS restarts the ANS after a sleep wake: after `slpa` Linux's
-  restart leaves its CPU at status 0x08.
-* What the PMP needs before IDLE: sent after `slpa`, IDLE crashed it.
+  PMGR counters stay in `AWAKE`). The PMGR's S2R timer starts an entry
+  that does not complete (runs D to F); whether macOS's whole `quiesceHW`
+  before it lets it complete is what runs G and H test.
+* What the ANS waits for after `slpa`: its firmware starts but never acks
+  power-on, with its boot address and SART intact.
+* Whether the PMP accepts IDLE after `slpa` when it is sent once (run C
+  again), and why ISP's request stays on.
 * The SMC/PMGR/PMP/AOP sleep handshake: the order, the SMC keys and the PMP
   message are now known from macOS 13.5 (above). Still unknown: what the
   reconfig engine runs on `SLP_S2R`, what each quiesce action writes, and

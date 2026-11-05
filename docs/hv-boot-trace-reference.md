@@ -52,13 +52,22 @@ Under the HV this is where it ends: the next rendezvous finds cores that are gon
 ## Linux repeating this sequence (2026-11-04 and 05)
 
 The test kernel replays steps 2, 4 and 5 inside a real suspend to RAM, with all CPUs parked in Aura
-(`macsmc_reboot.deep_steps`, `macsmc.pmp_sleep`; `worklog.md` 2026-11-04 21:32 to 2026-11-05 16:03):
+(`macsmc_reboot.deep_steps`, `macsmc.pmp_sleep`; `worklog.md` 2026-11-04 21:32 to 2026-11-05 18:16):
 
 * `slpw` (step 2) is harmless.
+* Step 3, the display power-down at the PMP: Linux now withdraws its three display requests for sleep and asserts them
+  on resume (a test switch, 2 of 2 in normal suspends). Only ISP's request differs from macOS's `0x300` now.
 * `slpa` (step 4) makes the SMC cut the storage controller's (ANS) power. The Mac still wakes on the RTC alarm and Linux
-  resumes, but the ANS never boots again. The PMGR's own state counters show the SoC in `AWAKE` for the whole cycle
+  resumes, but the ANS never acks power-on again. Its firmware starts and answers the RTKit HELLO, and its boot address
+  (IO RVBAR) and SART are intact. The PMGR's own state counters show the SoC in `AWAKE` for the whole cycle
   (`SLP_S2R` 0): `slpa` does not start the SoC's sleep by itself.
-* `SetAPPower`/`SetIOPPower` 0x201 to the PMP after `slpa` (step 5) crashed the PMP firmware.
+* `SetAPPower`/`SetIOPPower` 0x201 to the PMP after `slpa` (step 5) crashed the PMP firmware, because the test kernel
+  sent `SetAPPower` twice (the firmware panics on a repeated AP state). Fixed; not yet rerun.
+* Step 7, every core in deep sleep (macOS's `CYC_OVRD`), works from Aura: the cores really power down (run F, Aura's
+  watchdog reset at about 145 s, since nothing restarts them).
+* The PMGR's S2R timer, the step after these that the hypervisor never showed, resets the SoC about 60 s after it is
+  written when the entry does not complete (runs D, D2, E). The rest of macOS's PMGR quiesce before it is built (image
+  53, runs G and H pending).
 
 So the part of macOS's sleep that the hypervisor cannot show, and that Linux lacks, is the PMGR's own entry (the
 quiesce and the S2R timer) after these steps, and whatever restarts the ANS on the way back.

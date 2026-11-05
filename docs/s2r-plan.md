@@ -6,7 +6,7 @@ updated 2026-11-05. The research behind each step is in
 sections after it), the current summary in `status.md`, and every run in
 `worklog.md`.
 
-## Where each phase stands (2026-11-05 evening)
+## Where each phase stands (2026-11-05, 18:20)
 
 About 45% of the way to working S2R overall (a risk-weighted guess with a
 wide error bar; `s2r-status.json` has the per-phase figures).
@@ -18,7 +18,7 @@ wide error bar; `s2r-status.json` has the per-phase figures).
 | 2 SYSTEM_SUSPEND, SoC on | **done** | 20 of 20 with all 10 CPUs and the PMP on, through `echo mem` and `systemctl suspend` |
 | 3 macOS trace | 55% | macOS's sleep entry captured in order (runs 7 to 11); the wake cannot be seen under the hypervisor |
 | 4 Devices | 15% | SMC handshake mapped; NVMe survives Phase 2; PMP wake and DCP open |
-| 5 Full S2R | 10% | five `slpa` runs: each resumed on the alarm with the SoC still AWAKE and the storage controller dead |
+| 5 Full S2R | 10% | ten `slpa` runs: without the S2R timer each resumed with the SoC still AWAKE and the storage controller dead; with it the SoC resets about 60 s later (the entry does not complete). macOS's PMGR quiesce is built (image 53), its attended runs pending |
 | 6 Daily use | not started | |
 
 What the `slpa` runs settled (2026-11-04 and 05, `worklog.md`):
@@ -27,17 +27,25 @@ What the `slpa` runs settled (2026-11-04 and 05, `worklog.md`):
   (readable from Linux since 2026-11-05) show only `AWAKE` counting through
   the whole cycle; `SLP_S2R` stays 0.
 * What `slpa` does do is make the SMC cut the storage controller's (ANS)
-  power. After the wake the ANS CPU never boots again (`IOP power
-  acknowledgment failed: -62`, `ANS did not boot`), and the dead-man switch
-  resets the Mac. The ANS's SART (DMA windows) is intact, so that is not the
-  cause.
-* Sending the PMP macOS's `SetAPPower`/`SetIOPPower` IDLE after `slpa`
-  crashes the PMP firmware (run C).
+  power. After the wake the ANS firmware starts and answers the first RTKit
+  handshake, but never acks power-on (`IOP power acknowledgment failed:
+  -62`), and the dead-man switch resets the Mac. Its SART (DMA windows) and
+  its boot address (IO RVBAR) are intact (run A again, 18:04), so neither is
+  the cause. It most likely waits on the storage power that only a real S2R
+  wake restores.
+* Run C's PMP crash after `slpa` was a test kernel bug: it sent `SetAPPower`
+  0x201 twice, and the PMP firmware panics on a repeated AP state. Fixed;
+  run C goes again. The PMP's display requests, which macOS has released
+  by `slpa`, are now released for sleep too (a test switch, 2 of 2).
+* The PMGR's S2R timer is the first PMGR write the SoC acts on: written
+  from Aura it resets the SoC about 60 s later unless the entry completes
+  (runs D to F).
 * The PMU boot stage 0x50 that macOS sets at sleep changes nothing (run B).
 
-So the next real step is the PMGR's own sleep entry from Aura (the S2R
-timer and PMGR quiesce, so `SLP_S2R` counts), and finding how macOS restarts
-the ANS after a wake.
+So the next real step is completing the PMGR's own sleep entry from Aura
+(macOS's whole `quiesceHW` before the S2R timer, image 53, runs G and H),
+with the PMP's IDLE once (run C), so that `SLP_S2R` counts. The ANS is
+expected to follow a real S2R wake.
 
 **Goal.** `/sys/power/mem_sleep` offers `deep`. A lid close powers the SoC
 down with DRAM in self-refresh, wakes on the lid, the power key, the keyboard
@@ -226,8 +234,8 @@ Each device on its own, in the order the trace gives:
 
 | Device | Today | Work |
 |---|---|---|
-| PMP | IDLE works; the wake fails. Gating `ps_pms_sram` alone does not restart the CPU, and a PMGR reset of `ps_pmp` killed the SoC (2026-10-23) | `ps_pmp` is pinned on (PS_MIN 0xf), so macOS probably never really power-cycles it either. Next: macOS's DART off/on and outbox steps around RUN, no reset |
-| NVMe (ANS) | suspend shuts down RTKit and resets on resume | check it in Phase 2 and 5; little work expected |
+| PMP | IDLE works; the wake fails. Gating `ps_pms_sram` alone does not restart the CPU, and a PMGR reset of `ps_pmp` killed the SoC (2026-10-23). Its display requests are released for sleep and come back (2026-11-05) | `ps_pmp` is pinned on (PS_MIN 0xf), so macOS probably never really power-cycles it either. Next: macOS's DART off/on and outbox steps around RUN, no reset |
+| NVMe (ANS) | suspend shuts down RTKit and resets on resume; after `slpa` its firmware starts but never acks power-on | expected to follow a real S2R wake; check it then |
 | PCIe: Wi-Fi, SD reader, HDMI | ASPM only | L2 entry per `manual-enable-s2r`, D3cold resume through the PCI core (no remove/rescan) |
 | SMC | `WKTP` and `slpw` harmless | keep those in prepare; `slpa` goes last, in Aura or a syscore step, in the traced order |
 | DCP | no resume from power loss | the long pole: full shutdown and restart of the DCP firmware, or keep it powered if macOS does |
@@ -236,10 +244,11 @@ Each device on its own, in the order the trace gives:
 * **Gate:** each device passes 20 cycles of its own suspend path, with its
   power actually removed where the trace says macOS removes it.
 * Status 2026-11-05: NVMe resumes cleanly in every Phase 2 cycle, where its
-  power is not removed. After `slpa` it is removed, and the ANS does not
-  boot again; finding macOS's ANS restart after a wake is the current
-  static work. The PMP crashed when sent IDLE after `slpa`. PCIe, DCP and
-  the rest are untouched.
+  power is not removed. After `slpa` it is removed, and the ANS firmware
+  starts but never acks power-on; its SART and boot address are intact, so
+  it is expected to follow a real S2R wake. The PMP's IDLE crash after
+  `slpa` was a test kernel bug (fixed). PCIe, DCP and the rest are
+  untouched.
 
 ### Phase 5: full S2R (owner present for the first cycle, then unattended)
 
@@ -256,10 +265,12 @@ Each device on its own, in the order the trace gives:
 * Status 2026-11-05: Linux side of the handshake built as test options of
   the kernel (`macsmc_reboot.deep_steps`: `slpw` in prepare, `slpa` in
   suspend_late, `waka` on wake; `macsmc.pmp_sleep`; the SART save/restore;
-  the PMU boot stage). Five `slpa` runs: see "Where each phase stands"
-  above. Aura's side (the PMGR quiesce and S2R timer) is not built yet, and
-  Aura's RVBAR path already resumes the kernel if a real S2R wake reaches it
-  (image 51).
+  the PMU boot stage; the ANS IO RVBAR restore; the PMP request release).
+  Ten `slpa` runs: see "Where each phase stands" above. Aura's side is
+  built behind a control word that Linux sets per suspend: the S2R timer and
+  macOS's all-core deep sleep (image 52, runs D to F) and the rest of
+  `quiesceHW` (image 53, runs G and H pending). Aura's RVBAR path already
+  resumes the kernel if a real S2R wake reaches it (image 51).
 * **Gate:**
   - 20 of 20 cycles;
   - wakes from the lid, the power key, the keyboard and the alarm;
@@ -275,21 +286,23 @@ Each device on its own, in the order the trace gives:
 * Omarchy's suspend uses `deep`; s2idle stays available.
 * The patches go to Aurora's trees under the Aurora policies.
 
-## What comes next (2026-11-05)
+## What comes next (2026-11-05, 18:20)
 
-Static, no owner needed:
+Unattended:
 
-* how macOS restarts the ANS after a sleep wake (AppleANS3, IOSARTMapper and
-  the PMGR in the 13.5 kernelcache), so it can boot after `slpa`;
-* what the PMP needs before IDLE, since it crashed on IDLE after `slpa`;
-* the design of the PMGR's S2R entry from Aura: the S2R timer at
-  `MPMGR_AON` + 0x4000, the quiesce steps, and where `slpa` falls against
-  them.
+* the sleep A/B on battery: `deep` (Aura, every CPU parked, the PMP's
+  display requests released) against `s2idle`, 1 h each in one boot;
+* static: `quiesceHW`'s cluster power-off step (likely the CPU complexes'
+  power states at `0x28e080060` to `0x70`), and why ISP's PMP request stays.
 
-Owner-attended (the owner ready to reset by hand):
+Owner-attended (the owner ready to reset by hand), one command each
+(`bash harness/psci-efi/attended.sh <run>`), read through the PMGR counters
+(`SLP_S2R`) and the dead-man switch's push:
 
-* the first run of that PMGR entry, read through the PMGR counters
-  (`SLP_S2R`) and the dead-man switch's push.
+* C: `slpa` plus the PMP's IDLE, sent once now;
+* G: the S2R timer, every core in deep sleep, and `quiesceHW`'s power
+  domains;
+* H: G plus `quiesceHW`'s clock-generator and PLL-off writes.
 
 Owner decisions so far:
 

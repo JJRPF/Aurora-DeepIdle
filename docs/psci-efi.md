@@ -40,7 +40,7 @@ something to ship.
 | Part | Where | What |
 |---|---|---|
 | Kernel | local branch `psci-efi-test-72` (on 7.2.11), `patches/psci-efi/linux` | the RFC's six patches; `t6020-j414s-psci.dts`, an opt-in DTB with a `psci { method = "efi"; }` node and `enable-method = "psci"` on all CPU nodes, idle states left to the Apple cpuidle driver; two fixes for EFI calls that never return (below); the PMU RTC alarm; and the `TEST:` patches of the S2R runs (SMC sleep handshake, PMP IDLE, SART save/restore, PMU boot stage, PMGR wake mask), all off by default |
-| Aura | branch `psci-efi` (`aura-psci` worktree), `patches/psci-efi/aura` (`wip-system-suspend.diff` is image 51) | `src/psci.c` plus `smp_psci_*` in `smp.c`: CPU_ON, CPU_OFF, AFFINITY_INFO, SYSTEM_SUSPEND; `dt_set_psci()` in kboot publishes the table |
+| Aura | branch `psci-efi` (`aura-psci` worktree), `patches/psci-efi/aura` (`wip-system-suspend.diff` is image 53) | `src/psci.c` plus `smp_psci_*` in `smp.c`: CPU_ON, CPU_OFF, AFFINITY_INFO, SYSTEM_SUSPEND; `dt_set_psci()` in kboot publishes the table |
 | U-Boot | `asahi-v2026.07-2` + 2 commits (`~/Work/u-boot-asahi`), `patches/psci-efi/u-boot` | `efi_platform_register()`: installs the table and adds Aura's image and MMIO to the EFI memory map; a second commit re-applies those runtime ranges after U-Boot carves out the DT's reserved ranges (without it the first CPU_ON faulted, 2026-10-25 22:01) |
 
 The m1n1 reference (`AsahiLinux/m1n1` branch `psci-via-efi`) builds its own
@@ -136,6 +136,26 @@ Kernel side, two fixes for an EFI call that never returns:
 * CPU_OFF: the dying CPU never leaves the call, so the virtmap preempt count
   is dropped before it ("scheduling while atomic" ×45 is gone).
 
+### The S2R steps, behind a control word (images 52 and 53)
+
+macOS's own SoC sleep steps are built into `SYSTEM_SUSPEND` but run only
+when Linux asks, one suspend at a time. Aura reserves a small control block
+(`psci_ctl`, found by its magic with `harness/mmio/aura-ctl.c`). `run.sh`
+writes the steps into it before each `echo mem`, from
+`/var/lib/deepidle/aura-ctl`:
+
+| Bit | Step (macOS 13.5 `AppleT6020PMGR::quiesceHW` order) |
+|---|---|
+| 4 | the GPU fabric domain (`ps_afr`) fully off; the SmartIO domains' auto power-on off (image 53) |
+| 8 | the clock-generator writes and the PLL-off mode (image 53) |
+| 1 | the PMGR's S2R timer, 1 to `MPMGR_AON` + 0x4000, macOS's last PMGR write (image 52) |
+| 2 | every core into macOS's deep sleep: the parked secondaries are released into `cpu_sleep(true)`, then the boot core follows after a full cache clean (image 52) |
+
+`psci_dbg[17]` records the word Aura read, `[18]` whether the timer was
+written, `[19..22]` the registers before and after each quiesce step and
+`[23]` poll timeouts. With the word 0 the suspend is image 51's. Bit 0x80 is
+a marker for regression runs. The steps undo themselves on resume.
+
 Aura's debug words (`psci_dbg`, found by the magic `0xA0AA0001` with
 `harness/mmio/scan-magic.c`) record each suspend: the wake line, the time
 asleep, the number of WFI exits and heartbeats, and whether the core came
@@ -153,15 +173,22 @@ back through RVBAR.
 | Wake on the power key (SMC mailbox line 865) | 29 | 1 of 1, owner at the Mac |
 | Deliberate hang inside SYSTEM_SUSPEND | 27-hang | the watchdog reset the Mac by itself |
 | Long sleeps on battery (watchdog heartbeat) | 50, 51 | 1 h 46 min and 90 min, clean, 1.44 and 1.49 W |
+| The S2R timer with `slpa` (runs D, D2), owner-attended | 52 | the SoC resets about 60 s after the write, whatever the alarm does: the entry starts and does not complete |
+| The timer plus every core in deep sleep (run E) | 52 | the same reset |
+| Every core in deep sleep, no timer (run F) | 52 | WD1 at about 145 s: the cores really power down and nothing restarts them |
+| The control word with every step off (regressions) | 52, 53 | 2 of 2 each, the same as image 51 |
 
-Image 48 is the clean reference build; image 51 adds the RVBAR resume.
+Image 48 is the clean reference build; image 51 adds the RVBAR resume;
+images 52 and 53 add the S2R steps above. Runs G and H (image 53's quiesce
+steps) wait for the owner.
 
 ## Not covered yet
 
 * **Runtime hotplug** (offline and online outside suspend) has not been
   rerun since the park fixes. Inside suspend it works every cycle.
-* **A core that really loses power.** The parked cores and the boot core all
-  keep their state today. The RVBAR paths exist but have not run in anger.
+* **A core that really loses power and comes back.** In run F every core
+  powered down (macOS's deep sleep), and nothing restarted them, so the
+  RVBAR paths have still not run in anger. That needs a completed S2R entry.
 * **CPU_SUSPEND** is not offered: cpuidle stays with the Apple driver.
 * **The RFC's open review points** (the PSCI name, an ACPI-PRM-like
   interface instead). The interface may change, so this stays a test

@@ -1957,3 +1957,14 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 - Risk: if a display complex does not come back, the screen stays dark until reboot. That is acceptable headless. The driver retries the assert 3 times and logs a failure.
 - Regression armed (unattended): image 53, aura-ctl 0x80, 2 `deep` cycles of 60 s, release on. Expect `withdrawn … ack` without the display bits, `asserted` on resume, `0xf000` back after each resume, and 0 device errors.
 - If it passes, next: the sleep A/B on battery, `deep` plus the release against `s2idle` (the baseline), 1 h each in one boot.
+
+## 2026-11-05 18:18: PMP request release regression: 2 of 2; the PMP drops the display requests and takes them back
+
+- Image `6ad0396dbb7259df` (build #10), image 53, aura-ctl 0x80, `pmp_report.test_release_aon` = Y in `deep`, 2 `deep` cycles of 60 s, root read-only.
+- Before the cycles: requests `0xf000`, ack `0xf000`.
+- In each suspend (`suspend_noirq`), requests 14, 15 and 13 (dispext0, dispext1, disp0) were withdrawn, each acked: the ack word went `0xf000` → `0xb000` → `0x3000` → `0x1000`. Only ISP_SYS (bit 12) stays.
+- On resume (`resume_noirq`) all three were asserted again, each acked. A transient `0x2f000` shows AVD_SYS (bit 17) coming up with them.
+- After each resume: requests and ack `0xf000`.
+- Both cycles back, rc 0, 62.5 and 62.8 s; `online 0-9`; 0 device errors. The only DCP lines are the usual `dcp_dptx_disconnect` and `dcp_hotplug() connected:0` for the unused external port. The internal panel still reads `connected`.
+- So the PMP is now in macOS's state at `slpa` for the displays. ISP_SYS is the one difference left: its DART keeps the domain on (`PM domain pmp-isp-sys will not be powered off`).
+- Flags cleared; default boot.bin `76f850895fed53d1`, `next_entry` unset. Next, per the owner's order: all docs, then the sleep A/B with the release in `deep`.
