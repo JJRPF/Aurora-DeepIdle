@@ -1862,3 +1862,21 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
   - Any of them may be what the reconfig engine waits on.
 - No damage: every run reset cleanly, the filesystems are clean, and no PMU boot error was logged. Flags cleared; default boot.bin and no next_entry.
 - Next (static, then owner-attended): decode `AppleT6020PMGR::quiesceHW`'s indirect calls (vtable +0xbd0, +0xdc0, +0x9b0, +0x958) into register writes. Then an image 53 step that does them in macOS's order before the timer. Also find what macOS's AIC and PMU quiesce actions write.
+
+## 2026-11-05 17:24: image 53: the rest of `AppleT6020PMGR::quiesceHW` decoded and built (attended runs G, H); regression armed
+
+- `AppleT6020PMGR::quiesceHW` (13.5) is decoded from the raw disassembly, since Ghidra mangles the indirect calls. The vtable slots were resolved with `vt-AppleT6020PMGR.txt`, and the register maps with `initRegMaps` (map → ADT `reg` index; ADT `0x8…`/`0x9…` is Linux `0x28…`/`0x29…`, and `0x204e…` is `0x404e…`). For each die, in order:
+  1. `ApplePMGR::quiesceHW` (the super call): `_enableSOCPerfCounters(i, false)` over its table (the SoC perf counters off) and a log line.
+  2. If MINI (`0x29e280000`) + 0x4d010 bits 18-19 are not both set: `writeReg32`(map 6 = reg 44, `pmgr_gfx` `0x404e80000`, + 0x100 = **`ps_afr`**, 0), then wait for the actual state (bits 7:4) to read 0 (timeout 0x2ee00). Read on Linux: MINI 0x4d010 = 0, so macOS takes this branch here. `ps_afr` reads `0x1404024f` (AUTO_ENABLE, PS_AUTO 4, PS_MIN 4, target f, actual 4).
+  3. (T6022 only: two more writes on map 3.)
+  4. Unless hibernating: `enableCluster(c, false, c > 3, die)` for clusters 1..N: a cluster PS register's target is set to 0, with a wait on bit 4 for c > 3. The register (`this`+9788/9792) is not resolved yet, so it is **not in image 53**.
+  5. SOC-East (map 2 = `pmgr_east` `0x290280000`) + 0x1c0 = **`ps_sio`** and + 0x1e0 = **`ps_sio_cpu`**: AUTO_ENABLE (bit 28) cleared, then wait for actual == target. Linux reads `0x1f0000ff` and `0x1400024f`. These are the "afr and sio stay on in s2idle" domains from October.
+  6. ClkGen-SOC (map 0x3f = reg 4, `0x28e000000`) + 0x38160, 0x38168, 0x38164, 0x38158, 0x3816c: `(v & 0x70ffffff) | 0x80000000`, then wait for bit 30 to clear.
+  7. Unless hibernating: `setPLLOffMode`(map 0x37 = reg 46, `0x28e224000`, 0, 3): bits 5:3 = mode 3, then set bit 1, clear bit 0, wait for bit 31 to clear.
+  8. `startS2RTimer`.
+- The PMU's quiesce (`AppleDialogSPMIPMU::callPlatformFunction`) locks the SPMI bus; it sends no sleep command.
+- Image 53 (`e93c3a7644406710`): two more control bits, run before the timer in that order. Polls are bounded at 10 ms each; old values are saved and written back on any resume, the RVBAR path included. `psci_dbg[19..22]` hold before/after for AFR, SIO, SIO_CPU and PLL-off; `[23]` the poll timeouts. The new MMIO pages are in the runtime map.
+  - Bit 4 is steps 2 and 5.
+  - Bit 8 is steps 6 and 7.
+- `attended.sh` gains G (aura-ctl 7: E plus the domains) and H (15: plus the clocks and PLL-off). Both wait for the owner.
+- Regression armed, unattended and without `slpa`: image 53, aura-ctl 0x80, 2 `deep` cycles of 60 s, root read-only. It checks the extra runtime ranges and the normal path; none of the new steps run.

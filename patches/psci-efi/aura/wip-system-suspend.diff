@@ -132,7 +132,7 @@ index d594ea6e..877f52ae 100644
  
      if (fdt_open_into(fdt, dt, dt_bufsize) < 0)
 diff --git i/src/psci.c w/src/psci.c
-index 444d71e5..5a0b65f4 100644
+index 444d71e5..8563105d 100644
 --- i/src/psci.c
 +++ w/src/psci.c
 @@ -1,14 +1,17 @@
@@ -155,7 +155,7 @@ index 444d71e5..5a0b65f4 100644
   */
  
  static unsigned long psci_affinity_info(unsigned long target_affinity,
-@@ -20,9 +23,275 @@ static unsigned long psci_affinity_info(unsigned long target_affinity,
+@@ -20,9 +23,377 @@ static unsigned long psci_affinity_info(unsigned long target_affinity,
      return smp_psci_affinity_info(target_affinity);
  }
  
@@ -194,6 +194,103 @@ index 444d71e5..5a0b65f4 100644
 + *                     (cpu_sleep(true): ACC_OVRD deep sleep, no WFI retention), then the boot core the same way.
 + *                     A core that sleeps like this comes back only through RVBAR, when the PMGR restarts it.
 + */
++/*
++ * Image 53: the rest of AppleT6020PMGR::quiesceHW (13.5), done before the timer (all die 0; T6020 has one die):
++ *   PSCI_S2R_DOMAINS  ps_afr (pmgr_gfx + 0x100) written 0 (fully off) when MINI 0x4d010 bits 18-19 are not both
++ *                     set, then its actual state polled to 0; ps_sio and ps_sio_cpu (pmgr_east + 0x1c0, + 0x1e0)
++ *                     lose AUTO_ENABLE (bit 28), then actual == target polled
++ *   PSCI_S2R_CLOCKS   ClkGen-SOC 0x38160, 0x38168, 0x38164, 0x38158, 0x3816c: bits 24-27 cleared, bit 31 set, bit
++ *                     30 polled to 0; then setPLLOffMode(0x37, 0, 3) on 0x28e224000: bits 3-5 = mode 3, set bit 1,
++ *                     clear bit 0, bit 31 polled to 0
++ * Each register's old value is kept and written back on any resume (the RVBAR path included).
++ */
++#define QS_MINI_4D010   0x29e2cd010ULL
++#define QS_AFR          0x404e80100ULL
++#define QS_SIO          0x2902801c0ULL
++#define QS_SIO_CPU      0x2902801e0ULL
++#define QS_CLKGEN       0x28e000000ULL
++#define QS_PLLOFF       0x28e224000ULL
++static const u32 qs_clkgen_off[5] = {0x38160, 0x38168, 0x38164, 0x38158, 0x3816c};
++static volatile struct {
++    u32 saved; /* bit 0 domains, bit 1 clocks */
++    u32 afr, sio, sio_cpu, pll;
++    u32 clk[5];
++} qs_save __attribute__((aligned(64)));
++
++/* poll (read32(a) & mask) == val for up to us microseconds; 0 when it matched */
++static int qs_poll(u64 a, u32 mask, u32 val, u32 us)
++{
++    for (u32 i = 0; i < us; i++) {
++        if ((read32(a) & mask) == val)
++            return 0;
++        udelay(1);
++    }
++    return 1;
++}
++
++static void psci_quiesce_domains(void)
++{
++    u32 fail = 0;
++
++    qs_save.afr = read32(QS_AFR);
++    qs_save.sio = read32(QS_SIO);
++    qs_save.sio_cpu = read32(QS_SIO_CPU);
++    qs_save.saved |= 1;
++    dc_civac_range((void *)&qs_save, sizeof(qs_save));
++    if ((~read32(QS_MINI_4D010) & 0xc0000) != 0) {
++        write32(QS_AFR, 0);
++        fail |= qs_poll(QS_AFR, 0xf0, 0, 10000);
++    }
++    write32(QS_SIO, qs_save.sio & ~BIT(28));
++    fail |= qs_poll(QS_SIO, 0xf0, (qs_save.sio & 0xf) << 4, 10000) << 1;
++    write32(QS_SIO_CPU, qs_save.sio_cpu & ~BIT(28));
++    fail |= qs_poll(QS_SIO_CPU, 0xf0, (qs_save.sio_cpu & 0xf) << 4, 10000) << 2;
++    psci_dbg[19] = ((u64)qs_save.afr << 32) | read32(QS_AFR);
++    psci_dbg[20] = ((u64)qs_save.sio << 32) | read32(QS_SIO);
++    psci_dbg[21] = ((u64)qs_save.sio_cpu << 32) | read32(QS_SIO_CPU);
++    psci_dbg[23] |= fail;
++}
++
++static void psci_quiesce_clocks(void)
++{
++    u32 fail = 0, v;
++
++    for (unsigned i = 0; i < 5; i++)
++        qs_save.clk[i] = read32(QS_CLKGEN + qs_clkgen_off[i]);
++    qs_save.pll = read32(QS_PLLOFF);
++    qs_save.saved |= 2;
++    dc_civac_range((void *)&qs_save, sizeof(qs_save));
++    for (unsigned i = 0; i < 5; i++) {
++        write32(QS_CLKGEN + qs_clkgen_off[i], (qs_save.clk[i] & 0x70ffffff) | 0x80000000);
++        fail |= qs_poll(QS_CLKGEN + qs_clkgen_off[i], BIT(30), 0, 10000) << (8 + i);
++    }
++    v = read32(QS_PLLOFF);
++    write32(QS_PLLOFF, (v & ~0x38) | (3 << 3));
++    write32(QS_PLLOFF, read32(QS_PLLOFF) | 2);
++    write32(QS_PLLOFF, read32(QS_PLLOFF) & ~1);
++    fail |= qs_poll(QS_PLLOFF, BIT(31), 0, 10000) << 16;
++    psci_dbg[22] = ((u64)qs_save.pll << 32) | read32(QS_PLLOFF);
++    psci_dbg[23] |= fail;
++}
++
++/* undo both, in reverse, on the way back to the kernel */
++static void psci_quiesce_undo(void)
++{
++    dc_ivac_range((void *)&qs_save, sizeof(qs_save));
++    if (qs_save.saved & 2) {
++        write32(QS_PLLOFF, qs_save.pll);
++        for (int i = 4; i >= 0; i--)
++            write32(QS_CLKGEN + qs_clkgen_off[i], qs_save.clk[i]);
++    }
++    if (qs_save.saved & 1) {
++        write32(QS_SIO_CPU, qs_save.sio_cpu);
++        write32(QS_SIO, qs_save.sio);
++        write32(QS_AFR, qs_save.afr);
++    }
++    qs_save.saved = 0;
++    dc_civac_range((void *)&qs_save, sizeof(qs_save));
++}
++
 +volatile u64 psci_ctl[8] __attribute__((aligned(64), used));
 +#define PSCI_CTL_MAGIC_HI 0x5332524354524c00ULL /* "S2RCTRL", low byte added at run time */
 +#define MPMGR_AON_S2R_TIMER 0x29e5c4000ULL      /* MPMGR_AON (PMGR reg 38, T6020) + 0x4000 */
@@ -273,6 +370,7 @@ index 444d71e5..5a0b65f4 100644
 +        wdt_psci_disarm();
 +    psci_resume.magic = 0;
 +    smp_psci_s2r_clear();
++    psci_quiesce_undo();
 +    if (via_rvbar)
 +        wdt_psci_arm(RESUME_WDT_S); /* stage 2: reset unless the kernel's resume takes over its watchdog */
 +    psci_dbg[3] = 1;
@@ -336,7 +434,7 @@ index 444d71e5..5a0b65f4 100644
 +    psci_dbg[2] = daif;
 +    psci_dbg[14] = mrs(SYS_IMP_APL_CYC_OVRD);
 +    dc_ivac_range((void *)psci_ctl, sizeof(psci_ctl));
-+    u64 steps = psci_ctl[1] & (PSCI_S2R_TIMER | PSCI_S2R_CORESOFF);
++    u64 steps = psci_ctl[1] & (PSCI_S2R_TIMER | PSCI_S2R_CORESOFF | PSCI_S2R_DOMAINS | PSCI_S2R_CLOCKS);
 +    psci_dbg[17] = 0x5300000000ULL | (psci_ctl[1] & 0xffffffff); /* the control word this suspend read */
 +
 +    if (!aic || aic->version != 2) {
@@ -379,7 +477,11 @@ index 444d71e5..5a0b65f4 100644
 +    /* image 39: the whole-image clean (images 35 to 38) is left out: 37 and 38 hung with it, 31 passed without */
 +    dc_civac_range((void *)&psci_resume, sizeof(psci_resume));
 +
-+    /* the S2R steps, in macOS's order: the PMGR's S2R timer last in its quiesce, then every core into deep sleep */
++    /* the S2R steps, in macOS's order: quiesceHW's domains and clocks, its S2R timer last, then every core */
++    if (steps & PSCI_S2R_DOMAINS)
++        psci_quiesce_domains();
++    if (steps & PSCI_S2R_CLOCKS)
++        psci_quiesce_clocks();
 +    if (steps & PSCI_S2R_TIMER) {
 +        write32(MPMGR_AON_S2R_TIMER, 1);
 +        sysop("dsb sy");
@@ -431,7 +533,7 @@ index 444d71e5..5a0b65f4 100644
      switch (fid) {
          case PSCI_0_2_FN_PSCI_VERSION:
              return PSCI_VERSION_1_0;
-@@ -34,6 +303,8 @@ unsigned long psci_efi_handler(unsigned long fid, unsigned long arg0, unsigned l
+@@ -34,6 +405,8 @@ unsigned long psci_efi_handler(unsigned long fid, unsigned long arg0, unsigned l
              return smp_psci_cpu_off();
          case PSCI_0_2_FN64_CPU_ON:
              return smp_psci_cpu_on(arg0, arg1, arg2);
@@ -440,7 +542,7 @@ index 444d71e5..5a0b65f4 100644
          case PSCI_0_2_FN64_AFFINITY_INFO:
              return psci_affinity_info(arg0, arg1);
          default:
-@@ -53,5 +324,6 @@ const struct psci_efi_table psci_efi_table = {
+@@ -53,5 +426,6 @@ const struct psci_efi_table psci_efi_table = {
              [PSCI_FN(PSCI_0_2_FN_CPU_OFF)] = PSCI_RET_SUCCESS,
              [PSCI_FN(PSCI_0_2_FN64_CPU_ON)] = PSCI_RET_SUCCESS,
              [PSCI_FN(PSCI_0_2_FN64_AFFINITY_INFO)] = PSCI_RET_SUCCESS,
@@ -448,7 +550,7 @@ index 444d71e5..5a0b65f4 100644
          },
  };
 diff --git i/src/psci.h w/src/psci.h
-index 92d225ab..0b6f8dff 100644
+index 92d225ab..60e82fdc 100644
 --- i/src/psci.h
 +++ w/src/psci.h
 @@ -31,6 +31,7 @@ enum psci_fn_id {
@@ -459,12 +561,14 @@ index 92d225ab..0b6f8dff 100644
  };
  
  enum psci_ret {
-@@ -63,6 +64,14 @@ struct psci_efi_table {
+@@ -63,6 +64,16 @@ struct psci_efi_table {
  
  extern const struct psci_efi_table psci_efi_table;
  
 +#define PSCI_S2R_TIMER    BIT(0)
 +#define PSCI_S2R_CORESOFF BIT(1)
++#define PSCI_S2R_DOMAINS  BIT(2)
++#define PSCI_S2R_CLOCKS   BIT(3)
 +void psci_ctl_init(void);
 +
 +bool psci_suspend_resuming(void);
@@ -475,7 +579,7 @@ index 92d225ab..0b6f8dff 100644
                                 unsigned long arg2);
  
 diff --git i/src/smp.c w/src/smp.c
-index 4c866a6c..28b1155b 100644
+index 4c866a6c..d895125c 100644
 --- i/src/smp.c
 +++ w/src/smp.c
 @@ -4,6 +4,7 @@
@@ -577,7 +681,7 @@ index 4c866a6c..28b1155b 100644
      }
      sysop("dmb sy");
      me->flag++;
-@@ -1162,8 +1209,17 @@ int smp_psci_mmio_ranges(u64 *ranges, int max)
+@@ -1162,8 +1209,25 @@ int smp_psci_mmio_ranges(u64 *ranges, int max)
          smp_psci_add_range(ranges, max, &n, cpu_start_base + cpu_info[i].die * PMGR_DIE_OFFSET,
                             0x100);
      }
@@ -589,6 +693,14 @@ index 4c866a6c..28b1155b 100644
 +    /* MPMGR_AON's S2R timer (PSCI_S2R_TIMER, psci.c) */
 +    if (chip_id == T6020)
 +        smp_psci_add_range(ranges, max, &n, 0x29e5c4000, 4);
++    /* image 53's quiesceHW steps (psci.c): MINI 0x4d010, ps_afr, ps_sio(_cpu), ClkGen-SOC, PLL-off */
++    if (chip_id == T6020) {
++        smp_psci_add_range(ranges, max, &n, 0x29e2cd010, 4);
++        smp_psci_add_range(ranges, max, &n, 0x404e80100, 4);
++        smp_psci_add_range(ranges, max, &n, 0x2902801c0, 0x24);
++        smp_psci_add_range(ranges, max, &n, 0x28e038158, 0x18);
++        smp_psci_add_range(ranges, max, &n, 0x28e224000, 4);
++    }
 +    if (aic) {
 +        /* the AIC's event page sits at +0xc000 (AIC2); the system-suspend wake poll reads it */
 +        u64 aic_size = aic->version == 2 ? 0xd000 : SZ_16K;

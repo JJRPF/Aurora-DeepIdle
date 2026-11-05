@@ -1,6 +1,7 @@
 /* aura-ctl: show or set Aura's S2R control word (image 52, psci.c psci_ctl). It finds the block by its magic in the
  * "reserved" DRAM ranges of /proc/iomem (as scan-magic does), refuses unless there is exactly one, and writes only the
- * word after the magic. Bits: 1 PMGR S2R timer, 2 every core into macOS's deep sleep. 0 = image 51's suspend.
+ * word after the magic. Bits: 1 PMGR S2R timer, 2 every core into macOS's deep sleep, 4 quiesceHW's power domains
+ * (AFR off, SIO auto-enable off), 8 quiesceHW's ClkGen and PLL-off writes (image 53). 0 = image 51's suspend.
  * usage: aura-ctl            print the address and the word
  *        aura-ctl <value>    write it, read it back */
 #include <fcntl.h>
@@ -41,7 +42,7 @@ int main(int argc, char **argv)
 	volatile uint64_t *w = p + (hit - page) / 8 + 1;
 	if (argc > 1) {
 		uint64_t v = strtoull(argv[1], NULL, 0);
-		if (v > 3 && v != 0x80) { fprintf(stderr, "aura-ctl: only bits 0 and 1 (and the test marker 0x80) are defined\n"); return 2; }
+		if (v > 0xf && v != 0x80) { fprintf(stderr, "aura-ctl: only bits 0 to 3 (and the test marker 0x80) are defined\n"); return 2; }
 		*w = v;
 	}
 	printf("aura ctl at 0x%llx: 0x%llx\n", (unsigned long long)hit, (unsigned long long)*w);
