@@ -72,6 +72,11 @@ There are two goals:
   wake-source mask is all open under Linux; macOS's narrower mask stops even Aura's normal deep-WFI wake, so
   it is not a drop-in. Image 50 times its RVBAR stages so the next `slpa` run can tell a real SoC sleep from an
   SMC timeout.
+* **2026-11-05, day (unattended):** the first long suspend under Aura, 1 h 46 min on battery at 1.44 W against
+  s2idle's 1.48 W over the same time: parking the CPUs saves almost nothing while the SoC stays up. The PMGR's own
+  state counters, now readable from Linux, confirm it: only `AWAKE` counts through Aura's suspend. Image 51
+  resumes Linux if a real S2R wake reaches Aura, and the counters' `SLP_S2R` will show whether the SoC went down.
+  The next `slpa` runs (A to C) are scripted and wait for the owner.
 * **Earlier the same day, before Phase 2 closed: 33%** (risk-weighted
   guess, wide error bar). Done: timed wake, SMC handshake, macOS trace
   method, CPU_ON, a firmware that hands the boot CPU back and wakes it on
