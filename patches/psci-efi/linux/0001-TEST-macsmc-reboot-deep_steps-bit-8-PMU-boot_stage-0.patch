@@ -1,0 +1,81 @@
+From 3cac959da6cec2a4cb7ed4a868985a17927e941d Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Thu, 5 Nov 2026 07:33:45 -0500
+Subject: [PATCH] TEST: macsmc-reboot: deep_steps bit 8, PMU boot_stage 0x50
+ across suspend to RAM (as macOS 13.5)
+
+AppleARMWatchdogTimer's IOPlatformSleepAction writes IOPMUBootStage 0x50 and its wake action puts the old
+value back. Default off; for owner-attended slpa runs only.
+---
+ drivers/power/reset/macsmc-reboot.c | 20 +++++++++++++++++++-
+ 1 file changed, 19 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/power/reset/macsmc-reboot.c b/drivers/power/reset/macsmc-reboot.c
+index 8c060a39568c..02946bc87396 100644
+--- a/drivers/power/reset/macsmc-reboot.c
++++ b/drivers/power/reset/macsmc-reboot.c
+@@ -32,6 +32,7 @@ enum boot_stage {
+ 	BOOT_STAGE_SHUTDOWN		= 0x00, /* Clean shutdown */
+ 	BOOT_STAGE_IBOOT_DONE		= 0x2f, /* Last stage of bootloader */
+ 	BOOT_STAGE_KERNEL_STARTED	= 0x30, /* Normal OS booting */
++	BOOT_STAGE_SLEEP		= 0x50, /* What macOS writes in its platform sleep action */
+ };
+ 
+ struct macsmc_reboot {
+@@ -47,6 +48,8 @@ struct macsmc_reboot {
+ 	/* s2idle handshake steps in force for the current suspend, and whether slpa went out */
+ 	unsigned int sleep_steps;
+ 	bool slpa_sent;
++	bool stage_set;
++	int saved_stage;
+ };
+ 
+ /*
+@@ -60,6 +63,8 @@ struct macsmc_reboot {
+ #define MACSMC_SLEEP_WKTP	BIT(0)
+ #define MACSMC_SLEEP_SLPW	BIT(1)
+ #define MACSMC_SLEEP_SLPA	BIT(2)
++/* Suspend to RAM only: boot_stage 0x50 before slpa, the old value back on wake (macOS 13.5 does this) */
++#define MACSMC_SLEEP_STAGE	BIT(3)
+ 
+ static unsigned int s2idle_steps;
+ module_param(s2idle_steps, uint, 0644);
+@@ -71,7 +76,7 @@ MODULE_PARM_DESC(s2idle_steps, "SMC sleep handshake in s2idle, bit mask: 1 WKTP,
+  */
+ static unsigned int deep_steps;
+ module_param(deep_steps, uint, 0644);
+-MODULE_PARM_DESC(deep_steps, "SMC sleep handshake in suspend to RAM, bit mask as s2idle_steps (default 0, off; test only)");
++MODULE_PARM_DESC(deep_steps, "SMC sleep handshake in suspend to RAM, bit mask as s2idle_steps plus 8: PMU boot_stage 0x50 (default 0, off; test only)");
+ 
+ /* Helpers to read/write a u8 given a struct nvmem_cell */
+ static int nvmem_cell_get_u8(struct nvmem_cell *cell)
+@@ -343,6 +348,14 @@ static int macsmc_reboot_pm_suspend_late(struct device *dev)
+ 	struct macsmc_reboot *reboot = dev_get_drvdata(dev);
+ 	int ret;
+ 
++	if ((reboot->sleep_steps & MACSMC_SLEEP_STAGE) && pm_suspend_target_state == PM_SUSPEND_MEM &&
++	    reboot->nvm.boot_stage) {
++		reboot->saved_stage = nvmem_cell_get_u8(reboot->nvm.boot_stage);
++		ret = reboot->saved_stage < 0 ? reboot->saved_stage :
++		      nvmem_cell_set_u8(reboot->nvm.boot_stage, BOOT_STAGE_SLEEP);
++		reboot->stage_set = ret >= 0;
++		dev_info(dev, "sleep: boot_stage %#x -> %#x (%d)\n", reboot->saved_stage, BOOT_STAGE_SLEEP, ret);
++	}
+ 	if (reboot->sleep_steps & MACSMC_SLEEP_SLPA) {
+ 		ret = apple_smc_write_u32(reboot->smc, SMC_KEY(MBSE), SMC_KEY(slpa));
+ 		reboot->slpa_sent = ret >= 0;
+@@ -358,6 +371,11 @@ static int macsmc_reboot_pm_resume_early(struct device *dev)
+ 	u8 mbsw[8] = {};
+ 	int r1, r2, ret;
+ 
++	if (reboot->stage_set) {
++		reboot->stage_set = false;
++		ret = nvmem_cell_set_u8(reboot->nvm.boot_stage, reboot->saved_stage);
++		dev_info(dev, "sleep: boot_stage back to %#x (%d)\n", reboot->saved_stage, ret);
++	}
+ 	if (!reboot->slpa_sent)
+ 		return 0;
+ 	reboot->slpa_sent = false;
+-- 
+2.55.0
+
