@@ -20,7 +20,7 @@ REL=7.2.11-psci-efi+
 STAGE=/home/jjr/Work/staging-psci-efi
 BIN0=/home/jjr/Work/psci-test/boot.bin.aura-stage2; SHA0=19d5f8f627f966a1
 BIN1=/home/jjr/Work/psci-test/boot.bin.psci-test15;  SHA1=a5e3ced5b3007515
-BIN2=/home/jjr/Work/psci-test/boot.bin.psci-test51;  SHA2=eb1904c3373bd624
+BIN2=/home/jjr/Work/psci-test/boot.bin.psci-test52;  SHA2=3617bb517d0e6813
 STOCK=/var/lib/deepidle/boot.bin.default; STOCKSHA=76f850895fed53d1
 stockback() {
     [ "$(sha256sum /boot/m1n1/boot.bin | cut -c1-16)" = $STOCKSHA ] || {
@@ -30,7 +30,7 @@ if [ "${1:-}" = remove ]; then
     rm -f /var/lib/deepidle/psci-efi-armed
     systemctl disable psci-efi-early.service psci-efi-run.service 2>/dev/null || true
     rm -f /etc/systemd/system/psci-efi-early.service /etc/systemd/system/psci-efi-run.service
-    rm -f /usr/local/lib/deepidle/psci-efi-early.sh /usr/local/lib/deepidle/psci-efi-run.sh /usr/local/lib/deepidle/deadman.sh /usr/local/lib/deepidle/mmio-read-static /usr/local/lib/deepidle/scan-magic-static /usr/local/lib/deepidle/wakemask /usr/local/lib/deepidle/pmgrcnt
+    rm -f /usr/local/lib/deepidle/psci-efi-early.sh /usr/local/lib/deepidle/psci-efi-run.sh /usr/local/lib/deepidle/deadman.sh /usr/local/lib/deepidle/mmio-read-static /usr/local/lib/deepidle/scan-magic-static /usr/local/lib/deepidle/wakemask /usr/local/lib/deepidle/pmgrcnt /usr/local/lib/deepidle/aura-ctl
     rm -f /etc/grub.d/46_psci_ram /boot/initramfs-psci-ram.img /etc/grub.d/45_psci_efi /boot/vmlinuz-psci-efi-test /boot/initramfs-psci-efi-test.img
     rm -rf "/usr/lib/modules/$REL"
     grub-editenv /boot/grub/grubenv unset next_entry
@@ -142,6 +142,7 @@ gcc -static -O2 -o /usr/local/lib/deepidle/mmio-read-static $H/../mmio/mmio-read
 gcc -static -O2 -o /usr/local/lib/deepidle/scan-magic-static $H/../mmio/scan-magic.c   # the dead-man's Aura dbg words
 gcc -static -O2 -o /usr/local/lib/deepidle/wakemask $H/../mmio/wakemask.c   # run.sh's poke-wakemask step
 gcc -static -O2 -o /usr/local/lib/deepidle/pmgrcnt $H/../mmio/pmgrcnt.c   # run.sh's pmgr-counters step
+gcc -O2 -o /usr/local/lib/deepidle/aura-ctl $H/../mmio/aura-ctl.c || exit 1   # run.sh's aura-ctl step (image 52)
 install -m 644 $H/psci-efi-early.service $H/psci-efi-run.service /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable psci-efi-early.service psci-efi-run.service

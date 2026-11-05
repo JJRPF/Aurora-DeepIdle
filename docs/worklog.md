@@ -1775,3 +1775,21 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 - `hv-boot-trace-reference.md` gains a section on what Linux found when it replayed macOS's sleep entry.
 - `data/README.md` now covers the 90 min run with the PMGR counters.
 - `s2r-status.json`: the stale pieces (SMC, PMP, PMGR), the `slpa` finding ("survived a warm reboot" no longer holds: the dead-man reboot brings the disk back) and the macOS-sleep rows are updated.
+
+## 2026-11-05 16:39: image 52, the PMGR's S2R timer and macOS's all-core deep sleep, behind a control word; regression armed
+
+- What macOS does last, from the 13.5 kernelcache and xnu-8796.141.3.
+  - `AppleT6020PMGR::startS2RTimer` is one write: `writeMasterMiniPMGRReg(0x4000, 1)`, i.e. 1 to MPMGR_AON + 0x4000 (`0x29e5c4000`).
+  - It is the last of `quiesceHW`. Before it come the SoC-East clock gates at 0x1c0/0x1e0, the ClkGen PLL-off writes at 0x38158 to 0x3816c, and the GPU PMGR quiesce. The AIC quiesce (97000) and the PMU's (98000) follow it, then `ml_arm_sleep`.
+- `ml_arm_sleep` (xnu `cpu.c`): the secondaries stall in WFE on `arm64_stall_sleep` until CPU0 clears it. Then every core runs `arm64_prepare_for_sleep(true)`, CPU0 last: ACC_OVRD deep sleep, `CYC_OVRD` ok-to-power-down with no WFI retention, then WFI.
+- The comment there says the deep-sleep register is global: once it is set, a core that idles in an ordinary WFI hangs ("can hang the sleep process or cause memory corruption on wake"). That is the 2026-10-25 22:11 SoC death: one core's `cpu_sleep(true)` under cores still running Linux.
+- The comment also says the wake skips iBoot on these SoCs: "The reconfig engine script brings the CPU out of reset at the kernel's reset vector", which for us is Aura's RVBAR path (image 51).
+- Image 52 (`3617bb517d0e6813`, Aura diff in `patches/psci-efi/aura/wip-system-suspend.diff`) adds a control word:
+  - `psci_ctl`: its magic is written at boot and is built at run time, so no copy of the image carries it.
+  - Linux sets it before each suspend with `harness/mmio/aura-ctl.c`. The tool refuses unless exactly one block is found, and writes only the word after the magic.
+  - `run.sh` sets it from `/var/lib/deepidle/aura-ctl`.
+  - Bit 1: the S2R timer write, just before the boot core sleeps. MPMGR_AON's page is added to the runtime MMIO map.
+  - Bit 2: macOS's order. The parked secondaries are released into `cpu_sleep(true)` after a set/way clean, then 2 ms later the boot core cleans all levels and does the same. Such cores come back only through RVBAR.
+  - 0 is image 51's suspend. `psci_dbg[17]` holds the word Aura read, `[18]` 1 if the timer was written.
+- `attended.sh` gains three runs, each with `slpa`: D (timer, aura-ctl 1), E (timer plus all cores, 3) and F (cores without timer, 2, the control). If the cores power down and the SoC never restarts them, WD1 resets the Mac about 144 s after `echo mem`, as in images 32 to 36.
+- Regression armed, unattended and without `slpa`: image 52, aura-ctl 0x80 (a marker with no effect), 2 `deep` cycles of 60 s, counters on, root read-only. On the default boot `aura-ctl` finds no block and refuses (checked).

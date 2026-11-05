@@ -59,10 +59,18 @@ index 5f0a8f69..78662953 100644
          printf("  CPU part: 0x%x rev: 0x%x\n", part, rev);
  
 diff --git i/src/kboot.c w/src/kboot.c
-index d594ea6e..28729c81 100644
+index d594ea6e..877f52ae 100644
 --- i/src/kboot.c
 +++ w/src/kboot.c
-@@ -3906,6 +3906,29 @@ static bool skip_pmp_prop(const char *prop_name)
+@@ -735,6 +735,7 @@ static int dt_set_psci(void)
+     if (node < 0)
+         bail("FDT: /chosen node not found in devtree\n");
+ 
++    psci_ctl_init();
+     if (fdt_setprop_u64(dt, node, "aura,psci-table", (u64)&psci_efi_table))
+         bail("FDT: couldn't set aura,psci-table\n");
+ 
+@@ -3906,6 +3907,29 @@ static bool skip_pmp_prop(const char *prop_name)
      return false;
  }
  
@@ -92,7 +100,7 @@ index d594ea6e..28729c81 100644
  static int dt_set_pmp(void)
  {
      int pmp_node = fdt_path_offset(dt, "pmp");
-@@ -3927,6 +3950,20 @@ static int dt_set_pmp(void)
+@@ -3927,6 +3951,20 @@ static int dt_set_pmp(void)
          bail("ADT: failed to get dram vendor id\n");
      ADT_GETPROP(adt, pmp_iop_anode, "dram-capacity", &dram_capacity);
  
@@ -113,7 +121,7 @@ index d594ea6e..28729c81 100644
      if (fdt_setprop_u32(dt, pmp_node, "apple,board-id", board_id))
          bail("FDT: failed to set board id\n");
      if (fdt_setprop_u32(dt, pmp_node, "apple,dram-vendor-id", dram_vendor_id))
-@@ -4697,6 +4734,9 @@ int kboot_prepare_dt(void *fdt)
+@@ -4697,6 +4735,9 @@ int kboot_prepare_dt(void *fdt)
      assert(dt_bufsize);
  
      dt_bufsize += 6 * SZ_16K; // Add 96K of buffer for modifications
@@ -124,7 +132,7 @@ index d594ea6e..28729c81 100644
  
      if (fdt_open_into(fdt, dt, dt_bufsize) < 0)
 diff --git i/src/psci.c w/src/psci.c
-index 444d71e5..76fa12f7 100644
+index 444d71e5..5a0b65f4 100644
 --- i/src/psci.c
 +++ w/src/psci.c
 @@ -1,14 +1,17 @@
@@ -147,7 +155,7 @@ index 444d71e5..76fa12f7 100644
   */
  
  static unsigned long psci_affinity_info(unsigned long target_affinity,
-@@ -20,9 +23,231 @@ static unsigned long psci_affinity_info(unsigned long target_affinity,
+@@ -20,9 +23,275 @@ static unsigned long psci_affinity_info(unsigned long target_affinity,
      return smp_psci_affinity_info(target_affinity);
  }
  
@@ -175,6 +183,30 @@ index 444d71e5..76fa12f7 100644
 +
 +/* Debug words Linux reads back (found by scan-magic): see run.sh for the layout */
 +volatile u64 psci_dbg[24] __attribute__((used));
++
++/*
++ * S2R steps (image 52, 2026-11-05), set by Linux before a suspend: psci_ctl[0] holds a magic written at boot (built
++ * at run time, so no copy of the image carries it), psci_ctl[1] the steps, written through /dev/mem by
++ * harness/mmio/aura-ctl.c. 0 is image 51's suspend. Read once at SYSTEM_SUSPEND entry.
++ *   PSCI_S2R_TIMER    macOS's last PMGR quiesce step (AppleT6020PMGR::startS2RTimer, 13.5): write 1 to
++ *                     MPMGR_AON + 0x4000, just before the boot core sleeps
++ *   PSCI_S2R_CORESOFF macOS's ml_arm_sleep: release the parked secondaries into the global deep sleep
++ *                     (cpu_sleep(true): ACC_OVRD deep sleep, no WFI retention), then the boot core the same way.
++ *                     A core that sleeps like this comes back only through RVBAR, when the PMGR restarts it.
++ */
++volatile u64 psci_ctl[8] __attribute__((aligned(64), used));
++#define PSCI_CTL_MAGIC_HI 0x5332524354524c00ULL /* "S2RCTRL", low byte added at run time */
++#define MPMGR_AON_S2R_TIMER 0x29e5c4000ULL      /* MPMGR_AON (PMGR reg 38, T6020) + 0x4000 */
++
++void psci_ctl_init(void)
++{
++    volatile u64 lo = 0x21;
++
++    for (unsigned i = 0; i < 8; i++)
++        psci_ctl[i] = 0;
++    psci_ctl[0] = PSCI_CTL_MAGIC_HI | lo;
++    dc_civac_range((void *)psci_ctl, sizeof(psci_ctl));
++}
 +
 +/* Wake lines (AIC2 event numbers): 724 nub-spmi0 (PMU alarm), 865 smc mailbox recv-not-empty (key/lid events) */
 +static const unsigned wake_irq[2] = {724, 865};
@@ -240,6 +272,7 @@ index 444d71e5..76fa12f7 100644
 +    if (!via_rvbar)
 +        wdt_psci_disarm();
 +    psci_resume.magic = 0;
++    smp_psci_s2r_clear();
 +    if (via_rvbar)
 +        wdt_psci_arm(RESUME_WDT_S); /* stage 2: reset unless the kernel's resume takes over its watchdog */
 +    psci_dbg[3] = 1;
@@ -302,6 +335,9 @@ index 444d71e5..76fa12f7 100644
 +    psci_dbg[1] = hcr;
 +    psci_dbg[2] = daif;
 +    psci_dbg[14] = mrs(SYS_IMP_APL_CYC_OVRD);
++    dc_ivac_range((void *)psci_ctl, sizeof(psci_ctl));
++    u64 steps = psci_ctl[1] & (PSCI_S2R_TIMER | PSCI_S2R_CORESOFF);
++    psci_dbg[17] = 0x5300000000ULL | (psci_ctl[1] & 0xffffffff); /* the control word this suspend read */
 +
 +    if (!aic || aic->version != 2) {
 +        psci_dbg[3] = 2;
@@ -343,6 +379,22 @@ index 444d71e5..76fa12f7 100644
 +    /* image 39: the whole-image clean (images 35 to 38) is left out: 37 and 38 hung with it, 31 passed without */
 +    dc_civac_range((void *)&psci_resume, sizeof(psci_resume));
 +
++    /* the S2R steps, in macOS's order: the PMGR's S2R timer last in its quiesce, then every core into deep sleep */
++    if (steps & PSCI_S2R_TIMER) {
++        write32(MPMGR_AON_S2R_TIMER, 1);
++        sysop("dsb sy");
++        psci_dbg[18] = 1;
++    }
++    if (steps & PSCI_S2R_CORESOFF) {
++        psci_dbg[0] = 0xA0AA0001;
++        dc_civac_range((void *)psci_dbg, sizeof(psci_dbg));
++        smp_psci_release_parked(); /* the secondaries go first, as macOS's stall release */
++        udelay(2000);
++        dcsw_op_all(DCSW_OP_DCCISW);
++        sysop("dsb sy");
++        cpu_sleep(true); /* back only through RVBAR: psci_suspend_rvbar() */
++    }
++
 +    u64 hb_ctl = mrs(SYS_CNTHP_CTL_EL2), hb_cval = mrs(SYS_CNTHP_CVAL_EL2), hb_next;
 +    asm volatile("isb\n mrs %0, cntpct_el0" : "=r"(now));
 +    hb_next = now + psci_resume.frq * SUSPEND_HB_S;
@@ -379,7 +431,7 @@ index 444d71e5..76fa12f7 100644
      switch (fid) {
          case PSCI_0_2_FN_PSCI_VERSION:
              return PSCI_VERSION_1_0;
-@@ -34,6 +259,8 @@ unsigned long psci_efi_handler(unsigned long fid, unsigned long arg0, unsigned l
+@@ -34,6 +303,8 @@ unsigned long psci_efi_handler(unsigned long fid, unsigned long arg0, unsigned l
              return smp_psci_cpu_off();
          case PSCI_0_2_FN64_CPU_ON:
              return smp_psci_cpu_on(arg0, arg1, arg2);
@@ -388,7 +440,7 @@ index 444d71e5..76fa12f7 100644
          case PSCI_0_2_FN64_AFFINITY_INFO:
              return psci_affinity_info(arg0, arg1);
          default:
-@@ -53,5 +280,6 @@ const struct psci_efi_table psci_efi_table = {
+@@ -53,5 +324,6 @@ const struct psci_efi_table psci_efi_table = {
              [PSCI_FN(PSCI_0_2_FN_CPU_OFF)] = PSCI_RET_SUCCESS,
              [PSCI_FN(PSCI_0_2_FN64_CPU_ON)] = PSCI_RET_SUCCESS,
              [PSCI_FN(PSCI_0_2_FN64_AFFINITY_INFO)] = PSCI_RET_SUCCESS,
@@ -396,7 +448,7 @@ index 444d71e5..76fa12f7 100644
          },
  };
 diff --git i/src/psci.h w/src/psci.h
-index 92d225ab..8356847a 100644
+index 92d225ab..0b6f8dff 100644
 --- i/src/psci.h
 +++ w/src/psci.h
 @@ -31,6 +31,7 @@ enum psci_fn_id {
@@ -407,10 +459,14 @@ index 92d225ab..8356847a 100644
  };
  
  enum psci_ret {
-@@ -63,6 +64,10 @@ struct psci_efi_table {
+@@ -63,6 +64,14 @@ struct psci_efi_table {
  
  extern const struct psci_efi_table psci_efi_table;
  
++#define PSCI_S2R_TIMER    BIT(0)
++#define PSCI_S2R_CORESOFF BIT(1)
++void psci_ctl_init(void);
++
 +bool psci_suspend_resuming(void);
 +bool psci_runtime_quiet(void);
 +void psci_suspend_rvbar(void) __attribute__((noreturn));
@@ -419,7 +475,7 @@ index 92d225ab..8356847a 100644
                                 unsigned long arg2);
  
 diff --git i/src/smp.c w/src/smp.c
-index 4c866a6c..842f66bd 100644
+index 4c866a6c..28b1155b 100644
 --- i/src/smp.c
 +++ w/src/smp.c
 @@ -4,6 +4,7 @@
@@ -448,7 +504,43 @@ index 4c866a6c..842f66bd 100644
  asm(".text\n.globl psci_enter\npsci_enter:\n"
      "mrs x2, sctlr_el2\n"
      "bic x2, x2, #(1 << 0)\n"
-@@ -1090,15 +1091,27 @@ void psci_park_c(u64 index)
+@@ -1083,6 +1084,35 @@ asm(".text\n.globl psci_enter\npsci_enter:\n"
+     "mov x0, x1\n"
+     "br x3\n");
+ 
++/*
++ * Set by the boot CPU's SYSTEM_SUSPEND with PSCI_S2R_CORESOFF: the parked cores leave the retention WFI for the
++ * global deep sleep, as macOS's secondaries do when CPU0 clears arm64_stall_sleep. Their ACC_OVRD deep sleep bit
++ * hangs any core of the cluster that later idles in a plain WFI (xnu cpu.c), so this happens only once every
++ * core is parked and the boot core is about to sleep the same way.
++ */
++static volatile u64 psci_s2r_go __attribute__((aligned(64)));
++
++void smp_psci_release_parked(void)
++{
++    psci_s2r_go = 1;
++    dc_civac_range((void *)&psci_s2r_go, sizeof(psci_s2r_go));
++    sysop("dsb sy");
++    for (int i = 0; i < MAX_CPUS; i++) {
++        if (i == boot_cpu_idx || !cpu_info[i].valid)
++            continue;
++        dc_civac_range(&psci_cpu_state[i], 1);
++        if (psci_cpu_state[i] == PSCI_CPU_OFF)
++            smp_send_ipi(i);
++    }
++    sysop("sev");
++}
++
++void smp_psci_s2r_clear(void)
++{
++    psci_s2r_go = 0;
++    dc_civac_range((void *)&psci_s2r_go, sizeof(psci_s2r_go));
++}
++
+ /* The parked state of a CPU_OFF'd core: deep WFI on the Aura stack until it is handed an entry. */
+ void psci_park_c(u64 index) __attribute__((noreturn, used));
+ void psci_park_c(u64 index)
+@@ -1090,15 +1120,32 @@ void psci_park_c(u64 index)
      struct spin_table *me = &spin_table[index];
      u64 target;
  
@@ -470,6 +562,11 @@ index 4c866a6c..842f66bd 100644
          /* Plain load: the mapping is inner-shareable write-back, the other CPU's civac-ed store is visible. */
          if ((target = *(volatile u64 *)&me->target))
              break;
++        if (*(volatile u64 *)&psci_s2r_go) {
++            dcsw_op_all(DCSW_OP_DCCISW);
++            sysop("dsb sy");
++            cpu_sleep(true);
++        }
 +        _deep_wfi_helper();
 +    }
 +    /* the kernel must not inherit WFI_MODE 3: give the core back the CYC_OVRD it had when it called CPU_OFF */
@@ -480,7 +577,7 @@ index 4c866a6c..842f66bd 100644
      }
      sysop("dmb sy");
      me->flag++;
-@@ -1162,8 +1175,14 @@ int smp_psci_mmio_ranges(u64 *ranges, int max)
+@@ -1162,8 +1209,17 @@ int smp_psci_mmio_ranges(u64 *ranges, int max)
          smp_psci_add_range(ranges, max, &n, cpu_start_base + cpu_info[i].die * PMGR_DIE_OFFSET,
                             0x100);
      }
@@ -489,6 +586,9 @@ index 4c866a6c..842f66bd 100644
 +    u64 wdt = wdt_psci_base();
 +    if (wdt)
 +        smp_psci_add_range(ranges, max, &n, wdt, 0x20);
++    /* MPMGR_AON's S2R timer (PSCI_S2R_TIMER, psci.c) */
++    if (chip_id == T6020)
++        smp_psci_add_range(ranges, max, &n, 0x29e5c4000, 4);
 +    if (aic) {
 +        /* the AIC's event page sits at +0xc000 (AIC2); the system-suspend wake poll reads it */
 +        u64 aic_size = aic->version == 2 ? 0xd000 : SZ_16K;
@@ -498,10 +598,19 @@ index 4c866a6c..842f66bd 100644
      return n;
  }
 diff --git i/src/smp.h w/src/smp.h
-index 9f9840e5..79ebc951 100644
+index 9f9840e5..cf3d9c83 100644
 --- i/src/smp.h
 +++ w/src/smp.h
-@@ -50,6 +50,7 @@ static inline int smp_id(void)
+@@ -36,6 +36,8 @@ uint64_t smp_get_mpidr(int cpu);
+ u64 smp_get_release_addr(int cpu);
+ void smp_set_wfe_mode(bool new_mode);
+ void smp_send_ipi(int cpu);
++void smp_psci_release_parked(void);
++void smp_psci_s2r_clear(void);
+ 
+ static inline int smp_id(void)
+ {
+@@ -50,6 +52,7 @@ static inline int smp_id(void)
  /* PSCI-via-EFI CPU operations (psci.c); return PSCI codes, CPU_OFF only on failure. */
  int smp_psci_cpu_on(u64 mpidr, u64 entry, u64 context);
  int smp_psci_cpu_off(void);

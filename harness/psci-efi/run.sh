@@ -103,6 +103,9 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
             # line (elapsed ~ alarm) instead of its 30 s timeout. Without it the wait runs the full timeout.
             { rtcwake -m no -s ${SUSPEND_ALARM:-10} 2>&1 | head -1; log "alarm: $(cat /sys/class/rtc/rtc0/wakealarm 2>&1)"; }
             log "battery: $(cat /sys/class/power_supply/macsmc-battery/status) charge_now $(cat /sys/class/power_supply/macsmc-battery/charge_now) ac $(cat /sys/class/power_supply/macsmc-ac/online); cmdline steps: $(grep -o -E 'deep_steps=[0-9]*|pmp_sleep=[0-9]' /proc/cmdline | tr '\n' ' ')"
+            # /var/lib/deepidle/aura-ctl <value>: Aura's S2R steps for this suspend (image 52, harness/mmio/aura-ctl.c;
+            # 1 the PMGR's S2R timer, 2 every core into macOS's deep sleep, 0x80 a marker that changes nothing)
+            [ -e /var/lib/deepidle/aura-ctl ] && log "aura ctl: $(/usr/local/lib/deepidle/aura-ctl $(cat /var/lib/deepidle/aura-ctl) 2>&1)"
             t0=$(date +%s.%N); e0=$(cat $BAT/energy_now)
             setsid $DM/deadman.sh $DM/resumed-$MODE-$i $(( ${SUSPEND_ALARM:-10} + 300 )) < /dev/null > /dev/null 2>&1 &
             DMPID=$!
