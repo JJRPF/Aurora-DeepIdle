@@ -1813,3 +1813,15 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
     1. The SoC entered S2R, and the alarm woke it into a cold boot: no warm path, or Aura's RVBAR path failed inside its 10 s stage, with a firmware chain longer than a dog reset's.
     2. The S2R timer resets the SoC about 60 s after it starts if the AP never powers down. In run D only the S2R timer ran, and the cores stayed in retention.
 - **Run D2 tells them apart:** the same steps with a 90 s alarm. A next kernel at about 86 s again means reading 2 (the timer, not the alarm). At about 146 s (the alarm plus 56 s) it means reading 1 (the SoC slept). A dead-man push means Linux resumed with the SoC up.
+
+## 2026-11-05 16:57: run D2: the S2R timer resets the Mac by itself, about 60 s after it is written; run E armed
+
+- Run D2 used run D's steps (image 52, `deep_steps=6`, aura-ctl 1) with a 90 s alarm. `echo mem` at 16:54:44.3, the alarm due at 16:56:14.
+- The next kernel started at 16:56:09.1 (RTC 21:56:23 UTC at uptime 13.9 s): 84.8 s after `echo mem` and 5 s *before* the alarm. Run D's gap was 86 s with a 30 s alarm. There was no dead-man push.
+- So the reset does not follow the alarm (reading 1 of the run D entry is out). The S2R timer resets the SoC about 60 s after it is written (about 61 s after `echo mem`, minus the 24 s firmware chain), whatever the alarm does.
+- That fits a sleep-entry timeout: macOS powers every core down right after `startS2RTimer` (`ml_arm_sleep`). Our cores stayed in retention WFI, so the S2R entry never completed. Whether the SoC went partly down before the reset is not known: the counters do not survive it.
+- It is also the first PMGR write from Linux/Aura that the SoC visibly acts on. Disk and filesystem clean; no PMU boot error logged.
+- Next, run E: the timer plus macOS's all-core deep sleep (aura-ctl 3).
+  - Reset at about 85 s again: the timer needs more than the cores off, i.e. quiesceHW's clock and PLL steps.
+  - A resume, or a reset timed by the alarm: the SoC got further.
+  - About 144 s: the cores powered down but the timer did not reset, and WD1 did, at 120 s.
