@@ -1709,3 +1709,9 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 ## 2026-11-05 12:43: awake idle never leaves the PMGR's AWAKE state either
 
 - Image 51 test kernel, the counters left on after the run, 10 min headless awake idle (12:32:23 to 12:42:23, this session the only load): `AWAKE` and `SYS_AWAKE` +14.398 G ticks = **599.9 s of 600**, `SLP_DDR`, `DEEP_WAIT`, `SLP_S2R`, `SYS_S2R_AOP` and `SYS_SLP_DDR` **0**. So with Linux, the SoC sits in AWAKE all the time, awake or suspended; the SoC-level idle and sleep states the PMGR knows (DDR sleep, deep wait, S2R) are reached by none of today's paths. This is the gap behind both the awake idle power (GH-10) and the 1.44 W suspend.
+
+## 2026-11-05 12:44: RVBAR handover reviewed; a 90 min `deep` run on battery with the counters armed
+
+- Review of image 51's new path for a freshly reset boot CPU: `_cpu_reset_c` → `psci_suspend_resuming()` → `psci_suspend_rvbar()` with the MMU off and printing quiet; `psci_enter` clears SCTLR_EL2 M/C/I, sets HCR_EL2 to its reset value (RW) and branches with x0 = context, and Linux's `cpu_resume` begins with `init_kernel_el`, which rebuilds EL2 itself. Nothing in it depends on state a reset would have lost.
+- Leads noted from the PMGR kext: APSC voltage-rail controls with sleep variants (`apsc-sleep-soc`, `apsc-sleep-dcs`, `apsc-snooze` = 1 in the ADT, a `snooze-counter`), likely part of how macOS reaches `DEEP_WAIT`/`SLP_DDR`; not followed today.
+- Armed the last unattended run of the day: image 51, normal path, **one `deep` cycle of 5400 s on battery** (forced discharge, 80/75 put back after), root read-only, PMGR counters on. A third drain figure, and the counters over a long sleep (expect `AWAKE` all of it).
