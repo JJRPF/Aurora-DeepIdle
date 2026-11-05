@@ -1291,3 +1291,9 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 
 - Image 39 (no whole-image clean): `echo mem` 19:57:57, next boot 20:00:21: the same reset about 120 s after entry on cycle 1. So the cache clean was not the cause either. What is left between 31 and 39: the inline WFI instead of `deep_wfi()` (the same CYC_OVRD value, though), the `psci_runtime` flag set on the first PSCI call, the `psci_resume` state global, and the start.S/print changes that only run after a reset.
 - Image 40 (ae88fc60c8cc1e43): image 39 with the watchdog re-armed at each step, so the time from `echo mem` to the reset (minus about 25 s of firmware) says where it stops: 120 s, before or at SYSTEM_SUSPEND entry; 105 s, after the 500 ms wait; 95 s, in the WFI loop (no wake seen); 80 s, after the wake; 65 s, after the return to the kernel (the kernel's apple_wdt resume takes the watchdog back from there). With the 10 s alarm these are about 120, 105, 95, 90 and 75 s after `echo mem`.
+
+## 2026-11-04 20:12: image 40: the boot core waits in the WFI loop and never sees the wake; image 41
+
+- Image 40: `echo mem` 20:04:08, next boot 20:06:08: 120 s in all, so about 96 s to the reset after taking the ~24 s of firmware off. That is stage C: the core entered the WFI loop (watchdog re-armed to 95 s there) and never got to stage D (a wake line seen). So in images 37 to 40 the 10 s alarm never ends the wait, whereas image 31 saw it in all 20 cycles.
+- Found while comparing: `psci_runtime` (0x147340) shared its 64-byte cache line with `psci_dbg`, and `psci_runtime_quiet()` does `dc ivac` on that line, which can throw away dirty data of its neighbours. It only runs on the reset paths, so it does not explain this hang, but it is wrong: `psci_runtime` now has a line of its own.
+- Image 41 (5018f64068ce1f52): `psci_sleep_core()` calls `deep_wfi()` itself, exactly as image 31 did, plus the `psci_runtime` line fix; staged watchdog kept. Same 20-cycle run.

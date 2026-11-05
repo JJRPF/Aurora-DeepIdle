@@ -124,7 +124,7 @@ index d594ea6e..28729c81 100644
  
      if (fdt_open_into(fdt, dt, dt_bufsize) < 0)
 diff --git i/src/psci.c w/src/psci.c
-index 444d71e5..d20d4f9b 100644
+index 444d71e5..8b741ac2 100644
 --- i/src/psci.c
 +++ w/src/psci.c
 @@ -1,14 +1,17 @@
@@ -174,7 +174,12 @@ index 444d71e5..d20d4f9b 100644
 + * (CPU_ON restarts, the boot CPU's SYSTEM_SUSPEND wake) must not print: the UART may be powered down, and its
 + * TX-empty wait would then spin forever.
 + */
-+volatile bool psci_runtime __attribute__((aligned(64)));
++/* a cache line of its own: psci_runtime_quiet() invalidates it */
++volatile struct {
++    bool on;
++    u8 pad[63];
++} psci_runtime_line __attribute__((aligned(64)));
++#define psci_runtime (psci_runtime_line.on)
 +
 +/* What the RVBAR re-entry needs, cleaned to the PoC: it runs with the MMU and caches off */
 +volatile struct {
@@ -205,13 +210,8 @@ index 444d71e5..d20d4f9b 100644
 +     * the core then never came back (not even to the first instruction at RVBAR), so the AIC wake does not
 +     * restart a core powered down without retention. The RVBAR resume path stays as a backstop.
 +     */
-+    u64 cyc_ovrd = mrs(SYS_IMP_APL_CYC_OVRD);
-+
-+    /* image 37 left WFI_MODE 3 set on return, and the kernel hung after the first resume: restore it */
-+    msr(SYS_IMP_APL_CYC_OVRD, (cyc_ovrd & ~(CYC_OVRD_WFI_MODE_MASK | CYC_OVRD_DISABLE_WFI_RET)) | CYC_OVRD_WFI_MODE(3));
-+    asm volatile("dsb sy\n isb\n wfi\n isb" ::: "memory");
-+    msr(SYS_IMP_APL_CYC_OVRD, cyc_ovrd);
-+    sysop("isb");
++    /* image 41: exactly what image 31 (20/20) did */
++    deep_wfi();
 +}
 +
 +static void __attribute__((noreturn)) psci_resume_kernel(int line, int via_rvbar)
@@ -442,7 +442,7 @@ index 9f9840e5..79ebc951 100644
  int smp_psci_mmio_ranges(u64 *ranges, int max);
  
 diff --git i/src/start.S w/src/start.S
-index e66a83bd..241c4be6 100644
+index e66a83bd..7301b6ca 100644
 --- i/src/start.S
 +++ w/src/start.S
 @@ -149,6 +149,21 @@ exc_unk:
@@ -473,8 +473,8 @@ index e66a83bd..241c4be6 100644
  #ifdef EARLY_UART_BASE
 +    /* Once the kernel has made its first PSCI call (psci_runtime), Linux owns the hardware and the UART
 +     * may be powered down: its TX-empty wait would spin forever on a CPU's RVBAR re-entry. Stay silent. */
-+    adrp x1, psci_runtime
-+    ldrb w1, [x1, :lo12:psci_runtime]
++    adrp x1, psci_runtime_line
++    ldrb w1, [x1, :lo12:psci_runtime_line]
 +    cbnz w1, 2f
      ldr x1, =EARLY_UART_BASE
  
