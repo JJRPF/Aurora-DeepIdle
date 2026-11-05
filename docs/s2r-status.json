@@ -166,13 +166,13 @@
   ],
   "pieces": [
     { "name": "Timed wake", "state": "works", "known": "The PMU RTC alarm on SPMI irq 2, AIC 724. The “fired” bit must be cleared before re-arming. Upstream’s alarm is T6030-only, so the T602x patches are still needed.", "next": "Shape it for upstream; power-on from off is untested" },
-    { "name": "Boot CPU hand-back", "state": "works", "known": "`SYSTEM_SUSPEND` returns through the kernel’s `cpu_resume`, 20 of 20 on all CPUs (image 48). It works with retention through `deep_wfi()`; an inline `dsb sy; isb; wfi` never woke (images 37 to 40). Powered down without retention, the core never re-enters at RVBAR (images 32 to 36).", "next": "Full S2R wakes through a different route" },
+    { "name": "Boot CPU hand-back", "state": "works", "known": "`SYSTEM_SUSPEND` returns through the kernel’s `cpu_resume`, 20 of 20 on all CPUs (image 48). It works with retention through `deep_wfi()`; an inline `dsb sy; isb; wfi` never woke (images 37 to 40). Powered down without retention, the core never re-enters at RVBAR (images 32 to 36).", "next": "A real S2R wake comes back through RVBAR; image 51 resumes the kernel from there, not reached yet" },
     { "name": "Wake sources", "state": "works", "known": "Deep WFI with AIC lines 724 (alarm) and 865 (SMC mailbox) unmasked. The power key wakes on 865.", "next": "Lid; stop the SMC’s early `Elec Cause` syslog wakes" },
     { "name": "AIC", "state": "works", "known": "Save and mask every bank, restore on resume (syscore). It runs on every Phase 2 cycle. Because it masks everything, wake detection has to come from the PMU/SMC side.", "next": "—" },
-    { "name": "SMC handshake", "state": "tested", "known": "`WKTP` and `slpw` are harmless. `slpa` makes NVMe I/O fail after resume, in s2idle and in a real suspend with all CPUs off (2026-11-04), and outlasts a warm reboot. On its own it does not power the SoC down. `SetAPPower` IDLE is acked and safe.", "next": "The rest of macOS’s sequence after `slpa`, and a way back for NVMe" },
-    { "name": "PMP", "state": "partial", "known": "IDLE works. RUN alone woke it 0 of 3. Gating `ps_pms_sram` does not restart it, and a PMGR reset of `ps_pmp` crashes the SoC.", "next": "The PMP’s `SetAPPower`/`SetIOPPower` IDLE after `slpa` (staged, `macsmc.pmp_sleep`), then its wake" },
+    { "name": "SMC handshake", "state": "tested", "known": "`WKTP` and `slpw` are harmless. `slpa` makes the SMC cut the storage controller’s (ANS) power: in five runs inside a real suspend with all CPUs off (2026-11-04 and 05) the Mac resumed on the alarm and the ANS never booted again. On its own `slpa` does not start the SoC’s sleep (PMGR counters: `AWAKE` throughout). The dead-man switch’s reboot brings the disk back every time. `SetAPPower` IDLE to the SMC is acked and safe.", "next": "The PMGR’s own entry after `slpa`, and how macOS restarts the ANS after a wake" },
+    { "name": "PMP", "state": "partial", "known": "IDLE works in s2idle (acks in about 400 us). Sent after `slpa`, IDLE crashed the PMP firmware (run C, 2026-11-05). RUN alone woke it 0 of 3. Gating `ps_pms_sram` does not restart it, and a PMGR reset of `ps_pmp` crashes the SoC.", "next": "Static: what the PMP needs before IDLE, then its wake" },
     { "name": "Secondary CPUs", "state": "works", "known": "CPU_OFF parks the core in Aura’s retention deep WFI loop; CPU_ON hands it back through the spin table, with `CYC_OVRD` restored first. 20 of 20 suspend cycles with all nine.", "next": "Runtime hotplug outside suspend; RVBAR re-entry after real power loss" },
-    { "name": "PMGR quiesce, S2R timer", "state": "open", "known": "Read statically from macOS 13.5. The last write goes to an always-on PMGR block Linux does not map.", "next": "The wake half of the trace" },
+    { "name": "PMGR quiesce, S2R timer", "state": "open", "known": "Read statically from macOS 13.5: the quiesce, then the S2R timer at `MPMGR_AON` + 0x4000. The PMGR’s state counters, readable from Linux since 2026-11-05, show only `AWAKE` in every Linux suspend so far, so nothing Linux does yet starts the SoC’s sleep.", "next": "Build the entry in Aura; first run owner-attended, read through `SLP_S2R`" },
     { "name": "Devices", "state": "open", "known": "s2idle only. DCP cannot resume from power loss today.", "next": "Phase 4, in the traced order" }
   ],
   "images": [
@@ -231,10 +231,10 @@
   ],
   "macos_sleep": [
     { "step": "SMC `MSxb` writes from every CPU", "linux": "Housekeeping, not needed yet" },
-    { "step": "SMC `MBSE` = `slpw`: the sleep warning", "linux": "Tested in s2idle: harmless" },
+    { "step": "SMC `MBSE` = `slpw`: the sleep warning", "linux": "Harmless, in s2idle and in a real suspend" },
     { "step": "PMP target writes take the displays and GPU down until only the CPU complexes (PCPM0, PCPM1) are requested", "linux": "Read in the trace; not reproduced" },
-    { "step": "SMC `MBSE` = `slpa`: the sleep trigger", "linux": "Sent in a real suspend (2026-11-04): acked, but the SMC cuts the storage controller’s power and `waka` does not restore it. Held until the owner can reset by hand" },
-    { "step": "`SetAPPower` 0x201 to the SMC and the PMP, then PMP `SetIOPPower` 0x201", "linux": "SMC side tested: acked, safe. PMP IDLE works; its wake does not" },
+    { "step": "SMC `MBSE` = `slpa`: the sleep trigger", "linux": "Sent in five real suspends (11-04 and 05): acked, the SMC cuts the storage controller’s power, but the SoC stays AWAKE (PMGR counters) and resumes on the alarm with the ANS dead. Only with the owner ready to reset by hand" },
+    { "step": "`SetAPPower` 0x201 to the SMC and the PMP, then PMP `SetIOPPower` 0x201", "linux": "SMC side: acked, safe. PMP side after `slpa` (run C): the PMP firmware crashed" },
     { "step": "CPU start/stop writes, PCPM1 and PCPM0 cleared, a PMGR USB0 always-on write", "linux": "Not reproduced" },
     { "step": "Every core sets `CYC_OVRD` WFI_MODE 3 and idles; the SMC and PMP power the cores down", "linux": "Works on every core: the boot CPU in `SYSTEM_SUSPEND`, the nine secondaries in Aura’s CPU_OFF park" }
   ],
@@ -257,7 +257,7 @@
     { "title": "The gap is SoC sleep itself", "body": "Awake idle matches macOS once the PMP runs (5.38 W against 5.57 W, SoC 1.22 W on both). The lid-closed gap is not the devices." },
     { "title": "s2idle’s 1.4 W is power left on, not wakes", "body": "The 3.2 wakes a second come from the AOP’s ambient-light and lid-angle reports and cost milliwatts. The PMP doesn’t change the drain." },
     { "title": "macOS tells the PMP when the system sleeps", "body": "Read from the macOS 13.5 kernelcache: the full order of sleep and quiesce actions, the SMC `MBSE` handshake, PMGR’s last write, and the PMP’s RTKit IDLE (0x201), which is Linux’s unused `apple_rtkit_idle()`." },
-    { "title": "`slpa` takes the storage away", "body": "After `slpa` in s2idle every NVMe access failed, and the state survived a warm reboot. It means the SoC is about to lose power, so it belongs last." },
+    { "title": "`slpa` takes the storage away", "body": "After `slpa` every NVMe access fails: in s2idle (10-22) and in five real suspends (11-04 and 05), where the Mac resumed on the alarm and the storage controller never booted again. A reboot from Linux (the dead-man switch’s) brings it back. On its own `slpa` does not put the SoC to sleep, so it cannot be the last step by itself." },
     { "title": "The PMP’s wake from IDLE is a power cycle", "body": "RUN alone woke it 0 of 3. Gating its SRAM did not restart it, and resetting `ps_pmp` crashed the SoC. `ps_pmp` is pinned on by iBoot." },
     { "title": "ISR_EL1 is blind at EL2 under VHE", "body": "With IMO/FMO set, Aura saw only the virtual pending state. The fix was to watch the AIC’s HW_STATE for the alarm line." },
     { "title": "The kernel masks the whole AIC for suspend", "body": "`aic_syscore_suspend` masks every line, as macOS does. In real S2R the wake must be detected from the PMU/SMC side." },
@@ -289,12 +289,13 @@
   ],
   "unknowns": [
     "Whether iBoot arms the wake path (reconfig engine, boot CPU RVBAR) for a raw image as it does for a kernelcache.",
-    "What restarts the AP on wake in macOS, and through which RVBAR.",
+    "What starts the SoC’s sleep: not `slpa` alone (the PMGR counters stay in `AWAKE`); presumably the PMGR’s S2R entry, which Aura does not do yet. And what restarts the AP on wake, through which RVBAR.",
     "What the reconfig engine runs on `SLP_S2R`, and what each quiesce action writes.",
     "Whether a DCP with nothing attached can be shut down and restarted.",
     "What the PMP’s VLPM tunables control.",
     "Why an inline `dsb sy; isb; wfi` in `SYSTEM_SUSPEND` never woke when `deep_wfi()` does.",
-    "What brings NVMe back after `slpa`: not the SART (kept, run C); the ANS CPU never reaches status 0x28"
+    "What brings NVMe back after `slpa`: not the SART (kept, run C); the ANS CPU never reaches status 0x28",
+    "What the PMP needs before IDLE: sent after `slpa`, IDLE crashed it (run C)"
   ],
   "upstream": [
     { "name": "aurora-silicon/m1n1#63", "what": "DT headroom for the PMP tunables" },

@@ -1,7 +1,8 @@
 # Raw runs
 
-All taken on one J414s (M2 Pro, 10 cores) on 2026-10-14/15. The kernel was
-linux-aurora release 11.35, and other work was running on the machine, so
+All taken on one J414s (M2 Pro, 10 cores). The table just below covers the
+first runs, on 2026-10-14/15; later runs have their own folders (below).
+For those first runs the kernel was linux-aurora release 11.35, and other work was running on the machine, so
 the load differs between runs. Each window is one JSON line. `.txt` is the
 report `idle-ab.py` printed.
 
@@ -34,4 +35,4 @@ Later runs each have their own folder.
 | `pmp-cycle/` | 2026-10-23: the PMP SRAM gate cycle (no restart) and the reads around it; the `ps_pmp` reset that crashed the SoC left no file |
 | `overnight/` | 2026-10-23/24: 8.33 h of s2idle on the default kernel. `report.txt` is `sleep-drain-probe.py`'s report. The battery figure is a lower bound only: the charger was connected and the charge limit held the battery at 80% |
 | `drain-ab/` | 2026-11-04/05: image 49, `deep` against `s2idle` on battery (`charge_behaviour` = `auto-discharge`), 2 × 30 min each, same boot. `run.sh`’s log |
-| `drain-ab/2026-11-05-…long…` | 2026-11-05: one long `deep` cycle (image 50, 6391 s) and one long `s2idle` cycle (image 51, 6300 s) on battery, same test kernel. `run.sh`’s logs |
+| `drain-ab/2026-11-05-…long…` | 2026-11-05: one long `deep` cycle (image 50, 6391 s) and one long `s2idle` cycle (image 51, 6300 s) on battery, same test kernel; then a 90 min `deep` cycle (image 51) with the PMGR state counters on, which show only `AWAKE` counting. `run.sh`’s logs |

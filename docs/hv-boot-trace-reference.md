@@ -48,3 +48,17 @@ Captured from the guest's `pmset sleepnow`-style sleep (timestamps from run 11, 
 7. Every core writes `ACC_OVRD_EL1` (the HV skips it) and `CYC_OVRD` 0x3000001 (WFI_MODE=3, deep sleep) and idles; the SMC/PMP power the cores down.
 
 Under the HV this is where it ends: the next rendezvous finds cores that are gone (`Failed to rendezvous, missing CPUs`) and the HV panic reboots the Mac. Masking CYC_OVRD WFI_MODE (run 9) and dropping the PCPM clears (run 11) do not help: step 5's `SetAPPower` is what powers the cores down. Steps 2 and 4 are the SMC calls Linux needs to reproduce; the wake path (what restarts the AP, which RVBAR) is not visible under the HV.
+
+## Linux repeating this sequence (2026-11-04 and 05)
+
+The test kernel replays steps 2, 4 and 5 inside a real suspend to RAM, with all CPUs parked in Aura
+(`macsmc_reboot.deep_steps`, `macsmc.pmp_sleep`; `worklog.md` 2026-11-04 21:32 to 2026-11-05 16:03):
+
+* `slpw` (step 2) is harmless.
+* `slpa` (step 4) makes the SMC cut the storage controller's (ANS) power. The Mac still wakes on the RTC alarm and Linux
+  resumes, but the ANS never boots again. The PMGR's own state counters show the SoC in `AWAKE` for the whole cycle
+  (`SLP_S2R` 0): `slpa` does not start the SoC's sleep by itself.
+* `SetAPPower`/`SetIOPPower` 0x201 to the PMP after `slpa` (step 5) crashed the PMP firmware.
+
+So the part of macOS's sleep that the hypervisor cannot show, and that Linux lacks, is the PMGR's own entry (the
+quiesce and the S2R timer) after these steps, and whatever restarts the ANS on the way back.

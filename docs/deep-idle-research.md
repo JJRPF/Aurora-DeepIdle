@@ -9,6 +9,16 @@ machine or in source is marked as an unknown.
 
 ## Answers in brief
 
+* **Update, 2026-11-05: where S2R stands.** Suspend to RAM works with the
+  SoC still on: PSCI `SYSTEM_SUSPEND` through Aura's EFI handler, 20 of 20
+  cycles with all 10 CPUs and the PMP on (Phase 2 of `s2r-plan.md`). It
+  draws the same 1.4 to 1.5 W as s2idle. The SoC itself never powers down
+  yet: the PMGR's own state counters, now readable from Linux, show only
+  `AWAKE` in every Linux suspend, including five runs with the SMC's `slpa`.
+  `slpa` cuts the storage controller's power without starting the SoC's
+  sleep; the PMGR's S2R entry is next. Details in "S2R work, 2026-10-25 to
+  11-05" below; the current one-page summary is `status.md`. The bullets
+  that follow are the October findings, kept as written.
 * **CPU deep idle already works.** Asahi's downstream `apple_idle` driver
   ([cpuidle-apple.c](../drivers/cpuidle/cpuidle-apple.c)) runs here with two
   states: WFI (clock gated) and "CPU PD", Apple's deep WFI with state
@@ -1450,7 +1460,79 @@ on and the outbox steps around RUN. That is untried, and it needs no reset.
 * Aura's handler reuses its own CPU stop and RVBAR re-entry.
 * U-Boot publishes the table, since in this boot chain U-Boot, not Aura,
   provides EFI.
-* All three parts are built. None is booted.
+* All three parts are built. None is booted (as of 2026-10-24; booted from
+  2026-10-25, see the next section).
+
+## S2R work, 2026-10-25 to 11-05
+
+The run-by-run detail is in `worklog.md`; the firmware side is in
+`psci-efi.md`.
+
+**The macOS sleep entry, traced** (runs 7 to 11 under the Aura hypervisor,
+macOS 14.8.9 guest, `hv-boot-trace-reference.md`): `slpw`, the PMP's display
+power-down, `slpa`, `SetAPPower` 0x201 to the SMC and the PMP, `SetIOPPower`,
+the CPU complexes cleared at the PMP, deep WFI on every core. The hypervisor
+cannot follow past the cores powering off, so the wake path and the
+raw-boot-mode question (does iBoot arm the wake for a raw image?) stay open.
+
+**Phase 1 and 2, booted:**
+
+* U-Boot overwrote Aura's runtime code range when it carved out the DT's
+  reserved ranges; with that fixed, CPU_ON brings all nine secondaries up
+  (2026-10-25).
+* CPU_OFF first wrote the per-cluster `ACC_OVRD` deep-sleep bits under the
+  running cores and took the SoC down. Parked cores without state retention
+  never came back properly, and a re-onlined core inherited the park's
+  WFI_MODE 3. The working design parks each core in Aura in deep WFI **with**
+  retention and restores `CYC_OVRD` before the kernel entry (image 47).
+* The boot CPU powered down without retention never restarted on a wake
+  (images 32 to 36: not even the first instruction at RVBAR), so Aura's
+  SYSTEM_SUSPEND waits in deep WFI with retention. With every AIC line
+  masked by Linux's syscore suspend, the AP's event register stays empty;
+  Aura sees the alarm (line 724) and the power key (SMC mailbox, line 865)
+  only in the AIC's raw `HW_STATE` bits.
+* The SoC watchdog (WD1) is armed around SYSTEM_SUSPEND and re-armed every
+  60 s from the EL2 timer, so a firmware hang resets the Mac and long sleeps
+  still work.
+* Result: 20 of 20 on the boot CPU (image 41), 20 of 20 on all 10 CPUs with
+  the PMP on (images 47, 48), through `systemctl suspend` too.
+
+**The drain with the SoC on** (`data/drain-ab/`): suspend to RAM 1.365 W
+over 30 min, 1.444 W over 1 h 46 min and 1.489 W over 90 min; s2idle 1.39
+to 1.48 W. Parking the CPUs is worth about 0.03 W at most.
+
+**The PMGR's state counters.** The PMGR keeps per-state residency counters
+at 24 MHz (`AWAKE`, `SLP_S2R`, `DEEP_WAIT`, `SLP_DDR` and their system-level
+twins); `harness/mmio/pmgrcnt.c` starts and reads them. Through awake idle,
+s2idle and every Aura suspend, only `AWAKE` counts. They are the first
+direct way to tell a real SoC sleep from a CPU-only one.
+
+**The `slpa` runs** (2026-11-04 21:32, 2026-11-05 07:01, and owner-attended
+runs A, B and C that afternoon; each inside a real all-CPU suspend):
+
+* Every run came back on the RTC alarm, Linux resumed, and the storage
+  controller (ANS) was dead: `IOP power acknowledgment failed: -62`, `ANS
+  did not boot`, the ANS CPU stuck at status 0x08 (0x28 when healthy). The
+  first run left the root read-only until the owner reset by hand; the
+  later ones were reset by the dead-man switch. Every filesystem check
+  afterwards was clean.
+* The PMGR counters in run C: `AWAKE` 65.1 s, `SLP_S2R` 0. The SoC never
+  left `AWAKE`. `slpa` makes the SMC cut the ANS's power, and that is all
+  it does on its own.
+* The ANS's SART (its DMA windows, which macOS rewrites on every ANS start)
+  was intact after `slpa`, so it is not why the ANS fails.
+* The PMU boot stage 0x50 that macOS writes at sleep (from its watchdog
+  kext) changed nothing (run B).
+* macOS's PMP `SetAPPower`/`SetIOPPower` IDLE after `slpa` crashed the PMP
+  firmware (run C).
+
+**Read statically from macOS 13.5** since: the PMU boot stage and a 10 s SMC
+deadline at sleep (the watchdog kext); `MBSE` on wake is the SMC's wake
+reason; the PMGR's AP wake-source mask (PMGR reg 7) is all open under Linux,
+and macOS's narrower value stops even Aura's deep-WFI wake with the SoC up;
+the AIC restore is already covered, and the system cache needs no flush
+before S2R; macOS rewrites the ANS SART on every ANS start
+(`IOSARTMapper::_setActive`).
 
 ## Unblocking deep sleep: what to trace with macOS under m1n1 hv
 
@@ -1566,7 +1648,15 @@ tables.
   load.
 
 * Whether iBoot arms the wake path (reconfig engine, boot CPU RVBAR) for a
-  raw image as it does for a kernelcache.
+  raw image as it does for a kernelcache. Still open on 2026-11-05: no
+  Linux suspend has taken the SoC down yet, so no wake has been tried.
+* What starts the SoC's sleep. Not the SMC's `slpa` alone (2026-11-05: the
+  PMGR counters stay in `AWAKE`); presumably the PMGR's own entry (the S2R
+  timer at `MPMGR_AON` + 0x4000 after the quiesce), which Aura does not do
+  yet.
+* How macOS restarts the ANS after a sleep wake: after `slpa` Linux's
+  restart leaves its CPU at status 0x08.
+* What the PMP needs before IDLE: sent after `slpa`, IDLE crashed it.
 * The SMC/PMGR/PMP/AOP sleep handshake: the order, the SMC keys and the PMP
   message are now known from macOS 13.5 (above). Still unknown: what the
   reconfig engine runs on `SLP_S2R`, what each quiesce action writes, and

@@ -1764,3 +1764,14 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 
 - `run.sh`'s `aura dbg (words …)` line reads `psci_dbg` at a fixed ELF offset (`0x1472c8`) and has printed zeros on every run today, while its `aura dbg scan` line (`scan-magic 0xA0AA0001`) found the block each time. So the offset is stale for images 50 and 51, and the zeros in run C's dead-man push meant nothing.
 - The dead-man snapshot now finds the block the same way: `install.sh` builds a static `scan-magic`, `run.sh` copies it to `/run/psci-deadman`, and `regs()` adds its first line. Checked on the default image: no block found, the snapshot is otherwise unchanged.
+
+## 2026-11-05 16:32: the linked docs brought up to date
+
+- On the owner's request, the docs linked at the bottom of https://jjrpf.com/S2R are current again. Most were last written on 10-24.
+- `status.md` was rewritten as of this evening. The short version now carries Phase 2 done, the SoC staying `AWAKE` through `slpa`, the 45% estimate and the next steps. It also has the timeline through 11-05, a current S2R piece table and a "built and booted" table.
+- `s2r-plan.md` gains a "where each phase stands" section and dated status lines per phase, and "what comes next" replaces the 10-23 "what can start now".
+- `psci-efi.md` now describes the booted design: the retention park, SYSTEM_SUSPEND with the wake lines, the watchdog heartbeat and the RVBAR resume, the kernel unwinds and the U-Boot runtime-range fix. It also has a results table.
+- `deep-idle-research.md` gains an update bullet at the top and a section, "S2R work, 2026-10-25 to 11-05". Its unknowns are updated.
+- `hv-boot-trace-reference.md` gains a section on what Linux found when it replayed macOS's sleep entry.
+- `data/README.md` now covers the 90 min run with the PMGR counters.
+- `s2r-status.json`: the stale pieces (SMC, PMP, PMGR), the `slpa` finding ("survived a warm reboot" no longer holds: the dead-man reboot brings the disk back) and the macOS-sleep rows are updated.
