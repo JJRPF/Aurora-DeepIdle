@@ -6,6 +6,8 @@
 #                                 brings the secondaries online one at a time from the running system (logged)
 #   sudo bash install.sh step1   the psci-efi-test kernel + Aura + patched U-Boot + PSCI DTB (GRUB next_entry)
 #   sudo bash install.sh suspend maxcpus=1 kernel, Aura with the SYSTEM_SUSPEND stub (Phase 2a): no CPU is ever offlined
+#   sudo bash install.sh suspendall  the same on all 10 CPUs: the kernel offlines the secondaries (PSCI CPU_OFF) around
+#                                    each suspend and brings them back with CPU_ON (owner-approved 2026-11-04)
 #   sudo bash install.sh ram     hotplug cycles from a RAM-only initramfs (ram/): the LUKS root and btrfs are never opened, so a hang cannot hurt them
 #   sudo bash install.sh remove  undo everything (units, GRUB entry, test kernel, stock boot.bin back)
 # Installs next to the existing kernels; none of the owner's is touched. The default GRUB entry never
@@ -39,7 +41,7 @@ if [ "${1:-}" = remove ]; then
     exit 0
 fi
 STEP=${1:?step0 | step1 | remove}
-case $STEP in step0) BIN=$BIN0; SHA=$SHA0 ;; step1) BIN=$BIN1; SHA=$SHA1 ;; step1a) BIN=$STOCK; SHA=$STOCKSHA ;; step1m) BIN=$BIN1; SHA=$SHA1 ;; suspend) BIN=$BIN2; SHA=$SHA2 ;; ram) BIN=$BIN1; SHA=$SHA1 ;; *) echo "step0 | step1a | step1m | step1 | suspend | ram | remove"; exit 1 ;; esac
+case $STEP in step0) BIN=$BIN0; SHA=$SHA0 ;; step1) BIN=$BIN1; SHA=$SHA1 ;; step1a) BIN=$STOCK; SHA=$STOCKSHA ;; step1m) BIN=$BIN1; SHA=$SHA1 ;; suspend|suspendall) BIN=$BIN2; SHA=$SHA2 ;; ram) BIN=$BIN1; SHA=$SHA1 ;; *) echo "step0 | step1a | step1m | step1 | suspend | suspendall | ram | remove"; exit 1 ;; esac
 
 # Preconditions
 [ "$(sha256sum $STOCK | cut -c1-16)" = $STOCKSHA ] || { echo "stock boot.bin copy missing or wrong"; exit 1; }

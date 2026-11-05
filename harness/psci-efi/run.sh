@@ -27,7 +27,7 @@ sync
 for pr in /proc/device-tree/chosen/aura,*; do [ -e "$pr" ] && { echo "== $pr"; xxd "$pr"; } ; done > $OUT/chosen-aura.txt 2>&1
 cp /proc/iomem $OUT/iomem.txt 2>/dev/null; cat /sys/firmware/efi/systab > $OUT/systab.txt 2>/dev/null
 sync
-if [ $STEP = suspend ]; then
+if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
     # Phase 2a: one system suspend on the boot CPU alone (maxcpus=1, nothing is ever offlined). Aura waits 3 s and
     # resumes the kernel. Filesystems go read-only first so a hang cannot leave them dirty.
     log "mem_sleep: $(cat /sys/power/mem_sleep); state: $(cat /sys/power/state); online $(cat /sys/devices/system/cpu/online)"
@@ -57,7 +57,7 @@ if [ $STEP = suspend ]; then
             AB=$(xxd -p /proc/device-tree/chosen/aura,psci-runtime-code | cut -c1-16)
             log "aura dbg (words, low/high pairs): $(/usr/local/lib/deepidle/mmio-read $((0x$AB + 0x1472c8)) 16 | awk '{printf "%s ", $2}')"
             log "aura dbg scan: $(/usr/local/lib/deepidle/scan-magic 0xA0AA0001 64 | head -3 | tr '\n' ';')"
-            log "suspend $i: back, rc=$rc, elapsed $(echo "$(date +%s.%N) - $t0" | bc)"
+            log "suspend $i: back, rc=$rc, elapsed $(echo "$(date +%s.%N) - $t0" | bc); online $(cat /sys/devices/system/cpu/online)"
             [ $rc = 0 ] || break
             sleep 2
         done
