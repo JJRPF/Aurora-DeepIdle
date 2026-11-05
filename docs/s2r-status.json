@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "updated": "2026-11-04",
+  "updated": "2026-11-05",
   "overall": 45,
   "overall_note": "Risk-weighted guess with a wide error bar. The page prefers the live figure in `docs/status.md` when it can read one.",
   "machine": "14-inch MacBook Pro, M2 Pro (`T6020`, `apple,j414s`), Aurora Silicon Linux",
@@ -130,7 +130,8 @@
         "Test kernel flag `macsmc_reboot.deep_steps`: `slpw` in prepare, `slpa` in suspend_late, `waka` on wake",
         "First `slpa` inside a real suspend (image 48, all CPUs, 2026-11-04 21:32): the cycle came back, but the storage controller never powered up again (`IOP power acknowledgment failed: -62`, `ANS did not boot`). No watchdog fired; the owner reset the Mac by hand. Scrub clean",
         "Image 49: suspends longer than two minutes, with a 60 s watchdog heartbeat (2 of 2 at 305 s)",
-        "Test kernel option `macsmc.pmp_sleep` (off): the PMP’s `SetAPPower`/`SetIOPPower` IDLE after `slpa`, staged for the next owner-attended run"
+        "Test kernel option `macsmc.pmp_sleep` (off): the PMP’s `SetAPPower`/`SetIOPPower` IDLE after `slpa`, staged for the next owner-attended run",
+        "Drain A/B on battery (2026-11-04/05): `deep` 1.365 W against `s2idle` 1.39 to 1.41 W. Parking the CPUs saves almost nothing; the rest is the SoC and its devices"
       ],
       "next": [
         "Send the PMP its `SetAPPower 0x201` and `SetIOPPower 0x201` after `slpa`, as macOS does; under the hypervisor that step took the cores down",
@@ -202,7 +203,7 @@
     { "n": "48-slpa", "what": "Image 48 with `slpw` and `slpa` sent in the suspend (`deep_steps=6`)", "result": "No SoC power-down; the kernel ran on with NVMe dead, reset by hand", "outcome": "fail" },
     { "n": "48-deadman", "what": "Image 48, 3 cycles with the dead-man switch and the forced read-only mode, no `slpa`", "result": "3 of 3; the disk answered after every wake", "outcome": "pass" },
     { "n": "49", "what": "Watchdog heartbeat: the EL2 physical timer wakes Aura every 60 s to re-arm the dog", "result": "2 of 2 back after 305 s, 4 heartbeats each; the two-minute cap is gone", "outcome": "pass" },
-    { "n": "49-drain", "what": "Drain A/B on battery: `deep` against `s2idle`, 2 × 30 min each, same kernel", "result": "Running", "outcome": "running" }
+    { "n": "49-drain", "what": "Drain A/B on battery: `deep` against `s2idle`, 2 × 30 min each, same kernel", "result": "4 of 4 back after 30 min each. `deep` 1.365 W, `s2idle` 1.390 and 1.413 W: about the same, as the SoC stays up", "outcome": "info" }
   ],
   "macos_sleep": [
     { "step": "SMC `MSxb` writes from every CPU", "linux": "Housekeeping, not needed yet" },
@@ -222,6 +223,7 @@
     { "change": "SD reader link with ASPM L1", "saving": "0.37 W", "detail": "Without L1 the all-off night drained 2.1 W." }
   ],
   "sleep": [
+    { "what": "Suspend to RAM, image 49 (CPUs in deep WFI)", "value": "1.37 W", "detail": "30 min on battery; `s2idle` in the same boot 1.39 to 1.41 W" },
     { "what": "s2idle, PMP running", "value": "1.39 to 1.46 W", "detail": "9.6 h, 23% of the battery a night" },
     { "what": "s2idle, stock, on battery", "value": "1.41 W", "detail": "" },
     { "what": "s2idle, everything optional off", "value": "2.1 W", "detail": "The SD link without L1" },
@@ -242,7 +244,8 @@
     { "title": "A CPU_OFF that never returns leaks a preempt count", "body": "The kernel’s EFI call path disables preemption around the firmware call. A successful CPU_OFF never comes back, so the re-onlined core started with one count too many (“scheduling while atomic”, once per core per cycle). Fixed in the test kernel." },
     { "title": "`slpa` alone does not put the SoC to sleep", "body": "With every CPU in Aura and the boot core in deep WFI, `slpa` still left the SoC running. On the wake `waka` is acked, but the storage controller never acks its power-on (`IOP power acknowledgment failed: -62`). macOS does more between `slpa` and the power-down: `SetAPPower` and `SetIOPPower` to the PMP, the CPU stops and the PCPM clears." },
     { "title": "A live kernel with no disk is not a hang", "body": "After the `slpa` run the watchdogs saw a healthy kernel, so nothing reset the Mac for about 15 min. Unattended `slpa` runs need a dead-man switch tied to the disk." },
-    { "title": "The watchdog cannot cover a long sleep by itself", "body": "WD1 counts 32 bits at 24 MHz, about 178 s at most. Aura now wakes on the EL2 physical timer every 60 s, re-arms the dog and sleeps again, so suspends of any length keep the safety net." }
+    { "title": "The watchdog cannot cover a long sleep by itself", "body": "WD1 counts 32 bits at 24 MHz, about 178 s at most. Aura now wakes on the EL2 physical timer every 60 s, re-arms the dog and sleeps again, so suspends of any length keep the safety net." },
+    { "title": "Parking the CPUs alone saves almost nothing", "body": "Suspend to RAM with every CPU in Aura’s deep WFI drew 1.365 W over 30 min on battery, and `s2idle` 1.390 and 1.413 W in the same boot. The gap to macOS’s 0.24 W is the SoC and DRAM staying up, which only the SoC steps (`slpa` and after) can close." }
   ],
   "rules": [
     "Never remove and rescan PCI devices: it kills Wi-Fi until a reboot.",

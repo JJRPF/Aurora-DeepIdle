@@ -33,3 +33,4 @@ Later runs each have their own folder.
 | `smc-power-keys/` | SMC power sensor readouts |
 | `pmp-cycle/` | 2026-10-23: the PMP SRAM gate cycle (no restart) and the reads around it; the `ps_pmp` reset that crashed the SoC left no file |
 | `overnight/` | 2026-10-23/24: 8.33 h of s2idle on the default kernel. `report.txt` is `sleep-drain-probe.py`'s report. The battery figure is a lower bound only: the charger was connected and the charge limit held the battery at 80% |
+| `drain-ab/` | 2026-11-04/05: image 49, `deep` against `s2idle` on battery (`charge_behaviour` = `auto-discharge`), 2 × 30 min each, same boot. `run.sh`’s log |

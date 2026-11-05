@@ -1451,3 +1451,19 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 - On battery without unplugging: `charge_control_end_threshold` 20 (start 15) alone leaves the Mac on AC (“Not charging”). `charge_behaviour` = `auto-discharge` (the SMC’s CHLS force-discharge bit, down to the limit) does it: status “Discharging”, 1.92 W awake (headless, screen off). **To restore: `auto`, end 80, start 75.**
 - `run.sh` can run several modes in one boot (`/var/lib/deepidle/sleep-modes`) and logs `energy_now` around each cycle with the average watts. For s2idle the test kernel’s apple_wdt suspend arm is set to 0 (nothing pets the dog in s2idle) and back to 120 afterwards.
 - Armed: image 49, all CPUs, test kernel (`pmp_sleep` off), modes `deep` then `s2idle`, 2 cycles of 30 min each. Same kernel, same boot, so the A/B shows what Phase 2’s suspend (every CPU in Aura’s deep WFI, `SetAPPower IDLE` to the SMC) saves over s2idle before any SoC sleep.
+
+## 2026-11-05 06:30: drain A/B on battery: suspend to RAM 1.37 W, s2idle 1.39 to 1.41 W
+
+- Image 49, all CPUs, test kernel (`pmp_sleep` off), `charge_behaviour` = `auto-discharge` (status “Discharging” with the charger in). Four cycles of 30 min, **4 of 4 back, `online 0-9`, 0 device errors, the dead-man switch `disk ok after resume (try 1)` every time**. Heartbeats kept the dog fed through every 30 min `deep` cycle.
+- From `energy_now` before and after each cycle:
+
+  | Cycle | Energy (µWh) | Average |
+  |---|---|---|
+  | `deep` 1 | 58436400 → 58037400 | 0.796 W |
+  | `deep` 2 | 58037400 → 57353400 | 1.365 W |
+  | `s2idle` 1 | 57330600 → 56635200 | 1.390 W |
+  | `s2idle` 2 | 56601000 → 55894200 | 1.413 W |
+
+- The first `deep` cycle does not count. It started at 58436400 of 58493400 µWh (a full battery, discharge switched on a minute earlier), and `charge_now` fell only 35 mAh against 60 to 62 mAh in the other three. The gauge seems to hold near full.
+- So **suspend to RAM with every CPU in Aura’s deep WFI saves about 0.03 to 0.05 W over s2idle**, within the noise. That fits the plan: in s2idle the CPUs already sit in their deepest idle state, and the SoC, DRAM and devices stay up in both. The 1.1 W gap to macOS’s 0.24 W is the SoC sleep (Phase 5), which needs `slpa` and the steps after it.
+- Log: `data/drain-ab/2026-11-04-image49-deep-vs-s2idle.log`.

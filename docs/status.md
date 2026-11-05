@@ -110,6 +110,7 @@ There are two goals:
 | s2idle, PMP running | 1.39 to 1.46 W over 9.6 h (23% of the battery a night) | `data/s2idle/` |
 | s2idle, stock, on battery | 1.41 W | research "Overnight s2idle with the PMP" |
 | s2idle, everything optional off | 2.1 W (the SD link without L1) | `data/s2idle/` |
+| Suspend to RAM, image 49, all CPUs in Aura’s deep WFI | 1.365 W over 30 min (the first cycle, 0.80 W, started at a full battery and is not counted); s2idle in the same boot 1.390 and 1.413 W | `data/drain-ab/` |
 | macOS 15.7.1 sleep | 0.24 W over 5.9 h, 98.7% of it in S2R | issue #3 |
 | Overnight s2idle, 10-23 to 10-24 | 8.33 h, a clean wake; 3.4 SoC wakes a second, 72% from the AOP mailbox; drain hidden by the charge limit (only a 0.57 W lower bound) | `data/overnight/` |
 

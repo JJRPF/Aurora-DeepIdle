@@ -1,0 +1,41 @@
+2026-11-04 22:26:54 step suspendall; kernel 7.2.11-psci-efi+; booted m1n1 image 391648c0e69c7d80
+2026-11-04 22:26:54 online: 0-9; nproc 10
+2026-11-04 22:26:54 pmu: boot-stage=30 boot-error-count=00 boot-error-stage=30 panic-count=00 shutdown-flag=00 fault-shadow=10120000000000000000000000000000 
+2026-11-04 22:26:54 mem_sleep: s2idle [deep]; state: freeze mem; online 0-9
+2026-11-04 22:26:54 filesystems ro: 1 of 4
+2026-11-04 22:26:54 mode deep: mem_sleep s2idle [deep]; apple_wdt suspend_timeout 120
+2026-11-04 22:26:54 alarm: 1793851015
+2026-11-04 22:26:54 battery: Discharging charge_now 5126000 ac 1; cmdline steps: 
+2026-11-04 22:26:54 suspend deep 1: echo mem ... (energy_now 58436400 uWh, Discharging, behaviour auto-discharge)
+2026-11-04 22:56:59 dead-man switch: rc=0; 22:56:59 disk ok after resume (try 1)
+2026-11-04 22:56:59 aura dbg (words, low/high pairs): 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 
+2026-11-04 22:57:00 aura dbg scan: 0x100028db380: 488000038 3c0 1 2d4 a0d90d5e6 0 0 0 0 0 100000000 1e 1 2000000 2000000 1d 0 0 0 0 0 0 0 0;
+2026-11-04 22:57:00 battery after: Discharging charge_now 5091000; smc: macsmc 2a2400000.smc: SetAPPower IDLE: 0|macsmc 2a2400000.smc: SetAPPower ON: 0|
+2026-11-04 22:57:00 suspend deep 1: back, rc=0, elapsed 1802.963585154; online 0-9; energy 58436400 -> 58037400 uWh: .796 W average over the cycle
+2026-11-04 22:57:02 alarm: 1793852823
+2026-11-04 22:57:02 battery: Discharging charge_now 5091000 ac 1; cmdline steps: 
+2026-11-04 22:57:02 suspend deep 2: echo mem ... (energy_now 58037400 uWh, Discharging, behaviour auto-discharge)
+2026-11-04 23:27:07 dead-man switch: rc=0; 23:27:07 disk ok after resume (try 1)
+2026-11-04 23:27:07 aura dbg (words, low/high pairs): 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 
+2026-11-04 23:27:08 aura dbg scan: 0x100028db380: 488000038 3c0 1 2d4 a0e3d5127 0 0 0 0 0 100000000 1e 1 2000000 2000000 1d 0 0 0 0 0 0 0 0;
+2026-11-04 23:27:08 battery after: Discharging charge_now 5031000; smc: macsmc 2a2400000.smc: SetAPPower IDLE: 0|macsmc 2a2400000.smc: SetAPPower ON: 0|macsmc 2a2400000.smc: SetAPPower IDLE: 0|macsmc 2a2400000.smc: SetAPPower ON: 0|
+2026-11-04 23:27:08 suspend deep 2: back, rc=0, elapsed 1803.404882431; online 0-9; energy 58037400 -> 57353400 uWh: 1.365 W average over the cycle
+2026-11-04 23:27:10 mode s2idle: mem_sleep [s2idle] deep; apple_wdt suspend_timeout 0
+2026-11-04 23:27:10 alarm: 1793854631
+2026-11-04 23:27:10 battery: Discharging charge_now 5029000 ac 1; cmdline steps: 
+2026-11-04 23:27:10 suspend s2idle 1: echo mem ... (energy_now 57330600 uWh, Discharging, behaviour auto-discharge)
+2026-11-04 23:57:13 dead-man switch: rc=0; 23:57:13 disk ok after resume (try 1)
+2026-11-04 23:57:13 aura dbg (words, low/high pairs): 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 
+2026-11-04 23:57:13 aura dbg scan: 0x100028db380: 488000038 3c0 1 2d4 a0e3d5127 0 0 0 0 0 100000000 1e 1 2000000 2000000 1d 0 0 0 0 0 0 0 0;
+2026-11-04 23:57:13 battery after: Discharging charge_now 4967000; smc: macsmc 2a2400000.smc: SetAPPower IDLE: 0|macsmc 2a2400000.smc: SetAPPower ON: 0|macsmc 2a2400000.smc: SetAPPower IDLE: 0|macsmc 2a2400000.smc: SetAPPower ON: 0|
+2026-11-04 23:57:13 suspend s2idle 1: back, rc=0, elapsed 1800.912637456; online 0-9; energy 57330600 -> 56635200 uWh: 1.390 W average over the cycle
+2026-11-04 23:57:15 alarm: 1793856436
+2026-11-04 23:57:15 battery: Discharging charge_now 4965000 ac 1; cmdline steps: 
+2026-11-04 23:57:15 suspend s2idle 2: echo mem ... (energy_now 56601000 uWh, Discharging, behaviour auto-discharge)
+2026-11-05 00:27:18 dead-man switch: rc=0; 00:27:18 disk ok after resume (try 1)
+2026-11-05 00:27:18 aura dbg (words, low/high pairs): 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 
+2026-11-05 00:27:18 aura dbg scan: 0x100028db380: 488000038 3c0 1 2d4 a0e3d5127 0 0 0 0 0 100000000 1e 1 2000000 2000000 1d 0 0 0 0 0 0 0 0;
+2026-11-05 00:27:18 battery after: Discharging charge_now 4903000; smc: macsmc 2a2400000.smc: SetAPPower IDLE: 0|macsmc 2a2400000.smc: SetAPPower ON: 0|macsmc 2a2400000.smc: SetAPPower IDLE: 0|macsmc 2a2400000.smc: SetAPPower ON: 0|
+2026-11-05 00:27:18 suspend s2idle 2: back, rc=0, elapsed 1800.435302080; online 0-9; energy 56601000 -> 55894200 uWh: 1.413 W average over the cycle
+2026-11-05 00:27:20 summary: 4 cycles back with rc=0; device errors after the first suspend: 0
+2026-11-05 00:27:20 suspend step done; online 0-9
