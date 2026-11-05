@@ -16,10 +16,15 @@ CYCLES=${CYCLES:-3}
 mkdir -p $OUT; chmod 755 $OUT
 # every line also goes to the kernel log, so the Pi's live dmesg stream shows the last action even if the
 # machine dies before the file reaches the disk
-log() { echo "$(date '+%F %T') $*" | tee -a $OUT/run.log; echo "psci-efi-test: $*" > /dev/kmsg; sync; }
+# LOGF moves to /run while the filesystems are forced read-only (slpa runs) and is appended afterwards.
+LOGF=$OUT/run.log
+log() { echo "$(date '+%F %T') $*" | tee -a $LOGF; echo "psci-efi-test: $*" > /dev/kmsg; sync; }
 sleep 45
 log "step $STEP; kernel $(uname -r); booted m1n1 image $(cat /run/psci-efi-booted-sha 2>/dev/null)"
 log "online: $(cat /sys/devices/system/cpu/online); nproc $(nproc)"
+# The PMU's record of the last power-off and boot (spmi_nvmem cells): how did the previous boot end?
+NV=/sys/bus/nvmem/devices/spmi_nvmem2/cells
+log "pmu: $(for c in boot-stage@6001,0 boot-error-count@6002,0 boot-error-stage@6003,0 panic-count@6002,4 shutdown-flag@600f,3 fault-shadow@867b,0; do printf '%s=%s ' ${c%%@*} $(xxd -p $NV/$c 2>/dev/null | tr -d '\n'); done)"
 dmesg > $OUT/dmesg.txt; chmod 644 $OUT/dmesg.txt
 grep -iE "psci|smp: |cpu[0-9]+: (failed|boot)|failed to come online|efi:" $OUT/dmesg.txt | tee -a $OUT/key-lines.txt | head -40
 sync
@@ -39,12 +44,28 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
         for m in $(findmnt -rno TARGET -t ext4,btrfs,vfat | sort -r); do mount -o remount,ro "$m" 2>&1 | head -1; done
         log "filesystems ro: $(findmnt -rno TARGET,OPTIONS -t ext4,btrfs,vfat | grep -c '\bro\b') of $(findmnt -rno TARGET -t ext4,btrfs,vfat | wc -l)"
         NCYC=$(cat /var/lib/deepidle/suspend-cycles 2>/dev/null || echo ${SUSPEND_CYCLES:-3})
+        # Dead-man switch (deadman.sh): after each wake it reads the NVMe directly and resets the Mac if the
+        # disk is gone (what `slpa` did on 2026-11-04). Everything it needs lives in RAM.
+        DM=/run/psci-deadman; mkdir -p $DM; cp /usr/bin/dd $(dirname $0)/deadman.sh $DM/; [ -p $DM/fifo ] || mkfifo $DM/fifo
+        python3 -c 'import json;print(json.load(open("/home/jjr/.config/agent-notify/config.json"))["ntfy_topic"])' > $DM/topic 2>/dev/null; chmod 600 $DM/topic
+        getent ahostsv4 ntfy.sh | awk 'NR==1{print $1}' > $DM/ntfy-ip
+        SLPA=0; DS=$(grep -o 'deep_steps=[0-9]*' /proc/cmdline | cut -d= -f2); [ -n "$DS" ] && [ $(( DS & 4 )) != 0 ] && SLPA=1
+        [ -e /var/lib/deepidle/force-ro ] && SLPA=1   # to test the read-only mode without slpa
+        if [ $SLPA = 1 ]; then
+            # slpa can take the disk away while btrfs is still writable (remount ro fails while the desktop
+            # holds files open). Force every filesystem read-only (sysrq u) for the cycles.
+            sync; echo u > /proc/sysrq-trigger; sleep 2
+            LOGF=/run/psci-efi-run-ro.log
+            log "slpa run: emergency read-only remount: ro $(findmnt -rno TARGET,OPTIONS -t ext4,btrfs,vfat | grep -c '\bro\b') of $(findmnt -rno TARGET -t ext4,btrfs,vfat | wc -l)"
+        fi
         for i in $(seq $NCYC); do
             # Phase 2b: with SUSPEND_ALARM=<s> an RTC alarm is armed first; Aura's poll should end the wait on that wake
             # line (elapsed ~ alarm) instead of its 30 s timeout. Without it the wait runs the full timeout.
             { rtcwake -m no -s ${SUSPEND_ALARM:-10} 2>&1 | head -1; log "alarm: $(cat /sys/class/rtc/rtc0/wakealarm 2>&1)"; }
             log "battery: $(cat /sys/class/power_supply/macsmc-battery/status) charge_now $(cat /sys/class/power_supply/macsmc-battery/charge_now) ac $(cat /sys/class/power_supply/macsmc-ac/online); cmdline steps: $(grep -o 'deep_steps=[0-9]*' /proc/cmdline)"
             t0=$(date +%s.%N)
+            setsid $DM/deadman.sh $DM/resumed-$i $(( ${SUSPEND_ALARM:-10} + 300 )) < /dev/null > /dev/null 2>&1 &
+            DMPID=$!
             log "suspend $i: echo mem ..."
             if [ -e /var/lib/deepidle/suspend-via-systemd ]; then
                 # the real path: runs the /etc/systemd/system-sleep hooks (radios off/on, fprintd) around the suspend
@@ -54,6 +75,9 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
             else
                 echo mem > /sys/power/state; rc=$?
             fi
+            : > $DM/resumed-$i
+            wait $DMPID; dmrc=$?
+            log "dead-man switch: rc=$dmrc; $(tail -1 $DM/log)"
             # Aura's debug words (psci_dbg, ELF symbol 0x1472c8 from the image base): magic, HCR_EL2, DAIF, exit (1 wake line, 2 timeout), last ISR_EL1, ticks
             AB=$(xxd -p /proc/device-tree/chosen/aura,psci-runtime-code | cut -c1-16)
             log "aura dbg (words, low/high pairs): $(/usr/local/lib/deepidle/mmio-read $((0x$AB + 0x1472c8)) 16 | awk '{printf "%s ", $2}')"
@@ -67,6 +91,7 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
         log "no deep sleep offered; not suspending"
     fi
     for m in $(findmnt -rno TARGET -t ext4,btrfs,vfat | sort); do mount -o remount,rw "$m" 2>&1 | head -1; done
+    if [ "${SLPA:-0}" = 1 ]; then cat $LOGF >> $OUT/run.log; LOGF=$OUT/run.log; log "filesystems rw again: $(findmnt -rno TARGET,OPTIONS -t ext4,btrfs,vfat | grep -c '\brw\b') of $(findmnt -rno TARGET -t ext4,btrfs,vfat | wc -l)"; fi
     dmesg > $OUT/dmesg-after.txt; chmod 644 $OUT/*; sync
     log "summary: $(grep -c 'back, rc=0' $OUT/run.log) cycles back with rc=0; device errors after the first suspend: $(sed -n '/PM: suspend entry/,$p' $OUT/dmesg-after.txt | grep -i -E 'error|fail|timeout|warning:|\bbug:' | grep -v -E 'audit|Endpoint 0x20 is not running|Failed to send command|brcmf_p2p|p2p_disc|add iface p2p|Util_Reset_FailGeom|set affinity failed\(-38\)' | wc -l)"
     log "suspend step done; online $(cat /sys/devices/system/cpu/online)"

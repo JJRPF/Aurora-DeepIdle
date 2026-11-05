@@ -1407,3 +1407,16 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 - Reading: with all CPUs in Aura and the boot core in deep WFI, `slpw` + `slpa` alone do not make the SMC take the SoC down. In macOS's trace, `slpa` is followed by `SetAPPower 0x201` to the SMC **and** the PMP, `SetIOPPower`, the CPU stops and the PCPM0/PCPM1 clears before the cores' deep WFI. Not known yet: whether the SMC waits for the PMP's report, or for a PMGR step.
 - Owner: "For the night, let's hold off on those. We can resume those when I am ready to manually reboot again." `/var/lib/deepidle/deep-steps` removed; memory updated. Default image 76f850895fed53d1 on the ESP.
 - Status page: `docs/s2r-status.json` brought up to date (images 37 to 48 and this run, Phase 1 at 85%, Phase 2 done, Phase 5 active at 10%); overall 45% in both it and `status.md`. Added `tools/s2r-status-fmt.py`, which rewrites the JSON in its house style (one object per line).
+
+## 2026-11-04 22:10: a dead-man switch for `slpa` runs; read-only mode; PMU cells logged
+
+- Why nothing reset the Mac in the `slpa` run: systemd feeds the hardware watchdog (`RuntimeWatchdogUSec=1min`), and the kernel stayed alive with the disk gone. The Pi watcher could not help either: the Pi (`pi-hole` on Tailscale) is offline.
+- New `harness/psci-efi/deadman.sh`, started by `run.sh` before each `echo mem` and run from `/run` with its own copy of `dd`. When `run.sh` marks the wake, it reads one 4 KiB block of `/dev/nvme0n1` with `iflag=direct` (three tries, 10 s each). If no read succeeds, or there is no wake marker after the alarm time plus 300 s, it:
+  - collects the SMC sleep, PM, NVMe and first btrfs lines from `/dev/kmsg`;
+  - pushes them to the owner's ntfy topic over plain HTTP, using bash's `/dev/tcp` and the address resolved before the suspend;
+  - prints them on the console;
+  - resets the Mac with sysrq `s`, `u`, `b`. If the restart handler hangs, systemd stops feeding the watchdog and it resets the Mac about a minute later.
+  Dry runs on this boot: disk OK; a forced failure (push answered `200 OK`); and a missing marker. Caveat from October: a warm reset may not bring NVMe back after `slpa`, so the push is the part that surely helps.
+- For `slpa` runs (`deep_steps` bit 4) or with the flag `/var/lib/deepidle/force-ro`, `run.sh` forces every filesystem read-only (sysrq `u`) before the cycles and logs to `/run` meanwhile. The normal remount fails while the desktop holds files open, which is why btrfs was still writable when the disk vanished.
+- `run.sh` logs the PMU's `spmi_nvmem` cells on each armed boot (boot stage, error counts, shutdown flag, `fault-shadow`), to learn how each boot ended. On the boot after the hand reset: `boot-stage=30`, error counts 0, `shutdown-flag=00`, `fault-shadow=1012000000…`.
+- Armed: image 48, `suspendall`, 3 cycles, 10 s alarm, `force-ro`, no `slpa`. It tests the dead-man switch's OK path and the read-only round trip in a real suspend.
