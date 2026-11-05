@@ -1639,3 +1639,9 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 | C | as A or B, plus `pmp-sleep` | macOS’s PMP steps after `slpa` | as A |
 
 - Arming each: write the flag files, `findmnt /boot`, `sudo bash harness/psci-efi/install.sh suspendall`, send the owner the ntfy instructions, then `reboot.sh` with a prompt naming the run. The dead-man snapshot (wake mask and status, ANS, SART) and the watcher on `core-node-ts` record what happens.
+
+## 2026-11-05 10:06: image 51: the RVBAR path resumes the kernel even without a wake line; regression armed
+
+- After a real S2R the AIC has lost its state, so image 50’s RVBAR path would never find a wake line and its 10 s stage would reset the Mac: a signature but a dead end. Image 51 (eb1904c3373bd624) hands over to the kernel’s resume on any RVBAR entry with the resume magic set (`psci_dbg[13]` = 3 when no wake line was found, 2 with one), under the 150 s stage-2 dog. If DRAM did not survive, the magic check fails first and nothing is resumed.
+- Expected at the first real S2R wake: Linux resumes on the boot CPU (its AIC and SART restores run), the nine secondaries time out on `CPU_ON` (their park loops are gone; a cold restart of secondaries from Aura at runtime is the next piece), and the kernel log reaches the Pi. A hang in the kernel’s resume shows as a reset 150 s after the RVBAR entry plus about 24 s of firmware.
+- The normal path is unchanged; regression run armed: `suspendall`, 2 `deep` cycles of 120 s, root read-only. The owner-attended table (10:10 entry) now uses image 51; run A’s 64 s reading becomes “Linux resumes” or about 204 s (stage 2).

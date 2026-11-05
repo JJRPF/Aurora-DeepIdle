@@ -124,7 +124,7 @@ index d594ea6e..28729c81 100644
  
      if (fdt_open_into(fdt, dt, dt_bufsize) < 0)
 diff --git i/src/psci.c w/src/psci.c
-index 444d71e5..feaca124 100644
+index 444d71e5..76fa12f7 100644
 --- i/src/psci.c
 +++ w/src/psci.c
 @@ -1,14 +1,17 @@
@@ -147,7 +147,7 @@ index 444d71e5..feaca124 100644
   */
  
  static unsigned long psci_affinity_info(unsigned long target_affinity,
-@@ -20,9 +23,228 @@ static unsigned long psci_affinity_info(unsigned long target_affinity,
+@@ -20,9 +23,231 @@ static unsigned long psci_affinity_info(unsigned long target_affinity,
      return smp_psci_affinity_info(target_affinity);
  }
  
@@ -169,7 +169,7 @@ index 444d71e5..feaca124 100644
 + * running, nothing re-arms it and the Mac resets as before.
 + */
 +#define SUSPEND_HB_S   60
-+#define RVBAR_WDT_S    10  /* boot CPU back through RVBAR, looking for its wake line */
++#define RVBAR_WDT_S    10  /* boot CPU back through RVBAR, until it hands over to the kernel's resume */
 +#define RESUME_WDT_S   150 /* resuming the kernel after an RVBAR entry (WD1 tops out near 178 s) */
 +#define SYS_CNTHP_CVAL_EL2 sys_reg(3, 4, 14, 2, 2)
 +
@@ -245,7 +245,8 @@ index 444d71e5..feaca124 100644
 +    psci_dbg[3] = 1;
 +    psci_dbg[4] = line;
 +    psci_dbg[5] = now - psci_resume.start;
-+    psci_dbg[13] = via_rvbar ? 2 : 1; /* 2: the core lost its state and came back through RVBAR */
++    /* 2: the core lost its state and came back through RVBAR; 3: the same with no wake line (S2R) */
++    psci_dbg[13] = via_rvbar ? (line < 0 ? 3 : 2) : 1;
 +    psci_dbg[15] = mrs(SYS_IMP_APL_CYC_OVRD);
 +    psci_dbg[0] = 0xA0AA0001;
 +    dc_civac_range((void *)&psci_resume, sizeof(psci_resume));
@@ -278,11 +279,13 @@ index 444d71e5..feaca124 100644
 +    wdt_psci_arm(RVBAR_WDT_S);
 +    dc_ivac_range((void *)psci_dbg, sizeof(psci_dbg));
 +    psci_dbg[12]++;
-+    while ((line = psci_wake_line()) < 0) {
-+        /* not a wake line (a stray event): sleep again */
-+        psci_sleep_core();
-+        psci_dbg[12]++;
-+    }
++    /*
++     * A boot CPU back through RVBAR with the resume magic set had its power cut: by the SoC's S2R (the
++     * reconfig engine restarts it on a wake source) or a core power-down. After S2R the AIC has lost its
++     * state, so no wake line shows; resume the kernel anyway (line -1, psci_dbg[13] 3) and let its AIC
++     * restore and drivers take over. Stage 2 (RESUME_WDT_S) resets the Mac if the kernel's resume hangs.
++     */
++    line = psci_wake_line();
 +    psci_resume_kernel(line, 1);
 +}
 +
@@ -376,7 +379,7 @@ index 444d71e5..feaca124 100644
      switch (fid) {
          case PSCI_0_2_FN_PSCI_VERSION:
              return PSCI_VERSION_1_0;
-@@ -34,6 +256,8 @@ unsigned long psci_efi_handler(unsigned long fid, unsigned long arg0, unsigned l
+@@ -34,6 +259,8 @@ unsigned long psci_efi_handler(unsigned long fid, unsigned long arg0, unsigned l
              return smp_psci_cpu_off();
          case PSCI_0_2_FN64_CPU_ON:
              return smp_psci_cpu_on(arg0, arg1, arg2);
@@ -385,7 +388,7 @@ index 444d71e5..feaca124 100644
          case PSCI_0_2_FN64_AFFINITY_INFO:
              return psci_affinity_info(arg0, arg1);
          default:
-@@ -53,5 +277,6 @@ const struct psci_efi_table psci_efi_table = {
+@@ -53,5 +280,6 @@ const struct psci_efi_table psci_efi_table = {
              [PSCI_FN(PSCI_0_2_FN_CPU_OFF)] = PSCI_RET_SUCCESS,
              [PSCI_FN(PSCI_0_2_FN64_CPU_ON)] = PSCI_RET_SUCCESS,
              [PSCI_FN(PSCI_0_2_FN64_AFFINITY_INFO)] = PSCI_RET_SUCCESS,
