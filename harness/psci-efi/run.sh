@@ -52,8 +52,7 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
         # for the dead-man switch's snapshot after a resume with the disk gone (2026-11-05 15:22): the PMGR
         # counters and Aura's psci_dbg words, read by RAM-resident static tools
         [ -e /var/lib/deepidle/pmgr-counters ] && cp /usr/local/lib/deepidle/pmgrcnt $DM/ 2>/dev/null
-        AB=$(xxd -p /proc/device-tree/chosen/aura,psci-runtime-code 2>/dev/null | cut -c1-16)
-        [ -n "$AB" ] && printf '0x%x\n' $((0x$AB + 0x1472c8)) > $DM/aura-dbg
+        cp /usr/local/lib/deepidle/scan-magic-static $DM/scan-magic 2>/dev/null
         SLPA=0; DS=$(grep -o 'deep_steps=[0-9]*' /proc/cmdline | cut -d= -f2); [ -n "$DS" ] && [ $(( DS & 4 )) != 0 ] && SLPA=1
         grep -q 'macsmc.pmp_sleep=1' /proc/cmdline && SLPA=1   # the PMP's own sleep: the disk may not come back either
         [ -e /var/lib/deepidle/force-ro ] && SLPA=1   # to test the read-only mode without slpa

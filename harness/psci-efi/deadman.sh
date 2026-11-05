@@ -61,7 +61,9 @@ regs() {
         out+=" (domain not on: ANS and SART not read)"
     fi
     [ -x $D/pmgrcnt ] && out+="; pmgr counters $($D/pmgrcnt show)"
-    [ -s $D/aura-dbg ] && out+="; aura dbg $(words $(< $D/aura-dbg) 16)"
+    # Aura's psci_dbg block, found by its magic (the fixed ELF offset went stale with the image)
+    local l=''
+    [ -x $D/scan-magic ] && read -r l < <($D/scan-magic 0xA0AA0001 64) && out+="; aura dbg $l"
     printf '%s' "$out"
 }
 push() {

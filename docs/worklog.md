@@ -1759,3 +1759,8 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
   - `ps_ans2` read `1f0000ff` (run B `1f0002ff`), ANS CPU status 0x08 (healthy 0x28), mailbox `0002ff01 00109a01`.
 - Disk clean (`device stats` 0, no btrfs or NVMe errors), PMU boot error from the reset, boot.bin 76f850895fed53d1, `next_entry` unset, flags removed.
 - Where this leaves Phase 5: `slpa` makes the SMC take the storage controller down, but by itself does not start the SoC's sleep. The PMGR's own sleep entry (the S2R timer and the PMGR quiesce, read statically from macOS 13.5) has to come from the AP side, and with the SoC up the ANS does not come back. Next, static: what macOS does to start the ANS after a sleep wake (`AppleANS3`/`IOSARTMapper` and the PMGR), and the PMP's IDLE preconditions. No more `slpa` runs without the owner.
+
+## 2026-11-05 16:05: harness: Aura's debug words found by their magic; the fixed offset had gone stale
+
+- `run.sh`'s `aura dbg (words …)` line reads `psci_dbg` at a fixed ELF offset (`0x1472c8`) and has printed zeros on every run today, while its `aura dbg scan` line (`scan-magic 0xA0AA0001`) found the block each time. So the offset is stale for images 50 and 51, and the zeros in run C's dead-man push meant nothing.
+- The dead-man snapshot now finds the block the same way: `install.sh` builds a static `scan-magic`, `run.sh` copies it to `/run/psci-deadman`, and `regs()` adds its first line. Checked on the default image: no block found, the snapshot is otherwise unchanged.
