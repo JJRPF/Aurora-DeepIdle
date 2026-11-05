@@ -1946,3 +1946,14 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
   - So the ANS failure follows from the SoC never going down, and the ANS is not a separate bug to fix first. What counts next is the SoC sleep itself: runs C, G and H.
 - After the run: test flags removed; default boot.bin `76f850895fed53d1`, `next_entry` unset. btrfs error counters all 0, no errors in the kernel log, so no scrub. Headless on.
 - The IO RVBAR restore stays in the test kernel: it is a logged no-op, and it keeps logging the value.
+
+## 2026-11-05 18:11: test: release the PMP's display requests for sleep, as macOS has them at slpa; regression armed
+
+- Owner, 18:1x: "run any unattended tests, then update all docs and status pages/files. then, do a sleep to test what we have now vs baseline."
+- Unattended means no `slpa` and none of image 53's SoC steps: PLL-off or the AFR off on an awake SoC can hang it. Runs C, G and H stay attended.
+- The PMP's request word reads `0xf000` on Linux (ISP_SYS, DISP0, DISPEXT0, DISPEXT1); macOS has `0x300` at `slpa`. `pmp-report` already withdraws `apple,release-for-sleep` entries in `suspend_noirq` and asserts them again in `resume_noirq`. Its comment puts the J514S external-display case at about 0.25 W in s2idle.
+- Test kernel patch `0001-TEST-pmp-report-test_release_aon-…`: `pmp_report.test_release_aon` (default off, writable at run time) sends the always-on entries (disp0, dispext0, dispext1) down that path. Each withdraw and assert logs the PMP's ack word. Image `6ad0396dbb7259df`; the old one is in `/var/lib/deepidle/vmlinuz-psci-efi-test.pre-pmprelease`.
+- `run.sh`: `/var/lib/deepidle/pmp-release-modes "<modes>"` sets the parameter per sleep mode (1 in the listed modes, 0 in the others). It logs the request and ack words before the cycles and after each resume. So one boot can measure `deep` with the release against plain `s2idle`.
+- Risk: if a display complex does not come back, the screen stays dark until reboot. That is acceptable headless. The driver retries the assert 3 times and logs a failure.
+- Regression armed (unattended): image 53, aura-ctl 0x80, 2 `deep` cycles of 60 s, release on. Expect `withdrawn … ack` without the display bits, `asserted` on resume, `0xf000` back after each resume, and 0 device errors.
+- If it passes, next: the sleep A/B on battery, `deep` plus the release against `s2idle` (the baseline), 1 h each in one boot.

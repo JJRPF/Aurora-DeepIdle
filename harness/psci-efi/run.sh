@@ -98,6 +98,13 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
         WDT_P=/sys/module/apple_wdt/parameters/suspend_timeout
         [ -e $WDT_P ] && { [ $MODE = s2idle ] && echo 0 > $WDT_P || echo 120 > $WDT_P; }
         log "mode $MODE: mem_sleep $(cat /sys/power/mem_sleep); apple_wdt suspend_timeout $(cat $WDT_P 2>/dev/null)"
+        # /var/lib/deepidle/pmp-release-modes "<modes>": in those modes the PMP's always-on display requests are
+        # withdrawn for sleep (test kernel pmp_report.test_release_aon), as macOS has them at slpa; off in the others.
+        REL_P=/sys/module/pmp_report/parameters/test_release_aon
+        if [ -e /var/lib/deepidle/pmp-release-modes ] && [ -e $REL_P ]; then
+            if grep -qw $MODE /var/lib/deepidle/pmp-release-modes; then echo 1 > $REL_P; else echo 0 > $REL_P; fi
+            log "pmp release for sleep: $(cat $REL_P); requests $(/usr/local/lib/deepidle/mmio-read 0x28e3c2000 1 | awk '{print $2}') ack $(/usr/local/lib/deepidle/mmio-read 0x28e3c2080 1 | awk '{print $2}')"
+        fi
         for i in $(seq $NCYC); do
             # Phase 2b: with SUSPEND_ALARM=<s> an RTC alarm is armed first; Aura's poll should end the wait on that wake
             # line (elapsed ~ alarm) instead of its 30 s timeout. Without it the wait runs the full timeout.
@@ -129,6 +136,7 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
             log "battery after: $(cat /sys/class/power_supply/macsmc-battery/status) charge_now $(cat /sys/class/power_supply/macsmc-battery/charge_now); smc: $(dmesg | grep -E 'macsmc-reboot.*sleep:|SetAPPower' | grep -v psci-efi-test | tail -4 | sed 's/^\[[ 0-9.]*\] //' | tr '\n' '|')"
             [ -n "$PC" ] && log "pmgr counters after $MODE $i: $($PC show)"
             log "suspend $MODE $i: back, rc=$rc, elapsed $(echo "$t1 - $t0" | bc); online $(cat /sys/devices/system/cpu/online); energy $e0 -> $e1 uWh: $(echo "scale=3; ($e0 - $e1) * 3.6 / ($t1 - $t0) / 1000" | bc) W average over the cycle"
+            [ -e /var/lib/deepidle/pmp-release-modes ] && log "pmp requests after resume: $(/usr/local/lib/deepidle/mmio-read 0x28e3c2000 1 | awk '{print $2}') ack $(/usr/local/lib/deepidle/mmio-read 0x28e3c2080 1 | awk '{print $2}')"
             [ $rc = 0 ] || break
             sleep 2
         done

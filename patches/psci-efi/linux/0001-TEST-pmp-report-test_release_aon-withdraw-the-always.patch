@@ -1,0 +1,77 @@
+From 8b86edf06f68a646f15dd17e3d2bc312ea22f634 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Thu, 5 Nov 2026 18:11:15 -0500
+Subject: [PATCH] TEST: pmp-report: test_release_aon, withdraw the always-on
+ requests for system sleep
+
+macOS has released every PMP power request except the CPU complexes' (0x300) by the time it sends slpa;
+Linux keeps the always-on display ones (0xf000 on J414s with ISP). With test_release_aon (default off,
+writable at run time) the always-on entries take the apple,release-for-sleep path: withdrawn in
+suspend_noirq, asserted again in resume_noirq; each step logs the PMP's ack word.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/pmdomain/apple/pmp-report.c | 19 ++++++++++++++++++-
+ 1 file changed, 18 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/pmdomain/apple/pmp-report.c b/drivers/pmdomain/apple/pmp-report.c
+index 9aac3ced17cd..a90045c9d206 100644
+--- a/drivers/pmdomain/apple/pmp-report.c
++++ b/drivers/pmdomain/apple/pmp-report.c
+@@ -1263,6 +1263,8 @@ struct apple_pmp_report_entry {
+ 	bool no_ack;
+ 	/* Withdrawn for system sleep (apple,release-for-sleep), and now so. */
+ 	bool sleep_release;
++	/* apple,always-on (TEST: test_release_aon withdraws these too). */
++	bool aon;
+ 	bool released;
+ 	bool removed;
+ };
+@@ -1371,6 +1373,15 @@ static int apple_pmp_report_entry_set_state(struct generic_pm_domain *genpd, boo
+ 	return ret;
+ }
+ 
++/*
++ * TEST (S2R): macOS has released every PMP request but the CPU complexes'
++ * when it sends slpa; Linux keeps the always-on display requests. With this
++ * set, those are withdrawn for system sleep as apple,release-for-sleep ones.
++ */
++static bool test_release_aon;
++module_param(test_release_aon, bool, 0644);
++MODULE_PARM_DESC(test_release_aon, "TEST: withdraw the always-on report requests for system sleep");
++
+ /*
+  * System sleep. An external display processor's request keeps the PMP's
+  * external display state up while nothing is shown, about 0.25 W in
+@@ -1393,6 +1404,10 @@ static int apple_pmp_report_entry_sleep(struct apple_pmp_report_entry *ent, bool
+ 			ret = -EALREADY;
+ 		else
+ 			ret = apple_pmp_report_set_state(rep, ent->id, !release, ent->no_ack);
++		if (test_release_aon && ent->aon)
++			dev_info(rep->dev, "TEST request %u %s for sleep: %d, ack %#llx\n", ent->id,
++				 release ? "withdrawn" : "asserted", ret,
++				 readq(rep->base + rep->offsets->actual));
+ 		break;
+ 	}
+ 	rcu_read_unlock();
+@@ -1404,7 +1419,8 @@ static int apple_pmp_report_entry_suspend_noirq(struct device *dev)
+ 	struct apple_pmp_report_entry *ent = dev_get_drvdata(dev);
+ 	int ret;
+ 
+-	if (!ent || !ent->sleep_release || READ_ONCE(ent->removed))
++	if (!ent || !(ent->sleep_release || (test_release_aon && ent->aon)) ||
++	    READ_ONCE(ent->removed))
+ 		return 0;
+ 	ret = apple_pmp_report_entry_sleep(ent, true);
+ 	if (ret == -EALREADY)
+@@ -1531,6 +1547,7 @@ static int apple_pmp_report_entry_probe(struct platform_device *pdev)
+ 	}
+ 
+ 	if (of_property_read_bool(node, "apple,always-on")) {
++		ent->aon = true;
+ 		ent->genpd.flags |= GENPD_FLAG_ACTIVE_WAKEUP;
+ 		apple_pmp_report_entry_set_state(&ent->genpd, true);
+ 	}
+-- 
+2.55.0
+
