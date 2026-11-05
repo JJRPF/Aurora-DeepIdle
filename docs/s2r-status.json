@@ -135,6 +135,7 @@
       ],
       "next": [
         "Send the PMP its `SetAPPower 0x201` and `SetIOPPower 0x201` after `slpa`, as macOS does; under the hypervisor that step took the cores down",
+        "At the next `slpa` run, read the storage controller’s registers after the wake (dead-man switch, read only): the PMGR domain `ps_ans2`, the ANS CPU and mailbox, and the SART’s 16 entries. A cleared SART would mean saving and restoring it",
         "Log the post-`slpa` state without the disk (the watcher on `core-node-ts` already streams kmsg)",
         "More `slpa` runs only when the owner is ready to reset by hand",
         "Lid wake, not tested separately yet"
@@ -245,7 +246,8 @@
     { "title": "`slpa` alone does not put the SoC to sleep", "body": "With every CPU in Aura and the boot core in deep WFI, `slpa` still left the SoC running. On the wake `waka` is acked, but the storage controller never acks its power-on (`IOP power acknowledgment failed: -62`). macOS does more between `slpa` and the power-down: `SetAPPower` and `SetIOPPower` to the PMP, the CPU stops and the PCPM clears." },
     { "title": "A live kernel with no disk is not a hang", "body": "After the `slpa` run the watchdogs saw a healthy kernel, so nothing reset the Mac for about 15 min. Unattended `slpa` runs need a dead-man switch tied to the disk." },
     { "title": "The watchdog cannot cover a long sleep by itself", "body": "WD1 counts 32 bits at 24 MHz, about 178 s at most. Aura now wakes on the EL2 physical timer every 60 s, re-arms the dog and sleeps again, so suspends of any length keep the safety net." },
-    { "title": "Parking the CPUs alone saves almost nothing", "body": "Suspend to RAM with every CPU in Aura’s deep WFI drew 1.365 W over 30 min on battery, and `s2idle` 1.390 and 1.413 W in the same boot. The gap to macOS’s 0.24 W is the SoC and DRAM staying up, which only the SoC steps (`slpa` and after) can close." }
+    { "title": "Parking the CPUs alone saves almost nothing", "body": "Suspend to RAM with every CPU in Aura’s deep WFI drew 1.365 W over 30 min on battery, and `s2idle` 1.390 and 1.413 W in the same boot. The gap to macOS’s 0.24 W is the SoC and DRAM staying up, which only the SoC steps (`slpa` and after) can close." },
+    { "title": "A PMGR gate alone does not lose the storage controller", "body": "genpd switched `ps_ans2` (the ANS, its mailbox and its SART) off in each of last night’s 4 suspends, and NVMe came back every time. So `slpa` takes away more than that gate does, perhaps the rail itself. The SART’s entries (8 of 16 used) are the first thing to check after the next `slpa` run." }
   ],
   "rules": [
     "Never remove and rescan PCI devices: it kills Wi-Fi until a reboot.",

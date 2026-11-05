@@ -13,7 +13,7 @@
 #     marker     file run.sh creates right after `echo mem` returns
 #     timeout-s  no marker after this long: treat as a failed resume
 #     dry        do everything but the reset (for testing)
-# Needs, prepared by run.sh in /run/psci-deadman: dd (copied), fifo, optional topic and ntfy-ip.
+# Needs, prepared by run.sh in /run/psci-deadman: dd (copied), fifo, optional topic, ntfy-ip and mmio-read (static).
 set -u
 D=/run/psci-deadman
 M=$1; T=$2; DRY=${3:-}
@@ -43,6 +43,23 @@ evidence() {
     # keep the last 40 lines
     printf '%s' "$out" | { mapfile -t a; s=$(( ${#a[@]} > 40 ? ${#a[@]} - 40 : 0 )); printf '%s\n' "${a[@]:s}"; }
 }
+# Read-only snapshot of the storage controller (static mmio-read in RAM): the PMGR domain ps_ans2 (die 0,
+# 0x28e080000 + 0x1a8), and only while that reports on (actual state, bits 7:4, 0xf; a read of a block
+# without power can stop the bus): the ANS CPU_CONTROL/STATUS, its mailbox A2I/I2A_CONTROL and the SART's
+# 16 config and 16 address words. Normal wakes give the baseline; after slpa it shows what was lost.
+regs() {
+    local r=$D/mmio-read ps out
+    [ -x $r ] || return 0
+    words() { local a v w=''; while read -r a v; do w+="${v#0x} "; done < <($r "$@"); printf '%s' "${w% }"; }
+    ps=$(words 0x28e0801a8)
+    out="ps_ans2 $ps"
+    if [ -n "$ps" ] && [ $(( (0x$ps >> 4) & 0xf )) = 15 ]; then
+        out+="; ANS cpu $(words 0x347400044 2); mbox $(words 0x347408110 2); SART cfg $(words 0x34bc50000 16); SART pa $(words 0x34bc50040 16)"
+    else
+        out+=" (domain not on: ANS and SART not read)"
+    fi
+    printf '%s' "$out"
+}
 push() {
     local body=$1 topic ip line try
     topic=$(< $D/topic) 2>/dev/null || return 0
@@ -67,6 +84,8 @@ fail() {
     printf '%s\n' "$ev" > /dev/console 2>/dev/null
     printf '%s\n' "$ev" > $D/evidence
     push "${DRY:+TEST, dry run: }$1 ($(printf '%(%F %T)T' -1)). Resetting the Mac. Kernel lines:"$'\n'"$ev"
+    ev=$(regs); say "regs: $ev"
+    [ -n "$ev" ] && push "${DRY:+TEST, dry run: }storage controller registers: $ev"
     if [ -n "$DRY" ]; then say "dry run: not resetting"; exit 1; fi
     echo s > /proc/sysrq-trigger; pause 3
     echo u > /proc/sysrq-trigger; pause 3
@@ -87,6 +106,6 @@ for try in 1 2 3; do
     : > $D/ok
     ( $D/dd if=${PROBE_DEV:-/dev/nvme0n1} of=/dev/null bs=4096 count=1 skip=$(( (RANDOM << 8) + try )) iflag=direct 2>/dev/null && echo $try > $D/ok ) &
     for s in 1 2 3 4 5 6 7 8 9 10; do [ "$(< $D/ok)" = $try ] 2>/dev/null && break; pause 1; done
-    [ "$(< $D/ok)" = $try ] 2>/dev/null && { say "disk ok after resume (try $try)"; exit 0; }
+    [ "$(< $D/ok)" = $try ] 2>/dev/null && { say "disk ok after resume (try $try)"; say "regs: $(regs)"; exit 0; }
 done
 fail "the disk does not answer after the resume"

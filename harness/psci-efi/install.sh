@@ -30,7 +30,7 @@ if [ "${1:-}" = remove ]; then
     rm -f /var/lib/deepidle/psci-efi-armed
     systemctl disable psci-efi-early.service psci-efi-run.service 2>/dev/null || true
     rm -f /etc/systemd/system/psci-efi-early.service /etc/systemd/system/psci-efi-run.service
-    rm -f /usr/local/lib/deepidle/psci-efi-early.sh /usr/local/lib/deepidle/psci-efi-run.sh /usr/local/lib/deepidle/deadman.sh
+    rm -f /usr/local/lib/deepidle/psci-efi-early.sh /usr/local/lib/deepidle/psci-efi-run.sh /usr/local/lib/deepidle/deadman.sh /usr/local/lib/deepidle/mmio-read-static
     rm -f /etc/grub.d/46_psci_ram /boot/initramfs-psci-ram.img /etc/grub.d/45_psci_efi /boot/vmlinuz-psci-efi-test /boot/initramfs-psci-efi-test.img
     rm -rf "/usr/lib/modules/$REL"
     grub-editenv /boot/grub/grubenv unset next_entry
@@ -92,6 +92,8 @@ if [ $STEP != step0 ]; then
     # SMC sleep handshake for suspend to RAM (macsmc_reboot.deep_steps, test kernel): only when the flag file asks for it
     DS=$(cat /var/lib/deepidle/deep-steps 2>/dev/null || true)
     [ $STEP = suspendall ] && [ -n "$DS" ] && sed -i "/vmlinuz-psci-efi-test /s/ panic=0$/ panic=0 macsmc_reboot.deep_steps=$DS/" /boot/grub/grub.cfg
+    # the PMP's SetAPPower/SetIOPPower IDLE after slpa (macsmc.pmp_sleep, test kernel): only when the flag file asks for it
+    [ $STEP = suspendall ] && [ -e /var/lib/deepidle/pmp-sleep ] && sed -i "/vmlinuz-psci-efi-test /s/\( panic=0.*\)$/\1 macsmc.pmp_sleep=1/" /boot/grub/grub.cfg
 fi
 
 if [ $STEP = ram ]; then
@@ -136,6 +138,7 @@ gcc -O2 -o /usr/local/lib/deepidle/scan-magic $H/../mmio/scan-magic.c || exit 1
 install -m 755 $H/early.sh /usr/local/lib/deepidle/psci-efi-early.sh
 install -m 755 $H/run.sh /usr/local/lib/deepidle/psci-efi-run.sh
 install -m 755 $H/deadman.sh /usr/local/lib/deepidle/deadman.sh
+gcc -static -O2 -o /usr/local/lib/deepidle/mmio-read-static $H/../mmio/mmio-read.c   # the dead-man's register snapshot
 install -m 644 $H/psci-efi-early.service $H/psci-efi-run.service /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable psci-efi-early.service psci-efi-run.service

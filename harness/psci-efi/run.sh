@@ -46,10 +46,11 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
         SUSPEND_ALARM=$(cat /var/lib/deepidle/suspend-alarm 2>/dev/null || echo ${SUSPEND_ALARM:-10})
         # Dead-man switch (deadman.sh): after each wake it reads the NVMe directly and resets the Mac if the
         # disk is gone (what `slpa` did on 2026-11-04). Everything it needs lives in RAM.
-        DM=/run/psci-deadman; mkdir -p $DM; cp /usr/bin/dd $(dirname $0)/deadman.sh $DM/; [ -p $DM/fifo ] || mkfifo $DM/fifo
+        DM=/run/psci-deadman; mkdir -p $DM; cp /usr/bin/dd $(dirname $0)/deadman.sh $DM/; cp $(dirname $0)/mmio-read-static $DM/mmio-read 2>/dev/null; [ -p $DM/fifo ] || mkfifo $DM/fifo
         python3 -c 'import json;print(json.load(open("/home/jjr/.config/agent-notify/config.json"))["ntfy_topic"])' > $DM/topic 2>/dev/null; chmod 600 $DM/topic
         getent ahostsv4 ntfy.sh | awk 'NR==1{print $1}' > $DM/ntfy-ip
         SLPA=0; DS=$(grep -o 'deep_steps=[0-9]*' /proc/cmdline | cut -d= -f2); [ -n "$DS" ] && [ $(( DS & 4 )) != 0 ] && SLPA=1
+        grep -q 'macsmc.pmp_sleep=1' /proc/cmdline && SLPA=1   # the PMP's own sleep: the disk may not come back either
         [ -e /var/lib/deepidle/force-ro ] && SLPA=1   # to test the read-only mode without slpa
         if [ $SLPA = 1 ]; then
             # slpa can take the disk away while btrfs is still writable (remount ro fails while the desktop
@@ -70,7 +71,7 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
             # Phase 2b: with SUSPEND_ALARM=<s> an RTC alarm is armed first; Aura's poll should end the wait on that wake
             # line (elapsed ~ alarm) instead of its 30 s timeout. Without it the wait runs the full timeout.
             { rtcwake -m no -s ${SUSPEND_ALARM:-10} 2>&1 | head -1; log "alarm: $(cat /sys/class/rtc/rtc0/wakealarm 2>&1)"; }
-            log "battery: $(cat /sys/class/power_supply/macsmc-battery/status) charge_now $(cat /sys/class/power_supply/macsmc-battery/charge_now) ac $(cat /sys/class/power_supply/macsmc-ac/online); cmdline steps: $(grep -o 'deep_steps=[0-9]*' /proc/cmdline)"
+            log "battery: $(cat /sys/class/power_supply/macsmc-battery/status) charge_now $(cat /sys/class/power_supply/macsmc-battery/charge_now) ac $(cat /sys/class/power_supply/macsmc-ac/online); cmdline steps: $(grep -o -E 'deep_steps=[0-9]*|pmp_sleep=[0-9]' /proc/cmdline | tr '\n' ' ')"
             t0=$(date +%s.%N); e0=$(cat $BAT/energy_now)
             setsid $DM/deadman.sh $DM/resumed-$MODE-$i $(( ${SUSPEND_ALARM:-10} + 300 )) < /dev/null > /dev/null 2>&1 &
             DMPID=$!
