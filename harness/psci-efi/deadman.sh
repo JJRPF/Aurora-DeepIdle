@@ -56,7 +56,7 @@ regs() {
     # setAPWakeupSources) and 9 status words (what woke the SoC from S2R, getAPWakeupSources)
     out="wake mask $(words 0x29e00400c 9); wake status $(words 0x29e004030 9); ps_ans2 $ps"
     if [ -n "$ps" ] && [ $(( (0x$ps >> 4) & 0xf )) = 15 ]; then
-        out+="; ANS cpu $(words 0x347400044 2); mbox $(words 0x347408110 2); SART cfg $(words 0x34bc50000 16); SART pa $(words 0x34bc50040 16); SART size $(words 0x34bc50080 16)"
+        out+="; ANS cpu $(words 0x347400044 2); IORVBAR $(words 0x347050000 2); mbox $(words 0x347408110 2); SART cfg $(words 0x34bc50000 16); SART pa $(words 0x34bc50040 16); SART size $(words 0x34bc50080 16)"
     else
         out+=" (domain not on: ANS and SART not read)"
     fi

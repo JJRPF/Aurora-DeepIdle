@@ -94,6 +94,8 @@ if [ $STEP != step0 ]; then
     [ $STEP = suspendall ] && [ -n "$DS" ] && sed -i "/vmlinuz-psci-efi-test /s/ panic=0$/ panic=0 macsmc_reboot.deep_steps=$DS/" /boot/grub/grub.cfg
     # the PMP's SetAPPower/SetIOPPower IDLE after slpa (macsmc.pmp_sleep, test kernel): only when the flag file asks for it
     [ $STEP = suspendall ] && [ -e /var/lib/deepidle/pmp-sleep ] && sed -i "/vmlinuz-psci-efi-test /s/\( panic=0.*\)$/\1 macsmc.pmp_sleep=1/" /boot/grub/grub.cfg
+    # the ANS wrapper's IO RVBAR save/restore (test kernel, 2026-11-05 evening): a logged no-op on normal wakes
+    [ $STEP = suspendall ] && sed -i "/vmlinuz-psci-efi-test /s/\( panic=0.*\)$/\1 nvme_apple.iorvbar_phys=0x347050000/" /boot/grub/grub.cfg
 fi
 
 if [ $STEP = ram ]; then

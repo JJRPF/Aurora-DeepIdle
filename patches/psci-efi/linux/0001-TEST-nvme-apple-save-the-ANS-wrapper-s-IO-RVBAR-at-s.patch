@@ -1,0 +1,100 @@
+From 8c8003176481f39bcd53cc4ea2a4fbbaa725ff58 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Thu, 5 Nov 2026 17:35:52 -0500
+Subject: [PATCH] TEST: nvme: apple: save the ANS wrapper's IO RVBAR at
+ suspend, restore it before RUN if it changed
+
+Off unless nvme_apple.iorvbar_phys is set (0x347050000 on T6020). macOS writes the IO RVBAR on every ASC CPU
+start (AppleASCWrapV4::_setIORVBAR); Linux relies on iBoot's value, which the SMC's slpa power cut may clear.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/nvme/host/apple.c | 37 +++++++++++++++++++++++++++++++++++++
+ 1 file changed, 37 insertions(+)
+
+diff --git a/drivers/nvme/host/apple.c b/drivers/nvme/host/apple.c
+index d3ef47fa840e..6d342ee36a9f 100644
+--- a/drivers/nvme/host/apple.c
++++ b/drivers/nvme/host/apple.c
+@@ -204,6 +204,9 @@ struct apple_nvme_hw {
+ 
+ struct apple_nvme {
+ 	struct device *dev;
++	/* TEST (GH-8): the ANS wrapper's IO RVBAR, saved at suspend, restored before RUN if it changed */
++	void __iomem *iorvbar;
++	u64 iorvbar_saved;
+ 	struct kref ref;
+ 	/* Serializes the post-M4 controller disable with reset and teardown. */
+ 	struct mutex disable_lock;
+@@ -290,6 +293,31 @@ static inline void apple_nvme_writeq(struct apple_nvme *anv, u64 value,
+ 
+ unsigned int flush_interval = 1000;
+ module_param(flush_interval, uint, 0644);
++
++/*
++ * TEST (GH-8, 2026-11-05): the physical address of the ANS ASC wrapper's IO RVBAR (ADT ans reg 1 + 0, 0x347050000
++ * on T6020), 0 = off. iBoot writes the firmware's boot address there and locks it (bit 0); macOS sets it again on
++ * every CPU start (AppleASCWrapV4::_setIORVBAR). If the SMC's slpa power cut clears it, the ANS CPU has no boot
++ * address and never runs (status 0x08). This saves it at suspend and writes it back before RUN when it changed.
++ */
++static unsigned long iorvbar_phys;
++module_param(iorvbar_phys, ulong, 0444);
++
++static void apple_nvme_iorvbar_restore(struct apple_nvme *anv)
++{
++	u64 now;
++
++	if (!anv->iorvbar || !anv->iorvbar_saved)
++		return;
++	now = readq(anv->iorvbar);
++	if (now == anv->iorvbar_saved) {
++		dev_info(anv->dev, "TEST iorvbar: kept 0x%llx\n", now);
++		return;
++	}
++	writeq(anv->iorvbar_saved, anv->iorvbar);
++	dev_info(anv->dev, "TEST iorvbar: was 0x%llx, restored 0x%llx, reads 0x%llx\n", now,
++		 anv->iorvbar_saved, readq(anv->iorvbar));
++}
+ MODULE_PARM_DESC(flush_interval,
+ 		 "Grace period in msecs between flushes (ignored on post-M4 ANS)");
+ 
+@@ -1644,6 +1672,7 @@ static void apple_nvme_reset_work(struct work_struct *work)
+ 			 */
+ 			dev_dbg(anv->dev,
+ 				"post-M4 firmware handoff: restarting stopped ANS without reset\n");
++			apple_nvme_iorvbar_restore(anv);
+ 			writel(APPLE_ANS_COPROC_CPU_CONTROL_RUN,
+ 			       anv->mmio_coproc + APPLE_ANS_COPROC_CPU_CONTROL);
+ 			ret = apple_rtkit_boot(anv->rtk);
+@@ -1662,6 +1691,7 @@ static void apple_nvme_reset_work(struct work_struct *work)
+ 		if (ret)
+ 			goto out;
+ 
++		apple_nvme_iorvbar_restore(anv);
+ 		writel(APPLE_ANS_COPROC_CPU_CONTROL_RUN,
+ 		       anv->mmio_coproc + APPLE_ANS_COPROC_CPU_CONTROL);
+ 
+@@ -2317,6 +2347,11 @@ static struct apple_nvme *apple_nvme_alloc(struct platform_device *pdev)
+ 	}
+ 
+ 	INIT_WORK(&anv->ctrl.reset_work, apple_nvme_reset_work);
++	if (iorvbar_phys) {
++		anv->iorvbar = devm_ioremap(dev, iorvbar_phys, 8);
++		if (anv->iorvbar)
++			dev_info(dev, "TEST iorvbar: 0x%lx reads 0x%llx\n", iorvbar_phys, readq(anv->iorvbar));
++	}
+ 	INIT_WORK(&anv->remove_work, apple_nvme_remove_dead_ctrl_work);
+ 	INIT_WORK(&anv->recovery_work, apple_nvme_recovery_work);
+ 	spin_lock_init(&anv->lock);
+@@ -2584,6 +2619,8 @@ static int apple_nvme_suspend(struct device *dev)
+ 	ret = apple_nvme_disable(anv, true);
+ 	if (ret)
+ 		return ret;
++	if (anv->iorvbar)
++		anv->iorvbar_saved = readq(anv->iorvbar);
+ 	/*
+ 	 * Only the NVMe controller was disabled. Its owned RTKit session stays
+ 	 * live, so resume rebuilds queues without clearing CPU_CONTROL.RUN.
+-- 
+2.55.0
+

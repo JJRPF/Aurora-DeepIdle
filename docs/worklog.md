@@ -1887,3 +1887,18 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 - Both cycles came back, rc 0, after 62.7 and 62.8 s on the alarm line (724), with all 10 CPUs online and 0 device errors.
 - `psci_dbg[17]` read `5300000080`; `[18..23]` were 0 (no new step ran).
 - The extra runtime MMIO ranges are harmless. Flags cleared; default boot.bin, no next_entry. G and H are ready for the owner.
+
+## 2026-11-05 17:36: lead: the ANS wrapper's IO RVBAR, iBoot's boot address for the ANS CPU; save/restore in the test kernel; regression armed
+
+- The cluster register for `quiesceHW` step 4 is still open: `enableCluster` writes regmap [`this`+9788] at offset [+9792] + 4 × physical cluster. It is filled through a pointer in `ApplePMGR::initDriver` after the ADT's `clusters` property (`[4, 4, 4]`) is read, not by a direct store. Parked.
+- `AppleA7IOP::startCPUWithOptions` and `AppleASCWrapV4` (13.5) have `_setIORVBAR(addr)`: a 64-bit write of `addr | lock` to offset 0 of the ASC's device memory index 1. `_isIORVBARLocked` reads bit 0 back.
+  - For the ANS, ADT `/arm-io/ans` reg 1 is `0x347050000`. Linux does not map it.
+  - Read now (the ANS is up): `0x0000010000004001`, i.e. boot address `0x10000004000` in DRAM, locked.
+  - The PMP's (`/arm-io/pmp` reg 1, `0x28e850000`) reads `0x000000028e700001`: boot address `0x28e700000`, the PMP firmware region, locked.
+- Lead: iBoot sets these once. If the SMC's `slpa` power cut resets the ANS wrapper, the IO RVBAR comes back 0. RUN then starts the ANS CPU with no boot address, which fits status 0x08 and `ANS did not boot` after every `slpa` (the SART was ruled out in run C). The PMP's wake failures in October may share the cause.
+- Test kernel patch `0001-TEST-nvme-apple-save-the-ANS-wrapper-s-IO-RVBAR-at-s.patch`:
+  - `nvme_apple.iorvbar_phys` (0 = off) maps the register at probe and logs it. Suspend saves it.
+  - The reset path writes it back just before RUN (both RUN sites), only when it changed, and logs `TEST iorvbar: kept …` or `was …, restored …`.
+- Image installed (`9ca4c03061249ba0`, the old one in `/var/lib/deepidle/vmlinuz-psci-efi-test.pre-iorvbar`). `install.sh suspendall` now passes `nvme_apple.iorvbar_phys=0x347050000`.
+- The dead-man snapshot also reads the IO RVBAR, so the next `slpa` run shows whether `slpa` clears it.
+- Regression armed (unattended, no `slpa`, image 53, aura-ctl 0x80, 2 `deep` cycles of 60 s). Expect the probe line, then `kept 0x10000004001` on each resume and 0 errors.
