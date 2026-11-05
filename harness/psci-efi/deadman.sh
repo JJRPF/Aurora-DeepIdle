@@ -33,7 +33,7 @@ evidence() {
         case $l in " "*) continue ;; esac   # the record's dictionary lines (DEVICE=...)
         l=${l#*;}
         case $l in
-            *sleep:*|*SetAPPower*|*MBSE*|*MBSW*|*waka*|*"PM: "*|*nvme*|*apple-ans*|*psci*) ;;
+            *sleep:*|*SetAPPower*|*SetIOPPower*|*MBSE*|*MBSW*|*waka*|*"PM: "*|*nvme*|*apple-ans*|*sart*|*pmp*|*psci*) ;;
             *BTRFS*) nb=$((nb + 1)); [ $nb -le 3 ] || continue ;;
             *) continue ;;
         esac
@@ -60,6 +60,8 @@ regs() {
     else
         out+=" (domain not on: ANS and SART not read)"
     fi
+    [ -x $D/pmgrcnt ] && out+="; pmgr counters $($D/pmgrcnt show)"
+    [ -s $D/aura-dbg ] && out+="; aura dbg $(words $(< $D/aura-dbg) 16)"
     printf '%s' "$out"
 }
 push() {

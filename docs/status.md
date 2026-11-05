@@ -62,11 +62,10 @@ There are two goals:
   test kernel now saves the SART at suspend and restores what changed (a no-op on 4 of 4 normal wakes), and
   the dead-man switch reads the ANS, mailbox and SART state after each wake. Next: the same `slpa` run with
   both, when the owner can reset by hand. Drain A/B on battery: suspend to RAM 1.37 W, s2idle 1.39 to 1.41 W.
-* **2026-11-05, 07:01: the second `slpa` run** (image 49, SART restore, 60 s alarm) never resumed. The Mac
-  reset itself about 100 s after entry, before any of the 120 s watchdogs could fire, with a PMU boot error (a
-  long-press logs none). Either `slpa` really took the SoC down and the alarm woke it into a cold boot (there is
-  no resume path yet), or the SMC timed out waiting. Disk and filesystem clean. A 30 s alarm run, owner present,
-  tells the two apart.
+* **2026-11-05, 07:01: the second `slpa` run** (image 49, SART restore, 60 s alarm) came back on the alarm, but
+  with the storage controller dead again (`ANS did not boot`), and the dead-man switch reset the Mac. It was first
+  read as a reset without a resume; its push to the owner's phone, read at 15:57, shows the resume. Disk and
+  filesystem clean.
 * **2026-11-05, morning (static, from macOS 13.5):** macOS tells the PMU the AP is asleep (boot stage 0x50) and
   gives the SMC a 10 s deadline as it sleeps; Linux does neither (test options staged, off). The PMGR's AP
   wake-source mask is all open under Linux; macOS's narrower mask stops even Aura's normal deep-WFI wake, so
@@ -77,11 +76,12 @@ There are two goals:
   state counters, now readable from Linux, confirm it: only `AWAKE` counts through Aura's suspend. Image 51
   resumes Linux if a real S2R wake reaches Aura, and the counters' `SLP_S2R` will show whether the SoC went down.
   The next `slpa` runs (A to C) are scripted and wait for the owner.
-* **2026-11-05, 15:14: owner-attended run A** (image 51, `slpa`, 30 s alarm): no resume; the Mac reset itself and
-  the next kernel started 93 s after entry, 63 s after the alarm. The 07:01 run (60 s alarm) gave 124 s, also 64 s
-  after its alarm. So the reset follows the alarm, not `slpa`: it is not an SMC timeout. The alarm no longer reaches
-  Aura (in the first `slpa` run, with a 10 s alarm, it did), so the AP was most likely down and comes back cold
-  instead of resuming. Disk clean. Run B (PMU boot stage 0x50, as macOS sets it) is next.
+* **2026-11-05, afternoon: owner-attended runs A and B** (image 51, `slpa`, 30 s alarm; B also sets the PMU boot
+  stage 0x50, as macOS does). Both came back on the alarm with the SoC still up and the storage controller dead,
+  and the dead-man switch reset the Mac, as in the two earlier `slpa` runs. Boot stage 0x50 changed nothing. A
+  first reading of run A ("the AP went down and booted cold") was wrong and is corrected in the worklog (15:57).
+  The dead-man switch now also pushes the PMGR counters and the SART restore's result. Run C, macOS's PMP
+  steps after `slpa`, is next.
 * **Earlier the same day, before Phase 2 closed: 33%** (risk-weighted
   guess, wide error bar). Done: timed wake, SMC handshake, macOS trace
   method, CPU_ON, a firmware that hands the boot CPU back and wakes it on

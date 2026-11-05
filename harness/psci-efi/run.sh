@@ -49,6 +49,11 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
         DM=/run/psci-deadman; mkdir -p $DM; cp /usr/bin/dd $(dirname $0)/deadman.sh $DM/; cp $(dirname $0)/mmio-read-static $DM/mmio-read 2>/dev/null; [ -p $DM/fifo ] || mkfifo $DM/fifo
         python3 -c 'import json;print(json.load(open("/home/jjr/.config/agent-notify/config.json"))["ntfy_topic"])' > $DM/topic 2>/dev/null; chmod 600 $DM/topic
         getent ahostsv4 ntfy.sh | awk 'NR==1{print $1}' > $DM/ntfy-ip
+        # for the dead-man switch's snapshot after a resume with the disk gone (2026-11-05 15:22): the PMGR
+        # counters and Aura's psci_dbg words, read by RAM-resident static tools
+        [ -e /var/lib/deepidle/pmgr-counters ] && cp /usr/local/lib/deepidle/pmgrcnt $DM/ 2>/dev/null
+        AB=$(xxd -p /proc/device-tree/chosen/aura,psci-runtime-code 2>/dev/null | cut -c1-16)
+        [ -n "$AB" ] && printf '0x%x\n' $((0x$AB + 0x1472c8)) > $DM/aura-dbg
         SLPA=0; DS=$(grep -o 'deep_steps=[0-9]*' /proc/cmdline | cut -d= -f2); [ -n "$DS" ] && [ $(( DS & 4 )) != 0 ] && SLPA=1
         grep -q 'macsmc.pmp_sleep=1' /proc/cmdline && SLPA=1   # the PMP's own sleep: the disk may not come back either
         [ -e /var/lib/deepidle/force-ro ] && SLPA=1   # to test the read-only mode without slpa
