@@ -124,7 +124,7 @@
       "short": "The SoC powers down, DRAM in self-refresh",
       "state": "active",
       "pct": 10,
-      "summary": "Aura’s `SYSTEM_SUSPEND` gains the SoC steps in macOS’s order: PMGR quiesce, the S2R timer, the PMU SPMI quiesce and `slpa`, then `restoreHW` on wake. The first `slpa` inside a real suspend did not power the SoC down, and it left NVMe dead.",
+      "summary": "Aura’s `SYSTEM_SUSPEND` gains the SoC steps in macOS’s order: PMGR quiesce, the S2R timer, the PMU SPMI quiesce and `slpa`, then `restoreHW` on wake. Two `slpa` runs so far: one came back with NVMe dead, one never resumed (a reset about 100 s in). Image 51 is ready to show whether the SoC really goes down.",
       "done": [
         "The PMGR, SMC and PMP sleep actions read from the macOS 13.5 kernelcache",
         "Test kernel flag `macsmc_reboot.deep_steps`: `slpw` in prepare, `slpa` in suspend_late, `waka` on wake",
@@ -140,10 +140,10 @@
         "Image 51: an RVBAR entry after a real S2R wake now resumes Linux (on the boot CPU) instead of resetting; ready for the owner-attended `slpa` runs"
       ],
       "next": [
-        "Owner-attended `slpa` run with a 30 s alarm: a reset about 64 s after the alarm means the SoC went down (then the wake path is next); 124 s again means an SMC timeout",
-        "Then the same run with the PMU boot stage at 0x50 across the suspend (`deep_steps=14`), as macOS does",
-        "Send the PMP its `SetAPPower 0x201` and `SetIOPPower 0x201` after `slpa`, as macOS does; under the hypervisor that step took the cores down",
-        "Log the post-`slpa` state without the disk (the watcher on `core-node-ts` already streams kmsg)",
+        "Owner-attended run A: image 51, `slpa`, 30 s alarm. A resume, a reset about 204 s after `echo mem` (Linux resumed through RVBAR, then hung), about 94 s (a cold boot) or 124 s (an SMC timeout) each name a different cause",
+        "Run B: the same with the PMU boot stage at 0x50 across the suspend (`deep_steps=14`), as macOS does",
+        "Run C: macOS’s PMP steps after `slpa` (`pmp_sleep`); the PMP is expected to stay down afterwards unless a real S2R power-cycles it",
+        "After a first real S2R wake: restart the nine secondaries from Aura at runtime (design in the worklog, 2026-11-05 10:20)",
         "More `slpa` runs only when the owner is ready to reset by hand",
         "Lid wake, not tested separately yet"
       ],
@@ -284,8 +284,8 @@
     "Whether a DCP with nothing attached can be shut down and restarted.",
     "What the PMP’s VLPM tunables control.",
     "Why an inline `dsb sy; isb; wfi` in `SYSTEM_SUSPEND` never woke when `deep_wfi()` does.",
-    "What brings NVMe back after `slpa`: the SART restore (macOS does it on every ANS start) is ready to test, and the ANS boot itself may need more",
-    "Whether the reset about 100 s after `slpa` (2026-11-05) was a cold boot from the alarm with the SoC down, or an SMC timeout"
+    "Whether the reset about 100 s after `slpa` (2026-11-05) was a cold boot from the alarm with the SoC down, or an SMC timeout",
+    "What brings NVMe back after `slpa`: the SART restore (macOS does it on every ANS start) is in the test kernel and untested after `slpa`; the ANS boot itself may need more"
   ],
   "upstream": [
     { "name": "aurora-silicon/m1n1#63", "what": "DT headroom for the PMP tunables" },
