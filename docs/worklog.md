@@ -1627,7 +1627,7 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 - Afterwards `charge_behaviour` is back to `auto` and the thresholds to 80/75; flags removed, boot.bin 76f850895fed53d1, `next_entry` unset.
 - Also fixed today’s worklog headings from 07:12 on: several carried estimated times instead of the clock; they now show each entry’s commit time.
 
-## 2026-11-05 10:10: `MBSE` on wake is macOS’s SMC wake reason; the plan for the owner-attended runs
+## 2026-11-05 10:02: `MBSE` on wake is macOS’s SMC wake reason; the plan for the owner-attended runs
 
 - `AppleSMC::callPlatformFunction(IOPlatformWakeAction)` reads `MBSE` and claims it as the system wake event `SMC.MBSE.%02x` (`IOPMrootDomain::claimSystemWakeEvent`), then reads 8 bytes of `MBSW` and sends `waka`. So the `MBSE 00010730` after the first `slpa` run (11-04 21:32) was the SMC’s wake reason; its codes are in the SMC firmware (inside the encrypted iBoot), so it cannot be decoded here.
 - The owner-attended runs, in order, each one boot with the owner at the power key (long press only after 10 min with no push and no chat message):
@@ -1640,17 +1640,17 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 
 - Arming each: write the flag files, `findmnt /boot`, `sudo bash harness/psci-efi/install.sh suspendall`, send the owner the ntfy instructions, then `reboot.sh` with a prompt naming the run. The dead-man snapshot (wake mask and status, ANS, SART) and the watcher on `core-node-ts` record what happens.
 
-## 2026-11-05 10:06: image 51: the RVBAR path resumes the kernel even without a wake line; regression armed
+## 2026-11-05 10:03: image 51: the RVBAR path resumes the kernel even without a wake line; regression armed
 
 - After a real S2R the AIC has lost its state, so image 50’s RVBAR path would never find a wake line and its 10 s stage would reset the Mac: a signature but a dead end. Image 51 (eb1904c3373bd624) hands over to the kernel’s resume on any RVBAR entry with the resume magic set (`psci_dbg[13]` = 3 when no wake line was found, 2 with one), under the 150 s stage-2 dog. If DRAM did not survive, the magic check fails first and nothing is resumed.
 - Expected at the first real S2R wake: Linux resumes on the boot CPU (its AIC and SART restores run), the nine secondaries time out on `CPU_ON` (their park loops are gone; a cold restart of secondaries from Aura at runtime is the next piece), and the kernel log reaches the Pi. A hang in the kernel’s resume shows as a reset 150 s after the RVBAR entry plus about 24 s of firmware.
-- The normal path is unchanged; regression run armed: `suspendall`, 2 `deep` cycles of 120 s, root read-only. The owner-attended table (10:10 entry) now uses image 51; run A’s 64 s reading becomes “Linux resumes” or about 204 s (stage 2).
+- The normal path is unchanged; regression run armed: `suspendall`, 2 `deep` cycles of 120 s, root read-only. The owner-attended table (10:02 entry) now uses image 51; run A’s 64 s reading becomes “Linux resumes” or about 204 s (stage 2).
 
-## 2026-11-05 10:11: image 51 regression run: 2 of 2
+## 2026-11-05 10:10: image 51 regression run: 2 of 2
 
 - Image 51 (eb1904c3373bd624), `suspendall`, 2 `deep` cycles of 120 s, root read-only, normal path: **2 of 2 back** (121.7 and 122.4 s), `online 0-9`, 0 device errors, dead-man `disk ok`, SART kept, Aura’s debug words the same as image 50’s. Image 51 is the image for the owner-attended runs. Disarmed.
 
-## 2026-11-05 10:20: design note: restarting the secondaries after a real S2R (not built yet)
+## 2026-11-05 10:11: design note: restarting the secondaries after a real S2R (not built yet)
 
 - After S2R the nine secondaries are powered off with their park loops gone, so Aura’s `CPU_ON` (which only hands an entry to a parked core through the spin table) cannot bring them back; Linux would time out on each (about 5 s apiece) and run on the boot CPU. Linux `linux-aurora 7.2.11.aurora14-1` is still the newest package, so the test kernel’s base is current.
 - What a runtime cold start needs, from `smp_start_cpu()` (boot time, `src/smp.c`):
@@ -1660,39 +1660,39 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
   - the secondary’s RVBAR entry (`_cpu_reset_c`, quiet when `psci_runtime`) then reaches `smp_secondary_entry()` and parks, after which the normal `CPU_ON` dispatch works.
 - Plan: on an RVBAR resume of the boot CPU with no wake line (`psci_dbg[13]` 3), mark every secondary as lost; `CPU_ON` for a lost core runs the cold start above, then dispatches. It can only be exercised after a real S2R wake, so it waits until run A shows the boot CPU coming back through RVBAR.
 
-## 2026-11-05 10:25: the PMP after `slpa`: run C will likely leave it down; long `s2idle` A/B armed
+## 2026-11-05 10:12: the PMP after `slpa`: run C will likely leave it down; long `s2idle` A/B armed
 
 - From the 10-22 notes: on macOS the PMP’s wake from IDLE is a power cycle (`stopCPU`, DART unmapped, `ps_pmp` and `ps_pms_sram` gated, then ungated, DART back, `_runCPU(1)`). Linux cannot gate `ps_pmp` (always-on in the DT, and the owner’s rule: no `ps_pmp` reset), so owner-attended run C (`pmp_sleep`) will most likely leave the PMP silent until the next boot, unless a real S2R power-cycles it anyway (then the PMP driver must boot it again, as the NVMe driver does the ANS).
 - Armed the long A/B partner for the 10:01 `deep` run: same test kernel and image 51, **`s2idle`, one cycle with a 6300 s alarm**, on battery (forced discharge, limit 20/15, 80/75 put back after), root read-only.
 
-## 2026-11-05 12:02: long A/B on battery: `deep` 1.444 W, `s2idle` 1.478 W
+## 2026-11-05 12:01: long A/B on battery: `deep` 1.444 W, `s2idle` 1.478 W
 
 - Image 51 test kernel, normal path, `s2idle`, one cycle with a 6300 s alarm, on battery (forced discharge from 82%), root read-only: **back on the alarm after 6300.4 s** (10:15:10 to 12:00:13), `online 0-9`, 0 device errors, dead-man `disk ok`, SART kept, wake mask and status 0.
 - 47.743 to 45.155 Wh: **2.588 Wh, 1.478 W**. Against the 10:01 `deep` run (1.444 W over 6391 s), suspend to RAM with every CPU parked in Aura saves **about 0.03 W (2%)**, the same as the 30 min A/B (1.365 against 1.39 to 1.41 W). The rest, about 1.4 W, is the SoC and its devices staying up; only the SoC power-down (`slpa` and what follows) can take it away. macOS: 0.24 W.
 - Logs in `data/drain-ab/2026-11-05-image50-51-long-deep-vs-s2idle.log`. Afterwards `charge_behaviour` `auto`, thresholds 80/75; flags removed, `sleep-modes` back to `deep`, boot.bin 76f850895fed53d1, `next_entry` unset.
 
-## 2026-11-05 12:15: lead: the PMGR’s own state counters (`SLP_S2R`) could say whether the SoC slept
+## 2026-11-05 12:04: lead: the PMGR’s own state counters (`SLP_S2R`) could say whether the SoC slept
 
 - The ADT pmgr `events` name per-state PMGR performance counters: `SLP_DDR` (block 0, index 42/43), `AWAKE` (44/45), **`SLP_S2R` (46/47)**, `DEEP_WAIT` (48/49), `SYS_AWAKE` (50/51), `SYS_S2R_AOP` (52/53), `SYS_SLP_DDR` (54/55), and `DDR_WK_TIME`/`S2R_WK_TIME` (block 1, 40 and 38). The ADT `perf-regs` list places block 0 at pmgr reg 1 + 0x48000 (Linux **`0x29e2c8000`**, 0x3D counters) and block 1 at pmgr reg 0 + 0x60000.
 - Read on Linux (read only, after a `sync`; nothing maps it): only +0x4/+0x8 move, a 64-bit count at 24 MHz (about 6645 s); every per-event word up to +0x500 is 0, so the event counters are off under Linux. macOS turns them on in `ApplePMGR::initAON` (`_enableAONPerfCounters` → `_enableSOCPerfCounter`): a read-modify-write of a per-counter config word, at `base + 16 × idx + 0x100` or, in layout version 2, `base + 28 × idx + 0x2c` (low bits: 4 = enable, 1 = an inverted flag), then a busy-bit poll for some groups.
 - Not written: which layout this PMGR uses is not pinned down (a global in the driver), and a PMGR write on a guess is how the 07:44 suspend was lost. With the layout confirmed, enabling `SLP_S2R` and `SYS_S2R_AOP` before an `slpa` run would show directly whether the SoC entered S2R and for how long, without reading reset times. Proposed for a session with the owner present.
 
-## 2026-11-05 12:25: the counter layout pinned down; baseline run armed (counters on, SoC up)
+## 2026-11-05 12:07: the counter layout pinned down; baseline run armed (counters on, SoC up)
 
 - `ApplePMGR::start` reads `perf-counter-version` from the ADT and, when it is absent (as on the J414s), uses **1** (`csinc w8, w8, wzr, ne`), so the counters use the 16-byte layout: config at `0x29e2c8000 + 0x100 + 16 × idx`, the 64-bit count at +0x108/+0x10c. `SLP_S2R` is index 46: config `0x29e2c83e0`, count `0x29e2c83e8`.
 - `harness/mmio/pmgrcnt.c` (show, `enable`), limited to indices 42 to 55 of that perf-only block; `enable` writes `(old & ~7) | 4 | 1` as `_enableSOCPerfCounter(…, true, false)` does. `run.sh` takes `/var/lib/deepidle/pmgr-counters`: enable before the cycles (after the read-only remount), log the counters 2 s later and after each cycle.
 - Armed the baseline: image 51, normal path, root read-only, counters on, **one `deep` and one `s2idle` cycle of 120 s**. Expected: `AWAKE`/`SYS_AWAKE` counting, `SLP_S2R` and `SYS_S2R_AOP` staying at 0 (the SoC stays up). If a counter moves with the SoC up, that is worth knowing before the `slpa` runs read them.
 
-## 2026-11-05 12:20: counter baseline: the counters did not start, and the `deep` cycle lost the secondaries during an AOP failure
+## 2026-11-05 12:15: counter baseline: the counters did not start, and the `deep` cycle lost the secondaries during an AOP failure
 
 - Image 51, counters “enabled” at kernel 64.4 s: the 14 config words read back **1** after writing `(old & ~7) | 4 | 1` (bit 0 stayed set, bit 2 did not), and every count stayed 0 through both cycles. So the per-counter write alone does not start them; macOS also calls `_enableSOCPerfCounters(group, …)` for the whole group, which was not done.
 - The `deep` cycle came back after **94.4 s** (alarm at 120 s) with **only CPU 0 online**: all nine `CPUn: failed to come online`, two `macsmc: Failed to send command` right after the CPU_OFFs, 31 device errors; the `s2idle` cycle then ran on one CPU. Dead-man `disk ok` both times; no reset.
 - Confounder: in this boot **the AOP’s probe failed on its own** from 19 s (endpoints 0x20 to 0x2c `did not acknowledge its shutdown`, 5 s each, then `Failed to stop AOP ETIMEDOUT` at 118 s, `probe … failed with error -110`), so its teardown was still running across the `deep` suspend, long before and after the counter write. None of the previous six boots shows it.
 - So the cause is open: the AOP failure, or the counter config write. One repeat decides it: the same run with the counters, on a boot where the AOP comes up normally.
 
-## 2026-11-05 12:25: counter repeat: 2 of 2 with the AOP healthy, so the 12:20 loss came from the AOP failure
+## 2026-11-05 12:24: counter repeat: 2 of 2 with the AOP healthy, so the 12:15 loss came from the AOP failure
 
-- Same run on a fresh boot where the AOP came up normally (`AOP IS READY`, no shutdown timeouts): counters “enabled” as before, then 2 `deep` cycles of 120 s: **2 of 2 back** (122.1 and 122.3 s), **`online 0-9`**, 0 device errors. So the per-counter config write is harmless and the 12:20 loss of the secondaries (and the SMC command failures) came with the AOP’s failed probe; the AOP failure itself is a one-off so far (1 of the last 8 boots).
+- Same run on a fresh boot where the AOP came up normally (`AOP IS READY`, no shutdown timeouts): counters “enabled” as before, then 2 `deep` cycles of 120 s: **2 of 2 back** (122.1 and 122.3 s), **`online 0-9`**, 0 device errors. So the per-counter config write is harmless and the 12:15 loss of the secondaries (and the SMC command failures) came with the AOP’s failed probe; the AOP failure itself is a one-off so far (1 of the last 8 boots).
 - The counters still did not count. `ApplePMGR::_enableSOCPerfCounters(group, true)` sets bit 0 of the group’s control word (block 0 `+0`, which reads `0x00030000`, bit 0 clear) after the per-counter configs; `pmgrcnt enable` now does that last step too. One more short run with it.
 
 ## 2026-11-05 12:31: the PMGR’s state counters work: with the SoC up, only `AWAKE` counts
@@ -1700,8 +1700,8 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 - Image 51, AOP healthy, `pmgrcnt enable` with the group bit (control `0x30000` → bit 0 set), then one `deep` and one `s2idle` cycle of 120 s: **2 of 2 back, `online 0-9`, 0 device errors**.
 - The counters run at 24 MHz and count time in each state: 2 s after enabling, `AWAKE` and `SYS_AWAKE` (and their second counters) read 48.2 M ticks; after the `deep` cycle 3.040 G (+124.6 s), after the `s2idle` cycle 6.049 G (+125.4 s). **`SLP_DDR`, `SLP_S2R`, `DEEP_WAIT`, `SYS_S2R_AOP` and `SYS_SLP_DDR` stayed at 0 throughout**: the PMGR’s own record that the SoC never left AWAKE during Aura’s suspend or s2idle, the first direct measurement of that (it fits the drain: 1.44 W against 1.48 W).
 - So in an `slpa` run that comes back (a resume, or Linux through image 51’s RVBAR path), `SLP_S2R` and `SYS_S2R_AOP` above 0 would prove the SoC went down, and their ticks say for how long. A cold boot resets the PMGR, so they cannot tell anything after a reset.
-- Added to the owner-attended plan (10:10 table): **every run also sets `/var/lib/deepidle/pmgr-counters`**. The counters stay off by default.
+- Added to the owner-attended plan (10:02 table): **every run also sets `/var/lib/deepidle/pmgr-counters`**. The counters stay off by default.
 
-## 2026-11-05 12:40: `attended.sh`: one command per owner-attended run
+## 2026-11-05 12:32: `attended.sh`: one command per owner-attended run
 
-- `harness/psci-efi/attended.sh A|B|C [--dry]` arms a run from the 10:10 plan with today’s changes (image 51, `pmgr-counters`, 1 `deep` cycle, 30 s alarm, root read-only): A `deep_steps` 6; B 14 (adds the PMU boot stage 0x50); C 14 plus `pmp-sleep`. It checks `/boot` and the default boot.bin, writes the flags, runs `install.sh suspendall`, sends the owner the ntfy instructions (when to hold power), writes the boot prompt for the result (what each reading means) and reboots. Run only after the owner says they are at the Mac. Dry runs of A and C pass.
+- `harness/psci-efi/attended.sh A|B|C [--dry]` arms a run from the 10:02 plan with today’s changes (image 51, `pmgr-counters`, 1 `deep` cycle, 30 s alarm, root read-only): A `deep_steps` 6; B 14 (adds the PMU boot stage 0x50); C 14 plus `pmp-sleep`. It checks `/boot` and the default boot.bin, writes the flags, runs `install.sh suspendall`, sends the owner the ntfy instructions (when to hold power), writes the boot prompt for the result (what each reading means) and reboots. Run only after the owner says they are at the Mac. Dry runs of A and C pass.

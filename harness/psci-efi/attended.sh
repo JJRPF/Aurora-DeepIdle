@@ -1,5 +1,5 @@
 #!/bin/bash
-# Owner-attended slpa runs (worklog 2026-11-05 10:10): arm one, tell the owner, reboot into it.
+# Owner-attended slpa runs (worklog 2026-11-05 10:02): arm one, tell the owner, reboot into it.
 #   bash harness/psci-efi/attended.sh A|B|C [--dry]
 # A: slpa (deep_steps 6), 30 s alarm. B: A + PMU boot stage 0x50 (deep_steps 14). C: B + the PMP steps (pmp-sleep).
 # Every run: image 51 (install.sh BIN2), 1 deep cycle, root read-only, the PMGR state counters on, dead-man switch.
@@ -33,7 +33,7 @@ agent-notify send --title "S2R run $RUN: starting now" --priority high --tags "r
 3) No chat message and no push within 10 min: hold power ~10 s until off, wait 5 s, press once. Then tell me 'reset by hand' and when." | tail -1
 P=$(mktemp)
 cat > $P <<E
-First remove ~/.local/state/deepidle/resume. This boot is OWNER-ATTENDED slpa run $RUN (worklog 2026-11-05 10:10): image 51, deep_steps=$DS, pmp-sleep=$PMP, 1 deep cycle, 30 s alarm, PMGR counters on, root ro, dead-man switch. Work out what happened from uptime vs resume.log, the Pi watcher kmsg and the newest results-psci-efi-suspendall-*/run.log: a resume (read 'pmgr counters after deep 1': SLP_S2R / SYS_S2R_AOP above 0 = the SoC went down; psci_dbg[13] 3 = it came back through RVBAR with no wake line; apple-sart lines; nvme errors; the dead-man regs), or a reset (time from echo mem to the next kernel start: about 204 s = Linux resumed through RVBAR then hung; 94 s cold boot; 124 s SMC timeout; ask the owner if they reset by hand). Read-only btrfs scrub if any btrfs error appeared. Then remove deep-steps, pmp-sleep, pmgr-counters, force-ro; check boot.bin 76f850895fed53d1 and next_entry unset. Record in the worklog, s2r-status.json, status.md and the board; push GH-8 and main; tell the owner the result right away.
+First remove ~/.local/state/deepidle/resume. This boot is OWNER-ATTENDED slpa run $RUN (worklog 2026-11-05 10:02): image 51, deep_steps=$DS, pmp-sleep=$PMP, 1 deep cycle, 30 s alarm, PMGR counters on, root ro, dead-man switch. Work out what happened from uptime vs resume.log, the Pi watcher kmsg and the newest results-psci-efi-suspendall-*/run.log: a resume (read 'pmgr counters after deep 1': SLP_S2R / SYS_S2R_AOP above 0 = the SoC went down; psci_dbg[13] 3 = it came back through RVBAR with no wake line; apple-sart lines; nvme errors; the dead-man regs), or a reset (time from echo mem to the next kernel start: about 204 s = Linux resumed through RVBAR then hung; 94 s cold boot; 124 s SMC timeout; ask the owner if they reset by hand). Read-only btrfs scrub if any btrfs error appeared. Then remove deep-steps, pmp-sleep, pmgr-counters, force-ro; check boot.bin 76f850895fed53d1 and next_entry unset. Record in the worklog, s2r-status.json, status.md and the board; push GH-8 and main; tell the owner the result right away.
 E
 sed -n '/^UPDATE FROM GH-10/,$p' ~/.local/state/deepidle/prompt.txt >> $P
 bash ~/Work/deepidle-harness/reboot.sh $P 30

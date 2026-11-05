@@ -144,7 +144,7 @@
         "Owner-attended run A: image 51, `slpa`, 30 s alarm. A resume, a reset about 204 s after `echo mem` (Linux resumed through RVBAR, then hung), about 94 s (a cold boot) or 124 s (an SMC timeout) each name a different cause",
         "Run B: the same with the PMU boot stage at 0x50 across the suspend (`deep_steps=14`), as macOS does",
         "Run C: macOS’s PMP steps after `slpa` (`pmp_sleep`); the PMP is expected to stay down afterwards unless a real S2R power-cycles it",
-        "After a first real S2R wake: restart the nine secondaries from Aura at runtime (design in the worklog, 2026-11-05 10:20)",
+        "After a first real S2R wake: restart the nine secondaries from Aura at runtime (design in the worklog, 2026-11-05 10:11)",
         "More `slpa` runs only when the owner is ready to reset by hand",
         "Lid wake, not tested separately yet"
       ],
