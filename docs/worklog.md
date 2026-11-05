@@ -1598,3 +1598,7 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 - Then the cycle with `deep_steps=16` (macOS’s value across the suspend): `echo mem` 07:56:10, next kernel 07:58:35, **145 s: a 120 s dog**. The alarm was due at 120 s and Aura’s 60 s heartbeat would have pushed the dog to about 181 s, so **neither the heartbeat (EL2 timer) nor the PMU alarm woke the boot CPU from Aura’s deep WFI** with only macOS’s 22 sources enabled.
 - So the PMGR’s AP wake mask also gates the AP’s wake from deep WFI with the SoC up, and Linux’s all-zero mask (every source enabled) is what lets the alarm and the heartbeat through. The mask is not the reason the 07:01 `slpa` run failed. In macOS’s mask the alarm’s path into the PMGR evidently is not one of the enabled bits (or needs the SPMI controller set up as macOS does).
 - Next, unattended and on the normal path: read the wake status words after each wake with the mask left at 0 (the dead-man snapshot now reads the right block). If they latch on a deep-WFI wake, they name the bit the PMU alarm (and the heartbeat) use, which an S2R mask must keep enabled.
+
+## 2026-11-05 08:05: armed: which wake-status bits a deep-WFI wake sets (mask 0)
+
+- Image 50, `suspendall`, normal path (no `deep_steps`), root read-only, 2 `deep` cycles with a 90 s alarm (each crosses one 60 s heartbeat before the alarm). The dead-man snapshot after each wake reads the mask (expect 0) and the 9 status words at `0x29e004030`.
