@@ -390,7 +390,7 @@ index 92d225ab..8356847a 100644
                                 unsigned long arg2);
  
 diff --git i/src/smp.c w/src/smp.c
-index 4c866a6c..949d3e5e 100644
+index 4c866a6c..52fdf3a6 100644
 --- i/src/smp.c
 +++ w/src/smp.c
 @@ -4,6 +4,7 @@
@@ -478,22 +478,31 @@ index 4c866a6c..949d3e5e 100644
      }
      sysop("dmb sy");
      me->flag++;
-@@ -1113,6 +1136,9 @@ int smp_psci_cpu_off(void)
+@@ -1109,10 +1132,17 @@ void psci_park_c(u64 index)
  
-     if (index < 0 || index == boot_cpu_idx)
+ int smp_psci_cpu_off(void)
+ {
++    static bool first_off = true;
++    if (first_off)
++        wdt_psci_arm(30); /* image 46: the first CPU_OFF call reached Aura */
+     int index = smp_psci_index(mrs(MPIDR_EL1));
+ 
+-    if (index < 0 || index == boot_cpu_idx)
++    if (index < 0 || index == boot_cpu_idx) {
++        if (first_off)
++            wdt_psci_arm(index < 0 ? 50 : 70); /* image 46: DENIED (the kernel then BUG()s in cpu_die) */
          return PSCI_RET_DENIED;
-+    /* image 44 stamps, first secondary only (index 1): reset time after echo mem minus ~24 s firmware */
-+    if (index == 1)
-+        wdt_psci_arm(30); /* CPU_OFF entered */
++    }
++    first_off = false;
  
      /*
       * Not the PMGR stop request: a core stopped that way did not come back from any start
-@@ -1123,10 +1149,16 @@ int smp_psci_cpu_off(void)
+@@ -1123,10 +1153,16 @@ int smp_psci_cpu_off(void)
      /* The entry this core was started with is still in the table (the kernel never returns). */
      spin_table[index].target = 0;
      dc_civac_range(&spin_table[index], sizeof(struct spin_table));
 +    if (index == 1)
-+        wdt_psci_arm(40); /* spin_table target cleared */
++        wdt_psci_arm(40); /* spin_table target cleared (index 1) */
      psci_cpu_state[index] = PSCI_CPU_OFF;
      dc_civac_range(&psci_cpu_state[index], 1);
 +    if (index == 1)
@@ -505,7 +514,7 @@ index 4c866a6c..949d3e5e 100644
      u64 sp = (u64)secondary_stacks[index] + SECONDARY_STACK_SIZE;
      asm volatile("mov sp, %0\n mov x0, %1\n b psci_park_c" ::"r"(sp), "r"((u64)index) : "x0");
      __builtin_unreachable();
-@@ -1162,8 +1194,14 @@ int smp_psci_mmio_ranges(u64 *ranges, int max)
+@@ -1162,8 +1198,14 @@ int smp_psci_mmio_ranges(u64 *ranges, int max)
          smp_psci_add_range(ranges, max, &n, cpu_start_base + cpu_info[i].die * PMGR_DIE_OFFSET,
                             0x100);
      }

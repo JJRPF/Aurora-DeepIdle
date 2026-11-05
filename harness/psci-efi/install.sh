@@ -20,7 +20,7 @@ REL=7.2.11-psci-efi+
 STAGE=/home/jjr/Work/staging-psci-efi
 BIN0=/home/jjr/Work/psci-test/boot.bin.aura-stage2; SHA0=19d5f8f627f966a1
 BIN1=/home/jjr/Work/psci-test/boot.bin.psci-test15;  SHA1=a5e3ced5b3007515
-BIN2=/home/jjr/Work/psci-test/boot.bin.psci-test45;  SHA2=69fcd874787297a5
+BIN2=/home/jjr/Work/psci-test/boot.bin.psci-test46;  SHA2=db1fb321a20f0bdc
 STOCK=/var/lib/deepidle/boot.bin.default; STOCKSHA=76f850895fed53d1
 stockback() {
     [ "$(sha256sum /boot/m1n1/boot.bin | cut -c1-16)" = $STOCKSHA ] || {
@@ -86,6 +86,9 @@ if [ $STEP != step0 ]; then
     chmod 755 /etc/grub.d/45_psci_efi
     grub-mkconfig -o /boot/grub/grub.cfg > /var/lib/deepidle/grub-mkconfig-psci-efi.log 2>&1
     grep -q "id psci-efi-test-kernel " /boot/grub/grub.cfg && grep -q "id psci-efi-test-kernel-mc1" /boot/grub/grub.cfg || { echo "GRUB entries missing, see log"; exit 1; }
+    # suspendall: panic=0 on the all-CPU entry, so a panic hangs and Aura's watchdog stamps (not a 10 s panic
+    # reboot) decide when the Mac resets; the reset time then says how far it got (2026-11-04 image 46)
+    [ $STEP = suspendall ] && sed -i '/vmlinuz-psci-efi-test /s/ panic=10$/ panic=0/' /boot/grub/grub.cfg
 fi
 
 if [ $STEP = ram ]; then
