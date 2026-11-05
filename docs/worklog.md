@@ -1659,3 +1659,8 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
   - a reset stack per core and the spin-table flag handshake, without `printf`/`udelay` from boot (the UART is not mapped at runtime) and without `mmu_add_mapping`;
   - the secondary’s RVBAR entry (`_cpu_reset_c`, quiet when `psci_runtime`) then reaches `smp_secondary_entry()` and parks, after which the normal `CPU_ON` dispatch works.
 - Plan: on an RVBAR resume of the boot CPU with no wake line (`psci_dbg[13]` 3), mark every secondary as lost; `CPU_ON` for a lost core runs the cold start above, then dispatches. It can only be exercised after a real S2R wake, so it waits until run A shows the boot CPU coming back through RVBAR.
+
+## 2026-11-05 10:25: the PMP after `slpa`: run C will likely leave it down; long `s2idle` A/B armed
+
+- From the 10-22 notes: on macOS the PMP’s wake from IDLE is a power cycle (`stopCPU`, DART unmapped, `ps_pmp` and `ps_pms_sram` gated, then ungated, DART back, `_runCPU(1)`). Linux cannot gate `ps_pmp` (always-on in the DT, and the owner’s rule: no `ps_pmp` reset), so owner-attended run C (`pmp_sleep`) will most likely leave the PMP silent until the next boot, unless a real S2R power-cycles it anyway (then the PMP driver must boot it again, as the NVMe driver does the ANS).
+- Armed the long A/B partner for the 10:01 `deep` run: same test kernel and image 51, **`s2idle`, one cycle with a 6300 s alarm**, on battery (forced discharge, limit 20/15, 80/75 put back after), root read-only.
