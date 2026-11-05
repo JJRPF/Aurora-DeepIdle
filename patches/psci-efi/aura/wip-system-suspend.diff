@@ -390,7 +390,7 @@ index 92d225ab..8356847a 100644
                                 unsigned long arg2);
  
 diff --git i/src/smp.c w/src/smp.c
-index 4c866a6c..a115c1f5 100644
+index 4c866a6c..949d3e5e 100644
 --- i/src/smp.c
 +++ w/src/smp.c
 @@ -4,6 +4,7 @@
@@ -417,13 +417,13 @@ index 4c866a6c..a115c1f5 100644
 -    return psci_cpu_state[index] == PSCI_CPU_ON ? PSCI_AFFINITY_INFO_ON : PSCI_AFFINITY_INFO_OFF;
 +    if (psci_cpu_state[index] == PSCI_CPU_ON) {
 +        if (index == 1)
-+            wdt_psci_arm(40); /* the boot CPU asked, the core still reads ON */
++            wdt_psci_arm(90); /* the boot CPU asked, the core still reads ON */
 +        return PSCI_AFFINITY_INFO_ON;
 +    }
 +    if (index == 1)
-+        wdt_psci_arm(44); /* reported off */
++        wdt_psci_arm(100); /* reported off */
 +    else
-+        wdt_psci_arm(48); /* a later core reported off */
++        wdt_psci_arm(110); /* a later core reported off */
 +    return PSCI_AFFINITY_INFO_OFF;
  }
  
@@ -463,7 +463,7 @@ index 4c866a6c..a115c1f5 100644
 +        sysop("isb");
 +    }
 +    if (index == 1)
-+        wdt_psci_arm(32); /* parked, on the Aura stack */
++        wdt_psci_arm(70); /* parked, on the Aura stack */
 +    bool first = true;
      while (1) {
          /* Plain load: the mapping is inner-shareable write-back, the other CPU's civac-ed store is visible. */
@@ -473,7 +473,7 @@ index 4c866a6c..a115c1f5 100644
 -        sysop("wfi");
 +        _deep_wfi_helper();
 +        if (index == 1 && first)
-+            wdt_psci_arm(36); /* first return from the park WFI (once only: a loop must not keep the dog fed) */
++            wdt_psci_arm(80); /* first return from the park WFI (once only: a loop must not keep the dog fed) */
 +        first = false;
      }
      sysop("dmb sy");
@@ -484,24 +484,28 @@ index 4c866a6c..a115c1f5 100644
          return PSCI_RET_DENIED;
 +    /* image 44 stamps, first secondary only (index 1): reset time after echo mem minus ~24 s firmware */
 +    if (index == 1)
-+        wdt_psci_arm(20); /* CPU_OFF entered */
++        wdt_psci_arm(30); /* CPU_OFF entered */
  
      /*
       * Not the PMGR stop request: a core stopped that way did not come back from any start
-@@ -1125,8 +1151,12 @@ int smp_psci_cpu_off(void)
+@@ -1123,10 +1149,16 @@ int smp_psci_cpu_off(void)
+     /* The entry this core was started with is still in the table (the kernel never returns). */
+     spin_table[index].target = 0;
      dc_civac_range(&spin_table[index], sizeof(struct spin_table));
++    if (index == 1)
++        wdt_psci_arm(40); /* spin_table target cleared */
      psci_cpu_state[index] = PSCI_CPU_OFF;
      dc_civac_range(&psci_cpu_state[index], 1);
 +    if (index == 1)
-+        wdt_psci_arm(24); /* OFF written */
++        wdt_psci_arm(50); /* OFF written */
      dcsw_op_level1(DCSW_OP_DCCISW);
      sysop("dsb sy");
 +    if (index == 1)
-+        wdt_psci_arm(28); /* L1 cleaned */
++        wdt_psci_arm(60); /* L1 cleaned */
      u64 sp = (u64)secondary_stacks[index] + SECONDARY_STACK_SIZE;
      asm volatile("mov sp, %0\n mov x0, %1\n b psci_park_c" ::"r"(sp), "r"((u64)index) : "x0");
      __builtin_unreachable();
-@@ -1162,8 +1192,14 @@ int smp_psci_mmio_ranges(u64 *ranges, int max)
+@@ -1162,8 +1194,14 @@ int smp_psci_mmio_ranges(u64 *ranges, int max)
          smp_psci_add_range(ranges, max, &n, cpu_start_base + cpu_info[i].die * PMGR_DIE_OFFSET,
                             0x100);
      }
