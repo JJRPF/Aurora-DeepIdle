@@ -1793,3 +1793,9 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
   - 0 is image 51's suspend. `psci_dbg[17]` holds the word Aura read, `[18]` 1 if the timer was written.
 - `attended.sh` gains three runs, each with `slpa`: D (timer, aura-ctl 1), E (timer plus all cores, 3) and F (cores without timer, 2, the control). If the cores power down and the SoC never restarts them, WD1 resets the Mac about 144 s after `echo mem`, as in images 32 to 36.
 - Regression armed, unattended and without `slpa`: image 52, aura-ctl 0x80 (a marker with no effect), 2 `deep` cycles of 60 s, counters on, root read-only. On the default boot `aura-ctl` finds no block and refuses (checked).
+
+## 2026-11-05 16:44: image 52 regression: 2 of 2, Aura reads the control word
+
+- `results-psci-efi-suspendall-20261105-1641`: no `slpa`, aura-ctl 0x80. `aura-ctl` found exactly one block (`0x10002bf3380`) before each `echo mem`.
+- Both cycles came back, rc 0, after 62.5 and 61.4 s on the alarm line (`psci_dbg[4]` 0x2d4 = 724), all 10 CPUs online, 0 device errors. `psci_dbg[17]` = `5300000080` (the word Aura read), `[18]` 0 (no timer write). PMGR counters: `AWAKE` only.
+- So the normal path is image 51's, and the control word reaches Aura. Flags cleared; boot.bin is the default again and next_entry is unset. Next: owner-attended run D (`slpa` plus the PMGR S2R timer).
