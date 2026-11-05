@@ -23,7 +23,7 @@ sleep 45
 log "step $STEP; kernel $(uname -r); booted m1n1 image $(cat /run/psci-efi-booted-sha 2>/dev/null)"
 log "online: $(cat /sys/devices/system/cpu/online); nproc $(nproc)"
 # The PMU's record of the last power-off and boot (spmi_nvmem cells): how did the previous boot end?
-NV=/sys/bus/nvmem/devices/spmi_nvmem2/cells
+NV=$(ls -d /sys/bus/nvmem/devices/spmi_nvmem*/cells | head -1)   # spmi_nvmem2 on the default kernel, 0 on the test kernel
 log "pmu: $(for c in boot-stage@6001,0 boot-error-count@6002,0 boot-error-stage@6003,0 panic-count@6002,4 shutdown-flag@600f,3 fault-shadow@867b,0; do printf '%s=%s ' ${c%%@*} $(xxd -p $NV/$c 2>/dev/null | tr -d '\n'); done)"
 dmesg > $OUT/dmesg.txt; chmod 644 $OUT/dmesg.txt
 grep -iE "psci|smp: |cpu[0-9]+: (failed|boot)|failed to come online|efi:" $OUT/dmesg.txt | tee -a $OUT/key-lines.txt | head -40
@@ -56,7 +56,7 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
             # holds files open). Force every filesystem read-only (sysrq u) for the cycles.
             sync; echo u > /proc/sysrq-trigger; sleep 2
             LOGF=/run/psci-efi-run-ro.log
-            log "slpa run: emergency read-only remount: ro $(findmnt -rno TARGET,OPTIONS -t ext4,btrfs,vfat | grep -c '\bro\b') of $(findmnt -rno TARGET -t ext4,btrfs,vfat | wc -l)"
+            log "slpa run: emergency read-only remount: superblock ro $(findmnt -rno TARGET,FS-OPTIONS -t ext4,btrfs,vfat | grep -c '\bro\b') of $(findmnt -rno TARGET -t ext4,btrfs,vfat | wc -l)"
         fi
         for i in $(seq $NCYC); do
             # Phase 2b: with SUSPEND_ALARM=<s> an RTC alarm is armed first; Aura's poll should end the wait on that wake
@@ -82,7 +82,7 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
             AB=$(xxd -p /proc/device-tree/chosen/aura,psci-runtime-code | cut -c1-16)
             log "aura dbg (words, low/high pairs): $(/usr/local/lib/deepidle/mmio-read $((0x$AB + 0x1472c8)) 16 | awk '{printf "%s ", $2}')"
             log "aura dbg scan: $(/usr/local/lib/deepidle/scan-magic 0xA0AA0001 64 | head -3 | tr '\n' ';')"
-            log "battery after: $(cat /sys/class/power_supply/macsmc-battery/status) charge_now $(cat /sys/class/power_supply/macsmc-battery/charge_now); smc: $(dmesg | grep -E 'macsmc-reboot.*sleep:|SetAPPower' | tail -4 | sed 's/^\[[ 0-9.]*\] //' | tr '\n' '|')"
+            log "battery after: $(cat /sys/class/power_supply/macsmc-battery/status) charge_now $(cat /sys/class/power_supply/macsmc-battery/charge_now); smc: $(dmesg | grep -E 'macsmc-reboot.*sleep:|SetAPPower' | grep -v psci-efi-test | tail -4 | sed 's/^\[[ 0-9.]*\] //' | tr '\n' '|')"
             log "suspend $i: back, rc=$rc, elapsed $(echo "$(date +%s.%N) - $t0" | bc); online $(cat /sys/devices/system/cpu/online)"
             [ $rc = 0 ] || break
             sleep 2
@@ -91,9 +91,9 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
         log "no deep sleep offered; not suspending"
     fi
     for m in $(findmnt -rno TARGET -t ext4,btrfs,vfat | sort); do mount -o remount,rw "$m" 2>&1 | head -1; done
-    if [ "${SLPA:-0}" = 1 ]; then cat $LOGF >> $OUT/run.log; LOGF=$OUT/run.log; log "filesystems rw again: $(findmnt -rno TARGET,OPTIONS -t ext4,btrfs,vfat | grep -c '\brw\b') of $(findmnt -rno TARGET -t ext4,btrfs,vfat | wc -l)"; fi
+    if [ "${SLPA:-0}" = 1 ]; then cat $LOGF >> $OUT/run.log; LOGF=$OUT/run.log; log "filesystems rw again: superblock rw $(findmnt -rno TARGET,FS-OPTIONS -t ext4,btrfs,vfat | grep -c '\brw\b') of $(findmnt -rno TARGET -t ext4,btrfs,vfat | wc -l)"; fi
     dmesg > $OUT/dmesg-after.txt; chmod 644 $OUT/*; sync
-    log "summary: $(grep -c 'back, rc=0' $OUT/run.log) cycles back with rc=0; device errors after the first suspend: $(sed -n '/PM: suspend entry/,$p' $OUT/dmesg-after.txt | grep -i -E 'error|fail|timeout|warning:|\bbug:' | grep -v -E 'audit|Endpoint 0x20 is not running|Failed to send command|brcmf_p2p|p2p_disc|add iface p2p|Util_Reset_FailGeom|set affinity failed\(-38\)' | wc -l)"
+    log "summary: $(grep -c 'back, rc=0' $OUT/run.log) cycles back with rc=0; device errors after the first suspend: $(sed -n '/PM: suspend entry/,$p' $OUT/dmesg-after.txt | grep -i -E 'error|fail|timeout|warning:|\bbug:' | grep -v -E 'audit|psci-deadman|psci-efi-test|Endpoint 0x20 is not running|Failed to send command|brcmf_p2p|p2p_disc|add iface p2p|join_pref|Util_Reset_FailGeom|set affinity failed\(-38\)' | wc -l)"
     log "suspend step done; online $(cat /sys/devices/system/cpu/online)"
     rm -f /var/lib/deepidle/psci-efi-armed
     exit 0

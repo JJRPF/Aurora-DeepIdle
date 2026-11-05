@@ -23,11 +23,12 @@
         "Aura arms the hardware watchdog (WD1, 120 s) around `SYSTEM_SUSPEND`; a deliberate hang (image 27-hang) reset the Mac by itself",
         "Every test image boots once; an early unit puts the default `boot.bin` back and checks its sha",
         "Wi-Fi guard reboots a boot that never connects, with a 3-strike limit",
-        "The Raspberry Pi 5 streams the kernel log off the machine during risky runs"
+        "The Raspberry Pi 5 streams the kernel log off the machine during risky runs",
+        "A dead-man switch (`deadman.sh`) reads the NVMe directly after each wake; if the disk is gone it pushes the kernel lines to the owner and resets the Mac. 3 of 3 OK in a real suspend"
       ],
       "next": [
         "A sleep that never wakes in full S2R still needs the owner at the power key",
-        "A dead-man switch for `slpa` runs: the first one left a live kernel with no disk, which no watchdog caught"
+        "After `slpa` a warm reset may not bring NVMe back; that needs a full power off"
       ],
       "gate": "Unattended runs recover from a hang without hands."
     },
@@ -127,11 +128,11 @@
       "done": [
         "The PMGR, SMC and PMP sleep actions read from the macOS 13.5 kernelcache",
         "Test kernel flag `macsmc_reboot.deep_steps`: `slpw` in prepare, `slpa` in suspend_late, `waka` on wake",
-        "First `slpa` inside a real suspend (image 48, all CPUs, 2026-11-04 21:32): the kernel kept running, but every NVMe read and write failed (btrfs `-5`, root read-only). No watchdog fired; the owner reset the Mac by hand after about 15 min. The filesystem has 0 error counts afterwards"
+        "First `slpa` inside a real suspend (image 48, all CPUs, 2026-11-04 21:32): the cycle came back, but the storage controller never powered up again (`IOP power acknowledgment failed: -62`, `ANS did not boot`). No watchdog fired; the owner reset the Mac by hand. Scrub clean"
       ],
       "next": [
-        "Find what macOS does between `slpa` and the power-down that this run skipped: the PMP PCPM clears, `SetAPPower` to the PMP, the CPU stops",
-        "Log the post-`slpa` state without the disk (pstore or the Pi), and a dead-man switch that resets the Mac if the disk is gone",
+        "Send the PMP its `SetAPPower 0x201` and `SetIOPPower 0x201` after `slpa`, as macOS does; under the hypervisor that step took the cores down",
+        "Log the post-`slpa` state without the disk (the watcher on `core-node-ts` already streams kmsg)",
         "More `slpa` runs only when the owner is ready to reset by hand",
         "Lid wake, not tested separately yet"
       ],
@@ -196,13 +197,14 @@
     { "n": "46", "what": "CPU_OFF entry stamps, `panic=0`", "result": "All CPU_OFFs and the suspend work; dies at CPU_ON", "outcome": "info" },
     { "n": "47", "what": "The park restores `CYC_OVRD` before the kernel", "result": "5 of 5, then 20 of 20 with the CPU_OFF preempt fix; 20 of 20 through `systemctl suspend`", "outcome": "pass" },
     { "n": "48", "what": "Image 47 without the diagnostic stamps", "result": "20 of 20 on all CPUs, 0 device errors", "outcome": "pass" },
-    { "n": "48-slpa", "what": "Image 48 with `slpw` and `slpa` sent in the suspend (`deep_steps=6`)", "result": "No SoC power-down; the kernel ran on with NVMe dead, reset by hand", "outcome": "fail" }
+    { "n": "48-slpa", "what": "Image 48 with `slpw` and `slpa` sent in the suspend (`deep_steps=6`)", "result": "No SoC power-down; the kernel ran on with NVMe dead, reset by hand", "outcome": "fail" },
+    { "n": "48-deadman", "what": "Image 48, 3 cycles with the dead-man switch and the forced read-only mode, no `slpa`", "result": "3 of 3; the disk answered after every wake", "outcome": "pass" }
   ],
   "macos_sleep": [
     { "step": "SMC `MSxb` writes from every CPU", "linux": "Housekeeping, not needed yet" },
     { "step": "SMC `MBSE` = `slpw`: the sleep warning", "linux": "Tested in s2idle: harmless" },
     { "step": "PMP target writes take the displays and GPU down until only the CPU complexes (PCPM0, PCPM1) are requested", "linux": "Read in the trace; not reproduced" },
-    { "step": "SMC `MBSE` = `slpa`: the sleep trigger", "linux": "Sent in a real suspend (2026-11-04): NVMe dies and the SoC stays up. Held until the owner can reset by hand" },
+    { "step": "SMC `MBSE` = `slpa`: the sleep trigger", "linux": "Sent in a real suspend (2026-11-04): acked, but the SMC cuts the storage controller’s power and `waka` does not restore it. Held until the owner can reset by hand" },
     { "step": "`SetAPPower` 0x201 to the SMC and the PMP, then PMP `SetIOPPower` 0x201", "linux": "SMC side tested: acked, safe. PMP IDLE works; its wake does not" },
     { "step": "CPU start/stop writes, PCPM1 and PCPM0 cleared, a PMGR USB0 always-on write", "linux": "Not reproduced" },
     { "step": "Every core sets `CYC_OVRD` WFI_MODE 3 and idles; the SMC and PMP power the cores down", "linux": "Works on every core: the boot CPU in `SYSTEM_SUSPEND`, the nine secondaries in Aura’s CPU_OFF park" }
@@ -234,7 +236,7 @@
     { "title": "The PMU RTC alarm is the timed wake", "body": "Linux had no driver for the alarm macOS uses for dark wakes. `rtcwake -m freeze -s 30` woke after about 31 s, 3 of 3." },
     { "title": "Parked cores need retention, and must not keep WFI_MODE 3", "body": "The October hotplug deaths came from two things: the CPU_OFF park powered cores down without retention, and a re-onlined core inherited `CYC_OVRD` WFI_MODE 3 from the park. With both fixed, all nine secondaries go off and come back every suspend cycle." },
     { "title": "A CPU_OFF that never returns leaks a preempt count", "body": "The kernel’s EFI call path disables preemption around the firmware call. A successful CPU_OFF never comes back, so the re-onlined core started with one count too many (“scheduling while atomic”, once per core per cycle). Fixed in the test kernel." },
-    { "title": "`slpa` alone does not put the SoC to sleep", "body": "With every CPU in Aura and the boot core in deep WFI, `slpa` still left the SoC running. The kernel woke and found NVMe gone, as in s2idle. macOS does more between `slpa` and the power-down: the PMP CPU-complex clears, `SetAPPower` to the PMP, the CPU stops." },
+    { "title": "`slpa` alone does not put the SoC to sleep", "body": "With every CPU in Aura and the boot core in deep WFI, `slpa` still left the SoC running. On the wake `waka` is acked, but the storage controller never acks its power-on (`IOP power acknowledgment failed: -62`). macOS does more between `slpa` and the power-down: `SetAPPower` and `SetIOPPower` to the PMP, the CPU stops and the PCPM clears." },
     { "title": "A live kernel with no disk is not a hang", "body": "After the `slpa` run the watchdogs saw a healthy kernel, so nothing reset the Mac for about 15 min. Unattended `slpa` runs need a dead-man switch tied to the disk." }
   ],
   "rules": [

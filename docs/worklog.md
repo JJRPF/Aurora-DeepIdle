@@ -1420,3 +1420,17 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 - For `slpa` runs (`deep_steps` bit 4) or with the flag `/var/lib/deepidle/force-ro`, `run.sh` forces every filesystem read-only (sysrq `u`) before the cycles and logs to `/run` meanwhile. The normal remount fails while the desktop holds files open, which is why btrfs was still writable when the disk vanished.
 - `run.sh` logs the PMU's `spmi_nvmem` cells on each armed boot (boot stage, error counts, shutdown flag, `fault-shadow`), to learn how each boot ended. On the boot after the hand reset: `boot-stage=30`, error counts 0, `shutdown-flag=00`, `fault-shadow=1012000000…`.
 - Armed: image 48, `suspendall`, 3 cycles, 10 s alarm, `force-ro`, no `slpa`. It tests the dead-man switch's OK path and the read-only round trip in a real suspend.
+
+## 2026-11-04 22:15: the watcher did catch the `slpa` cycle: the SMC cuts the storage controller’s power; dead-man switch 3 of 3
+
+- Correction to the 22:10 entry: the watcher is not on the old `pi` alias. It runs on `core-node-ts` and has streamed the Mac’s kmsg since 2026-11-03 (`pi-watch.sh status`: running, Mac up). Its log has the whole `slpa` cycle of 21:32:
+  - Entry: `MBSE = slpw (0)`; NVMe `shutdown start ... saveCtx 1 took 412 ms`; `MBSE = slpa (0)`; `SetAPPower IDLE: 0`; nine `psci: CPUn killed`. Then SYSTEM_SUSPEND, a wake, and `Enabling non-boot CPUs`, all nine back.
+  - Wake: `SetAPPower ON: 0`; `sleep: wake MBSE 00010730 (0), MBSW 0000000000000000 (8); MBSE = waka (0)`. So `waka` is acked, and `MBSW` cannot be read (SMC error 8).
+  - Then `nvme-apple: RTKit: IOP power acknowledgment failed: -62`, `ANS did not boot`, `nvme0: Reset failure status: -62`, and btrfs errors from 72.8 s. The transaction aborted and root went read-only at once (`forced readonly`), so nothing reached the disk after that.
+- So **after `slpa` the SMC takes the storage controller’s power away, and `waka` from a running kernel does not give it back**. The ANS never acks its power-on. The rest of the system (CPUs, Wi-Fi, display) comes back normally. This also explains October’s s2idle run.
+- In macOS the next step after `slpa` is the SoC power-down, and the wake comes from the SMC’s own sequence. Next `slpa` experiment: send the PMP its `SetAPPower 0x201` and `SetIOPPower 0x201` after `slpa`, as the trace does (under the hypervisor, step 5 is what took the cores down). If the SoC really powers down, the wake path is the open question (Phase 3 unknown).
+- Test run (image 48, `suspendall`, 3 cycles, `force-ro`, no `slpa`): **3 of 3 back, `online 0-9`, dead-man switch `disk ok after resume (try 1)` every cycle**, 15.8 s each. `sysrq: Emergency Remount R/O ... complete`, and rw again afterwards.
+  - The harness’s read-only count read per-mount flags (always `rw` after sysrq `u`). It now reads superblock options.
+  - The PMU cells come from `spmi_nvmem0` on the test kernel (`spmi_nvmem2` on the default). `run.sh` now globs for it.
+  - The 3 “device errors” were the dead-man’s own `timeout` lines and Wi-Fi `join_pref -52`, now filtered.
+  - `fault-shadow` reads `1012…` after the hand reset and after a normal reboot alike, so it does not tell them apart.
