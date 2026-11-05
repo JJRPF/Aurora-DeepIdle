@@ -1362,3 +1362,8 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 - Device errors after the first suspend: **0**. No `scheduling while atomic` any more (the kernel fix works); the only other lines are the known PCIe MSI `set affinity failed(-38)` (the summary still counted them as 200 because the new filter entry had unescaped parentheses in `grep -E`; fixed).
 - With this, Phase 2 is complete on the full system: PSCI SYSTEM_SUSPEND through EFI, boot CPU in deep WFI with retention, wake on the PMU alarm (and the SMC key line, tested earlier), and all secondaries through CPU_OFF/CPU_ON. What it is not yet: S2R proper. The SoC and DRAM stay up; the power saving is only the CPUs in deep WFI and the devices' own suspend.
 - What made it work, in order: retention instead of non-retention deep WFI for every parked core (images 41/42/43), CYC_OVRD restored before a core goes back to the kernel (image 47), `panic=0` plus watchdog stamps to find where it died, and the kernel's preempt count across a non-returning CPU_OFF.
+
+## 2026-11-04 21:15: status.md updated; the real path on all CPUs armed
+
+- `docs/status.md` brought up to date (Phase 2 done on the full system, about 45%). Owner told (agent-notify) that the hotplug approval is no longer needed, and given the #933 draft (`docs/gh933-s2r-draft.md`, not posted).
+- Next run: the user's path, `systemctl suspend -i` with the system-sleep hooks (flag `suspend-via-systemd`), all 10 CPUs, image 47, 20 cycles.

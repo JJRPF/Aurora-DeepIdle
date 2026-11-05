@@ -1,4 +1,4 @@
-# Where the work stands (2026-10-24)
+# Where the work stands (2026-11-04, evening)
 
 This is the summary of the whole effort: what was measured, what was built,
 what works, what does not, and what comes next. Each section points to the
@@ -42,6 +42,15 @@ There are two goals:
   * Open: PMGR's last steps and the boot CPU's wake hand-back, which the
     macOS hypervisor trace (Phase 3) is meant to answer, and DCP resume,
     the long pole.
+* **2026-11-04 evening: Phase 2 done on the full system.** PSCI `SYSTEM_SUSPEND` through the EFI runtime
+  handler (Aura), with the PMP on: 20 of 20 cycles on the boot CPU alone (image 41) and **20 of 20 with all
+  10 CPUs** (image 47; the nine secondaries go through CPU_OFF into a retention park and come back with
+  CPU_ON every cycle), 0 device errors, wake on the PMU alarm and the SMC power-key line. The hotplug
+  failures of October came from two things: parked cores used deep WFI *without* retention (never woken
+  back properly), and a re-onlined core inherited CYC_OVRD WFI_MODE 3 from the park. Kernel side, two
+  unwinds of the EFI call that never returns (SYSTEM_SUSPEND, CPU_OFF). This is suspend with the CPUs in
+  deep WFI; the SoC and DRAM stay up, so the drain is still near s2idle's until Phase 3/5's SoC steps.
+  Estimate: about 45% of the way to S2R.
 * **Progress, 2026-11-04: about 33% of the way to working S2R** (risk-weighted
   guess, wide error bar). Done: timed wake, SMC handshake, macOS trace
   method, CPU_ON, a firmware that hands the boot CPU back and wakes it on
