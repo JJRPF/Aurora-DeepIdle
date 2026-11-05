@@ -124,7 +124,7 @@ index d594ea6e..28729c81 100644
  
      if (fdt_open_into(fdt, dt, dt_bufsize) < 0)
 diff --git i/src/psci.c w/src/psci.c
-index 444d71e5..40252a7f 100644
+index 444d71e5..0a365494 100644
 --- i/src/psci.c
 +++ w/src/psci.c
 @@ -1,14 +1,17 @@
@@ -147,7 +147,7 @@ index 444d71e5..40252a7f 100644
   */
  
  static unsigned long psci_affinity_info(unsigned long target_affinity,
-@@ -20,9 +23,190 @@ static unsigned long psci_affinity_info(unsigned long target_affinity,
+@@ -20,9 +23,195 @@ static unsigned long psci_affinity_info(unsigned long target_affinity,
      return smp_psci_affinity_info(target_affinity);
  }
  
@@ -205,8 +205,13 @@ index 444d71e5..40252a7f 100644
 +     * the core then never came back (not even to the first instruction at RVBAR), so the AIC wake does not
 +     * restart a core powered down without retention. The RVBAR resume path stays as a backstop.
 +     */
-+    reg_mask(SYS_IMP_APL_CYC_OVRD, CYC_OVRD_WFI_MODE_MASK | CYC_OVRD_DISABLE_WFI_RET, CYC_OVRD_WFI_MODE(3));
++    u64 cyc_ovrd = mrs(SYS_IMP_APL_CYC_OVRD);
++
++    /* image 37 left WFI_MODE 3 set on return, and the kernel hung after the first resume: restore it */
++    msr(SYS_IMP_APL_CYC_OVRD, (cyc_ovrd & ~(CYC_OVRD_WFI_MODE_MASK | CYC_OVRD_DISABLE_WFI_RET)) | CYC_OVRD_WFI_MODE(3));
 +    asm volatile("dsb sy\n isb\n wfi\n isb" ::: "memory");
++    msr(SYS_IMP_APL_CYC_OVRD, cyc_ovrd);
++    sysop("isb");
 +}
 +
 +static void __attribute__((noreturn)) psci_resume_kernel(int line, int via_rvbar)
@@ -338,7 +343,7 @@ index 444d71e5..40252a7f 100644
      switch (fid) {
          case PSCI_0_2_FN_PSCI_VERSION:
              return PSCI_VERSION_1_0;
-@@ -34,6 +218,8 @@ unsigned long psci_efi_handler(unsigned long fid, unsigned long arg0, unsigned l
+@@ -34,6 +223,8 @@ unsigned long psci_efi_handler(unsigned long fid, unsigned long arg0, unsigned l
              return smp_psci_cpu_off();
          case PSCI_0_2_FN64_CPU_ON:
              return smp_psci_cpu_on(arg0, arg1, arg2);
@@ -347,7 +352,7 @@ index 444d71e5..40252a7f 100644
          case PSCI_0_2_FN64_AFFINITY_INFO:
              return psci_affinity_info(arg0, arg1);
          default:
-@@ -53,5 +239,6 @@ const struct psci_efi_table psci_efi_table = {
+@@ -53,5 +244,6 @@ const struct psci_efi_table psci_efi_table = {
              [PSCI_FN(PSCI_0_2_FN_CPU_OFF)] = PSCI_RET_SUCCESS,
              [PSCI_FN(PSCI_0_2_FN64_CPU_ON)] = PSCI_RET_SUCCESS,
              [PSCI_FN(PSCI_0_2_FN64_AFFINITY_INFO)] = PSCI_RET_SUCCESS,
