@@ -1509,3 +1509,9 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 
 - Nothing else is left to do without the owner (the next `slpa` run needs them; notified). Per the owner’s standing instruction for that case, a sleep check on battery with the charge limit at 20%: image 49, test kernel (SART restore), all CPUs, `deep`, **one cycle with a 7200 s alarm**. It is the first sleep longer than 30 min under Aura. Expect about 120 heartbeats (`psci_dbg[16]`), a wake on the PMU alarm at about 7200 s, and about 2.8 Wh used at 1.4 W.
 - `run.sh` takes `/var/lib/deepidle/discharge`: it sets `charge_behaviour` = `auto-discharge` before the cycles (it resets to `auto` at every boot) and puts back `auto` and the thresholds named in the file (`80 75`) afterwards. Limit now 20/15.
+
+## 2026-11-05 06:56: owner-attended `slpa` run with the SART restore, armed
+
+- The 2 h battery run was cancelled before it suspended (its service was stopped in its start delay; nothing ran), and the thresholds are back at 80/75. The owner is present and ready to reset by hand.
+- Armed: image 49, `suspendall`, `macsmc_reboot.deep_steps=6` (`slpw` and `slpa`), **no** `pmp_sleep`, 1 `deep` cycle, 60 s alarm. Test kernel with the SART save and restore; dead-man switch with the register snapshot; root read-only before the suspend; the watcher on `core-node-ts` streams kmsg. Instructions went to the owner by ntfy.
+- The question: after `slpa`, does `apple-sart` report entries changed, and does the ANS boot once they are restored?
