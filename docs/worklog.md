@@ -1902,3 +1902,10 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 - Image installed (`9ca4c03061249ba0`, the old one in `/var/lib/deepidle/vmlinuz-psci-efi-test.pre-iorvbar`). `install.sh suspendall` now passes `nvme_apple.iorvbar_phys=0x347050000`.
 - The dead-man snapshot also reads the IO RVBAR, so the next `slpa` run shows whether `slpa` clears it.
 - Regression armed (unattended, no `slpa`, image 53, aura-ctl 0x80, 2 `deep` cycles of 60 s). Expect the probe line, then `kept 0x10000004001` on each resume and 0 errors.
+
+## 2026-11-05 17:41: IO RVBAR test kernel regression: 2 of 2, the register survives a normal suspend
+
+- At probe: `TEST iorvbar: 0x347050000 reads 0x10000004001`. After each resume: `kept 0x10000004001`.
+- Both cycles came back, rc 0, after 62.9 and 62.4 s, with all 10 CPUs online and 0 device errors.
+- genpd gates `ps_ans2` during a normal suspend (11-05 06:40), so a PMGR power gate does not clear the IO RVBAR. Whether the SMC's `slpa` cut does is what the next attended `slpa` run shows: the dead-man snapshot now reads it, and the restore is in place.
+- Flags cleared; default boot.bin, no next_entry.

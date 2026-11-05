@@ -60,13 +60,19 @@ There are two goals:
   wide error bar; 33% earlier on 2026-11-04, before Phase 2 closed). Per
   phase: remote hands 100 (replaced by software), CPU_ON and CPU_OFF 85,
   SYSTEM_SUSPEND 100, macOS trace 55, devices 15, full S2R 10, daily use 0.
-* **Next:**
-  * static: how macOS restarts the ANS after a sleep wake, and what the PMP
-    needs before IDLE;
-  * the rest of the PMGR's S2R entry (`quiesceHW`'s clock gates, PLL-off
-    and GPU steps, macOS's AIC and PMU quiesce) before the S2R timer, then
-    an owner-attended run;
-  * then the devices that lose power (Phase 4), DCP above all.
+* **2026-11-05, late evening (unattended):** the rest of macOS's PMGR
+  quiesce is decoded and built (image 53: the GPU fabric domain `afr` off,
+  the SmartIO domains' auto power-on off, the clock-generator and PLL-off
+  writes), and a lead for the storage controller: Apple coprocessors boot
+  from a boot-address register (IO RVBAR) that iBoot sets once and macOS
+  rewrites on every start, and Linux never does. The test kernel now saves
+  and restores it; both pass their normal-path checks.
+* **Next (owner-attended):**
+  * run A again (`slpa` only) with the IO RVBAR restore: does the storage
+    controller boot after `slpa` now?
+  * runs G and H: image 53's PMGR quiesce steps before the S2R timer;
+  * then the cluster power-off step, the PMP, and the devices that lose
+    power (Phase 4), DCP above all.
 
 ## The last two days
 
@@ -179,7 +185,7 @@ wakes cost milliwatts. The 1.4 W is power left on.
 | Recovery | **works** | SoC watchdog around SYSTEM_SUSPEND (proven by a deliberate hang); dead-man switch after `slpa` runs | |
 | SMC handshake | **tested** | `WKTP` and `slpw` are harmless. `slpa` makes the SMC cut the ANS's power; the Mac still resumes on the alarm | `slpa` goes last, after the PMGR's own entry |
 | PMGR sleep entry | **started** (image 52) | Aura writes the S2R timer (`MPMGR_AON` + 0x4000); it resets the SoC about 60 s later unless the entry completes, and it does not complete with `slpa` and every core powered down (runs D to F) | `quiesceHW`'s clock gates, PLL-off and GPU steps before the timer |
-| NVMe (ANS) | **fails after `slpa`** | Clean in every Phase 2 cycle. After `slpa` the ANS CPU never boots (status 0x08, `IOP power acknowledgment failed: -62`). The SART is intact | How macOS restarts the ANS after a wake (static) |
+| NVMe (ANS) | **fails after `slpa`**, fix to test | Clean in every Phase 2 cycle. After `slpa` the ANS CPU never boots (status 0x08, `IOP power acknowledgment failed: -62`). The SART is intact. Lead: its IO RVBAR (boot address, `0x347050000`), which macOS rewrites on every start; the test kernel restores it | Run A again with the restore (owner-attended) |
 | PMP | IDLE works, the wake does not | IDLE acks in about 400 us in s2idle, but IDLE after `slpa` crashed the firmware (run C). RUN alone: 0 of 3. A PMGR reset of `ps_pmp` crashes the SoC | What the PMP needs before IDLE (static) |
 | Devices (PCIe L2, Wi-Fi, DCP) | s2idle only | DCP cannot resume from power loss today | Phase 4 |
 
