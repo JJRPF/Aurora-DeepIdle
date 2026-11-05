@@ -1,0 +1,47 @@
+From 3bbd7a5b7798d949e9073ffb7830f55f733ff002 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Wed, 4 Nov 2026 20:57:34 -0500
+Subject: [PATCH] arm64/efi: drop the virtmap preempt count across a PSCI
+ CPU_OFF through EFI
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01TJnm6APJU44upqFHGwsatW
+---
+ arch/arm64/kernel/efi.c | 13 +++++++++++++
+ 1 file changed, 13 insertions(+)
+
+diff --git a/arch/arm64/kernel/efi.c b/arch/arm64/kernel/efi.c
+index d52f3a975e91..1369e1697cb7 100644
+--- a/arch/arm64/kernel/efi.c
++++ b/arch/arm64/kernel/efi.c
+@@ -15,6 +15,8 @@
+ #include <linux/screen_info.h>
+ #include <linux/vmalloc.h>
+ 
++#include <uapi/linux/psci.h>
++
+ #include <asm/efi.h>
+ #include <asm/stacktrace.h>
+ #include <asm/sysreg.h>
+@@ -324,7 +326,18 @@ unsigned long arm64_efi_psci_call(unsigned long function_id, unsigned long arg0,
+ 	uaccess_ttbr0_enable();
+ 	post_ttbr_update_workaround();
+ 
++	/*
++	 * A successful CPU_OFF does not return: the CPU comes back later through CPU_ON at the
++	 * kernel's secondary entry, so the preempt_disable() in efi_virtmap_load() would never be
++	 * undone and the re-onlined idle task would start with an extra preempt count ("scheduling
++	 * while atomic"). Interrupts are masked on the dying CPU, so drop the count before the call
++	 * and take it again only if the firmware returns.
++	 */
++	if (function_id == PSCI_0_2_FN_CPU_OFF)
++		preempt_enable_no_resched();
+ 	ret = efi_psci.psci_handler(function_id, arg0, arg1, arg2);
++	if (function_id == PSCI_0_2_FN_CPU_OFF)
++		preempt_disable();
+ 
+ 	uaccess_ttbr0_disable();
+ 	efi_virtmap_unload();
+-- 
+2.55.0
+
