@@ -37,6 +37,27 @@ index fb377041..f417c7b8 100644
 +uint32_t aic_poll_event(void);
  
  #endif
+diff --git i/src/chickens.c w/src/chickens.c
+index 5f0a8f69..78662953 100644
+--- i/src/chickens.c
++++ w/src/chickens.c
+@@ -1,6 +1,7 @@
+ /* SPDX-License-Identifier: MIT AND GPL-2.0-only */
+ 
+ #include "chickens.h"
++#include "psci.h"
+ #include "cpu_regs.h"
+ #include "midr.h"
+ #include "uart.h"
+@@ -196,7 +197,7 @@ void init_cpu(void)
+     int part = FIELD_GET(MIDR_PART, midr);
+     int rev = (FIELD_GET(MIDR_REV_HIGH, midr) << 4) | FIELD_GET(MIDR_REV_LOW, midr);
+ 
+-    bool quiet = (chip_id == T8142 || chip_id == T8152) && !is_boot_cpu();
++    bool quiet = ((chip_id == T8142 || chip_id == T8152) && !is_boot_cpu()) || psci_runtime_quiet();
+     if (!quiet)
+         printf("  CPU part: 0x%x rev: 0x%x\n", part, rev);
+ 
 diff --git i/src/kboot.c w/src/kboot.c
 index d594ea6e..28729c81 100644
 --- i/src/kboot.c
@@ -103,7 +124,7 @@ index d594ea6e..28729c81 100644
  
      if (fdt_open_into(fdt, dt, dt_bufsize) < 0)
 diff --git i/src/psci.c w/src/psci.c
-index 444d71e5..2f2c4cc7 100644
+index 444d71e5..1d06011a 100644
 --- i/src/psci.c
 +++ w/src/psci.c
 @@ -1,14 +1,17 @@
@@ -126,7 +147,7 @@ index 444d71e5..2f2c4cc7 100644
   */
  
  static unsigned long psci_affinity_info(unsigned long target_affinity,
-@@ -20,6 +23,154 @@ static unsigned long psci_affinity_info(unsigned long target_affinity,
+@@ -20,9 +23,179 @@ static unsigned long psci_affinity_info(unsigned long target_affinity,
      return smp_psci_affinity_info(target_affinity);
  }
  
@@ -147,6 +168,13 @@ index 444d71e5..2f2c4cc7 100644
 +
 +/* Wake lines (AIC2 event numbers): 724 nub-spmi0 (PMU alarm), 865 smc mailbox recv-not-empty (key/lid events) */
 +static const unsigned wake_irq[2] = {724, 865};
++
++/*
++ * Set on the kernel's first PSCI call: from then on Linux owns the hardware, so CPU resets through RVBAR
++ * (CPU_ON restarts, the boot CPU's SYSTEM_SUSPEND wake) must not print: the UART may be powered down, and its
++ * TX-empty wait would then spin forever.
++ */
++volatile bool psci_runtime __attribute__((aligned(64)));
 +
 +/* What the RVBAR re-entry needs, cleaned to the PoC: it runs with the MMU and caches off */
 +static volatile struct {
@@ -184,8 +212,11 @@ index 444d71e5..2f2c4cc7 100644
 +    for (unsigned i = 0; i < 2; i++)
 +        write32(aic->base + aic->regs.mask_set + 4 * (wake_irq[i] >> 5), BIT(wake_irq[i] & 31));
 +    asm volatile("isb\n mrs %0, cntpct_el0" : "=r"(now));
-+    wdt_psci_disarm();
++    if (!via_rvbar)
++        wdt_psci_disarm();
 +    psci_resume.magic = 0;
++    if (via_rvbar)
++        wdt_psci_arm(45); /* stage 2: reset 45 s from here unless the kernel's resume takes over its watchdog */
 +    psci_dbg[3] = 1;
 +    psci_dbg[4] = line;
 +    psci_dbg[5] = now - psci_resume.start;
@@ -195,6 +226,12 @@ index 444d71e5..2f2c4cc7 100644
 +    dc_civac_range((void *)&psci_resume, sizeof(psci_resume));
 +    dc_civac_range((void *)psci_dbg, sizeof(psci_dbg));
 +    psci_enter(psci_resume.entry, psci_resume.context);
++}
++
++bool psci_runtime_quiet(void)
++{
++    dc_ivac_range((void *)&psci_runtime, sizeof(psci_runtime));
++    return psci_runtime;
 +}
 +
 +bool psci_suspend_resuming(void)
@@ -209,6 +246,8 @@ index 444d71e5..2f2c4cc7 100644
 +    int line;
 +
 +    asm volatile("msr daifset, #0xf\n isb" ::: "memory");
++    /* stage 1: reset 30 s from here, so the time to the reset tells how far the RVBAR path got */
++    wdt_psci_arm(30);
 +    dc_ivac_range((void *)psci_dbg, sizeof(psci_dbg));
 +    psci_dbg[12]++;
 +    while ((line = psci_wake_line()) < 0) {
@@ -281,7 +320,14 @@ index 444d71e5..2f2c4cc7 100644
  unsigned long psci_efi_handler(unsigned long fid, unsigned long arg0, unsigned long arg1,
                                 unsigned long arg2)
  {
-@@ -34,6 +185,8 @@ unsigned long psci_efi_handler(unsigned long fid, unsigned long arg0, unsigned l
++    if (!psci_runtime) {
++        psci_runtime = true;
++        dc_civac_range((void *)&psci_runtime, sizeof(psci_runtime));
++    }
+     switch (fid) {
+         case PSCI_0_2_FN_PSCI_VERSION:
+             return PSCI_VERSION_1_0;
+@@ -34,6 +207,8 @@ unsigned long psci_efi_handler(unsigned long fid, unsigned long arg0, unsigned l
              return smp_psci_cpu_off();
          case PSCI_0_2_FN64_CPU_ON:
              return smp_psci_cpu_on(arg0, arg1, arg2);
@@ -290,7 +336,7 @@ index 444d71e5..2f2c4cc7 100644
          case PSCI_0_2_FN64_AFFINITY_INFO:
              return psci_affinity_info(arg0, arg1);
          default:
-@@ -53,5 +206,6 @@ const struct psci_efi_table psci_efi_table = {
+@@ -53,5 +228,6 @@ const struct psci_efi_table psci_efi_table = {
              [PSCI_FN(PSCI_0_2_FN_CPU_OFF)] = PSCI_RET_SUCCESS,
              [PSCI_FN(PSCI_0_2_FN64_CPU_ON)] = PSCI_RET_SUCCESS,
              [PSCI_FN(PSCI_0_2_FN64_AFFINITY_INFO)] = PSCI_RET_SUCCESS,
@@ -298,7 +344,7 @@ index 444d71e5..2f2c4cc7 100644
          },
  };
 diff --git i/src/psci.h w/src/psci.h
-index 92d225ab..896f0489 100644
+index 92d225ab..8356847a 100644
 --- i/src/psci.h
 +++ w/src/psci.h
 @@ -31,6 +31,7 @@ enum psci_fn_id {
@@ -309,18 +355,19 @@ index 92d225ab..896f0489 100644
  };
  
  enum psci_ret {
-@@ -63,6 +64,9 @@ struct psci_efi_table {
+@@ -63,6 +64,10 @@ struct psci_efi_table {
  
  extern const struct psci_efi_table psci_efi_table;
  
 +bool psci_suspend_resuming(void);
++bool psci_runtime_quiet(void);
 +void psci_suspend_rvbar(void) __attribute__((noreturn));
 +
  unsigned long psci_efi_handler(unsigned long fid, unsigned long arg0, unsigned long arg1,
                                 unsigned long arg2);
  
 diff --git i/src/smp.c w/src/smp.c
-index 4c866a6c..aad97a9d 100644
+index 4c866a6c..55d1a892 100644
 --- i/src/smp.c
 +++ w/src/smp.c
 @@ -4,6 +4,7 @@
@@ -331,6 +378,15 @@ index 4c866a6c..aad97a9d 100644
  #include "aic_regs.h"
  #include "cpu_regs.h"
  #include "memory.h"
+@@ -219,7 +220,7 @@ void smp_secondary_entry(void)
+     else
+         msr(TPIDR_EL1, index);
+ 
+-    if (chip_id != T8142 && chip_id != T8152)
++    if (chip_id != T8142 && chip_id != T8152 && !psci_runtime_quiet())
+         printf("  Index: %d (table: %p)\n\n", index, me);
+ 
+     me->mpidr = mpidr;
 @@ -1064,7 +1065,7 @@ int smp_psci_cpu_on(u64 mpidr, u64 entry, u64 context)
   * us stays reachable), HCR_EL2 back to its reset value (the kernel ran as a VHE host), then
   * x0 = context, branch to the entry.
@@ -370,7 +426,7 @@ index 9f9840e5..79ebc951 100644
  int smp_psci_mmio_ranges(u64 *ranges, int max);
  
 diff --git i/src/startup.c w/src/startup.c
-index 1b4aabe8..984efd57 100644
+index 1b4aabe8..96bc696b 100644
 --- i/src/startup.c
 +++ w/src/startup.c
 @@ -14,6 +14,7 @@
@@ -381,6 +437,15 @@ index 1b4aabe8..984efd57 100644
  #include "utils.h"
  #include "xnuboot.h"
  
+@@ -244,7 +245,7 @@ void _cpu_reset_c(void *stack)
+         smp_secondary_entry();
+         return;
+     }
+-    bool quiet = chip_id == T8142 && !is_boot_cpu();
++    bool quiet = (chip_id == T8142 && !is_boot_cpu()) || psci_runtime_quiet();
+     if (!quiet) {
+         if (!is_boot_cpu())
+             uart_puts("RVBAR entry on secondary CPU");
 @@ -270,6 +271,8 @@ void _cpu_reset_c(void *stack)
  
      if (!is_boot_cpu())
