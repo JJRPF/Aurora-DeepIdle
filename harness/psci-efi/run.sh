@@ -39,7 +39,6 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
     if [ "$(cat /run/psci-efi-booted-sha 2>/dev/null)" = 76f850895fed53d1 ]; then
         log "booted the default image, not the test image: not suspending"
     elif grep -q "deep" /sys/power/mem_sleep; then
-        echo deep > /sys/power/mem_sleep
         sync
         for m in $(findmnt -rno TARGET -t ext4,btrfs,vfat | sort -r); do mount -o remount,ro "$m" 2>&1 | head -1; done
         log "filesystems ro: $(findmnt -rno TARGET,OPTIONS -t ext4,btrfs,vfat | grep -c '\bro\b') of $(findmnt -rno TARGET -t ext4,btrfs,vfat | wc -l)"
@@ -59,15 +58,23 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
             LOGF=/run/psci-efi-run-ro.log
             log "slpa run: emergency read-only remount: superblock ro $(findmnt -rno TARGET,FS-OPTIONS -t ext4,btrfs,vfat | grep -c '\bro\b') of $(findmnt -rno TARGET -t ext4,btrfs,vfat | wc -l)"
         fi
+        # Modes from /var/lib/deepidle/sleep-modes (default deep), e.g. "deep s2idle" for a drain A/B on one boot.
+        # In s2idle Aura is not involved, so nothing would pet the test kernel's watchdog: its suspend arm is off then.
+        BAT=/sys/class/power_supply/macsmc-battery
+        for MODE in $(cat /var/lib/deepidle/sleep-modes 2>/dev/null || echo deep); do
+        echo $MODE > /sys/power/mem_sleep
+        WDT_P=/sys/module/apple_wdt/parameters/suspend_timeout
+        [ -e $WDT_P ] && { [ $MODE = s2idle ] && echo 0 > $WDT_P || echo 120 > $WDT_P; }
+        log "mode $MODE: mem_sleep $(cat /sys/power/mem_sleep); apple_wdt suspend_timeout $(cat $WDT_P 2>/dev/null)"
         for i in $(seq $NCYC); do
             # Phase 2b: with SUSPEND_ALARM=<s> an RTC alarm is armed first; Aura's poll should end the wait on that wake
             # line (elapsed ~ alarm) instead of its 30 s timeout. Without it the wait runs the full timeout.
             { rtcwake -m no -s ${SUSPEND_ALARM:-10} 2>&1 | head -1; log "alarm: $(cat /sys/class/rtc/rtc0/wakealarm 2>&1)"; }
             log "battery: $(cat /sys/class/power_supply/macsmc-battery/status) charge_now $(cat /sys/class/power_supply/macsmc-battery/charge_now) ac $(cat /sys/class/power_supply/macsmc-ac/online); cmdline steps: $(grep -o 'deep_steps=[0-9]*' /proc/cmdline)"
-            t0=$(date +%s.%N)
-            setsid $DM/deadman.sh $DM/resumed-$i $(( ${SUSPEND_ALARM:-10} + 300 )) < /dev/null > /dev/null 2>&1 &
+            t0=$(date +%s.%N); e0=$(cat $BAT/energy_now)
+            setsid $DM/deadman.sh $DM/resumed-$MODE-$i $(( ${SUSPEND_ALARM:-10} + 300 )) < /dev/null > /dev/null 2>&1 &
             DMPID=$!
-            log "suspend $i: echo mem ..."
+            log "suspend $MODE $i: echo mem ... (energy_now $e0 uWh, $(cat $BAT/status), behaviour $(sed 's/.*\[\(.*\)\].*/\1/' $BAT/charge_behaviour))"
             if [ -e /var/lib/deepidle/suspend-via-systemd ]; then
                 # the real path: runs the /etc/systemd/system-sleep hooks (radios off/on, fprintd) around the suspend
                 systemctl suspend -i; rc=$?
@@ -76,7 +83,8 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
             else
                 echo mem > /sys/power/state; rc=$?
             fi
-            : > $DM/resumed-$i
+            t1=$(date +%s.%N); e1=$(cat $BAT/energy_now)
+            : > $DM/resumed-$MODE-$i
             wait $DMPID; dmrc=$?
             log "dead-man switch: rc=$dmrc; $(tail -1 $DM/log)"
             # Aura's debug words (psci_dbg, ELF symbol 0x1472c8 from the image base): magic, HCR_EL2, DAIF, exit (1 wake line, 2 timeout), last ISR_EL1, ticks
@@ -84,10 +92,13 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
             log "aura dbg (words, low/high pairs): $(/usr/local/lib/deepidle/mmio-read $((0x$AB + 0x1472c8)) 16 | awk '{printf "%s ", $2}')"
             log "aura dbg scan: $(/usr/local/lib/deepidle/scan-magic 0xA0AA0001 64 | head -3 | tr '\n' ';')"
             log "battery after: $(cat /sys/class/power_supply/macsmc-battery/status) charge_now $(cat /sys/class/power_supply/macsmc-battery/charge_now); smc: $(dmesg | grep -E 'macsmc-reboot.*sleep:|SetAPPower' | grep -v psci-efi-test | tail -4 | sed 's/^\[[ 0-9.]*\] //' | tr '\n' '|')"
-            log "suspend $i: back, rc=$rc, elapsed $(echo "$(date +%s.%N) - $t0" | bc); online $(cat /sys/devices/system/cpu/online)"
+            log "suspend $MODE $i: back, rc=$rc, elapsed $(echo "$t1 - $t0" | bc); online $(cat /sys/devices/system/cpu/online); energy $e0 -> $e1 uWh: $(echo "scale=3; ($e0 - $e1) * 3.6 / ($t1 - $t0) / 1000" | bc) W average over the cycle"
             [ $rc = 0 ] || break
             sleep 2
         done
+        [ $rc = 0 ] || break
+        done
+        [ -e $WDT_P ] && echo 120 > $WDT_P
     else
         log "no deep sleep offered; not suspending"
     fi
