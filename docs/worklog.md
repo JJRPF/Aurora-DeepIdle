@@ -1664,3 +1664,9 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 
 - From the 10-22 notes: on macOS the PMP’s wake from IDLE is a power cycle (`stopCPU`, DART unmapped, `ps_pmp` and `ps_pms_sram` gated, then ungated, DART back, `_runCPU(1)`). Linux cannot gate `ps_pmp` (always-on in the DT, and the owner’s rule: no `ps_pmp` reset), so owner-attended run C (`pmp_sleep`) will most likely leave the PMP silent until the next boot, unless a real S2R power-cycles it anyway (then the PMP driver must boot it again, as the NVMe driver does the ANS).
 - Armed the long A/B partner for the 10:01 `deep` run: same test kernel and image 51, **`s2idle`, one cycle with a 6300 s alarm**, on battery (forced discharge, limit 20/15, 80/75 put back after), root read-only.
+
+## 2026-11-05 12:02: long A/B on battery: `deep` 1.444 W, `s2idle` 1.478 W
+
+- Image 51 test kernel, normal path, `s2idle`, one cycle with a 6300 s alarm, on battery (forced discharge from 82%), root read-only: **back on the alarm after 6300.4 s** (10:15:10 to 12:00:13), `online 0-9`, 0 device errors, dead-man `disk ok`, SART kept, wake mask and status 0.
+- 47.743 to 45.155 Wh: **2.588 Wh, 1.478 W**. Against the 10:01 `deep` run (1.444 W over 6391 s), suspend to RAM with every CPU parked in Aura saves **about 0.03 W (2%)**, the same as the 30 min A/B (1.365 against 1.39 to 1.41 W). The rest, about 1.4 W, is the SoC and its devices staying up; only the SoC power-down (`slpa` and what follows) can take it away. macOS: 0.24 W.
+- Logs in `data/drain-ab/2026-11-05-image50-51-long-deep-vs-s2idle.log`. Afterwards `charge_behaviour` `auto`, thresholds 80/75; flags removed, `sleep-modes` back to `deep`, boot.bin 76f850895fed53d1, `next_entry` unset.
