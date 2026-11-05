@@ -1689,3 +1689,8 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 - The `deep` cycle came back after **94.4 s** (alarm at 120 s) with **only CPU 0 online**: all nine `CPUn: failed to come online`, two `macsmc: Failed to send command` right after the CPU_OFFs, 31 device errors; the `s2idle` cycle then ran on one CPU. Dead-man `disk ok` both times; no reset.
 - Confounder: in this boot **the AOP’s probe failed on its own** from 19 s (endpoints 0x20 to 0x2c `did not acknowledge its shutdown`, 5 s each, then `Failed to stop AOP ETIMEDOUT` at 118 s, `probe … failed with error -110`), so its teardown was still running across the `deep` suspend, long before and after the counter write. None of the previous six boots shows it.
 - So the cause is open: the AOP failure, or the counter config write. One repeat decides it: the same run with the counters, on a boot where the AOP comes up normally.
+
+## 2026-11-05 12:25: counter repeat: 2 of 2 with the AOP healthy, so the 12:20 loss came from the AOP failure
+
+- Same run on a fresh boot where the AOP came up normally (`AOP IS READY`, no shutdown timeouts): counters “enabled” as before, then 2 `deep` cycles of 120 s: **2 of 2 back** (122.1 and 122.3 s), **`online 0-9`**, 0 device errors. So the per-counter config write is harmless and the 12:20 loss of the secondaries (and the SMC command failures) came with the AOP’s failed probe; the AOP failure itself is a one-off so far (1 of the last 8 boots).
+- The counters still did not count. `ApplePMGR::_enableSOCPerfCounters(group, true)` sets bit 0 of the group’s control word (block 0 `+0`, which reads `0x00030000`, bit 0 clear) after the per-counter configs; `pmgrcnt enable` now does that last step too. One more short run with it.

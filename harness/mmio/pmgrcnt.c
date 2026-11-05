@@ -1,8 +1,9 @@
 /* pmgrcnt: the PMGR's system-state counters (ADT pmgr `events`, perf block 0 = pmgr reg 1 + 0x48000,
  * 0x29e2c8000, perf-counter-version 1: config at +0x100 + 16 * idx, 64-bit count at +0x108/+0x10c).
- * Only indices 42 to 55 of that block can be reached.
+ * Only indices 42 to 55 of that block and its control word (+0) can be reached.
  * usage: pmgrcnt show | pmgrcnt enable
- *   enable: config = (old & ~7) | 4 | 1, as ApplePMGR::_enableSOCPerfCounter(group, idx, true, false) */
+ *   enable: config = (old & ~7) | 4 | 1, as ApplePMGR::_enableSOCPerfCounter(group, idx, true, false),
+ *   then the group: control |= 1, as _enableSOCPerfCounters(group, true) (macOS does the group last) */
 #include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -33,6 +34,10 @@ int main(int argc, char **argv)
 		printf("%s=%x:%llu ", names[idx - 42], c[0],
 		       (unsigned long long)c[2] | (unsigned long long)c[3] << 32);
 	}
-	printf("\n");
+	if (en) {
+		p[0] |= 1;
+		__sync_synchronize();
+	}
+	printf("ctl=%x\n", p[0]);
 	return 0;
 }
