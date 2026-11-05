@@ -1,0 +1,85 @@
+From 3a450e6dab64c62058fc6c5906800d0526f9faf0 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Wed, 4 Nov 2026 21:22:49 -0500
+Subject: [PATCH] TEST: macsmc-reboot: deep_steps, the SMC sleep handshake for
+ suspend to RAM (default off)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01TJnm6APJU44upqFHGwsatW
+---
+ drivers/power/reset/macsmc-reboot.c | 22 +++++++++++++++-------
+ 1 file changed, 15 insertions(+), 7 deletions(-)
+
+diff --git a/drivers/power/reset/macsmc-reboot.c b/drivers/power/reset/macsmc-reboot.c
+index 1bd7d0e6960e..8c060a39568c 100644
+--- a/drivers/power/reset/macsmc-reboot.c
++++ b/drivers/power/reset/macsmc-reboot.c
+@@ -65,6 +65,14 @@ static unsigned int s2idle_steps;
+ module_param(s2idle_steps, uint, 0644);
+ MODULE_PARM_DESC(s2idle_steps, "SMC sleep handshake in s2idle, bit mask: 1 WKTP, 2 slpw, 4 slpa/waka (default 0, off)");
+ 
++/*
++ * The same steps for suspend to RAM (PSCI SYSTEM_SUSPEND). With slpa the SMC is expected to take
++ * the SoC down after the AP goes idle, so this is for guarded test boots only (default 0, off).
++ */
++static unsigned int deep_steps;
++module_param(deep_steps, uint, 0644);
++MODULE_PARM_DESC(deep_steps, "SMC sleep handshake in suspend to RAM, bit mask as s2idle_steps (default 0, off; test only)");
++
+ /* Helpers to read/write a u8 given a struct nvmem_cell */
+ static int nvmem_cell_get_u8(struct nvmem_cell *cell)
+ {
+@@ -304,11 +312,11 @@ static int macsmc_reboot_pm_prepare(struct device *dev)
+ 	int ret;
+ 
+ 	reboot->slpa_sent = false;
+-	reboot->sleep_steps = pm_suspend_target_state == PM_SUSPEND_TO_IDLE ?
+-			      READ_ONCE(s2idle_steps) : 0;
++	reboot->sleep_steps = pm_suspend_target_state == PM_SUSPEND_TO_IDLE ? READ_ONCE(s2idle_steps) :
++			      pm_suspend_target_state == PM_SUSPEND_MEM ? READ_ONCE(deep_steps) : 0;
+ 	if (reboot->sleep_steps & MACSMC_SLEEP_SLPW) {
+ 		ret = apple_smc_write_u32(reboot->smc, SMC_KEY(MBSE), SMC_KEY(slpw));
+-		dev_info(dev, "s2idle: MBSE = slpw (%d)\n", ret);
++		dev_info(dev, "sleep: MBSE = slpw (%d)\n", ret);
+ 	}
+ 	return 0;
+ }
+@@ -320,7 +328,7 @@ static int macsmc_reboot_pm_suspend(struct device *dev)
+ 
+ 	if (reboot->sleep_steps & MACSMC_SLEEP_WKTP) {
+ 		ret = apple_smc_write_u8(reboot->smc, SMC_KEY(WKTP), 2);
+-		dev_info(dev, "s2idle: WKTP = 2 (%d)\n", ret);
++		dev_info(dev, "sleep: WKTP = 2 (%d)\n", ret);
+ 	}
+ 	return 0;
+ }
+@@ -338,7 +346,7 @@ static int macsmc_reboot_pm_suspend_late(struct device *dev)
+ 	if (reboot->sleep_steps & MACSMC_SLEEP_SLPA) {
+ 		ret = apple_smc_write_u32(reboot->smc, SMC_KEY(MBSE), SMC_KEY(slpa));
+ 		reboot->slpa_sent = ret >= 0;
+-		dev_info(dev, "s2idle: MBSE = slpa (%d)\n", ret);
++		dev_info(dev, "sleep: MBSE = slpa (%d)\n", ret);
+ 	}
+ 	return 0;
+ }
+@@ -356,7 +364,7 @@ static int macsmc_reboot_pm_resume_early(struct device *dev)
+ 	r1 = apple_smc_read_u32(reboot->smc, SMC_KEY(MBSE), &mbse);
+ 	r2 = apple_smc_read(reboot->smc, SMC_KEY(MBSW), mbsw, sizeof(mbsw));
+ 	ret = apple_smc_write_u32(reboot->smc, SMC_KEY(MBSE), SMC_KEY(waka));
+-	dev_info(dev, "s2idle: wake MBSE %08x (%d), MBSW %8phN (%d); MBSE = waka (%d)\n",
++	dev_info(dev, "sleep: wake MBSE %08x (%d), MBSW %8phN (%d); MBSE = waka (%d)\n",
+ 		 mbse, r1, mbsw, r2, ret);
+ 	return 0;
+ }
+@@ -368,7 +376,7 @@ static int macsmc_reboot_pm_resume(struct device *dev)
+ 
+ 	if (reboot->sleep_steps & MACSMC_SLEEP_WKTP) {
+ 		ret = apple_smc_write_u8(reboot->smc, SMC_KEY(WKTP), 0);
+-		dev_info(dev, "s2idle: WKTP = 0 (%d)\n", ret);
++		dev_info(dev, "sleep: WKTP = 0 (%d)\n", ret);
+ 	}
+ 	return 0;
+ }
+-- 
+2.55.0
+

@@ -1383,3 +1383,11 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 ## 2026-11-04 21:30: image 48 (clean) passes 20 of 20 on all CPUs
 
 - Image 48 (afaef3840b21e459), `suspendall`, `echo mem`, 20 cycles: **20 of 20 back, `online 0-9` after each, 0 device errors**. Image 48 is the Phase 2 reference image from here on (source: `patches/psci-efi/aura/wip-system-suspend.diff` at this commit).
+
+## 2026-11-04 21:40: Phase 2 closed; the first real SoC sleep (slpa) is prepared and waits for the owner
+
+- Phase 3's trace (2026-10-25, `docs/hv-boot-trace-reference.md`) already gives macOS's sleep entry: `MBSE=slpw`, the PMP display-domain handshake, `MBSE=slpa`, `SetAPPower 0x201` to the SMC and PMP, `SetIOPPower`, CPU stops, PCPM clears, deep WFI. The next step is to send those keys inside a real suspend, which the standing rule ("no slpa") and the plan (owner at the power key for the first cycle) hold back. Asked the owner (agent-notify): lift "no slpa" for one guarded boot, be at the Mac, ideally unplug the charger for a drain reading.
+- Prepared, switched off: test kernel `macsmc-reboot.deep_steps` (patch `0001-TEST-macsmc-reboot-deep_steps-...`), the existing s2idle handshake (1 WKTP, 2 slpw, 4 slpa + waka on wake) for suspend to RAM; default 0, so nothing changes until a boot's command line sets it. The module is installed for 7.2.11-psci-efi+ (old one kept as `/var/lib/deepidle/macsmc-reboot.ko.pre-deepsteps`). Order fits macOS: macsmc-reboot is a child of macsmc, so its suspend_late (slpa) runs before macsmc's SetAPPower IDLE.
+- Plan for that boot: image 48, `suspendall`, `macsmc_reboot.deep_steps=6` (slpw + slpa), 1 cycle, alarm wake, owner at the power key. Unknowns it answers: does the SMC take the SoC down at all without the PMP's PCPM clears; if it does, does the boot CPU come back through RVBAR (Aura's RVBAR resume path is still in image 48), and is DRAM kept.
+- Test kernel base checked: the 7.2.11 line of Aurora (contains tag aurora-2026.10.17.20), the same line as the installed default `linux-aurora 7.2.11.aurora14-1`. Aurora's `integration/aurora` has since moved to 7.3.0; not followed, since the handoff names 7.2.11.aurora14 as current.
+- Nothing armed now: no `psci-efi-armed`, no GRUB `next_entry`, the default boot.bin (76f850895fed53d1) on the ESP.
