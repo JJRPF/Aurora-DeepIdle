@@ -70,6 +70,16 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
             log "wakemask: 10 s later $($W show | sed 's/^before //')"
             log "wakemask: restore: $($W write $OLD | tail -1)"
         fi
+        # /var/lib/deepidle/pmgr-counters: turn on the PMGR's system-state counters (SLP_S2R and the rest) before the
+        # cycles and log them after each one
+        PC=""
+        if [ -e /var/lib/deepidle/pmgr-counters ] && [ -x /usr/local/lib/deepidle/pmgrcnt ]; then
+            PC=/usr/local/lib/deepidle/pmgrcnt
+            log "pmgr counters: before $($PC show)"
+            log "pmgr counters: enabled $($PC enable)"
+            sleep 2
+            log "pmgr counters: 2 s later $($PC show)"
+        fi
         # Modes from /var/lib/deepidle/sleep-modes (default deep), e.g. "deep s2idle" for a drain A/B on one boot.
         # In s2idle Aura is not involved, so nothing would pet the test kernel's watchdog: its suspend arm is off then.
         BAT=/sys/class/power_supply/macsmc-battery
@@ -110,6 +120,7 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
             log "aura dbg (words, low/high pairs): $(/usr/local/lib/deepidle/mmio-read $((0x$AB + 0x1472c8)) 16 | awk '{printf "%s ", $2}')"
             log "aura dbg scan: $(/usr/local/lib/deepidle/scan-magic 0xA0AA0001 64 | head -3 | tr '\n' ';')"
             log "battery after: $(cat /sys/class/power_supply/macsmc-battery/status) charge_now $(cat /sys/class/power_supply/macsmc-battery/charge_now); smc: $(dmesg | grep -E 'macsmc-reboot.*sleep:|SetAPPower' | grep -v psci-efi-test | tail -4 | sed 's/^\[[ 0-9.]*\] //' | tr '\n' '|')"
+            [ -n "$PC" ] && log "pmgr counters after $MODE $i: $($PC show)"
             log "suspend $MODE $i: back, rc=$rc, elapsed $(echo "$t1 - $t0" | bc); online $(cat /sys/devices/system/cpu/online); energy $e0 -> $e1 uWh: $(echo "scale=3; ($e0 - $e1) * 3.6 / ($t1 - $t0) / 1000" | bc) W average over the cycle"
             [ $rc = 0 ] || break
             sleep 2
