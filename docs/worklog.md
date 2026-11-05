@@ -1921,3 +1921,14 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 - One more difference, not acted on: the PMP's power-request word (`0x28e3c2000`, ack at `+0x80`) reads `0xf000` on Linux now: ISP_SYS, DISP0, DISPEXT0 and DISPEXT1 (report entries 0xc to 0xf; the display ones are always-on in the DT). In the macOS trace it is `0x300` (only the CPU complexes PCPM0 and PCPM1) when `slpa` is sent. If the PMP or the PMGR waits for those domains, clearing them before `slpa` is the next PMP-side step.
 - `attended.sh`: the boot prompt now has readings for A (the IO RVBAR restore) and C (the PMP IDLE once).
 - Regression armed (unattended, no `slpa`, no `pmp_sleep`, image 53, aura-ctl 0x80, 2 `deep` cycles of 60 s): it only checks that the new Image boots and suspends.
+
+## 2026-11-05 17:58: PMP-IDLE-once test kernel regression: 2 of 2
+
+- Image `254c93bd5410a827` (build #9), no `slpa`, no `pmp_sleep`, image 53, aura-ctl 0x80, 2 `deep` cycles of 60 s.
+- Both back, rc 0, after 62.3 and 62.8 s; `online 0-9`; 0 device errors. The dead-man switch saw the disk each time.
+- `TEST iorvbar: kept 0x10000004001` on both resumes. The PMP answered throughout (no crash line). PMGR counters: `AWAKE` only, `SLP_S2R` 0. Aura read the word (`psci_dbg[17]` 0x5300000080), and `[19..23]` are 0.
+- Flags cleared; default boot.bin `76f850895fed53d1`, `next_entry` unset.
+- Static, the PMP's requests: `pmp-report` already has a sleep release (`apple,release-for-sleep` per report entry). It withdraws an acknowledged request in `suspend_noirq` and asserts it again in `resume_noirq`, up to 3 writes. No J414s entry sets it. Setting it on disp0, dispext0 and dispext1 (and isp-sys, which is not always-on) would give the `0x300`-like state macOS has at `slpa`.
+  - Risk: if the PMP powers the display complexes down and DCP cannot restart afterwards, the display stays dark until reboot. That is acceptable headless, and it is the same problem a real S2R has anyway.
+  - It is a DT-only test change. For an attended run, not unattended: it changes what the PMP powers in a normal suspend.
+- Board: the PMP item notes run C's real cause.
