@@ -425,6 +425,30 @@ index 9f9840e5..79ebc951 100644
  int smp_psci_affinity_info(u64 mpidr);
  int smp_psci_mmio_ranges(u64 *ranges, int max);
  
+diff --git i/src/start.S w/src/start.S
+index e66a83bd..e3e607ba 100644
+--- i/src/start.S
++++ w/src/start.S
+@@ -263,6 +263,11 @@ el3_eret_to_el1:
+ .type debug_putc, @function
+ debug_putc:
+ #ifdef EARLY_UART_BASE
++    /* Once the kernel has made its first PSCI call (psci_runtime), Linux owns the hardware and the UART
++     * may be powered down: its TX-empty wait would spin forever on a CPU's RVBAR re-entry. Stay silent. */
++    adrp x1, psci_runtime
++    ldrb w1, [x1, :lo12:psci_runtime]
++    cbnz w1, 2f
+     ldr x1, =EARLY_UART_BASE
+ 
+ 1:
+@@ -270,6 +275,7 @@ debug_putc:
+     tst w2, #2
+     beq 1b
+     str w0, [x1, UTXH]
++2:
+ #endif
+     ret
+ 
 diff --git i/src/startup.c w/src/startup.c
 index 1b4aabe8..96bc696b 100644
 --- i/src/startup.c
