@@ -1968,3 +1968,13 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 - Both cycles back, rc 0, 62.5 and 62.8 s; `online 0-9`; 0 device errors. The only DCP lines are the usual `dcp_dptx_disconnect` and `dcp_hotplug() connected:0` for the unused external port. The internal panel still reads `connected`.
 - So the PMP is now in macOS's state at `slpa` for the displays. ISP_SYS is the one difference left: its DART keeps the domain on (`PM domain pmp-isp-sys will not be powered off`).
 - Flags cleared; default boot.bin `76f850895fed53d1`, `next_entry` unset. Next, per the owner's order: all docs, then the sleep A/B with the release in `deep`.
+
+## 2026-11-05 18:23: sleep A/B armed: what we have now (`deep` with the PMP release) against the baseline (`s2idle`)
+
+- Owner's order, step 3: "do a sleep to test what we have now vs baseline."
+- One boot, the test kernel (`6ad0396dbb7259df`), image 53 with no aura-ctl (image 51's suspend).
+  - Cycle 1: `deep` = PSCI `SYSTEM_SUSPEND` through Aura, every CPU parked, the PMP's display requests released (`pmp-release-modes` `deep`).
+  - Cycle 2: `s2idle` = the baseline.
+- 3600 s alarm each, on battery: forced discharge from 89%, limits 20/15 for the run, 80/75 put back after (`discharge` holds `80 75`). PMGR counters on, root read-only.
+- Earlier references (11-05 12:01): `deep` 1.444 W over 6391 s, `s2idle` 1.478 W over 6300 s. macOS: 0.24 W. The difference this run can show beyond that is the release (estimated 0.25 W for the J514S external display case; not measured here).
+- The docs commit (c9b8a78) was rejected twice by GitHub (`remote: fatal error in commit_refs`, both refs), with githubstatus all operational and admin permission. It was retried after this entry.
