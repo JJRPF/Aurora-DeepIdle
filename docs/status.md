@@ -77,6 +77,11 @@ There are two goals:
   state counters, now readable from Linux, confirm it: only `AWAKE` counts through Aura's suspend. Image 51
   resumes Linux if a real S2R wake reaches Aura, and the counters' `SLP_S2R` will show whether the SoC went down.
   The next `slpa` runs (A to C) are scripted and wait for the owner.
+* **2026-11-05, 15:14: owner-attended run A** (image 51, `slpa`, 30 s alarm): no resume; the Mac reset itself and
+  the next kernel started 93 s after entry, 63 s after the alarm. The 07:01 run (60 s alarm) gave 124 s, also 64 s
+  after its alarm. So the reset follows the alarm, not `slpa`: it is not an SMC timeout. The alarm no longer reaches
+  Aura (in the first `slpa` run, with a 10 s alarm, it did), so the AP was most likely down and comes back cold
+  instead of resuming. Disk clean. Run B (PMU boot stage 0x50, as macOS sets it) is next.
 * **Earlier the same day, before Phase 2 closed: 33%** (risk-weighted
   guess, wide error bar). Done: timed wake, SMC handshake, macOS trace
   method, CPU_ON, a firmware that hands the boot CPU back and wakes it on

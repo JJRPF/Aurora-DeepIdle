@@ -124,7 +124,7 @@
       "short": "The SoC powers down, DRAM in self-refresh",
       "state": "active",
       "pct": 10,
-      "summary": "Aura’s `SYSTEM_SUSPEND` gains the SoC steps in macOS’s order: PMGR quiesce, the S2R timer, the PMU SPMI quiesce and `slpa`, then `restoreHW` on wake. Two `slpa` runs so far: one came back with NVMe dead, one never resumed (a reset about 100 s in). Image 51 is ready to show whether the SoC really goes down.",
+      "summary": "Aura’s `SYSTEM_SUSPEND` gains the SoC steps in macOS’s order: PMGR quiesce, the S2R timer, the PMU SPMI quiesce and `slpa`, then `restoreHW` on wake. Three `slpa` runs so far: one came back with NVMe dead (10 s alarm), two never resumed. In those two the Mac reset 63 to 64 s after the alarm (30 s and 60 s alarms), so the alarm wakes the machine and the AP, most likely powered down, comes back cold instead of resuming.",
       "done": [
         "The PMGR, SMC and PMP sleep actions read from the macOS 13.5 kernelcache",
         "Test kernel flag `macsmc_reboot.deep_steps`: `slpw` in prepare, `slpa` in suspend_late, `waka` on wake",
@@ -138,11 +138,11 @@
         "macOS 13.5 watchdog kext read: PMU boot stage 0x50 at sleep, a 10 s SMC deadline at quiesce. Test kernel option `deep_steps` bit 8 (boot stage 0x50 across suspend) staged, off",
         "First long suspend under Aura (image 50, 2026-11-05): 1 h 46 min on battery, 106 heartbeats, 1.444 W, 0 device errors; it woke early on an SMC mailbox event",
         "Image 51: an RVBAR entry after a real S2R wake now resumes Linux (on the boot CPU) instead of resetting; ready for the owner-attended `slpa` runs",
-        "PMGR state counters readable from Linux (`pmgrcnt`): with the SoC up only `AWAKE` counts; `SLP_S2R` is the proof to look for in the next `slpa` run"
+        "PMGR state counters readable from Linux (`pmgrcnt`): with the SoC up only `AWAKE` counts; `SLP_S2R` is the proof to look for in the next `slpa` run",
+        "Owner-attended run A (image 51, 30 s alarm, 2026-11-05 15:14): no resume, the next kernel 93 s after entry, 63 s after the alarm, as the 07:01 run (124 s, 60 s alarm). The reset follows the alarm, not `slpa`, so it is not an SMC timeout; the wake no longer reaches Aura. Disk clean"
       ],
       "next": [
-        "Owner-attended run A: image 51, `slpa`, 30 s alarm. A resume, a reset about 204 s after `echo mem` (Linux resumed through RVBAR, then hung), about 94 s (a cold boot) or 124 s (an SMC timeout) each name a different cause",
-        "Run B: the same with the PMU boot stage at 0x50 across the suspend (`deep_steps=14`), as macOS does",
+        "Run B: as run A with the PMU boot stage at 0x50 across the suspend (`deep_steps=14`), as macOS does: does iBoot then take the sleep-wake path?",
         "Run C: macOS’s PMP steps after `slpa` (`pmp_sleep`); the PMP is expected to stay down afterwards unless a real S2R power-cycles it",
         "After a first real S2R wake: restart the nine secondaries from Aura at runtime (design in the worklog, 2026-11-05 10:11)",
         "More `slpa` runs only when the owner is ready to reset by hand",
@@ -223,7 +223,8 @@
     { "n": "51", "what": "Image 50, but the RVBAR path resumes the kernel even with no wake line (a real S2R wake); 2 `deep` cycles of 120 s, no `slpa`", "result": "2 of 2 back, 0 device errors, disk ok; the normal path is unchanged", "outcome": "pass" },
     { "n": "51-s2idle-long", "what": "Image 51 test kernel, one `s2idle` cycle of 6300 s on battery (the long A/B partner of 50-2h)", "result": "Back on the alarm, 0 device errors, disk ok; 1.478 W against `deep`’s 1.444 W", "outcome": "info" },
     { "n": "51-counters", "what": "Image 51 with the PMGR’s system-state counters turned on (`SLP_S2R`, `AWAKE` and the rest), one `deep` and one `s2idle` cycle of 120 s", "result": "2 of 2 back; only `AWAKE`/`SYS_AWAKE` count (24 MHz, the whole time), `SLP_S2R` and the other sleep states stay 0: the SoC never left AWAKE", "outcome": "pass" },
-    { "n": "51-90min", "what": "Image 51, one 90 min suspend to RAM on battery with the PMGR state counters on", "result": "Back on the alarm, 0 device errors, disk ok; 1.489 W; AWAKE for the whole sleep, every sleep-state counter 0", "outcome": "pass" }
+    { "n": "51-90min", "what": "Image 51, one 90 min suspend to RAM on battery with the PMGR state counters on", "result": "Back on the alarm, 0 device errors, disk ok; 1.489 W; AWAKE for the whole sleep, every sleep-state counter 0", "outcome": "pass" },
+    { "n": "51-slpa-A", "what": "Image 51, owner-attended `slpa` (`deep_steps=6`), 1 `deep` cycle, 30 s alarm, PMGR counters on, root read-only", "result": "No resume; the next kernel 93 s after `echo mem`, 63 s after the alarm (07:01 run: 124 s with a 60 s alarm); PMU boot error; disk clean", "outcome": "fail" }
   ],
   "macos_sleep": [
     { "step": "SMC `MSxb` writes from every CPU", "linux": "Housekeeping, not needed yet" },
@@ -288,7 +289,7 @@
     "Whether a DCP with nothing attached can be shut down and restarted.",
     "What the PMP’s VLPM tunables control.",
     "Why an inline `dsb sy; isb; wfi` in `SYSTEM_SUSPEND` never woke when `deep_wfi()` does.",
-    "Whether the reset about 100 s after `slpa` (2026-11-05) was a cold boot from the alarm with the SoC down, or an SMC timeout",
+    "What the 63 s from the alarm to the next kernel is after `slpa` (2026-11-05, two runs): a slow cold boot from a sleep wake, or a wait for the AP and then a reset",
     "What brings NVMe back after `slpa`: the SART restore (macOS does it on every ANS start) is in the test kernel and untested after `slpa`; the ANS boot itself may need more"
   ],
   "upstream": [
