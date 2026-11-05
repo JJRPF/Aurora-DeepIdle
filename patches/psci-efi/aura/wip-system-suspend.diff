@@ -124,7 +124,7 @@ index d594ea6e..28729c81 100644
  
      if (fdt_open_into(fdt, dt, dt_bufsize) < 0)
 diff --git i/src/psci.c w/src/psci.c
-index 444d71e5..10681256 100644
+index 444d71e5..31a5a734 100644
 --- i/src/psci.c
 +++ w/src/psci.c
 @@ -1,14 +1,17 @@
@@ -177,10 +177,10 @@ index 444d71e5..10681256 100644
 +volatile bool psci_runtime __attribute__((aligned(64)));
 +
 +/* What the RVBAR re-entry needs, cleaned to the PoC: it runs with the MMU and caches off */
-+static volatile struct {
++volatile struct {
 +    u64 magic, entry, context, start, frq;
 +    u32 basew[2];
-+} psci_resume __attribute__((aligned(64)));
++} psci_resume __attribute__((aligned(64), used));
 +
 +static u64 wake_hw_word(unsigned i)
 +{
@@ -216,7 +216,7 @@ index 444d71e5..10681256 100644
 +        wdt_psci_disarm();
 +    psci_resume.magic = 0;
 +    if (via_rvbar)
-+        wdt_psci_arm(45); /* stage 2: reset 45 s from here unless the kernel's resume takes over its watchdog */
++        wdt_psci_arm(75); /* stage 2: reset 45 s from here unless the kernel's resume takes over its watchdog */
 +    psci_dbg[3] = 1;
 +    psci_dbg[4] = line;
 +    psci_dbg[5] = now - psci_resume.start;
@@ -247,7 +247,7 @@ index 444d71e5..10681256 100644
 +
 +    asm volatile("msr daifset, #0xf\n isb" ::: "memory");
 +    /* stage 1: reset 30 s from here, so the time to the reset tells how far the RVBAR path got */
-+    wdt_psci_arm(30);
++    wdt_psci_arm(50);
 +    dc_ivac_range((void *)psci_dbg, sizeof(psci_dbg));
 +    psci_dbg[12]++;
 +    while ((line = psci_wake_line()) < 0) {
@@ -433,10 +433,32 @@ index 9f9840e5..79ebc951 100644
  int smp_psci_mmio_ranges(u64 *ranges, int max);
  
 diff --git i/src/start.S w/src/start.S
-index e66a83bd..e3e607ba 100644
+index e66a83bd..241c4be6 100644
 --- i/src/start.S
 +++ w/src/start.S
-@@ -263,6 +263,11 @@ el3_eret_to_el1:
+@@ -149,6 +149,21 @@ exc_unk:
+ .globl cpu_reset
+ .type cpu_reset, @function
+ cpu_reset:
++    /* Diagnostic (S2R Phase 2): if this is the boot CPU coming back from PSCI SYSTEM_SUSPEND (psci_resume.magic set),
++     * re-arm the T6020 watchdog WD1 at 15 s first thing, MMU off, so the time to the reset shows we got here. */
++    adrp x1, psci_resume
++    ldr x2, [x1, :lo12:psci_resume]
++    ldr x3, =0x5253554d45
++    cmp x2, x3
++    b.ne 9f
++    ldr x1, =0x29e2c4000
++    str wzr, [x1, #0x1c]
++    str wzr, [x1, #0x10]
++    ldr w2, =360000000
++    str w2, [x1, #0x14]
++    mov w2, #4
++    str w2, [x1, #0x1c]
++9:
+     adrp x1, reset_dbg
+     add x1, x1, :lo12:reset_dbg
+     mov w2, #0xa1
+@@ -263,6 +278,11 @@ el3_eret_to_el1:
  .type debug_putc, @function
  debug_putc:
  #ifdef EARLY_UART_BASE
@@ -448,7 +470,7 @@ index e66a83bd..e3e607ba 100644
      ldr x1, =EARLY_UART_BASE
  
  1:
-@@ -270,6 +275,7 @@ debug_putc:
+@@ -270,6 +290,7 @@ debug_putc:
      tst w2, #2
      beq 1b
      str w0, [x1, UTXH]
