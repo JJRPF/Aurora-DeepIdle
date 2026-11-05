@@ -249,7 +249,8 @@
     { "title": "A live kernel with no disk is not a hang", "body": "After the `slpa` run the watchdogs saw a healthy kernel, so nothing reset the Mac for about 15 min. Unattended `slpa` runs need a dead-man switch tied to the disk." },
     { "title": "The watchdog cannot cover a long sleep by itself", "body": "WD1 counts 32 bits at 24 MHz, about 178 s at most. Aura now wakes on the EL2 physical timer every 60 s, re-arms the dog and sleeps again, so suspends of any length keep the safety net." },
     { "title": "Parking the CPUs alone saves almost nothing", "body": "Suspend to RAM with every CPU in Aura’s deep WFI drew 1.365 W over 30 min on battery, and `s2idle` 1.390 and 1.413 W in the same boot. The gap to macOS’s 0.24 W is the SoC and DRAM staying up, which only the SoC steps (`slpa` and after) can close." },
-    { "title": "A PMGR gate alone does not lose the storage controller", "body": "genpd switched `ps_ans2` (the ANS, its mailbox and its SART) off in each of last night’s 4 suspends, and NVMe came back every time. So `slpa` takes away more than that gate does, perhaps the rail itself. The SART’s entries (8 of 16 used) are the first thing to check after the next `slpa` run." }
+    { "title": "A PMGR gate alone does not lose the storage controller", "body": "genpd switched `ps_ans2` (the ANS, its mailbox and its SART) off in each of last night’s 4 suspends, and NVMe came back every time. So `slpa` takes away more than that gate does, perhaps the rail itself. The SART’s entries (8 of 16 used) are the first thing to check after the next `slpa` run." },
+    { "title": "macOS writes the storage controller’s SART back on every start", "body": "`IOSARTMapper::_setActive(true)` (13.5) copies the SART’s 16 config and 16 address words the first time, and writes them back every later time. The ANS start after sleep runs it. So macOS expects the SART to lose its entries in S2R, and the Linux SART driver had nothing for that. The test kernel now does the same." }
   ],
   "rules": [
     "Never remove and rescan PCI devices: it kills Wi-Fi until a reboot.",
@@ -267,7 +268,7 @@
     "Whether a DCP with nothing attached can be shut down and restarted.",
     "What the PMP’s VLPM tunables control.",
     "Why an inline `dsb sy; isb; wfi` in `SYSTEM_SUSPEND` never woke when `deep_wfi()` does.",
-    "What brings NVMe back after `slpa`, short of a cold power cycle."
+    "What brings NVMe back after `slpa`: the SART restore (macOS does it on every ANS start) is ready to test, and the ANS boot itself may need more"
   ],
   "upstream": [
     { "name": "aurora-silicon/m1n1#63", "what": "DT headroom for the PMP tunables" },

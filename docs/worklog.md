@@ -1492,3 +1492,15 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 - The dead-man snapshots match every cycle (`ps_ans2 1f0000ff`; ANS cpu `00000010 00000028`; SART entries 0 to 5 the same), except **SART entries 6 and 7, whose addresses change every cycle** (`10180dbc`/`1016ced0`, then `100a55b0`/`1000ed44`, …). Those are the NVMe driver’s own RTKit buffers, freed and requested again by its reset after each resume. That happens after `resume_noirq`, so the SART patch does not see them as lost. Entries 0 to 5 (iBoot’s firmware windows) are the ones that matter after `slpa`.
 - The energy figures read 0 W: the Mac was on AC at the 80% limit (“Not charging”), so this run says nothing about power.
 - Ready for the next owner-attended `slpa` run. It now logs whether the SART was cleared (and restores it), and the dead-man snapshot shows the ANS and PMGR state if the disk still fails.
+
+## 2026-11-05 07:10: macOS writes the ANS SART back on every ANS start (13.5, static)
+
+- ADT (13.5, J414s): `ans` has `ignore-gating` and `power-gates = None`, so macOS never gates the ANS power itself. Its `iop-ans-nub` has `shutdown-sleep` (a full RTKit shutdown for sleep, as Linux does), `quiesced`, `cold-boot-after-hibernate` and `power-managed = 1`. `iommu-parent` is 207, `sart-ans` (`sart,coastguard`, `sart-version = 3`, `0x14BC50000`).
+- `AppleA7IOP::_setMapperActive(b)` calls the mapper’s `callPlatformFunction("setActive", …, b)`, and `startCPUWithOptions` calls it with 1 (10-23 notes). For the ANS that mapper is `IOSARTMapper`. Its `_setActive(true)` (`fffffe000994652c`, disassembled now into `dis/AppleSART.s`, not committed):
+  - first time: copies the 16 `CONFIG` words (`+0x00`) and the 16 `PADDR` words (`+0x40`) from the hardware into the object (`+0x140`, `+0x100`) and sets a flag;
+  - every later time: writes both arrays back to the hardware;
+  - `_setActive(false)` only records the state and writes nothing.
+- So **macOS rewrites the SART every time it starts the ANS**. That is the step Linux was missing after `slpa`, and the test kernel’s SART patch does the same (it also restores the size words at `+0x80`, which macOS leaves alone). It also explains why the PMGR gate alone never hurt: the gate keeps the SART, and deeper sleep evidently does not.
+- The SART windows the ANS uses (from the snapshot, `paddr << 12`): entries 0 and 1 at `0x2a2414000` and `0x2a2434000`, inside the SMC’s ASC block (ADT `smc` at `0xA2400000`, size `0x6C000`); entry 2 at `0x29e2cc000`, one of the `apcie` node’s registers (ADT `0x9E2CC000`, size `0x2100`); entries 3 to 7 in DRAM.
+- iBoot (`iBoot.j414s.RELEASE.bin` from the IPSW) is encrypted (entropy 8.0 bits a byte), so what iBoot does on an S2R wake cannot be read from it.
+- Next `slpa` run (owner-attended), expected outcomes: `apple-sart: N entries changed across suspend, restored`, then the ANS boots. If it still does not, the dead-man snapshot shows the ANS CPU and mailbox state for the next step.
