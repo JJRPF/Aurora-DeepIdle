@@ -132,11 +132,12 @@
         "Image 49: suspends longer than two minutes, with a 60 s watchdog heartbeat (2 of 2 at 305 s)",
         "Test kernel option `macsmc.pmp_sleep` (off): the PMP’s `SetAPPower`/`SetIOPPower` IDLE after `slpa`, staged for the next owner-attended run",
         "Drain A/B on battery (2026-11-04/05): `deep` 1.365 W against `s2idle` 1.39 to 1.41 W. Parking the CPUs saves almost nothing; the rest is the SoC and its devices",
-        "SART save and restore across suspend (test kernel): a no-op on normal wakes (4 of 4 “kept”), ready to test after `slpa`"
+        "SART save and restore across suspend (test kernel): a no-op on normal wakes (4 of 4 “kept”), ready to test after `slpa`",
+        "Second `slpa` run (image 49, 60 s alarm, 2026-11-05 07:01): no resume; the Mac reset about 100 s after entry, before any 120 s watchdog, with a PMU boot error. Either the SoC really went down and the alarm woke it into a cold boot, or the SMC timed out. Disk and FS clean"
       ],
       "next": [
+        "Owner-attended `slpa` run with a 30 s alarm: a reset about 64 s after the alarm means the SoC went down (then the wake path is next); 124 s again means an SMC timeout",
         "Send the PMP its `SetAPPower 0x201` and `SetIOPPower 0x201` after `slpa`, as macOS does; under the hypervisor that step took the cores down",
-        "At the next `slpa` run, read the storage controller’s registers after the wake (dead-man switch, read only): the PMGR domain `ps_ans2`, the ANS CPU and mailbox, and the SART’s 16 entries. A cleared SART would mean saving and restoring it",
         "Log the post-`slpa` state without the disk (the watcher on `core-node-ts` already streams kmsg)",
         "More `slpa` runs only when the owner is ready to reset by hand",
         "Lid wake, not tested separately yet"
@@ -206,7 +207,8 @@
     { "n": "48-deadman", "what": "Image 48, 3 cycles with the dead-man switch and the forced read-only mode, no `slpa`", "result": "3 of 3; the disk answered after every wake", "outcome": "pass" },
     { "n": "49", "what": "Watchdog heartbeat: the EL2 physical timer wakes Aura every 60 s to re-arm the dog", "result": "2 of 2 back after 305 s, 4 heartbeats each; the two-minute cap is gone", "outcome": "pass" },
     { "n": "49-drain", "what": "Drain A/B on battery: `deep` against `s2idle`, 2 × 30 min each, same kernel", "result": "4 of 4 back after 30 min each. `deep` 1.365 W, `s2idle` 1.390 and 1.413 W: about the same, as the SoC stays up", "outcome": "info" },
-    { "n": "49-sart", "what": "Test kernel with the SART save and restore, 2 `deep` and 2 `s2idle` cycles of 120 s, no `slpa`", "result": "4 of 4 back; `entries kept across suspend` every time, nothing restored", "outcome": "pass" }
+    { "n": "49-sart", "what": "Test kernel with the SART save and restore, 2 `deep` and 2 `s2idle` cycles of 120 s, no `slpa`", "result": "4 of 4 back; `entries kept across suspend` every time, nothing restored", "outcome": "pass" },
+    { "n": "49-slpa", "what": "Image 49, owner-attended, `slpa` (`deep_steps=6`) with the SART restore, 1 `deep` cycle, 60 s alarm", "result": "No resume. The next kernel started 124 s after `echo mem` (a 120 s dog takes 145 s), with a PMU boot error: a reset about 40 s after the alarm, from the SoC waking cold or an SMC timeout", "outcome": "fail" }
   ],
   "macos_sleep": [
     { "step": "SMC `MSxb` writes from every CPU", "linux": "Housekeeping, not needed yet" },
@@ -268,7 +270,8 @@
     "Whether a DCP with nothing attached can be shut down and restarted.",
     "What the PMP’s VLPM tunables control.",
     "Why an inline `dsb sy; isb; wfi` in `SYSTEM_SUSPEND` never woke when `deep_wfi()` does.",
-    "What brings NVMe back after `slpa`: the SART restore (macOS does it on every ANS start) is ready to test, and the ANS boot itself may need more"
+    "What brings NVMe back after `slpa`: the SART restore (macOS does it on every ANS start) is ready to test, and the ANS boot itself may need more",
+    "Whether the reset about 100 s after `slpa` (2026-11-05) was a cold boot from the alarm with the SoC down, or an SMC timeout"
   ],
   "upstream": [
     { "name": "aurora-silicon/m1n1#63", "what": "DT headroom for the PMP tunables" },

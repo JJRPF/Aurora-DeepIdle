@@ -1515,3 +1515,17 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 - The 2 h battery run was cancelled before it suspended (its service was stopped in its start delay; nothing ran), and the thresholds are back at 80/75. The owner is present and ready to reset by hand.
 - Armed: image 49, `suspendall`, `macsmc_reboot.deep_steps=6` (`slpw` and `slpa`), **no** `pmp_sleep`, 1 `deep` cycle, 60 s alarm. Test kernel with the SART save and restore; dead-man switch with the register snapshot; root read-only before the suspend; the watcher on `core-node-ts` streams kmsg. Instructions went to the owner by ntfy.
 - The question: after `slpa`, does `apple-sart` report entries changed, and does the ANS boot once they are restored?
+
+## 2026-11-05 07:40: owner-attended `slpa` run (image 49, 60 s alarm): no resume; the Mac cold-booted about 100 s after entry
+
+- Image 49, `suspendall`, `deep_steps=6`, test kernel with the SART restore, `panic=0`, 1 `deep` cycle. `echo mem` at 07:01:04 (kernel 64.56 s). The PMU alarm was set for 07:02:04 (60 s). Root was read-only first (`filesystems ro: 1 of 4`, then the suspend).
+- Nothing more from that boot: no `PM: suspend exit`, no dead-man line, no `apple-sart` line. The next kernel started at **07:03:08** (`uptime -s`; the default kernel, which saw the default image and did not suspend). Disk and btrfs clean (`device stats` all 0, no errors in `dmesg`); test disarmed, `next_entry` unset, boot.bin back at 76f850895fed53d1.
+- The timing, against earlier resets from the watcher log and the journal, measured from `echo mem` to the next kernel start:
+  - WD1 120 s (image 37, 19:35:59 to 19:38:24): **145 s**, so the firmware chain after a dog reset takes about 22 s;
+  - kernel panic with `panic=10` (images 43 to 45): **45 s**;
+  - this run: **124 s**, so the reset came at about 07:02:46, **about 100 s after entry and about 42 s after the alarm**. That is about 20 s before any of the 120 s dogs (the test kernel’s `apple_wdt suspend_timeout`, Aura’s `SYSTEM_SUSPEND` arm or its 60 s heartbeat re-arm) could have fired. `panic=0` rules out a panic restart.
+- `macsmc-reboot: PMU logged 1 boot error(s)` on the new boot. In the watcher log, that line follows every dog or panic reset (16:30 to 20:50 on 11-04) and **no clean reboot, and not the owner’s long-press after the first `slpa` run (21:47)**. So this was most likely not a hand reset (the owner was also told to wait 10 min first); still to confirm with the owner.
+- Two readings fit:
+  - **H1, the SoC went down:** `slpa` took the SoC into S2R this time, so Aura, its heartbeat and WD1 (all in the AP’s power domain) stopped. The 60 s alarm woke the PMU, and with no resume path armed (unknown 1, the reconfig engine and boot RVBAR), iBoot started cold, which would make a PMU wake to Linux take about 64 s. In the first `slpa` run, the 10 s alarm came before the SMC had finished, so Aura woke in WFI with the SoC still up but the ANS already cut.
+  - **H2, an SMC sleep timeout:** the SMC waits a fixed time (about 100 s) for the AP to go down after `slpa` and resets the system when it does not.
+- Next owner-attended run to tell them apart: the same setup with a **30 s alarm**. H1 predicts a kernel start about 64 s after the alarm (about 96 s after entry), or a resume like the first run if the SMC is not done by then, which would also test the SART restore. H2 predicts 124 s again.

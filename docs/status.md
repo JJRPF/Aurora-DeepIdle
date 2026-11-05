@@ -62,6 +62,11 @@ There are two goals:
   test kernel now saves the SART at suspend and restores what changed (a no-op on 4 of 4 normal wakes), and
   the dead-man switch reads the ANS, mailbox and SART state after each wake. Next: the same `slpa` run with
   both, when the owner can reset by hand. Drain A/B on battery: suspend to RAM 1.37 W, s2idle 1.39 to 1.41 W.
+* **2026-11-05, 07:01: the second `slpa` run** (image 49, SART restore, 60 s alarm) never resumed. The Mac
+  reset itself about 100 s after entry, before any of the 120 s watchdogs could fire, with a PMU boot error (a
+  long-press logs none). Either `slpa` really took the SoC down and the alarm woke it into a cold boot (there is
+  no resume path yet), or the SMC timed out waiting. Disk and filesystem clean. A 30 s alarm run, owner present,
+  tells the two apart.
 * **Earlier the same day, before Phase 2 closed: 33%** (risk-weighted
   guess, wide error bar). Done: timed wake, SMC handshake, macOS trace
   method, CPU_ON, a firmware that hands the boot CPU back and wakes it on
