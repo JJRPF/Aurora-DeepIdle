@@ -134,6 +134,7 @@ There are two goals:
 | Suspend to RAM, image 49, all CPUs in Aura’s deep WFI | 1.365 W over 30 min (the first cycle, 0.80 W, started at a full battery and is not counted); s2idle in the same boot 1.390 and 1.413 W | `data/drain-ab/` |
 | Suspend to RAM, image 50, all CPUs, one long cycle (2026-11-05) | 1.444 W over 1 h 46 min on battery, 106 watchdog heartbeats, 0 device errors; woke early on an SMC mailbox event | `docs/worklog.md` 10:01 |
 | s2idle, image 51 test kernel, one long cycle (2026-11-05) | 1.478 W over 1 h 45 min on battery, the A/B partner of the row above: suspend to RAM with parked CPUs saves about 0.03 W | `data/drain-ab/` |
+| Suspend to RAM, image 51, 90 min, PMGR counters on (2026-11-05) | 1.489 W on battery; the PMGR’s counters show the SoC in AWAKE for the whole sleep. The three long runs (1.44 to 1.49 W) put suspend to RAM and s2idle within the run-to-run spread | `data/drain-ab/` |
 | macOS 15.7.1 sleep | 0.24 W over 5.9 h, 98.7% of it in S2R | issue #3 |
 | Overnight s2idle, 10-23 to 10-24 | 8.33 h, a clean wake; 3.4 SoC wakes a second, 72% from the AOP mailbox; drain hidden by the charge limit (only a 0.57 W lower bound) | `data/overnight/` |
 
