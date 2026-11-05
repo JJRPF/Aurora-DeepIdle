@@ -1391,3 +1391,9 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 - Plan for that boot: image 48, `suspendall`, `macsmc_reboot.deep_steps=6` (slpw + slpa), 1 cycle, alarm wake, owner at the power key. Unknowns it answers: does the SMC take the SoC down at all without the PMP's PCPM clears; if it does, does the boot CPU come back through RVBAR (Aura's RVBAR resume path is still in image 48), and is DRAM kept.
 - Test kernel base checked: the 7.2.11 line of Aurora (contains tag aurora-2026.10.17.20), the same line as the installed default `linux-aurora 7.2.11.aurora14-1`. Aurora's `integration/aurora` has since moved to 7.3.0; not followed, since the handoff names 7.2.11.aurora14 as current.
 - Nothing armed now: no `psci-efi-armed`, no GRUB `next_entry`, the default boot.bin (76f850895fed53d1) on the ESP.
+
+## 2026-11-04 21:30: slpa safeguard lifted by the owner; first real-sleep test armed (owner at the Mac)
+
+- Owner: "Safeguard for slpa lifted permanently, I am at the Mac." (memory updated.)
+- Armed: image 48, `suspendall` (all CPUs), `macsmc_reboot.deep_steps=6` (MBSE=slpw in prepare, MBSE=slpa in suspend_late, wake: read MBSE/MBSW, MBSE=waka) on the test GRUB entry via the new flag file `/var/lib/deepidle/deep-steps`, 1 cycle, 10 s alarm, `panic=0`. `run.sh` now logs battery status/charge and the macsmc sleep/SetAPPower lines around each cycle.
+- Owner told: if no notification from me and no reboot by 21:37, long-press the power key ~10 s, then press it again to boot.

@@ -43,6 +43,7 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
             # Phase 2b: with SUSPEND_ALARM=<s> an RTC alarm is armed first; Aura's poll should end the wait on that wake
             # line (elapsed ~ alarm) instead of its 30 s timeout. Without it the wait runs the full timeout.
             { rtcwake -m no -s ${SUSPEND_ALARM:-10} 2>&1 | head -1; log "alarm: $(cat /sys/class/rtc/rtc0/wakealarm 2>&1)"; }
+            log "battery: $(cat /sys/class/power_supply/macsmc-battery/status) charge_now $(cat /sys/class/power_supply/macsmc-battery/charge_now) ac $(cat /sys/class/power_supply/macsmc-ac/online); cmdline steps: $(grep -o 'deep_steps=[0-9]*' /proc/cmdline)"
             t0=$(date +%s.%N)
             log "suspend $i: echo mem ..."
             if [ -e /var/lib/deepidle/suspend-via-systemd ]; then
@@ -57,6 +58,7 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
             AB=$(xxd -p /proc/device-tree/chosen/aura,psci-runtime-code | cut -c1-16)
             log "aura dbg (words, low/high pairs): $(/usr/local/lib/deepidle/mmio-read $((0x$AB + 0x1472c8)) 16 | awk '{printf "%s ", $2}')"
             log "aura dbg scan: $(/usr/local/lib/deepidle/scan-magic 0xA0AA0001 64 | head -3 | tr '\n' ';')"
+            log "battery after: $(cat /sys/class/power_supply/macsmc-battery/status) charge_now $(cat /sys/class/power_supply/macsmc-battery/charge_now); smc: $(dmesg | grep -E 'macsmc-reboot.*sleep:|SetAPPower' | tail -4 | sed 's/^\[[ 0-9.]*\] //' | tr '\n' '|')"
             log "suspend $i: back, rc=$rc, elapsed $(echo "$(date +%s.%N) - $t0" | bc); online $(cat /sys/devices/system/cpu/online)"
             [ $rc = 0 ] || break
             sleep 2

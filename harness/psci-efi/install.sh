@@ -89,6 +89,9 @@ if [ $STEP != step0 ]; then
     # suspendall: panic=0 on the all-CPU entry, so a panic hangs and Aura's watchdog stamps (not a 10 s panic
     # reboot) decide when the Mac resets; the reset time then says how far it got (2026-11-04 image 46)
     [ $STEP = suspendall ] && sed -i '/vmlinuz-psci-efi-test /s/ panic=10$/ panic=0/' /boot/grub/grub.cfg
+    # SMC sleep handshake for suspend to RAM (macsmc_reboot.deep_steps, test kernel): only when the flag file asks for it
+    DS=$(cat /var/lib/deepidle/deep-steps 2>/dev/null || true)
+    [ $STEP = suspendall ] && [ -n "$DS" ] && sed -i "/vmlinuz-psci-efi-test /s/ panic=0$/ panic=0 macsmc_reboot.deep_steps=$DS/" /boot/grub/grub.cfg
 fi
 
 if [ $STEP = ram ]; then
