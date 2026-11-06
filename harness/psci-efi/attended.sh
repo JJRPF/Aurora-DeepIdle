@@ -44,7 +44,7 @@ case $RUN in
     S) DS=96; PMP=0; CTL=0; AOP=3; PIDS=${PIDS:-0x1000}; KIND="UNATTENDED normal-path (no slpa) power-domain dump run" ;;   # the PMP release + a dump of the PMGR domains not off at suspend_late (11-06 16:48: hung the suspend, WD1; do not repeat)
     S2) DS=32; PMP=0; CTL=0; AOP=3; PIDS=${PIDS:-0x1000}; GD=1; KIND="UNATTENDED normal-path (no slpa) genpd dump run" ;;   # the PMP release + genpd's own list of domains still on at syscore suspend (no register reads)
     U) DS=32; PMP=0; CTL=0; AOP=3; PIDS=${PIDS:-0x1000}; GD=1; UB=1; KIND="UNATTENDED normal-path (no slpa) unbind run" ;;   # S2 + the display stack and the USB-C dwc3s unbound first
-    Y1T) DS=32; PMP=0; CTL=65; HM=${HM:-0xe00}; AOP=3; PIDS=${PIDS:-0x1000}; GD=1; RA=1; KIND="UNATTENDED normal-path (no slpa) domain-off probe run" ;;   # Y1 + the S2R timer written after the domain step, as a probe of how far Aura got
+    Y1T) DS=32; PMP=0; CTL=65; [ $HM = 0 ] && HM=0xe00; AOP=3; PIDS=${PIDS:-0x1000}; GD=1; RA=1; KIND="UNATTENDED normal-path (no slpa) domain-off probe run" ;;   # Y1 + the S2R timer written after the domain step, as a probe of how far Aura got
     Y1) DS=32; PMP=0; CTL=64; HM=0xe00; AOP=3; PIDS=${PIDS:-0x1000}; GD=1; RA=1; KIND="UNATTENDED normal-path (no slpa) domain-off bisect run" ;;   # Y with only atc0/1/2_usb
     Y2) DS=32; PMP=0; CTL=64; HM=0x03f; AOP=3; PIDS=${PIDS:-0x1000}; GD=1; RA=1; KIND="UNATTENDED normal-path (no slpa) domain-off bisect run" ;;   # Y with only the external displays' chains
     Y3) DS=32; PMP=0; CTL=64; HM=0x1c0; AOP=3; PIDS=${PIDS:-0x1000}; GD=1; RA=1; KIND="UNATTENDED normal-path (no slpa) domain-off bisect run" ;;   # Y with only the panel DCP's chain
