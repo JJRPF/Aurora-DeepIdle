@@ -1,4 +1,4 @@
-# Where the work stands (2026-11-06, 17:08, after run U)
+# Where the work stands (2026-11-06, 17:20, after run U2)
 
 This is the summary of the whole effort: what was measured, what was built,
 what works, what does not, and what comes next. Each section points to the
@@ -167,9 +167,13 @@ There are two goals:
   afr, PCIe). Run U, unbinding the display stack and the USB-C
   controllers first, hit a USB driver crash on a port that never had a
   cable (no reset, no damage); run U2 skips those ports.
-* **Next:** U2 (do the display and USB domains go off, does the suspend
-  still come back?), then run V: every macOS step with those domains off;
-  then the devices that lose power (Phase 4), DCP above all.
+* **2026-11-06 17:11: run U2 (the unbinds, skipping those ports) came
+  back on the alarm, but only the PMP's display domains went off.** The
+  PMGR driver keeps a domain on while any of its devices has no driver
+  bound (DEFER_OFF), so unbinding cannot free a domain.
+* **Next:** a dump of why each held domain stays on (run S3), then turn
+  those domains off the way macOS does; then the devices that lose power
+  (Phase 4), DCP above all.
 * **From 2026-11-06 the owner lets slpa runs that repeat or vary a
   self-recovering setup go unattended** (one at a time, dead-man switch
   on, a push before each); a new kind of step still gets one attended run.
