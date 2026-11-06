@@ -141,6 +141,8 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
             AB=$(xxd -p /proc/device-tree/chosen/aura,psci-runtime-code | cut -c1-16)
             log "aura dbg (words, low/high pairs): $(/usr/local/lib/deepidle/mmio-read $((0x$AB + 0x1472c8)) 16 | awk '{printf "%s ", $2}')"
             log "aura dbg scan: $(/usr/local/lib/deepidle/scan-magic 0xA0AA0001 64 | head -3 | tr '\n' ';')"
+            # the PMGR's soc-cluster words (image 54, aura-ctl 16): EACC, PACC0, PACC1, ANE0, DISPLAY, -, AVEMSR
+            log "soc clusters: $(/usr/local/lib/deepidle/mmio-read 0x28e088000 7 | awk '{printf "%s ", $2}')"
             # Aura's shared SMP state (psci_cpu_state at +0xc0000, spin_table
             # at +0xc01b0, 0x40 per CPU: mpidr, flag (entries taken), target): where a core that did not come back is
             # image base = the DT's aura,psci-runtime-code - 0x10000 (images 53, 54); psci_cpu_state is at +0xc0000 in both

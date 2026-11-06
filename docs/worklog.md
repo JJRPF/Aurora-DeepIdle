@@ -2195,3 +2195,10 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
   - The current tree first rebuilt image 53 byte for byte (`e93c3a7644406710`), so the base is known.
   - `install.sh` suspendall now uses image 54. `run.sh` takes the image base from the DT (`aura,psci-runtime-code` − `0x10000`), since `psci_dbg` moved to +`0x147400`.
 - **Regression armed:** image 54, aura-ctl 0x80 (marker only), AOP mode 3, 2 `deep` and 2 `s2idle` cycles, read-only. After that, the cluster step alone (aura-ctl 16) without `slpa`, to see whether the PMGR acts on the writes.
+
+## 2026-11-06 00:13: image 54 regression: 4 of 4, CPUs 0-9; the cluster step alone (aura-ctl 16, no `slpa`) armed
+
+- Run 00:08 (`data/aop-sleep/2026-11-06-0008-image54-regression.log`): booted `78a01628af5e79e9`, aura-ctl 0x80 read back, AOP mode 3. 4 of 4 back, `online 0-9`, the per-CPU state read through the DT-based base. 0 device errors (the 2 counted are the AOP hook's own line).
+- **Armed:** 1 `deep` cycle with aura-ctl 16 only: the five soc-clusters' targets go to 0 under Aura, no timer, no `slpa`, read-only. `run.sh` logs the live cluster words after the resume; `psci_dbg[6..10]` hold before/after and `[23]` the poll timeouts (bits 27 and 28).
+  - Expected: the actual-state bits fall (the PMGR acts), and the undo brings them back on the resume.
+  - Possible cost: the P-cores (PACC0/1) or the display do not come back until a reboot.
