@@ -114,6 +114,16 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
         # /var/lib/deepidle/genpd-dump: pm_genpd.test_dump, the PM domains still on at syscore suspend (test kernel)
         GD_P=/sys/module/pm_genpd/parameters/test_dump
         [ -e $GD_P ] && { [ -e /var/lib/deepidle/genpd-dump ] && echo Y > $GD_P || echo N > $GD_P; }
+        # /var/lib/deepidle/unbind-before: lines "<driver> <device>" unbound (platform bus) once before the first cycle, in
+        # order, so their PM domains can go off as macOS has its devices off at sleep (test; a reboot brings them back)
+        if [ -s /var/lib/deepidle/unbind-before ] && [ ! -e /run/psci-unbound ]; then
+            while read -r drv dev; do
+                [ -n "$dev" ] || continue
+                if [ -e /sys/bus/platform/drivers/$drv/$dev ]; then echo $dev > /sys/bus/platform/drivers/$drv/unbind 2>/dev/null; r=$?; else r=nb; fi
+                log "unbind $drv $dev: $r"
+            done < /var/lib/deepidle/unbind-before
+            touch /run/psci-unbound
+        fi
         [ -e $IDS_P ] && echo $(cat /var/lib/deepidle/pmp-release-ids 2>/dev/null || echo 0) > $IDS_P
         if [ -e /var/lib/deepidle/pmp-release-modes ] && [ -e $REL_P ]; then
             if grep -qw $MODE /var/lib/deepidle/pmp-release-modes; then echo 1 > $REL_P; else echo 0 > $REL_P; fi
@@ -190,7 +200,10 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
     dmesg > $OUT/dmesg-after.txt; chmod 644 $OUT/*; sync
     log "summary: $(grep -c 'back, rc=0' $OUT/run.log) cycles back with rc=0; device errors after the first suspend: $(sed -n '/PM: suspend entry/,$p' $OUT/dmesg-after.txt | grep -i -E 'error|fail|timeout|warning:|\bbug:' | grep -v -E 'audit|psci-deadman|psci-efi-test|Endpoint 0x20 is not running|Failed to send command|brcmf_p2p|p2p_disc|add iface p2p|join_pref|Util_Reset_FailGeom|set affinity failed\(-38\)' | wc -l)"
     log "suspend step done; online $(cat /sys/devices/system/cpu/online)"
+    # Devices unbound for the run (unbind-before) stay gone, the display stack and the session with it: reboot so the
+    # next boot's agent session reads the results (they are on disk by now).
     rm -f /var/lib/deepidle/psci-efi-armed
+    if [ -e /run/psci-unbound ]; then log "unbound devices: rebooting in 20 s"; sync; sleep 20; systemctl reboot; fi
     exit 0
 fi
 case $STEP in step1|step1m) ;; *) log "$STEP done"; rm -f /var/lib/deepidle/psci-efi-armed; exit 0 ;; esac
