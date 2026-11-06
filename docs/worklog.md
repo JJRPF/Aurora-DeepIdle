@@ -2340,3 +2340,11 @@ Run J (slpa + PMP IDLE + AOP handshake + the whole quiesceHW incl. the soc-clust
 
 - G55: booted `e53a793bb3c942c7`, aura-ctl `0x80` (`psci_dbg[17]` `0x5300000080`), back on the alarm line (`psci_dbg[4]` 0x2d4 = 724) after 33.1 s, `online 0-9`; the old SMC endpoint 0x20 line only.
 - **Run R armed** (unattended): N + aura-ctl 63, each parked secondary's PMGR stop request before it sleeps.
+
+## 2026-11-06 16:44 run R: every step of macOS's sleep trace in one sleep, the S2R timer's reset at 86 s; slpa runs paused
+
+- Run R (unattended; N + image 55's CPU stop requests, aura-ctl `0x3f`): Pi kmsg to the AOP's `0x201: 0` (mask set). `echo mem` 16:41:39.5, next kernel 16:43:05: **about 86 s, the timer's reset.** No dead-man push, no hand reset, btrfs counters 0.
+- So with every step of macOS's sleep entry found so far, in macOS's order, the PMGR's S2R entry still does not complete: `slpw`, the PMP's requests at 0, `slpa`, the PMU boot stage, macOS's wake mask, the AOP's queues and 0x201, the SMC's and PMP's IDLE, the whole `quiesceHW` with the clusters, the S2R timer, each secondary's stop request, every core in deep sleep.
+- What macOS has and Linux does not, as far as the trace shows: the devices themselves. In macOS every driver has powered its device down by then (DCP, GPU, ANE, AVE, ISP, the PCIe links and Wi-Fi, the DARTs), and their PMGR power domains are off. Linux suspends the drivers, but many `ps_*` domains stay on (always-on in the DT, or held). The PMGR's S2R entry may wait for them.
+- Next, static (no more `slpa` runs until there is a new step): list the `ps_*` domains on at `suspend_late` in a Linux suspend (a normal-path run can log `pm_genpd_summary` and the PMGR power-state registers just before `echo mem` and from `suspend_late`), and compare with what macOS turns off (the PMGR kext's per-domain sleep handling).
+- Flags removed; default boot.bin, `next_entry` unset; headless on; watcher running.
