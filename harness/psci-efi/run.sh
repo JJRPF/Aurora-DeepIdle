@@ -119,6 +119,11 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
         if [ -s /var/lib/deepidle/unbind-before ] && [ ! -e /run/psci-unbound ]; then
             while read -r drv dev; do
                 [ -n "$dev" ] || continue
+                # dwc3-apple's remove oopses (NULL drvdata) on a port whose core never probed (no cable since boot, or
+                # unplugged): run U, 2026-11-06 17:00. Only unbind a port with its xHCI up.
+                if [ $drv = dwc3-apple ] && ! ls -d /sys/bus/platform/devices/$dev/xhci-hcd.* >/dev/null 2>&1; then
+                    log "unbind $drv $dev: skipped, core not probed"; continue
+                fi
                 if [ -e /sys/bus/platform/drivers/$drv/$dev ]; then echo $dev > /sys/bus/platform/drivers/$drv/unbind 2>/dev/null; r=$?; else r=nb; fi
                 log "unbind $drv $dev: $r"
             done < /var/lib/deepidle/unbind-before

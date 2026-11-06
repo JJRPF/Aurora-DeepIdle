@@ -1,4 +1,4 @@
-# Where the work stands (2026-11-06, 16:50, after run R)
+# Where the work stands (2026-11-06, 17:08, after run U)
 
 This is the summary of the whole effort: what was measured, what was built,
 what works, what does not, and what comes next. Each section points to the
@@ -161,11 +161,15 @@ There are two goals:
   request, Aura image 55): **86 s, the S2R timer again.** What is left is
   the devices: macOS has every device and its PMGR power domain off by
   then; Linux suspends the drivers but leaves many domains on.
-* **Next (static, no `slpa` runs until there is a new step):**
-  * list the PMGR power domains on at `suspend_late` in a Linux suspend
-    and compare with what macOS turns off;
-  * then the devices that lose power (Phase 4), DCP above all;
-  * then the devices that lose power (Phase 4), DCP above all.
+* **2026-11-06 16:55 to 17:08: which power domains Linux leaves on.** At
+  the last moment before Aura takes over, 99 of 200 domains are on: 80
+  always-on, 19 held by devices (the displays, the USB-C ports' USB, sio,
+  afr, PCIe). Run U, unbinding the display stack and the USB-C
+  controllers first, hit a USB driver crash on a port that never had a
+  cable (no reset, no damage); run U2 skips those ports.
+* **Next:** U2 (do the display and USB domains go off, does the suspend
+  still come back?), then run V: every macOS step with those domains off;
+  then the devices that lose power (Phase 4), DCP above all.
 * **From 2026-11-06 the owner lets slpa runs that repeat or vary a
   self-recovering setup go unattended** (one at a time, dead-man switch
   on, a push before each); a new kind of step still gets one attended run.
