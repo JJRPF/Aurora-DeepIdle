@@ -1,0 +1,43 @@
+From 0c7932c0a735c48cecf2cded84e0957443c77d61 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Fri, 6 Nov 2026 15:56:35 -0500
+Subject: [PATCH] TEST: power: reset: macsmc-reboot: wake-mask notifier before
+ the AOP's; log before the first access
+
+---
+ drivers/power/reset/macsmc-reboot.c | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/power/reset/macsmc-reboot.c b/drivers/power/reset/macsmc-reboot.c
+index 23107c57f9c3..b5f0c6d09391 100644
+--- a/drivers/power/reset/macsmc-reboot.c
++++ b/drivers/power/reset/macsmc-reboot.c
+@@ -261,7 +261,7 @@ static void macsmc_power_init_error_counts(struct macsmc_reboot *reboot)
+ }
+ 
+ /*
+- * The wake mask goes in at PM_SUSPEND_PREPARE, before tasks freeze, so its lines still reach a
++ * The wake mask goes in at PM_SUSPEND_PREPARE, before tasks freeze and before the AOP's notifier, so its lines still reach a
+  * remote dmesg (in suspend_late the 11-05/11-06 runs never came back, even with a mask of 0), and
+  * comes out at PM_POST_SUSPEND. The notifier cannot tell deep from s2idle (mem_sleep_current is not
+  * exported); deep_steps bit 16 is meant for "echo mem" with mem_sleep deep.
+@@ -273,6 +273,7 @@ static int macsmc_reboot_pm_notify(struct notifier_block *nb, unsigned long acti
+ 	u32 st[WAKEMASK_WORDS] = {};
+ 
+ 	if (action == PM_SUSPEND_PREPARE && (READ_ONCE(deep_steps) & MACSMC_SLEEP_WAKEMASK)) {
++		dev_info(reboot->dev, "sleep: wake mask: reading\n");
+ 		m = ioremap(WAKEMASK_PHYS, 0x40);
+ 		if (!m)
+ 			return NOTIFY_DONE;
+@@ -387,6 +388,8 @@ static int macsmc_reboot_probe(struct platform_device *pdev)
+ 		return dev_err_probe(&pdev->dev, ret, "Failed to register reboot notifier\n");
+ 
+ 	reboot->pm_notify.notifier_call = macsmc_reboot_pm_notify;
++	/* Before the AOP's notifier tells it the AP sleeps: the mask block hung right after that (11-06) */
++	reboot->pm_notify.priority = 100;
+ 	ret = register_pm_notifier(&reboot->pm_notify);
+ 	if (ret)
+ 		return dev_err_probe(&pdev->dev, ret, "Failed to register PM notifier\n");
+-- 
+2.55.0
+

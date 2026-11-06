@@ -2270,3 +2270,11 @@ Run J (slpa + PMP IDLE + AOP handshake + the whole quiesceHW incl. the soc-clust
 - **Change:** the module now writes the mask from a PM notifier at `PM_SUSPEND_PREPARE` (before tasks freeze, as the AOP's 0x201) and restores it at `PM_POST_SUSPEND`, logging all 9 words read, written and the status. Those lines reach the Pi before `PM: suspend entry`. Patch `0001-TEST-power-reset-macsmc-reboot-write-the-wake-mask-a…`, module reinstalled (the pre-`wake_extra` one stays at `macsmc-reboot.ko.pre-wakeextra`).
 - Next: the check run again (unattended). A wake = the placement was the problem, then the bisection with macOS's real mask. No wake with the 'now' line on the Pi = the mask write itself is harmful in any place before suspend.
 - Flags removed; default boot.bin, `next_entry` unset; headless on; btrfs counters 0.
+
+## 2026-11-06 15:56 check run 2: the first read of the wake mask hangs the system right after the AOP's sleep message; mask step moved before it
+
+- Check run again (mask step in the PM notifier, `wake_extra` all, AOP mode 3). Pi kmsg: `echo mem` 15:53:42.9, `PM: suspend entry`, the AOP's `queues stopped 12 of 12` and `SetAPPower 0x201: 0`, **and no wake mask line at all**. No dead-man push. Next kernel 15:55:00: **about 77 s**, not WD1's 145 s: the system stalled before Aura's suspend dog was armed, and the 60 s systemd hardware watchdog plus the boot time fits.
+- So the macsmc-reboot notifier ran after the AOP's (both priority 0, the AOP registered first) and its first `readl` of `0x29e00400c` hung the bus. The block is the PMGR's "AOP global" block; it answered while awake with the AOP running (11-05 08:00 poke), and stops answering once the AOP is told the AP sleeps (and, in `suspend_late`, once Linux has suspended the AOP or earlier: the 11-05 runs had no AOP handshake but failed there too).
+- That fits macOS: `setAPWakeupSources` runs from `initAON` (boot) and `restoreHW` (each wake), never at sleep entry. The mask is set while the AOP is up and simply stays.
+- Change: the notifier has priority 100 (runs before the AOP's) and logs "sleep: wake mask: reading" before the first access. Patch `0001-TEST-power-reset-macsmc-reboot-wake-mask-notifier-be…`, module reinstalled.
+- Check run 3 armed (unattended). Flags removed; default boot.bin, `next_entry` unset; headless on.
