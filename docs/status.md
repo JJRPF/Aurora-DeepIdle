@@ -1,4 +1,4 @@
-# Where the work stands (2026-11-06, 17:38, after run Y)
+# Where the work stands (2026-11-06, 18:04, after run Y2T)
 
 This is the summary of the whole effort: what was measured, what was built,
 what works, what does not, and what comes next. Each section points to the
@@ -181,9 +181,18 @@ There are two goals:
 * **2026-11-06 17:31: run Y, those domains off on a normal suspend, ended
   in the watchdog reset.** Runs Y1 to Y3 test the USB-C, external display
   and panel groups one at a time.
-* **Next:** run X, every macOS step plus the domains that pass (a new kind
-  of slpa step: one attended run first, waiting for the owner). If the entry then
-  completes, the Linux side is the DCP full shutdown and restart (Phase 4).
+* **2026-11-06 17:41 to 18:01: Aura cannot force those domains off.**
+  USB-C alone (Y1) hangs too. With the S2R timer written after the
+  domain step as a probe (Y1T, Y2T) and a control showing the timer resets
+  the SoC even without the sleep request (T0, 85 s), Aura never gets past
+  turning off the USB-C or the external display domains: the devices are
+  still running, and pulling their power stalls the SoC. So run X as
+  designed is dropped.
+* **Next:** Linux turns these domains off itself, after quiescing their
+  devices: run S4 first (the USB-C ports' wakeup off, so the PMGR driver
+  may power an idle port down), then the USB controllers stopped in
+  suspend, then the display coprocessors' full shutdown and restart
+  (Phase 4). Then the S2R entry is tried again with them off.
 * **From 2026-11-06 the owner lets slpa runs that repeat or vary a
   self-recovering setup go unattended** (one at a time, dead-man switch
   on, a push before each); a new kind of step still gets one attended run.

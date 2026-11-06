@@ -129,6 +129,16 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
             done < /var/lib/deepidle/unbind-before
             touch /run/psci-unbound
         fi
+        # /var/lib/deepidle/wakeup-off: platform device names whose wakeup (and their xHCI child's) is disabled before
+        # the suspend, so genpd's ACTIVE_WAKEUP no longer holds their domains (run S3: atcN_usb held by a wake path)
+        if [ -s /var/lib/deepidle/wakeup-off ] && [ ! -e /run/psci-wakeoff ]; then
+            while read -r dev; do
+                for w in /sys/bus/platform/devices/$dev/power/wakeup /sys/bus/platform/devices/$dev/xhci-hcd.*/power/wakeup; do
+                    [ -e "$w" ] && echo disabled > "$w" && log "wakeup off: ${w#/sys/bus/platform/devices/}"
+                done
+            done < /var/lib/deepidle/wakeup-off
+            touch /run/psci-wakeoff
+        fi
         [ -e $IDS_P ] && echo $(cat /var/lib/deepidle/pmp-release-ids 2>/dev/null || echo 0) > $IDS_P
         if [ -e /var/lib/deepidle/pmp-release-modes ] && [ -e $REL_P ]; then
             if grep -qw $MODE /var/lib/deepidle/pmp-release-modes; then echo 1 > $REL_P; else echo 0 > $REL_P; fi
