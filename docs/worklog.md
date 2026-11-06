@@ -2226,3 +2226,11 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 - Back after 63.2 s, **`online 0-9`**. After Aura's undo (targets back to `0xf`), PACC0, PACC1 and DISPLAY read `0x1f` (state 1), not `0x2f`, and stay so. ANE and AVE are back at `0x2f`. Nothing failed (1 device error, the known SMC "Failed to send command"), the CPUs work, and the display is headless. macOS's `restoreHW` re-enables the clusters on wake; that path is not ported, and a reboot clears it.
 - **`attended.sh`:** J is now I plus the AOP handshake plus aura-ctl 16 (CTL 31): every macOS sleep step found so far, in one sleep. K is the same without the cluster step, the fallback if J fails in a new way.
 - status.md and s2r-status.json updated. Flags back to the default unattended set (`deep s2idle`, 2 cycles, no aura-ctl); default boot.bin, `next_entry` unset.
+
+## 2026-11-06 15:16 Owner at the Mac: run J armed; unattended slpa runs allowed from now on
+
+The owner (15:15): "ready for attended runs. also, let's let some slightly riskier runs go unattended. These attended runs have not needed intervention recently." True: since 2026-11-05 every attended slpa run (A to I) recovered on its own, by the S2R timer's reset (~85 s), WD1 or the dead-man switch; none needed a hand reset.
+
+New rule: slpa runs that repeat or vary a configuration that already ran without a hand reset may go unattended, one at a time, with force-ro, the dead-man switch, the `findmnt /boot` and default boot.bin checks, and an agent-notify before each. A brand-new kind of step still gets one attended run first while the owner is around. Any hand reset, btrfs error or missing default boot.bin stops the unattended runs and goes to the owner.
+
+Run J (slpa + PMP IDLE + AOP handshake + the whole quiesceHW incl. the soc-cluster power-off, image 54) is armed now with the owner present. `attended.sh` takes `EXTRA=` text for the next session's prompt; it tells that session to arm K unattended if J does something new (anything but the ~85 s timer reset), else to go on with the next step from the status page.
