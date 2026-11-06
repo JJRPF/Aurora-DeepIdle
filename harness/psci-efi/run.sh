@@ -139,6 +139,12 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
             done < /var/lib/deepidle/wakeup-off
             touch /run/psci-wakeoff
         fi
+        # /var/lib/deepidle/usb-teardown: dwc3-apple stops a live USB-C core before a deep suspend and restarts it after
+        UT_P=/sys/module/dwc3_apple/parameters/test_deep_teardown
+        if [ -e $UT_P ]; then
+            if [ -s /var/lib/deepidle/usb-teardown ]; then echo 1 > $UT_P; else echo 0 > $UT_P; fi
+            log "usb teardown: $(cat $UT_P); phy restore: $(cat /sys/module/phy_apple_atc/parameters/test_restore_pd_off 2>/dev/null || echo none)"
+        fi
         [ -e $IDS_P ] && echo $(cat /var/lib/deepidle/pmp-release-ids 2>/dev/null || echo 0) > $IDS_P
         if [ -e /var/lib/deepidle/pmp-release-modes ] && [ -e $REL_P ]; then
             if grep -qw $MODE /var/lib/deepidle/pmp-release-modes; then echo 1 > $REL_P; else echo 0 > $REL_P; fi
