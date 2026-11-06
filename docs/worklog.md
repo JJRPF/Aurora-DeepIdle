@@ -2027,3 +2027,15 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 - Started 21:26:37 (push). `echo mem` 21:28:43.3. No dead-man push, so no resume. Next kernel 21:30:08.6 (the RTC line at 21:30:22.5 minus its 13.9 s): **85.3 s**, the S2R timer's own reset as in D, D2 and E (84.8 to 86 s). It was not a hand reset.
 - So the GPU fabric domain and the SmartIO auto power-on are not what the S2R entry waits for. Aura's before/after register words (`psci_dbg[19..21]`) are lost with the reset.
 - btrfs counters 0; flags removed; default boot.bin, `next_entry` unset. Chain: H next (adds the clock-generator and PLL-off writes).
+
+## 2026-11-05 21:36: owner-attended run H (aura-ctl 15): the same S2R-timer reset, about 84.7 s; what G and H settle; run I added
+
+- `slpa` (`deep_steps` 6), the PMP display release. aura-ctl 15 (Aura logged `0xf`): the S2R timer, every core in deep sleep, `quiesceHW`'s power domains, and its clock-generator and PLL-off writes, in macOS's order.
+- Started 21:31:38 (push). `echo mem` 21:33:44.3. No dead-man push. Next kernel about 21:35:09 (the RTC line at 21:35:23, 1 s resolution, minus its 14.0 s): **about 84.7 s**, the S2R timer's reset again. No hand reset. btrfs counters 0.
+- G and H together: all of `AppleT6020PMGR::quiesceHW` except the cluster power-off, run before the timer with `slpa` and every core powered down, still does not let the S2R entry complete. The Mac resets about 60 s after the timer write in every case (D, D2, E, G, H).
+- What macOS does that none of these runs did together:
+  1. **The PMP's IDLE and the PMGR steps in the same sleep.** Run C had the PMP's IDLE (accepted) but no timer. G and H had the timer but no PMP IDLE. The PMP is the SoC's power manager, and the S2R sequence may run through it.
+  2. `quiesceHW`'s cluster power-off (`enableCluster(c, false)`; its register is likely the CPU complexes' power states at `0x28e080060` to `0x70`).
+  3. The PMU's SPMI quiesce.
+- Next: **run I** = C + H (`deep_steps` 14, `pmp_sleep`, aura-ctl 15), added to `attended.sh`. The PMP display release cannot happen in `suspend_noirq` once the PMP is idle (run C: `-EALREADY`). In run I it is skipped harmlessly; moving it before `slpa` is a kernel change for later.
+- Flags removed; default boot.bin, `next_entry` unset. The chain C, G, H is done.
