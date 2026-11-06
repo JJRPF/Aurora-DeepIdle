@@ -2039,3 +2039,8 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
   3. The PMU's SPMI quiesce.
 - Next: **run I** = C + H (`deep_steps` 14, `pmp_sleep`, aura-ctl 15), added to `attended.sh`. The PMP display release cannot happen in `suspend_noirq` once the PMP is idle (run C: `-EALREADY`). In run I it is skipped harmlessly; moving it before `slpa` is a kernel change for later.
 - Flags removed; default boot.bin, `next_entry` unset. The chain C, G, H is done.
+
+## 2026-11-05 21:39: owner-attended run I (C + H) starting
+
+- Owner: "Go, I am here for now, so just notify and run."
+- `deep_steps` 14, `pmp_sleep`, aura-ctl 15, PMP release on (skipped once the PMP is idle), 1 `deep` cycle, 30 s alarm.
