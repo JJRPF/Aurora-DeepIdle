@@ -2422,3 +2422,10 @@ Run J (slpa + PMP IDLE + AOP handshake + the whole quiesceHW incl. the soc-clust
 - **Image 56** (Aura `d559aa68b0027293`, `boot.bin.psci-test56` `20f6d711f9f7add5`, diff `patches/psci-efi/aura/wip-image56.diff`): `PSCI_S2R_HELD` (bit 6, aura-ctl 64) writes each register with target 0 and AUTO_ENABLE, reset, disable and the flag bits cleared (as Linux's `apple_pmgr_ps_set`), then polls its actual state to 0 (10 ms each; timeouts in `psci_dbg[23]` bits 32-43). It runs before quiesceHW's domains. The old words go back on any resume, parents first.
 - `psci_dbg` moved to `+0x147430` in image 56; `run.sh` reads it there when that image booted. `install.sh` suspendall now uses image 56 (55 with bit 6 off). `aura-ctl` takes up to `0x7f`.
 - **Run G56** (unattended, normal path, aura-ctl `0x80` marker only): the image check, as G55. Then **run X** = R + bit 6 (aura-ctl 127): a new kind of `slpa` step, so **attended**, when the owner is at the Mac.
+
+## 2026-11-06 17:26 run G56: image 56 is sound on the normal path; run.sh's fixed psci_dbg read was stale; X waits for the owner
+
+- Run G56 (unattended, normal path, image 56 `20f6d711f9f7add5`, aura-ctl `0x80` marker): **back on the alarm, 33.0 s, `online 0-9`**, PMP requests back to `0xf000`, no new device errors (only the `set affinity failed(-38)` lines the filter skips). Aura read the marker: the scan line has `psci_dbg[17]` = `0x5300000080`.
+- `run.sh`'s fixed-offset `aura dbg` read gave zeros. The DT's `aura,psci-runtime-code` is the image base + 0x10000, so the offset is the ELF symbol − 0x10000: **`0x137430`** for image 56 (checked live: magic `0xa0aa0001`, word 17 `0x5300000080`). The old `0x1472c8` had gone stale too (zeros with image 55); the `aura dbg scan` line is what carried the words in those runs. `run.sh` fixed for image 56.
+- Flags removed; default boot.bin `76f850895fed53d1`, `next_entry` unset, btrfs counters 0.
+- **Run X** (R + image 56's held domains off, aura-ctl 127) is a new kind of `slpa` step: one attended run first. No reply from the owner yet (push and mail sent); static work meanwhile: the DCP's full shutdown and restart (Phase 4), which a real S2R needs anyway.
