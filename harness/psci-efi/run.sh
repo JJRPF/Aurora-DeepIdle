@@ -141,7 +141,8 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
             log "battery: $(cat /sys/class/power_supply/macsmc-battery/status) charge_now $(cat /sys/class/power_supply/macsmc-battery/charge_now) ac $(cat /sys/class/power_supply/macsmc-ac/online); cmdline steps: $(grep -o -E 'deep_steps=[0-9]*|pmp_sleep=[0-9]' /proc/cmdline | tr '\n' ' ')"
             # /var/lib/deepidle/aura-ctl <value>: Aura's S2R steps for this suspend (image 52, harness/mmio/aura-ctl.c;
             # 1 the PMGR's S2R timer, 2 every core into macOS's deep sleep, 0x80 a marker that changes nothing)
-            [ -e /var/lib/deepidle/aura-ctl ] && log "aura ctl: $(/usr/local/lib/deepidle/aura-ctl $(cat /var/lib/deepidle/aura-ctl) 2>&1)"
+            # /var/lib/deepidle/aura-held-mask (image 57): which of the 12 held domains bit 6 turns off (0 or absent = all)
+            [ -e /var/lib/deepidle/aura-ctl ] && log "aura ctl: $(/usr/local/lib/deepidle/aura-ctl $(cat /var/lib/deepidle/aura-ctl) $(cat /var/lib/deepidle/aura-held-mask 2>/dev/null || echo 0) 2>&1)"
             t0=$(date +%s.%N); e0=$(cat $BAT/energy_now); q0=$(aopirq)
             setsid $DM/deadman.sh $DM/resumed-$MODE-$i $(( ${SUSPEND_ALARM:-10} + 300 )) < /dev/null > /dev/null 2>&1 &
             DMPID=$!
@@ -162,7 +163,7 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
             AB=$(xxd -p /proc/device-tree/chosen/aura,psci-runtime-code | cut -c1-16)
             # offset = ELF symbol - 0x10000 (the DT gives the runtime code, image base + 0x10000); image 56: psci_dbg at
             # 0x147430 in the ELF. Older images read zeros here (the offset went stale); their scan line below has the words.
-            DBGOFF=0x1472c8; [ "$(cat /run/psci-efi-booted-sha 2>/dev/null)" = 20f6d711f9f7add5 ] && DBGOFF=0x137430
+            DBGOFF=0x1472c8; case "$(cat /run/psci-efi-booted-sha 2>/dev/null)" in 20f6d711f9f7add5) DBGOFF=0x137430 ;; ae5f5e93323269a6) DBGOFF=0x137470 ;; esac
             log "aura dbg (words, low/high pairs): $(/usr/local/lib/deepidle/mmio-read $((0x$AB + DBGOFF)) 16 | awk '{printf "%s ", $2}')"
             log "aura dbg scan: $(/usr/local/lib/deepidle/scan-magic 0xA0AA0001 64 | head -3 | tr '\n' ';')"
             # the PMGR's soc-cluster words (image 54, aura-ctl 16): EACC, PACC0, PACC1, ANE0, DISPLAY, -, AVEMSR
@@ -213,7 +214,9 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
     rm -f /var/lib/deepidle/psci-efi-armed
     if [ -e /run/psci-unbound ]; then log "unbound devices: rebooting in 20 s"; sync; sleep 20; systemctl reboot; fi
     # /var/lib/deepidle/reboot-after: the run leaves devices unusable (e.g. Aura powered their domains off): reboot too
-    if [ -e /var/lib/deepidle/reboot-after ]; then rm -f /var/lib/deepidle/reboot-after; log "reboot-after: sysrq reboot in 20 s"; sync; sleep 20
+    # only after a cycle really ran on the test image: a boot that refused to suspend must not reboot itself
+    # (2026-11-06 17:34: a default boot after the hung run Y found the flag and sysrq-rebooted under the session)
+    if [ -e /var/lib/deepidle/reboot-after ] && grep -q 'suspend deep 1: back' $OUT/run.log; then rm -f /var/lib/deepidle/reboot-after; log "reboot-after: sysrq reboot in 20 s"; sync; sleep 20
         # devices whose power went away under their drivers can hang device_shutdown(): sync, read-only, reset
         echo s > /proc/sysrq-trigger; sleep 2; echo u > /proc/sysrq-trigger; sleep 2; echo b > /proc/sysrq-trigger; fi
     exit 0

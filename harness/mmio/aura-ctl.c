@@ -3,7 +3,8 @@
  * word after the magic. Bits: 1 PMGR S2R timer, 2 every core into macOS's deep sleep, 4 quiesceHW's power domains
  * (AFR off, SIO auto-enable off), 8 quiesceHW's ClkGen and PLL-off writes (image 53). 0 = image 51's suspend.
  * usage: aura-ctl            print the address and the word
- *        aura-ctl <value>    write it, read it back */
+ *        aura-ctl <value>    write it, read it back
+ *        aura-ctl <value> <mask>  also write the next word, psci_ctl[2]: image 57's held-domain mask (bits 0-11, 0 = all) */
 #include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -44,7 +45,8 @@ int main(int argc, char **argv)
 		uint64_t v = strtoull(argv[1], NULL, 0);
 		if (v > 0x7f && v != 0x80) { fprintf(stderr, "aura-ctl: only bits 0 to 6 (and the test marker 0x80) are defined; bit 4 (16) is image 54\x27s soc-cluster power-off, bit 5 (32) image 55\x27s CPU stop requests, bit 6 (64) image 56\x27s held domains off\n"); return 2; }
 		*w = v;
+		w[1] = argc > 2 ? strtoull(argv[2], NULL, 0) & 0xfff : 0;
 	}
-	printf("aura ctl at 0x%llx: 0x%llx\n", (unsigned long long)hit, (unsigned long long)*w);
+	printf("aura ctl at 0x%llx: 0x%llx mask 0x%llx\n", (unsigned long long)hit, (unsigned long long)*w, (unsigned long long)w[1]);
 	return 0;
 }

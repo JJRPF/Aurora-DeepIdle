@@ -1,4 +1,4 @@
-# Where the work stands (2026-11-06, 17:26, after run G56)
+# Where the work stands (2026-11-06, 17:38, after run Y)
 
 This is the summary of the whole effort: what was measured, what was built,
 what works, what does not, and what comes next. Each section points to the
@@ -178,8 +178,11 @@ There are two goals:
 * **2026-11-06 17:26: Aura image 56 can turn 12 of them off** (the
   display chains and USB-C) just before the S2R timer; checked on the
   normal path (run G56).
-* **Next:** run X, every macOS step plus those domains off (a new kind of
-  slpa step: one attended run first, waiting for the owner). If the entry then
+* **2026-11-06 17:31: run Y, those domains off on a normal suspend, ended
+  in the watchdog reset.** Runs Y1 to Y3 test the USB-C, external display
+  and panel groups one at a time.
+* **Next:** run X, every macOS step plus the domains that pass (a new kind
+  of slpa step: one attended run first, waiting for the owner). If the entry then
   completes, the Linux side is the DCP full shutdown and restart (Phase 4).
 * **From 2026-11-06 the owner lets slpa runs that repeat or vary a
   self-recovering setup go unattended** (one at a time, dead-man switch
