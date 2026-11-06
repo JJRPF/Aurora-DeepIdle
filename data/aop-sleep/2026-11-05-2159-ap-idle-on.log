@@ -1,0 +1,263 @@
+2026-11-05 22:00:14 step suspendall; kernel 7.2.11-psci-efi+; booted m1n1 image e93c3a7644406710
+2026-11-05 22:00:14 online: 0-9; nproc 10
+2026-11-05 22:00:14 pmu: boot-stage=30 boot-error-count=00 boot-error-stage=50 panic-count=00 shutdown-flag=00 fault-shadow=10120000000000000000000000000000 
+2026-11-05 22:00:14 mem_sleep: s2idle [deep]; state: freeze mem; online 0-9
+2026-11-05 22:00:14 filesystems ro: 1 of 4
+2026-11-05 22:00:14 pmgr counters: before SLP_DDR=0:0 SLP_DDR.2=0:0 AWAKE=0:0 AWAKE.2=0:0 SLP_S2R=0:0 SLP_S2R.2=0:0 DEEP_WAIT=0:0 DEEP_WAIT.2=0:0 SYS_AWAKE=0:0 SYS_AWAKE.2=0:0 SYS_S2R_AOP=0:0 SYS_S2R_AOP.2=0:0 SYS_SLP_DDR=0:0 SYS_SLP_DDR.2=0:0 ctl=30000
+2026-11-05 22:00:14 pmgr counters: enabled SLP_DDR=1:0 SLP_DDR.2=1:0 AWAKE=1:0 AWAKE.2=1:0 SLP_S2R=1:0 SLP_S2R.2=1:0 DEEP_WAIT=1:0 DEEP_WAIT.2=1:0 SYS_AWAKE=1:0 SYS_AWAKE.2=1:0 SYS_S2R_AOP=1:0 SYS_S2R_AOP.2=1:0 SYS_SLP_DDR=1:0 SYS_SLP_DDR.2=1:0 ctl=30001
+2026-11-05 22:00:16 pmgr counters: 2 s later SLP_DDR=1:0 SLP_DDR.2=1:0 AWAKE=1:48069200 AWAKE.2=1:48069256 SLP_S2R=1:0 SLP_S2R.2=1:0 DEEP_WAIT=1:0 DEEP_WAIT.2=1:0 SYS_AWAKE=1:48069520 SYS_AWAKE.2=1:48069568 SYS_S2R_AOP=1:0 SYS_S2R_AOP.2=1:0 SYS_SLP_DDR=1:0 SYS_SLP_DDR.2=1:0 ctl=30001
+2026-11-05 22:00:16 mode deep: mem_sleep s2idle [deep]; apple_wdt suspend_timeout 120
+2026-11-05 22:00:16 alarm: 1793934077
+2026-11-05 22:00:16 battery: Not charging charge_now 4447000 ac 1; cmdline steps: 
+2026-11-05 22:00:16 suspend deep 1: echo mem ... (energy_now 50695800 uWh, Not charging, behaviour auto)
+2026-11-05 22:02:06 dead-man switch: rc=0; 22:02:06 regs: wake mask 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000; wake status 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000; ps_ans2 1f0000ff; ANS cpu 00000010 00000028; IORVBAR 00004001 00000100; mbox 00020001 00020001; SART cfg 000000ff 000000ff 000000ea 000000ff 000000ff 000000ea 000000ff 000000ff 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000; SART pa 002a2414 002a2434 0029e2cc 107ff4ec 10008400 10000004 1001fcfc 1015c824 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000; SART size 00000003 00000033 00000003 00000033 00000008 000001d7 00000004 00000004 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000; pmgr counters SLP_DDR=1:0 SLP_DDR.2=1:0 AWAKE=1:2655870288 AWAKE.2=1:2655870336 SLP_S2R=1:0 SLP_S2R.2=1:0 DEEP_WAIT=1:0 DEEP_WAIT.2=1:0 SYS_AWAKE=1:2655870568 SYS_AWAKE.2=1:2655870616 SYS_S2R_AOP=1:0 SYS_S2R_AOP.2=1:0 SYS_SLP_DDR=1:0 SYS_SLP_DDR.2=1:0 ctl=30001; aura dbg 0x100040e73e8: 488000038 3c0 1 2d4 548952cb 0 0 0 0 0 100000000 1 1 2000000 2000000 0 5300000000 0 0 0 0 0 0 0
+2026-11-05 22:02:06 aura dbg (words, low/high pairs): 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 
+2026-11-05 22:02:06 aura dbg scan: 0x100040e73e8: 488000038 3c0 1 2d4 548952cb 0 0 0 0 0 100000000 1 1 2000000 2000000 0 5300000000 0 0 0 0 0 0 0;
+2026-11-05 22:02:06 battery after: Not charging charge_now 4447000; smc: apple_aop 2a6c00000.aop: TEST SetAPPower 0x201 for system sleep: 0|macsmc 2a2400000.smc: SetAPPower IDLE: 0|macsmc 2a2400000.smc: SetAPPower ON: 0|apple_aop 2a6c00000.aop: TEST SetAPPower 0x20 for system sleep: -22|
+2026-11-05 22:02:06 pmgr counters after deep 1: SLP_DDR=1:0 SLP_DDR.2=1:0 AWAKE=1:2687107304 AWAKE.2=1:2687107352 SLP_S2R=1:0 SLP_S2R.2=1:0 DEEP_WAIT=1:0 DEEP_WAIT.2=1:0 SYS_AWAKE=1:2687107576 SYS_AWAKE.2=1:2687107616 SYS_S2R_AOP=1:0 SYS_S2R_AOP.2=1:0 SYS_SLP_DDR=1:0 SYS_SLP_DDR.2=1:0 ctl=30001
+2026-11-05 22:02:06 aop mbox irqs over the cycle: -286; als 0.000000, lid angle 106; apple_aop 2a6c00000.aop: TEST SetAPPower 0x20 for system sleep: -22|psci-efi-test: battery after: Not charging charge_now 4447000; smc: apple_aop 2a6c00000.aop: TEST SetAPPower 0x201 for system sleep: 0|macsmc 2a2400000.smc: SetAPPower IDLE: 0|macsmc 2a2400000.smc: SetAPPower ON: 0|apple_aop 2a6c00000.aop: TEST SetAPPower 0x20 for system sleep: -22||
+2026-11-05 22:02:06 suspend deep 1: back, rc=0, elapsed 106.699877222; online 0; energy 50695800 -> 50695800 uWh: 0 W average over the cycle
+2026-11-05 22:02:08 alarm: 1793934189
+2026-11-05 22:02:08 battery: Not charging charge_now 4447000 ac 1; cmdline steps: 
+2026-11-05 22:02:09 suspend deep 2: echo mem ... (energy_now 50695800 uWh, Not charging, behaviour auto)
+2026-11-05 22:03:11 dead-man switch: rc=0; 22:03:11 regs: wake mask 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000; wake status 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000; ps_ans2 1f0000ff; ANS cpu 00000010 00000028; IORVBAR 00004001 00000100; mbox 00020001 00020001; SART cfg 000000ff 000000ff 000000ea 000000ff 000000ff 000000ea 000000ff 000000ff 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000; SART pa 002a2414 002a2434 0029e2cc 107ff4ec 10008400 10000004 1015c824 1001fcfc 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000; SART size 00000003 00000033 00000003 00000033 00000008 000001d7 00000004 00000004 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000; pmgr counters SLP_DDR=1:0 SLP_DDR.2=1:0 AWAKE=1:4234534864 AWAKE.2=1:4234534912 SLP_S2R=1:0 SLP_S2R.2=1:0 DEEP_WAIT=1:0 DEEP_WAIT.2=1:0 SYS_AWAKE=1:4234535160 SYS_AWAKE.2=1:4234535200 SYS_S2R_AOP=1:0 SYS_S2R_AOP.2=1:0 SYS_SLP_DDR=1:0 SYS_SLP_DDR.2=1:0 ctl=30001; aura dbg 0x100040e73e8: 488000038 3c0 1 2d4 54898d23 0 0 0 0 0 100000000 1 1 2000000 2000000 0 5300000000 0 0 0 0 0 0 0
+2026-11-05 22:03:12 aura dbg (words, low/high pairs): 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 
+2026-11-05 22:03:12 aura dbg scan: 0x100040e73e8: 488000038 3c0 1 2d4 54898d23 0 0 0 0 0 100000000 1 1 2000000 2000000 0 5300000000 0 0 0 0 0 0 0;
+2026-11-05 22:03:12 battery after: Not charging charge_now 4447000; smc: apple_aop 2a6c00000.aop: TEST SetAPPower 0x20 for system sleep: -22|apple_aop 2a6c00000.aop: TEST SetAPPower 0x201 for system sleep: -22|macsmc 2a2400000.smc: SetAPPower IDLE: 0|macsmc 2a2400000.smc: SetAPPower ON: 0|
+2026-11-05 22:03:12 pmgr counters after deep 2: SLP_DDR=1:0 SLP_DDR.2=1:0 AWAKE=1:4269804048 AWAKE.2=1:4269804096 SLP_S2R=1:0 SLP_S2R.2=1:0 DEEP_WAIT=1:0 DEEP_WAIT.2=1:0 SYS_AWAKE=1:4269804320 SYS_AWAKE.2=1:4269804368 SYS_S2R_AOP=1:0 SYS_S2R_AOP.2=1:0 SYS_SLP_DDR=1:0 SYS_SLP_DDR.2=1:0 ctl=30001
+2026-11-05 22:03:12 aop mbox irqs over the cycle: 0; als 0.000000, lid angle 106; apple_aop 2a6c00000.aop: TEST SetAPPower 0x201 for system sleep: -22|psci-efi-test: battery after: Not charging charge_now 4447000; smc: apple_aop 2a6c00000.aop: TEST SetAPPower 0x20 for system sleep: -22|apple_aop 2a6c00000.aop: TEST SetAPPower 0x201 for system sleep: -22|macsmc 2a2400000.smc: SetAPPower IDLE: 0|macsmc 2a2400000.smc: SetAPPower ON: 0||
+2026-11-05 22:03:12 suspend deep 2: back, rc=0, elapsed 60.422267352; online 0; energy 50695800 -> 50695800 uWh: 0 W average over the cycle
+2026-11-05 22:03:14 mode s2idle: mem_sleep [s2idle] deep; apple_wdt suspend_timeout 0
+2026-11-05 22:03:14 alarm: 1793934255
+2026-11-05 22:03:14 battery: Not charging charge_now 4447000 ac 1; cmdline steps: 
+2026-11-05 22:03:15 suspend s2idle 1: echo mem ... (energy_now 50695800 uWh, Not charging, behaviour auto)
+2026-11-05 22:04:18 dead-man switch: rc=0; 22:04:18 regs: wake mask 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000; wake status 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000; ps_ans2 1f0000ff; ANS cpu 00000010 00000028; IORVBAR 00004001 00000100; mbox 00020001 00020001; SART cfg 000000ff 000000ff 000000ea 000000ff 000000ff 000000ea 000000ff 000000ff 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000; SART pa 002a2414 002a2434 0029e2cc 107ff4ec 10008400 10000004 1001fcfc 1015c824 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000; SART size 00000003 00000033 00000003 00000033 00000008 000001d7 00000004 00000004 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000; pmgr counters SLP_DDR=1:0 SLP_DDR.2=1:0 AWAKE=1:5817874872 AWAKE.2=1:5817874920 SLP_S2R=1:0 SLP_S2R.2=1:0 DEEP_WAIT=1:0 DEEP_WAIT.2=1:0 SYS_AWAKE=1:5817875160 SYS_AWAKE.2=1:5817875200 SYS_S2R_AOP=1:0 SYS_S2R_AOP.2=1:0 SYS_SLP_DDR=1:0 SYS_SLP_DDR.2=1:0 ctl=30001; aura dbg 0x100040e73e8: 488000038 3c0 1 2d4 54898d23 0 0 0 0 0 100000000 1 1 2000000 2000000 0 5300000000 0 0 0 0 0 0 0
+2026-11-05 22:04:18 aura dbg (words, low/high pairs): 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 
+2026-11-05 22:04:18 aura dbg scan: 0x100040e73e8: 488000038 3c0 1 2d4 54898d23 0 0 0 0 0 100000000 1 1 2000000 2000000 0 5300000000 0 0 0 0 0 0 0;
+2026-11-05 22:04:18 battery after: Not charging charge_now 4447000; smc: macsmc 2a2400000.smc: SetAPPower ON: 0|apple_aop 2a6c00000.aop: TEST SetAPPower 0x201 for system sleep: -22|macsmc 2a2400000.smc: SetAPPower IDLE: 0|macsmc 2a2400000.smc: SetAPPower ON: 0|
+2026-11-05 22:04:18 pmgr counters after s2idle 1: SLP_DDR=1:0 SLP_DDR.2=1:0 AWAKE=1:5851987632 AWAKE.2=1:5851987680 SLP_S2R=1:0 SLP_S2R.2=1:0 DEEP_WAIT=1:0 DEEP_WAIT.2=1:0 SYS_AWAKE=1:5851987904 SYS_AWAKE.2=1:5851987952 SYS_S2R_AOP=1:0 SYS_S2R_AOP.2=1:0 SYS_SLP_DDR=1:0 SYS_SLP_DDR.2=1:0 ctl=30001
+2026-11-05 22:04:18 aop mbox irqs over the cycle: 0; als 0.000000, lid angle 106; apple_aop 2a6c00000.aop: TEST SetAPPower 0x201 for system sleep: -22|psci-efi-test: battery after: Not charging charge_now 4447000; smc: macsmc 2a2400000.smc: SetAPPower ON: 0|apple_aop 2a6c00000.aop: TEST SetAPPower 0x201 for system sleep: -22|macsmc 2a2400000.smc: SetAPPower IDLE: 0|macsmc 2a2400000.smc: SetAPPower ON: 0||
+2026-11-05 22:04:18 suspend s2idle 1: back, rc=0, elapsed 60.443287170; online 0; energy 50695800 -> 50695800 uWh: 0 W average over the cycle
+2026-11-05 22:04:20 alarm: 1793934321
+2026-11-05 22:04:20 battery: Not charging charge_now 4447000 ac 1; cmdline steps: 
+2026-11-05 22:04:20 suspend s2idle 2: echo mem ... (energy_now 50695800 uWh, Not charging, behaviour auto)
+2026-11-05 22:05:24 dead-man switch: rc=0; 22:05:24 regs: wake mask 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000; wake status 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000; ps_ans2 1f0000ff; ANS cpu 00000010 00000028; IORVBAR 00004001 00000100; mbox 00020001 00020001; SART cfg 000000ff 000000ff 000000ea 000000ff 000000ff 000000ea 000000ff 000000ff 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000; SART pa 002a2414 002a2434 0029e2cc 107ff4ec 10008400 10000004 1015c824 1001fcfc 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000; SART size 00000003 00000033 00000003 00000033 00000008 000001d7 00000004 00000004 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000; pmgr counters SLP_DDR=1:0 SLP_DDR.2=1:0 AWAKE=1:7401247048 AWAKE.2=1:7401247096 SLP_S2R=1:0 SLP_S2R.2=1:0 DEEP_WAIT=1:0 DEEP_WAIT.2=1:0 SYS_AWAKE=1:7401247320 SYS_AWAKE.2=1:7401247360 SYS_S2R_AOP=1:0 SYS_S2R_AOP.2=1:0 SYS_SLP_DDR=1:0 SYS_SLP_DDR.2=1:0 ctl=30001; aura dbg 0x100040e73e8: 488000038 3c0 1 2d4 54898d23 0 0 0 0 0 100000000 1 1 2000000 2000000 0 5300000000 0 0 0 0 0 0 0
+2026-11-05 22:05:24 aura dbg (words, low/high pairs): 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 
+2026-11-05 22:05:24 aura dbg scan: 0x100040e73e8: 488000038 3c0 1 2d4 54898d23 0 0 0 0 0 100000000 1 1 2000000 2000000 0 5300000000 0 0 0 0 0 0 0;
+2026-11-05 22:05:24 battery after: Not charging charge_now 4447000; smc: macsmc 2a2400000.smc: SetAPPower ON: 0|apple_aop 2a6c00000.aop: TEST SetAPPower 0x201 for system sleep: -22|macsmc 2a2400000.smc: SetAPPower IDLE: 0|macsmc 2a2400000.smc: SetAPPower ON: 0|
+2026-11-05 22:05:24 pmgr counters after s2idle 2: SLP_DDR=1:0 SLP_DDR.2=1:0 AWAKE=1:7434322440 AWAKE.2=1:7434322480 SLP_S2R=1:0 SLP_S2R.2=1:0 DEEP_WAIT=1:0 DEEP_WAIT.2=1:0 SYS_AWAKE=1:7434322720 SYS_AWAKE.2=1:7434322768 SYS_S2R_AOP=1:0 SYS_S2R_AOP.2=1:0 SYS_SLP_DDR=1:0 SYS_SLP_DDR.2=1:0 ctl=30001
+2026-11-05 22:05:24 aop mbox irqs over the cycle: 0; als 0.000000, lid angle 106; apple_aop 2a6c00000.aop: TEST SetAPPower 0x201 for system sleep: -22|psci-efi-test: battery after: Not charging charge_now 4447000; smc: macsmc 2a2400000.smc: SetAPPower ON: 0|apple_aop 2a6c00000.aop: TEST SetAPPower 0x201 for system sleep: -22|macsmc 2a2400000.smc: SetAPPower IDLE: 0|macsmc 2a2400000.smc: SetAPPower ON: 0||
+2026-11-05 22:05:24 suspend s2idle 2: back, rc=0, elapsed 60.505309536; online 0; energy 50695800 -> 50695800 uWh: 0 W average over the cycle
+2026-11-05 22:05:26 summary: 4 cycles back with rc=0; device errors after the first suspend: 31
+2026-11-05 22:05:26 suspend step done; online 0
+=== dmesg from the first suspend (AOP, CPU, error lines) ===
+[   64.020547] PM: suspend entry (deep)
+[   64.028443] apple_aop 2a6c00000.aop: TEST SetAPPower 0x201 for system sleep: 0
+[   64.170666] apple_aop 2a6c00000.aop: RTKit: co-processor has crashed
+[   64.170681] apple_aop 2a6c00000.aop: RTKit: Version: RTKit: RTKit-2062.141.1.debug - Client: mac14jaop:AppleSPUFirmwareBuilder-427.100.4~17640
+[   64.170686] apple_aop 2a6c00000.aop: RTKit: Crash time: 2117738093
+[   64.170693] apple_aop 2a6c00000.aop: RTKit: Exception dump:
+[   64.170696] apple_aop 2a6c00000.aop:   == Exception taken from EL1t ==
+[   64.170699] apple_aop 2a6c00000.aop:   PSR    = 0x80000004
+[   64.170701] apple_aop 2a6c00000.aop:   PC     = 0x1002880
+[   64.170704] apple_aop 2a6c00000.aop:   ESR    = 0x96000061
+[   64.170706] apple_aop 2a6c00000.aop:   FAR    = 0xffffffffe501e9d2
+[   64.170709] apple_aop 2a6c00000.aop:   SP     = 0x10a80f0
+[   64.170711] apple_aop 2a6c00000.aop: 
+[   64.170713] apple_aop 2a6c00000.aop:   x00-x03 = ffffffffe501e960 00000000010a83aa fffffffffffffff2 ffffffffe501e9b2
+[   64.170718] apple_aop 2a6c00000.aop:   x04-x07 = 0000000000000040 0000000000000020 0000000005426bb8 000000000101f1ec
+[   64.170723] apple_aop 2a6c00000.aop:   x08-x11 = 05c4e00005c4e000 0000000000000000 0000000000000000 0000000000000000
+[   64.170728] apple_aop 2a6c00000.aop:   x12-x15 = 0000000000000000 0000000000000000 0000000000000000 0000000000000000
+[   64.170731] apple_aop 2a6c00000.aop:   x16-x19 = 00000000000000a2 0000000000000001 0000000000000000 00000000010e2bd0
+[   64.170735] apple_aop 2a6c00000.aop:   x20-x23 = 00000000010a8118 0000000000002880 00000000010e2b98 00000000000000b0
+[   64.170739] apple_aop 2a6c00000.aop:   x24-x27 = 0000000000000001 0000000000000092 ffffffffe501e940 00000000000000a2
+[   64.170743] apple_aop 2a6c00000.aop:   x28-x31 = ffffffffe501e960 00000000010a80f0 000000000100f0dc
+[   64.170746] apple_aop 2a6c00000.aop: 
+[   64.170748] apple_aop 2a6c00000.aop: RTKit: Unknown crashlog section: 43637374
+[   64.170751] apple_aop 2a6c00000.aop: RTKit: Unknown crashlog section: 43617343
+[   64.170753] apple_aop 2a6c00000.aop: RTKit: Mailbox history (type = 0, index = 0)
+[   64.170756] apple_aop 2a6c00000.aop: RTKit:  #000@72319804: 0000000000000029 0085000000000000
+[   64.170759] apple_aop 2a6c00000.aop: RTKit:  #001@72bd98d0: 0000000000000029 0085000000000000
+[   64.170763] apple_aop 2a6c00000.aop: RTKit:  #002@73091eac: 000000000000002a 0085000000000000
+[   64.170765] apple_aop 2a6c00000.aop: RTKit:  #003@73499ff4: 0000000000000029 0085000000000000
+[   64.170768] apple_aop 2a6c00000.aop: RTKit:  #004@73d59f28: 0000000000000029 0085000000000000
+[   64.170771] apple_aop 2a6c00000.aop: RTKit:  #005@7461a924: 0000000000000029 0085000000000000
+[   64.170774] apple_aop 2a6c00000.aop: RTKit:  #006@747754a4: 000000000000002a 0085000000000000
+[   64.170777] apple_aop 2a6c00000.aop: RTKit:  #007@74edb164: 0000000000000029 0085000000000000
+[   64.170779] apple_aop 2a6c00000.aop: RTKit:  #008@7579bd28: 0000000000000029 0085000000000000
+[   64.170782] apple_aop 2a6c00000.aop: RTKit:  #009@75e58aac: 000000000000002a 0085000000000000
+[   64.170785] apple_aop 2a6c00000.aop: RTKit:  #010@7605c894: 0000000000000029 0085000000000000
+[   64.170788] apple_aop 2a6c00000.aop: RTKit:  #011@7691d6b0: 0000000000000029 0085000000000000
+[   64.170791] apple_aop 2a6c00000.aop: RTKit:  #012@771de494: 0000000000000029 0085000000000000
+[   64.170794] apple_aop 2a6c00000.aop: RTKit:  #013@7753c0b0: 000000000000002a 0085000000000000
+[   64.170797] apple_aop 2a6c00000.aop: RTKit:  #014@77a9ea68: 0000000000000029 0085000000000000
+[   64.170799] apple_aop 2a6c00000.aop: RTKit:  #015@7835eb0c: 0000000000000029 0085000000000000
+[   64.170802] apple_aop 2a6c00000.aop: RTKit:  #016@78c1f4e4: 000000000000002a 0085000000000000
+[   64.170805] apple_aop 2a6c00000.aop: RTKit:  #017@78c1fc8c: 0000000000000029 0085000000000000
+[   64.170808] apple_aop 2a6c00000.aop: RTKit:  #018@794df050: 0000000000000029 0085000000000000
+[   64.170810] apple_aop 2a6c00000.aop: RTKit:  #019@79d9ed24: 0000000000000029 0085000000000000
+[   64.170813] apple_aop 2a6c00000.aop: RTKit:  #020@7a302798: 000000000000002a 0085000000000000
+[   64.170816] apple_aop 2a6c00000.aop: RTKit:  #021@7a65ed64: 0000000000000029 0085000000000000
+[   64.170819] apple_aop 2a6c00000.aop: RTKit:  #022@7af1f3b8: 0000000000000029 0085000000000000
+[   64.170821] apple_aop 2a6c00000.aop: RTKit:  #023@7b7df178: 0000000000000029 0085000000000000
+[   64.170824] apple_aop 2a6c00000.aop: RTKit:  #024@7b9e62dc: 000000000000002a 0085000000000000
+[   64.170827] apple_aop 2a6c00000.aop: RTKit:  #025@7c09f354: 0000000000000029 0085000000000000
+[   64.170829] apple_aop 2a6c00000.aop: RTKit:  #026@7c95fa48: 0000000000000029 0085000000000000
+[   64.170832] apple_aop 2a6c00000.aop: RTKit:  #027@7d0c98c8: 000000000000002a 0085000000000000
+[   64.170835] apple_aop 2a6c00000.aop: RTKit:  #028@7d21ff08: 0000000000000029 0085000000000000
+[   64.170838] apple_aop 2a6c00000.aop: RTKit:  #029@7dae0a5c: 0000000000000029 0085000000000000
+[   64.170840] apple_aop 2a6c00000.aop: RTKit:  #030@7e064201: 0000000000000000 00b0000000000201
+[   64.170843] apple_aop 2a6c00000.aop: RTKit:  #031@7e064874: 0000000000000000 00b0000000000201
+[   64.170846] apple_aop 2a6c00000.aop: RTKit: Unknown crashlog section: 4372746b
+[   64.170848] apple_aop 2a6c00000.aop: RTKit: Unknown crashlog section: 43636470
+[   64.170851] apple_aop 2a6c00000.aop: RTKit: Mailbox history (type = 0, index = 5)
+[   64.170853] apple_aop 2a6c00000.aop: RTKit:  #000@73092204: 0000000000000020 7a45414f00200011
+[   64.170856] apple_aop 2a6c00000.aop: RTKit:  #001@73095415: 0000000000000020 0000000000000000
+[   64.170859] apple_aop 2a6c00000.aop: RTKit:  #002@74775874: 0000000000000020 7a45414f00200011
+[   64.170862] apple_aop 2a6c00000.aop: RTKit:  #003@747b31fd: 0000000000000020 0000000000000000
+[   64.170865] apple_aop 2a6c00000.aop: RTKit:  #004@75e58e40: 0000000000000020 7a45414f00200011
+[   64.170867] apple_aop 2a6c00000.aop: RTKit:  #005@75e84a19: 0000000000000020 0000000000000000
+[   64.170870] apple_aop 2a6c00000.aop: RTKit:  #006@7753c478: 0000000000000020 7a45414f00200011
+[   64.170873] apple_aop 2a6c00000.aop: RTKit:  #007@7753e7d1: 0000000000000020 0000000000000000
+[   64.170876] apple_aop 2a6c00000.aop: RTKit:  #008@78c1f88c: 0000000000000020 7a45414f00200011
+[   64.170878] apple_aop 2a6c00000.aop: RTKit:  #009@78c60b25: 0000000000000020 0000000000000000
+[   64.170881] apple_aop 2a6c00000.aop: RTKit:  #010@7a302bec: 0000000000000020 7a45414f00200011
+[   64.170884] apple_aop 2a6c00000.aop: RTKit:  #011@7a304205: 0000000000000020 0000000000000000
+[   64.170887] apple_aop 2a6c00000.aop: RTKit:  #012@7b9e6630: 0000000000000020 7a45414f00200011
+[   64.170889] apple_aop 2a6c00000.aop: RTKit:  #013@7b9e9d21: 0000000000000020 0000000000000000
+[   64.170892] apple_aop 2a6c00000.aop: RTKit:  #014@7d0c9c28: 0000000000000020 7a45414f00200011
+[   64.170895] apple_aop 2a6c00000.aop: RTKit:  #015@7d11eb1d: 0000000000000020 0000000000000000
+[   64.170898] apple_aop 2a6c00000.aop: RTKit: Unknown crashlog section: 43736d62
+[   64.170900] apple_aop 2a6c00000.aop: RTKit: Unknown crashlog section: 43736d62
+[   64.170902] apple_aop 2a6c00000.aop: RTKit: Unknown crashlog section: 4373636d
+[   64.170904] apple_aop 2a6c00000.aop: RTKit: Unknown crashlog section: 4373636d
+[   64.170906] apple_aop 2a6c00000.aop: RTKit: Unknown crashlog section: 4373636d
+[   64.170910] apple_aop 2a6c00000.aop: AOP firmware crashed
+[   64.616624] nvme-apple 34bcc0000.nvme: RTKit: syslog message: cmd.c:7963: NVMe shutdown start seg->lba: 0, seg->size: 0
+[   65.037214] nvme-apple 34bcc0000.nvme: RTKit: syslog message: cmd.c:7991: seg->lba 0 saveCtx 1 took 420 ms - clog 12118279
+[   65.084449] Disabling non-boot CPUs ...
+[   65.088731] IRQ132: set affinity failed(-38).
+[   65.088768] IRQ134: set affinity failed(-38).
+[   65.088802] IRQ145: set affinity failed(-38).
+[   65.088808] IRQ146: set affinity failed(-38).
+[   65.089062] psci: CPU9 killed (polled 0 ms)
+[   65.100385] IRQ132: set affinity failed(-38).
+[   65.100400] IRQ134: set affinity failed(-38).
+[   65.100408] IRQ145: set affinity failed(-38).
+[   65.100411] IRQ146: set affinity failed(-38).
+[   65.100593] psci: CPU8 killed (polled 0 ms)
+[   65.112600] IRQ132: set affinity failed(-38).
+[   65.112613] IRQ134: set affinity failed(-38).
+[   65.112790] psci: CPU7 killed (polled 0 ms)
+[   65.128296] psci: CPU6 killed (polled 0 ms)
+[   65.138743] psci: CPU5 killed (polled 0 ms)
+[   65.151824] psci: CPU4 killed (polled 0 ms)
+[   65.167086] psci: CPU3 killed (polled 1 ms)
+[   65.175992] psci: CPU2 killed (polled 1 ms)
+[   65.184418] psci: CPU1 killed (polled 0 ms)
+[   65.191634] Enabling non-boot CPUs ...
+[   70.404138] CPU1: failed to come online
+[   70.404152] CPU1: failed in unknown state : 0x0
+[   70.404642] Error taking CPU1 up: -5
+[   75.520784] CPU2: failed to come online
+[   75.520792] CPU2: failed in unknown state : 0x0
+[   75.521404] Error taking CPU2 up: -5
+[   80.639132] CPU3: failed to come online
+[   80.639138] CPU3: failed in unknown state : 0x0
+[   80.639806] Error taking CPU3 up: -5
+[   85.758033] CPU4: failed to come online
+[   85.758040] CPU4: failed in unknown state : 0x0
+[   85.758794] Error taking CPU4 up: -5
+[   90.877598] CPU5: failed to come online
+[   90.877604] CPU5: failed in unknown state : 0x0
+[   90.878576] Error taking CPU5 up: -5
+[   95.997346] CPU6: failed to come online
+[   95.997354] CPU6: failed in unknown state : 0x0
+[   95.999848] Error taking CPU6 up: -5
+[  101.117248] CPU7: failed to come online
+[  101.117255] CPU7: failed in unknown state : 0x0
+[  101.118202] Error taking CPU7 up: -5
+[  106.237181] CPU8: failed to come online
+[  106.237189] CPU8: failed in unknown state : 0x0
+[  106.238185] Error taking CPU8 up: -5
+[  111.357131] CPU9: failed to come online
+[  111.357136] CPU9: failed in unknown state : 0x0
+[  111.358350] Error taking CPU9 up: -5
+[  111.388588] macsmc 2a2400000.smc: RTKit: Endpoint 0x20 is not running, cannot send message
+[  111.388594] macsmc 2a2400000.smc: Failed to send command
+[  111.392234] nvme-apple 34bcc0000.nvme: RTKit: Initializing (protocol version 12)
+[  111.446998] nvme-apple 34bcc0000.nvme: RTKit: syslog message: apcie.c:1110: power up done[0]: PMU=Ocarina, PWR=0
+[  111.447005] nvme-apple 34bcc0000.nvme: RTKit: syslog message: apcie.c:1110: power up done[1]: PMU=Undefined, PWR=0
+[  111.447010] nvme-apple 34bcc0000.nvme: RTKit: syslog message: apcie.c:423: APCIe 1 is configured as unused.
+[  111.447907] nvme-apple 34bcc0000.nvme: RTKit: syslog message: pre_nand_eng.c:6158: enabled 1p0v 1, enabled prog-no-exec 1
+[  111.447912] nvme-apple 34bcc0000.nvme: RTKit: syslog message: pre_nand_eng.c:6158: enabled 1p0v 1, enabled prog-no-exec 1
+[  111.447916] nvme-apple 34bcc0000.nvme: RTKit: syslog message: pre_nand_eng.c:6158: enabled 1p0v 1, enabled prog-no-exec 1
+[  111.447920] nvme-apple 34bcc0000.nvme: RTKit: syslog message: pre_nand_eng.c:6158: enabled 1p0v 1, enabled prog-no-exec 1
+[  111.466637] nvme-apple 34bcc0000.nvme: RTKit: syslog message: cmd.c:6438:  boot mode normal
+[  111.577493] apple_aop 2a6c00000.aop: RTKit: Device is crashed, cannot send message
+[  111.577496] apple_aop 2a6c00000.aop: RTKit: Failed to send management message type 0x0b: -22
+[  111.577501] apple_aop 2a6c00000.aop: TEST SetAPPower 0x20 for system sleep: -22
+[  111.577524] PM: suspend exit
+[  111.747122] audit: type=1131 audit(1793934123.751:268): pid=1 uid=0 auid=4294967295 ses=4294967295 subj=unconfined msg='unit=aurora-fand comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=failed'
+[  116.167312] ieee80211 phy0: brcmf_c_set_joinpref_default: Set join_pref error (-52)
+[  116.817324] audit: type=1131 audit(1793934128.822:272): pid=1 uid=0 auid=4294967295 ses=4294967295 subj=unconfined msg='unit=aurora-fand comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=failed'
+[  117.021553] PM: suspend entry (deep)
+[  117.023863] apple_aop 2a6c00000.aop: RTKit: Device is crashed, cannot send message
+[  117.023868] apple_aop 2a6c00000.aop: RTKit: Failed to send management message type 0x0b: -22
+[  117.023873] apple_aop 2a6c00000.aop: TEST SetAPPower 0x201 for system sleep: -22
+[  117.628262] nvme-apple 34bcc0000.nvme: RTKit: syslog message: cmd.c:7963: NVMe shutdown start seg->lba: 0, seg->size: 0
+[  118.043763] nvme-apple 34bcc0000.nvme: RTKit: syslog message: cmd.c:7991: seg->lba 0 saveCtx 1 took 415 ms - clog 12121989
+[  118.090436] Disabling non-boot CPUs ...
+[  118.117545] macsmc 2a2400000.smc: RTKit: Endpoint 0x20 is not running, cannot send message
+[  118.117550] macsmc 2a2400000.smc: Failed to send command
+[  118.120858] nvme-apple 34bcc0000.nvme: RTKit: Initializing (protocol version 12)
+[  118.175439] nvme-apple 34bcc0000.nvme: RTKit: syslog message: apcie.c:1110: power up done[0]: PMU=Ocarina, PWR=0
+[  118.175446] nvme-apple 34bcc0000.nvme: RTKit: syslog message: apcie.c:1110: power up done[1]: PMU=Undefined, PWR=0
+[  118.175450] nvme-apple 34bcc0000.nvme: RTKit: syslog message: apcie.c:423: APCIe 1 is configured as unused.
+[  118.176338] nvme-apple 34bcc0000.nvme: RTKit: syslog message: pre_nand_eng.c:6158: enabled 1p0v 1, enabled prog-no-exec 1
+[  118.176343] nvme-apple 34bcc0000.nvme: RTKit: syslog message: pre_nand_eng.c:6158: enabled 1p0v 1, enabled prog-no-exec 1
+[  118.176347] nvme-apple 34bcc0000.nvme: RTKit: syslog message: pre_nand_eng.c:6158: enabled 1p0v 1, enabled prog-no-exec 1
+[  118.176352] nvme-apple 34bcc0000.nvme: RTKit: syslog message: pre_nand_eng.c:6158: enabled 1p0v 1, enabled prog-no-exec 1
+[  118.195090] nvme-apple 34bcc0000.nvme: RTKit: syslog message: cmd.c:6438:  boot mode normal
+[  118.291100] PM: suspend exit
+[  122.076910] audit: type=1131 audit(1793934193.182:276): pid=1 uid=0 auid=4294967295 ses=4294967295 subj=unconfined msg='unit=aurora-fand comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=failed'
+[  123.917895] PM: suspend entry (s2idle)
+[  123.922713] apple_aop 2a6c00000.aop: RTKit: Device is crashed, cannot send message
+[  123.922717] apple_aop 2a6c00000.aop: RTKit: Failed to send management message type 0x0b: -22
+[  123.922723] apple_aop 2a6c00000.aop: TEST SetAPPower 0x201 for system sleep: -22
+[  124.511202] nvme-apple 34bcc0000.nvme: RTKit: syslog message: cmd.c:7963: NVMe shutdown start seg->lba: 0, seg->size: 0
+[  124.925616] nvme-apple 34bcc0000.nvme: RTKit: syslog message: cmd.c:7991: seg->lba 0 saveCtx 1 took 414 ms - clog 12125698
+[  124.999602] macsmc 2a2400000.smc: RTKit: Endpoint 0x20 is not running, cannot send message
+[  124.999607] macsmc 2a2400000.smc: Failed to send command
+[  125.003117] nvme-apple 34bcc0000.nvme: RTKit: Initializing (protocol version 12)
+[  125.058417] nvme-apple 34bcc0000.nvme: RTKit: syslog message: apcie.c:1110: power up done[0]: PMU=Ocarina, PWR=0
+[  125.058424] nvme-apple 34bcc0000.nvme: RTKit: syslog message: apcie.c:1110: power up done[1]: PMU=Undefined, PWR=0
+[  125.058428] nvme-apple 34bcc0000.nvme: RTKit: syslog message: apcie.c:423: APCIe 1 is configured as unused.
+[  125.059342] nvme-apple 34bcc0000.nvme: RTKit: syslog message: pre_nand_eng.c:6158: enabled 1p0v 1, enabled prog-no-exec 1
+[  125.059347] nvme-apple 34bcc0000.nvme: RTKit: syslog message: pre_nand_eng.c:6158: enabled 1p0v 1, enabled prog-no-exec 1
+[  125.059351] nvme-apple 34bcc0000.nvme: RTKit: syslog message: pre_nand_eng.c:6158: enabled 1p0v 1, enabled prog-no-exec 1
+[  125.059355] nvme-apple 34bcc0000.nvme: RTKit: syslog message: pre_nand_eng.c:6158: enabled 1p0v 1, enabled prog-no-exec 1
+[  125.078067] nvme-apple 34bcc0000.nvme: RTKit: syslog message: cmd.c:6438:  boot mode normal
+[  125.175794] PM: suspend exit
+[  127.188872] audit: type=1131 audit(1793934257.409:280): pid=1 uid=0 auid=4294967295 ses=4294967295 subj=unconfined msg='unit=aurora-fand comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=failed'
+[  130.707665] PM: suspend entry (s2idle)
+[  130.709504] apple_aop 2a6c00000.aop: RTKit: Device is crashed, cannot send message
+[  130.709509] apple_aop 2a6c00000.aop: RTKit: Failed to send management message type 0x0b: -22
+[  130.709515] apple_aop 2a6c00000.aop: TEST SetAPPower 0x201 for system sleep: -22
+[  131.308160] nvme-apple 34bcc0000.nvme: RTKit: syslog message: cmd.c:7963: NVMe shutdown start seg->lba: 0, seg->size: 0
+[  131.728573] nvme-apple 34bcc0000.nvme: RTKit: syslog message: cmd.c:7991: seg->lba 0 saveCtx 1 took 420 ms - clog 12129408
+[  131.801175] macsmc 2a2400000.smc: RTKit: Endpoint 0x20 is not running, cannot send message
+[  131.801179] macsmc 2a2400000.smc: Failed to send command
+[  131.804602] nvme-apple 34bcc0000.nvme: RTKit: Initializing (protocol version 12)
+[  131.807069] bluetooth hci0:16: PM: parent hci0 should not be sleeping
+[  131.860754] nvme-apple 34bcc0000.nvme: RTKit: syslog message: apcie.c:1110: power up done[0]: PMU=Ocarina, PWR=0
+[  131.860761] nvme-apple 34bcc0000.nvme: RTKit: syslog message: apcie.c:1110: power up done[1]: PMU=Undefined, PWR=0
+[  131.860765] nvme-apple 34bcc0000.nvme: RTKit: syslog message: apcie.c:423: APCIe 1 is configured as unused.
+[  131.861662] nvme-apple 34bcc0000.nvme: RTKit: syslog message: pre_nand_eng.c:6158: enabled 1p0v 1, enabled prog-no-exec 1
+[  131.861667] nvme-apple 34bcc0000.nvme: RTKit: syslog message: pre_nand_eng.c:6158: enabled 1p0v 1, enabled prog-no-exec 1
+[  131.861671] nvme-apple 34bcc0000.nvme: RTKit: syslog message: pre_nand_eng.c:6158: enabled 1p0v 1, enabled prog-no-exec 1
+[  131.861675] nvme-apple 34bcc0000.nvme: RTKit: syslog message: pre_nand_eng.c:6158: enabled 1p0v 1, enabled prog-no-exec 1
+[  131.880407] nvme-apple 34bcc0000.nvme: RTKit: syslog message: cmd.c:6438:  boot mode normal
+[  131.986013] PM: suspend exit
+[  132.321712] audit: type=1131 audit(1793934321.740:286): pid=1 uid=0 auid=4294967295 ses=4294967295 subj=unconfined msg='unit=aurora-fand comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=failed'
+[  137.498053] audit: type=1131 audit(1793934326.917:291): pid=1 uid=0 auid=4294967295 ses=4294967295 subj=unconfined msg='unit=aurora-fand comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=failed'

@@ -2065,3 +2065,14 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 - Image `86fc1002a296c8a0`, the module tree re-staged and installed (old Image in `/var/lib/deepidle/vmlinuz-psci-efi-test.pre-aopidle`), initramfs rebuilt.
 - `run.sh` now logs the AOP mailbox interrupts over each cycle and the `TEST SetAPPower` lines.
 - **Regression armed** (no `slpa`, no `pmp_sleep`): `install.sh suspendall`, 2 `deep` and 2 `s2idle` cycles of 60 s, PMGR counters on. To check: the AOP acks 0x201 and 0x20, every cycle comes back, the AOP's interrupt count over the sleep drops, and the ALS still reads after resume.
+
+## 2026-11-05 22:07: AOP SetAPPower regression: the AOP crashes after acking 0x201; CPUs 1 to 9 do not come back after the first deep resume; control run armed
+
+- Image `86fc1002a296c8a0`, no `slpa`, no `pmp_sleep`, 2 `deep` and 2 `s2idle` cycles of 60 s, PMGR counters on. Log: `data/aop-sleep/2026-11-05-2159-ap-idle-on.log`.
+- All 4 cycles came back, rc 0 (106.7, 60.4, 60.4, 60.5 s). The dead-man switch saw the disk every time; btrfs error counters 0.
+- **The AOP acked 0x201 (`TEST SetAPPower 0x201 for system sleep: 0`), then crashed 140 ms later**, during device suspend: `RTKit: co-processor has crashed`, firmware `mac14jaop:AppleSPUFirmwareBuilder-427.100.4` (RTKit-2062.141.1.debug), exception from EL1t, PC `0x1002880`, ESR `0x96000061` (a write, alignment fault), FAR `0xffffffffe501e9d2`. The mailbox history ends with our 0x201 and its ack, once each, so this is not a repeated AP state (unlike the PMP crash in run C).
+- After that the AOP is gone: the 0x20 on resume returns -22, every later 0x201 -22, and no AOP mailbox interrupts over cycles 2 to 4 (cycle 1 shows -286, the line's count reset with the crash). The ALS read 0 before and after (dark room); the lid angle stays at its cached 106.
+- **After the first `deep` resume CPUs 1 to 9 failed to come online** (`CPU1: failed to come online`, `Error taking CPU1 up: -5`, 5 s each, hence the 106.7 s cycle). Every regression earlier today came back with `online 0-9`. Whether the AOP message, its crash, or something else in this boot caused it is not known yet.
+- PMGR counters: `AWAKE` only; `SLP_S2R` and `SYS_S2R_AOP` 0, as expected without `slpa`.
+- So macOS must do something before `SetAPPower 0x201` that Linux does not, or the firmware's sleep path touches state that Linux left differently (the bad FAR looks like a garbage 32-bit pointer, sign-extended).
+- **Control run armed:** the same run with `apple_aop.sleep_ap_idle=0` (new `install.sh` flag `/var/lib/deepidle/aop-ap-idle-off`). If the CPUs come back, the AOP's 0x201 is what broke them.
