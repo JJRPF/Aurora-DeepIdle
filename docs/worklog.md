@@ -2044,3 +2044,15 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 
 - Owner: "Go, I am here for now, so just notify and run."
 - `deep_steps` 14, `pmp_sleep`, aura-ctl 15, PMP release on (skipped once the PMP is idle), 1 `deep` cycle, 30 s alarm.
+
+## 2026-11-05 21:44: owner-attended run I (C + H): the same S2R-timer reset, about 84.9 s
+
+- `deep_steps` 14 (`slpw`, `slpa`, PMU boot stage 0x50), `pmp_sleep` (the PMP's IDLE after `slpa`), aura-ctl 15 (Aura logged `0xf`: the whole PMGR quiesce but the cluster power-off, every core in deep sleep, the S2R timer).
+- Started 21:39:15 (push). `echo mem` 21:41:29.0. No dead-man push. Next kernel about 21:42:53.9 (the RTC line at 21:43:08, minus its 14.1 s): **about 84.9 s**, the S2R timer's reset once more. No hand reset. btrfs counters 0.
+- Whether the PMP acked its IDLE in this run is not recorded: the root was read-only and the reset took the kernel log. Run C showed it acks in this exact sequence.
+- So macOS's PMP IDLE plus the PMGR quiesce plus every core powered down still leave the S2R entry incomplete.
+- What is left of macOS's sequence:
+  1. `quiesceHW`'s cluster power-off.
+  2. The PMU's SPMI quiesce.
+  3. The **AOP**: the PMGR's own counters include `SYS_S2R_AOP`, an S2R state with the AOP, and Linux never tells the AOP the system is going to sleep. In macOS the AOP stays up through S2R (it runs the lid and keyboard wake sources). An AOP sleep handshake is a new lead, to read statically in macOS 13.5 (`AppleAOP`/`AOPRTBuddy` platform actions).
+- Flags removed; default boot.bin, `next_entry` unset.

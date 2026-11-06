@@ -1,4 +1,4 @@
-# Where the work stands (2026-11-05, 21:40, after runs C, G and H)
+# Where the work stands (2026-11-05, 21:45, after runs C, G, H and I)
 
 This is the summary of the whole effort: what was measured, what was built,
 what works, what does not, and what comes next. Each section points to the
@@ -100,13 +100,13 @@ There are two goals:
   powered down. Both reset 85 s after `echo mem`, as D and E did: the S2R
   entry still does not complete. What none of the runs did together is the
   PMP's sleep request and the PMGR steps in the same sleep, which macOS
-  does: that is run I. The Mac reset itself each time, and the disk is
-  clean.
+  does: run I did both at 21:41 and reset at 85 s too. The Mac reset itself
+  each time, and the disk is clean.
 * **Next (owner-attended):**
-  * run I: C and H together, the PMP's sleep request and the whole PMGR
-    quiesce before the S2R timer, as macOS does both;
-  * if the entry still does not complete: the cluster power-off step and
-    the PMU's SPMI quiesce;
+  * static first: what macOS tells the AOP before sleeping (the PMGR has an
+    `S2R_AOP` state of its own, and Linux never signals the AOP), the
+    cluster power-off step and the PMU's SPMI quiesce; then attended runs
+    with whichever is found;
   * then the devices that lose power (Phase 4), DCP above all.
 
 ## The last two days
@@ -220,7 +220,7 @@ wakes cost milliwatts. The 1.4 W is power left on.
 | AIC | **works** (kernel 1ac4376) | Save and mask every bank, restore on resume (syscore); runs every suspend | |
 | Recovery | **works** | SoC watchdog around SYSTEM_SUSPEND (proven by a deliberate hang); dead-man switch after `slpa` runs | |
 | SMC handshake | **tested** | `WKTP` and `slpw` are harmless. `slpa` makes the SMC cut the ANS's power; the Mac still resumes on the alarm | `slpa` goes last, after the PMGR's own entry |
-| PMGR sleep entry | **started** (images 52, 53) | Aura writes the S2R timer (`MPMGR_AON` + 0x4000); it resets the SoC about 60 s later unless the entry completes, and it does not complete with `slpa` and every core powered down (runs D to F). Image 53 adds the rest of `quiesceHW` (the GPU fabric domain off, the SmartIO auto power-on off, the clock-generator and PLL-off writes), built and regression-checked | G and H (11-05 21:30): the whole quiesce before the timer still resets at 85 s. Next: run I (with the PMP's IDLE), then the cluster power-off step (likely `0x28e080060` to `0x70`) |
+| PMGR sleep entry | **started** (images 52, 53) | Aura writes the S2R timer (`MPMGR_AON` + 0x4000); it resets the SoC about 60 s later unless the entry completes, and it does not complete with `slpa` and every core powered down (runs D to F). Image 53 adds the rest of `quiesceHW` (the GPU fabric domain off, the SmartIO auto power-on off, the clock-generator and PLL-off writes), built and regression-checked | G, H and I (11-05 21:30 to 21:41): the whole quiesce before the timer, with or without the PMP's IDLE, still resets at 85 s. Next (static): the AOP's sleep handshake, the cluster power-off (likely `0x28e080060` to `0x70`), the PMU's SPMI quiesce |
 | NVMe (ANS) | **fails after `slpa`** | Clean in every Phase 2 cycle. After `slpa` the ANS firmware starts (answers the RTKit HELLO) but never acks IOP power-on (`-62`), CPU status 0x08. The SART and its boot address (IO RVBAR) are intact (run A, 11-05 18:04). Likely waits on the storage power the SMC cut, which only a real S2R wake restores | Comes after the SoC sleep (runs C, G, H) |
 | PMP | IDLE works, the wake does not | IDLE acks in about 400 us in s2idle. Run C's crash after `slpa` was the test kernel's double SetAPPower (fixed 11-05). The display requests are released for sleep and come back (test switch, 2 of 2); only ISP's stays. RUN alone: 0 of 3. A PMGR reset of `ps_pmp` crashes the SoC | Run C again (attended), with the release |
 | Devices (PCIe L2, Wi-Fi, DCP) | s2idle only | DCP cannot resume from power loss today | Phase 4 |
