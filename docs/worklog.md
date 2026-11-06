@@ -2378,3 +2378,14 @@ Run J (slpa + PMP IDLE + AOP handshake + the whole quiesceHW incl. the soc-clust
 - Also from the driver: a port whose core is up is made a syscore device on purpose (`dev_pm_syscore_device`, "Keep xHCI running in suspend-to-idle"), so its `atc*_usb` domain stays on in every Linux suspend while a cable is in. That is one of the 19 held domains of run S2.
 - **Change:** `run.sh` skips a `dwc3-apple` port with no `xhci-hcd.*` child (`unbind ...: skipped, core not probed`).
 - **Run U2** (unattended, normal path): U with the skip. The rest of the boot holds `b02280000`'s device lock (the killed unbind), so a `systemctl reboot` could hang in `device_shutdown`; this boot ends with sysrq sync, read-only remount and reboot after U2 is armed.
+
+## 2026-11-06 17:24 run U2: unbinding the display stack frees only the PMP's display domains; genpd's DEFER_OFF keeps the rest on
+
+- Run U2 (normal path, S2 + the unbinds, never-probed dwc3 ports skipped): `apple-drm`, the three `apple-dcp` and `dwc3-apple f02280000.usb` unbound with rc 0; `702280000` and `b02280000` skipped (no xHCI this boot; in U `702280000` had one). No oops. **Back on the alarm, 33.2 s, `online 0-9`**, PMP requests back to `0x1000`. The run rebooted itself at 17:12:30; no hand reset, btrfs counters 0, default boot.bin, `next_entry` unset.
+- The 17 device errors after the suspend come from the unbinds, not the sleep: the three `tps6598x` controllers cannot set their Type-C mux (-19, the mux's consumers are gone) and one audio rate-symmetry error.
+- At syscore suspend **96 of 200 domains on** (S2: 99; `data/s2r-domains/2026-11-06-1712-u2-syscore-suspend.txt`). Only `pmp-disp0`, `pmp-dispext0` and `pmp-dispext1` went off. `disp0_*`, `dispext0_*`, `dispext1_*`, `atc0/1/2_usb`, `sio`, `afr`, `apcie_gp*` are still on.
+- Why (`drivers/pmdomain/apple/pmgr-pwrstate.c:398`, `drivers/pmdomain/core.c`): every PMGR domain that is on at boot gets `GENPD_FLAG_DEFER_OFF | GENPD_FLAG_ACTIVE_WAKEUP`.
+  - DEFER_OFF: genpd never powers the domain off while any consumer in the DT has no bound driver (`fw_devlink_count_absent_consumers`). An unbound DCP is exactly such a consumer, so **unbinding keeps its domains on** rather than freeing them.
+  - ACTIVE_WAKEUP: the domain also stays on while any of its devices is on a wakeup path (`device_awake_path`).
+  - Otherwise genpd powers a domain off only once every attached device (the DCP's DARTs and mailbox, the USB port's DARTs, PHY, mux and dwc3) has gone through noirq suspend and every child domain is off; a syscore device (a dwc3 with its core up) is never counted.
+- So unbinding is the wrong tool. **Next:** extend `pm_genpd.test_dump` to print, for each non-always-on domain still on, why it is held (devices suspended vs attached, absent consumers under DEFER_OFF, awake-path devices, children on), then a run S3 (S2 again, no unbinds, unattended) to read it. Run V (R + unbinds) dropped: it would sleep with the same domains on as R.
