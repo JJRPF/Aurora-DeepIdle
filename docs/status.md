@@ -199,8 +199,8 @@ There are two goals:
   the charger port is in device mode again. Only the three display
   coprocessors' chains (13 domains) and two always-on groups are left.
 * **Next:** the display coprocessors (Phase 4): first the two external
-  ones, which have nothing attached and no firmware running, then the
-  panel's (full shutdown and restart). Then the S2R entry is tried again
+  ones, which have nothing attached but run firmware Linux started at
+  boot (shut it down in sleep, start it again after), then the panel's. Then the S2R entry is tried again
   with them off.
 * **From 2026-11-06 the owner lets slpa runs that repeat or vary a
   self-recovering setup go unattended** (one at a time, dead-man switch
