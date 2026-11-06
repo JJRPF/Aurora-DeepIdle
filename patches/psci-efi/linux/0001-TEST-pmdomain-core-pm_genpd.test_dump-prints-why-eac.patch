@@ -1,0 +1,73 @@
+From 8e4fbcc8a7bc5ee3c4fe336de3890937e36335e4 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Fri, 6 Nov 2026 17:16:00 -0500
+Subject: [PATCH] TEST: pmdomain: core: pm_genpd.test_dump prints why each held
+ domain stays on
+
+---
+ drivers/pmdomain/core.c | 49 +++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 49 insertions(+)
+
+diff --git a/drivers/pmdomain/core.c b/drivers/pmdomain/core.c
+index 059d728204eb..0d2e3216756f 100644
+--- a/drivers/pmdomain/core.c
++++ b/drivers/pmdomain/core.c
+@@ -4229,6 +4229,55 @@ static void genpd_test_dump_on(const char *when)
+ 	}
+ 	pr_info("genpd test %s:%s\n", when, buf);
+ 	pr_info("genpd test %s: %d of %d domains on\n", when, on, total);
++
++	/*
++	 * Why each domain that is not always-on stayed on: genpd_sync_power_off()
++	 * needs every attached device counted in noirq suspend (not syscore, not on
++	 * an awake path with ACTIVE_WAKEUP), every child domain off, and under
++	 * DEFER_OFF no consumer without a bound driver.
++	 */
++	list_for_each_entry(genpd, &gpd_list, gpd_list_node) {
++		struct pm_domain_data *pdd;
++		struct gpd_link *link;
++		struct device *sup;
++		struct fwnode_link *fl;
++		struct device_link *dl;
++
++		if (genpd->status != GENPD_STATE_ON || genpd_is_always_on(genpd))
++			continue;
++		len = scnprintf(buf, sizeof(buf), " susp %u/%u%s%s;", genpd->suspended_count,
++				genpd->device_count, genpd_is_defer_off(genpd) ? " defer" : "",
++				genpd_is_active_wakeup(genpd) ? " awake" : "");
++		list_for_each_entry(pdd, &genpd->dev_list, list_node) {
++			struct device *dev = pdd->dev;
++
++			if (dev->power.is_noirq_suspended && !dev->power.syscore &&
++			    !(device_awake_path(dev) && genpd_is_active_wakeup(genpd)))
++				continue;
++			len += scnprintf(buf + len, sizeof(buf) - len, " dev %s%s%s%s", dev_name(dev),
++					 dev->power.syscore ? "(syscore)" : "",
++					 device_awake_path(dev) ? "(wakepath)" : "",
++					 dev->power.is_noirq_suspended ? "" : "(not-noirq)");
++		}
++		list_for_each_entry(link, &genpd->parent_links, parent_node)
++			if (link->child->status == GENPD_STATE_ON)
++				len += scnprintf(buf + len, sizeof(buf) - len, " child %s",
++						 link->child->name);
++		if (genpd_is_defer_off(genpd) && genpd->has_provider) {
++			list_for_each_entry(fl, &genpd->provider->consumers, s_hook)
++				len += scnprintf(buf + len, sizeof(buf) - len, " nodev %pfwP",
++						 fl->consumer);
++			sup = get_dev_from_fwnode(genpd->provider);
++			if (sup) {
++				list_for_each_entry(dl, &sup->links.consumers, s_node)
++					if (dl->consumer->links.status != DL_DEV_DRIVER_BOUND)
++						len += scnprintf(buf + len, sizeof(buf) - len,
++								 " unbound %s", dev_name(dl->consumer));
++				put_device(sup);
++			}
++		}
++		pr_info("genpd test %s held %s:%s\n", when, genpd->name, buf);
++	}
+ }
+ 
+ static int genpd_test_syscore_suspend(void *data)
+-- 
+2.55.0
+

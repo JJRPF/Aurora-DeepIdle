@@ -2389,3 +2389,8 @@ Run J (slpa + PMP IDLE + AOP handshake + the whole quiesceHW incl. the soc-clust
   - ACTIVE_WAKEUP: the domain also stays on while any of its devices is on a wakeup path (`device_awake_path`).
   - Otherwise genpd powers a domain off only once every attached device (the DCP's DARTs and mailbox, the USB port's DARTs, PHY, mux and dwc3) has gone through noirq suspend and every child domain is off; a syscore device (a dwc3 with its core up) is never counted.
 - So unbinding is the wrong tool. **Next:** extend `pm_genpd.test_dump` to print, for each non-always-on domain still on, why it is held (devices suspended vs attached, absent consumers under DEFER_OFF, awake-path devices, children on), then a run S3 (S2 again, no unbinds, unattended) to read it. Run V (R + unbinds) dropped: it would sleep with the same domains on as R.
+
+## 2026-11-06 17:16 the genpd dump says why each domain is held; run S3 armed
+
+- `pm_genpd.test_dump` now also prints, after `N of M domains on`, one line per non-always-on domain still on at syscore suspend: `held NAME: susp S/D [defer] [awake]; dev X(syscore|wakepath|not-noirq) … child C … nodev FWNODE … unbound DEV`. Those are genpd's conditions for powering a domain off at sleep (`genpd_sync_power_off`, `genpd_finish_suspend`, `genpd_must_defer`). Software state only, no locks taken. Test Image `b83b00e1e29edf5f` (previous at `/var/lib/deepidle/vmlinuz-psci-efi-test.pre-genpdheld`); patch `0001-TEST-pmdomain-core-pm_genpd.test_dump-prints-why-eac.patch`. Clean build.
+- **Run S3** (unattended, normal path, no unbinds): S2 on the new kernel.
