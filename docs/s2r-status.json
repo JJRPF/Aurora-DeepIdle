@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "updated": "2026-11-05",
+  "updated": "2026-11-06",
   "overall": 45,
   "overall_note": "Risk-weighted guess with a wide error bar. The page prefers the live figure in `docs/status.md` when it can read one.",
   "machine": "14-inch MacBook Pro, M2 Pro (`T6020`, `apple,j414s`), Aurora Silicon Linux",
@@ -148,13 +148,12 @@
         "Owner-attended run A again (2026-11-05 18:04, `slpa` with the IO RVBAR restore): the IO RVBAR is kept across `slpa`, so the lead is wrong. The ANS firmware starts (answers HELLO) but never acks IOP power-on; the SoC stayed AWAKE; the dead-man switch reset the Mac. The ANS now waits on the SoC sleep itself",
         "PMP display requests released for sleep (2026-11-05 18:16): test kernel switch; the PMP acks the withdraw (`0xf000` → `0x1000`) and the assert on resume, 2 of 2 normal suspends, 0 device errors",
         "Owner-attended runs C, G, H (2026-11-05 21:20 to 21:35): C, the PMP accepts its IDLE after `slpa` (no crash), the SoC stays AWAKE; G and H, all of `quiesceHW` but the cluster power-off before the S2R timer, both reset about 85 s after `echo mem` like D and E: the entry still does not complete",
-        "Owner-attended run I (2026-11-05 21:41): the PMP’s IDLE and the whole PMGR quiesce before the S2R timer in one sleep: the same reset at about 85 s"
+        "Owner-attended run I (2026-11-05 21:41): the PMP’s IDLE and the whole PMGR quiesce before the S2R timer in one sleep: the same reset at about 85 s",
+        "The AOP's sleep handshake, as macOS 13.5 (`AppleSPU` queue stop and start, RTBuddy's `SetAPPower` 0x201 before `slpa`), in the test kernel; 4 of 4 suspend cycles clean without `slpa` (2026-11-06 00:00)"
       ],
       "next": [
-        "Static: what macOS tells the AOP before sleeping (the PMGR has a `SYS_S2R_AOP` state; Linux never signals the AOP), `quiesceHW`’s cluster power-off (likely `0x28e080060` to `0x70`) and the PMU’s SPMI quiesce; then attended runs",
-        "Static: `enableCluster`’s register (`quiesceHW` step 4); releasing the PMP’s display and ISP requests (`0xf000`) before `slpa`, as macOS does (`0x300` left)",
-        "After a first real S2R wake: restart the nine secondaries from Aura at runtime (design in the worklog, 2026-11-05 10:11)",
-        "Lid wake, not tested separately yet"
+        "Owner-attended run J: run I plus the AOP handshake",
+        "Static: the cluster power-off step of `quiesceHW` and the PMU's SPMI quiesce"
       ],
       "gate": "20 of 20 cycles; lid, key, keyboard and alarm wakes; about 0.3 W on battery."
     },
@@ -177,7 +176,8 @@
     { "name": "Wake sources", "state": "works", "known": "Deep WFI with AIC lines 724 (alarm) and 865 (SMC mailbox) unmasked. The power key wakes on 865.", "next": "Lid; stop the SMC’s early `Elec Cause` syslog wakes" },
     { "name": "AIC", "state": "works", "known": "Save and mask every bank, restore on resume (syscore). It runs on every Phase 2 cycle. Because it masks everything, wake detection has to come from the PMU/SMC side.", "next": "—" },
     { "name": "SMC handshake", "state": "tested", "known": "`WKTP` and `slpw` are harmless. `slpa` makes the SMC cut the storage controller’s (ANS) power: in five runs inside a real suspend with all CPUs off (2026-11-04 and 05) the Mac resumed on the alarm and the ANS never booted again. On its own `slpa` does not start the SoC’s sleep (PMGR counters: `AWAKE` throughout). The dead-man switch’s reboot brings the disk back every time. `SetAPPower` IDLE to the SMC is acked and safe.", "next": "The SoC sleep after `slpa` (runs C, G, H); the ANS's power-on ack should follow a real S2R wake" },
-    { "name": "PMP", "state": "partial", "known": "IDLE works in s2idle (acks in about 400 us) and now after `slpa` too (run C again, 2026-11-05 21:22: accepted, no crash; the 16:01 crash was the test kernel’s double `SetAPPower`). The wake from IDLE fails without a power cycle (-62). The display requests are released for sleep in normal suspends; once the PMP is IDLE the release is refused (`-EALREADY`), so it has to move before `slpa`. A PMGR reset of `ps_pmp` crashes the SoC.", "next": "Owner-attended run I (IDLE with the PMGR steps); its wake after a real S2R" },
+    { "name": "PMP", "state": "partial", "known": "IDLE works in s2idle (acks in about 400 us) and now after `slpa` too (run C again, 2026-11-05 21:22: accepted, no crash; the 16:01 crash was the test kernel’s double `SetAPPower`). The wake from IDLE fails without a power cycle (-62). The display requests are released for sleep in normal suspends; once the PMP is IDLE the release is refused (`-EALREADY`), so it has to move before `slpa`. A PMGR reset of `ps_pmp` crashes the SoC.", "next": "Owner-attended run J (IDLE with the PMGR steps and the AOP handshake); its wake after a real S2R" },
+    { "name": "AOP", "state": "partial", "known": "macOS tells the AOP the AP is asleep (RTKit `SetAPPower` 0x201) and leaves it running; before that `AppleSPU::_stopQueue` stops each endpoint's queue (`0xa4`, ack `0x87`), and `_startQueue` starts it on wake (`0xa3`, ack `0x86`). Sent alone, the 0x201 crashed the AOP in its ring writer. The test kernel now does the whole handshake, with the 0x201 before `slpa` as macOS. The queues must run again before the secondary CPUs come back (stopped, every incoming core hung in the kernel's secondary entry), so they restart from syscore resume. 4 of 4 suspend cycles with all 10 CPUs back, the sensors live (2026-11-06 00:00).", "next": "Owner-attended run J: run I plus the AOP handshake" },
     { "name": "Secondary CPUs", "state": "works", "known": "CPU_OFF parks the core in Aura’s retention deep WFI loop; CPU_ON hands it back through the spin table, with `CYC_OVRD` restored first. 20 of 20 suspend cycles with all nine.", "next": "Runtime hotplug outside suspend; RVBAR re-entry after real power loss" },
     { "name": "PMGR quiesce, S2R timer", "state": "partial", "known": "The S2R timer (1 to MPMGR_AON + 0x4000) works from Aura: it resets the SoC about 60 s after the write unless the S2R entry completes. With `slpa`, every core powered down macOS’s way and all of `quiesceHW` but the cluster power-off (image 53, runs G and H), it still resets at about 85 s after `echo mem`. Adding the PMP’s IDLE in the same sleep (run I) changes nothing.", "next": "Static: the AOP’s sleep handshake, the cluster power-off, the PMU SPMI quiesce" },
     { "name": "Devices", "state": "open", "known": "s2idle only. DCP cannot resume from power loss today.", "next": "Phase 4, in the traced order" }
@@ -263,6 +263,7 @@
     { "what": "macOS 15.7.1", "value": "0.24 W", "detail": "5.9 h, 98.7% of it in S2R" }
   ],
   "findings": [
+    { "title": "The AOP's queues must run before the CPUs come back", "body": "With the AOP's endpoint queues stopped across the CPU bring-up, every secondary hung in the kernel's secondary entry after Aura handed it the entry (5 runs); restarting them from syscore resume, before the secondaries, fixed it (3 runs, 12 cycles)." },
     { "title": "The gap is SoC sleep itself", "body": "Awake idle matches macOS once the PMP runs (5.38 W against 5.57 W, SoC 1.22 W on both). The lid-closed gap is not the devices." },
     { "title": "s2idle’s 1.4 W is power left on, not wakes", "body": "The 3.2 wakes a second come from the AOP’s ambient-light and lid-angle reports and cost milliwatts. The PMP doesn’t change the drain." },
     { "title": "macOS tells the PMP when the system sleeps", "body": "Read from the macOS 13.5 kernelcache: the full order of sleep and quiesce actions, the SMC `MBSE` handshake, PMGR’s last write, and the PMP’s RTKit IDLE (0x201), which is Linux’s unused `apple_rtkit_idle()`." },

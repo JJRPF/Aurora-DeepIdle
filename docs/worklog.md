@@ -2162,3 +2162,19 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 - **Why the restart failed:** `apple_rtkit_send_message` refuses app endpoints unless the AP state is ON. After an acked 0x201 it is 0x201, and the 0x20's ack cannot be handled with interrupts off. (In mode 1 the 0x201's ack was still pending, so the state still read ON.) So this run confirms the rule from the other side: queues stopped during the bring-up means the cores hang.
 - **Test kernel:** `apple_rtkit_send_message_early()` in `rtkit.c`, an atomic send without the running check, used only by the AOP's syscore restart. Image `cb9c74b6affcecc9` (old one in `/var/lib/deepidle/vmlinuz-psci-efi-test.pre-rtkearly`); the module tree and the initramfs were reinstalled.
 - Mode 3 armed again, `deep` and `s2idle`, read-only.
+
+## 2026-11-06 00:02: mode 3 with the early send: 4 of 4, CPUs 0-9; the AOP handshake is done in macOS's order; run J added; status, status file
+
+- Run 23:55 (`data/aop-sleep/2026-11-05-2355-mode3.log`, Image `cb9c74b6affcecc9`, `aop.sleep_ap_idle=3`, read-only). Each `deep` cycle:
+  1. the queues stopped (12 of 12);
+  2. `SetAPPower 0x201 for system sleep: 0`, acked at `PM_SUSPEND_PREPARE` (before `slpa`'s place in `suspend_late`);
+  3. on resume, `0x20 from syscore resume`, then `queues restarted from syscore resume: 12 sent, 0 failed`.
+- **4 of 4 back, `online 0-9` every time**, 0 device errors (the 2 counted are the hook's own line), no AOP crash.
+- **The AOP's sleep handshake is now in the test kernel in macOS's order.** Summary of 2026-11-05 22:00 to 2026-11-06 00:00, 11 unattended runs, no hand resets, btrfs counters 0:
+  - the 0x201 alone crashes the AOP;
+  - macOS first stops each endpoint's queue (`0xa4`/`0x87`);
+  - the queues must run again before the secondaries come back.
+- `attended.sh` has **run J**: I (`deep_steps` 14, `pmp_sleep`, aura-ctl 15) plus `aop.sleep_ap_idle=3`. Runs A to I now pass `aop.sleep_ap_idle=0` (the test kernel's default is 1), and cleanup removes `aop-sleep-mode`.
+- status.md and s2r-status.json updated (new AOP piece and finding; estimate stays 45%).
+- Mac state: default boot.bin `76f850895fed53d1`, `next_entry` unset; `trace-cpuhp` removed.
+- Next: ask the owner for an attended window for run J. Meanwhile, static: the cluster power-off and the PMU's SPMI quiesce.
