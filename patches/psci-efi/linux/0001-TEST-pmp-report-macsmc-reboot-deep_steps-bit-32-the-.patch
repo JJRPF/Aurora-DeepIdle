@@ -1,0 +1,144 @@
+From 31cf33c1c24050bd63a852415e7207758ef7363b Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Fri, 6 Nov 2026 16:25:53 -0500
+Subject: [PATCH] TEST: pmp-report + macsmc-reboot: deep_steps bit 32, the
+ PMP's sleep-release requests withdrawn before slpa
+
+---
+ drivers/pmdomain/apple/pmp-report.c | 46 ++++++++++++++++++++++++++++-
+ drivers/power/reset/macsmc-reboot.c | 20 ++++++++++++-
+ 2 files changed, 64 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/pmdomain/apple/pmp-report.c b/drivers/pmdomain/apple/pmp-report.c
+index eba47edd898b..9f631a1a10b5 100644
+--- a/drivers/pmdomain/apple/pmp-report.c
++++ b/drivers/pmdomain/apple/pmp-report.c
+@@ -1266,6 +1266,8 @@ struct apple_pmp_report_entry {
+ 	/* apple,always-on (TEST: test_release_aon withdraws these too). */
+ 	bool aon;
+ 	bool released;
++	/* TEST: withdrawn before slpa by apple_pmp_report_sleep_release() */
++	bool released_early;
+ 	bool removed;
+ };
+ 
+@@ -1435,7 +1437,7 @@ static int apple_pmp_report_entry_suspend_noirq(struct device *dev)
+ 	int ret;
+ 
+ 	if (!ent || !(ent->sleep_release || apple_pmp_report_entry_test_release(ent)) ||
+-	    READ_ONCE(ent->removed))
++	    READ_ONCE(ent->removed) || ent->released_early)
+ 		return 0;
+ 	ret = apple_pmp_report_entry_sleep(ent, true);
+ 	if (ret == -EALREADY)
+@@ -1637,6 +1639,48 @@ static struct platform_driver apple_pmp_report_entry_driver = {
+ 	},
+ };
+ 
++/*
++ * TEST (S2R): the sleep-release entries withdrawn early, before slpa and the
++ * PMP's IDLE (which refuse the noirq release: -EALREADY), as macOS releases
++ * every request but the CPU complexes' before slpa; asserted again after the
++ * PMP's wake. Called by macsmc-reboot (deep_steps bit 32).
++ */
++static int apple_pmp_report_entry_early(struct device *dev, void *data)
++{
++	struct apple_pmp_report_entry *ent = dev_get_drvdata(dev);
++	bool release = *(bool *)data;
++	int ret, tries = 0;
++
++	if (!ent || READ_ONCE(ent->removed))
++		return 0;
++	if (release) {
++		if (!(ent->sleep_release || apple_pmp_report_entry_test_release(ent)))
++			return 0;
++		ret = apple_pmp_report_entry_sleep(ent, true);
++		if (ret == -EALREADY)
++			return 0;
++		if (ret)
++			dev_warn(dev, "request %u not withdrawn before slpa: %d\n", ent->id, ret);
++		ent->released_early = true;
++	} else if (ent->released_early) {
++		ent->released_early = false;
++		do {
++			ret = apple_pmp_report_entry_sleep(ent, false);
++		} while (ret == -ETIMEDOUT && ++tries < 3);
++		if (ret)
++			dev_err(dev, "request %u not asserted after sleep: %d\n", ent->id, ret);
++	}
++	return 0;
++}
++
++int apple_pmp_report_sleep_release(bool release);
++int apple_pmp_report_sleep_release(bool release)
++{
++	return driver_for_each_device(&apple_pmp_report_entry_driver.driver, NULL, &release,
++				      apple_pmp_report_entry_early);
++}
++EXPORT_SYMBOL_GPL(apple_pmp_report_sleep_release);
++
+ MODULE_DEVICE_TABLE(of, apple_pmp_report_of_match);
+ MODULE_DEVICE_TABLE(of, apple_pmp_report_entry_of_match);
+ 
+diff --git a/drivers/power/reset/macsmc-reboot.c b/drivers/power/reset/macsmc-reboot.c
+index cfd1ba98ee80..061b2ec21afc 100644
+--- a/drivers/power/reset/macsmc-reboot.c
++++ b/drivers/power/reset/macsmc-reboot.c
+@@ -55,6 +55,7 @@ struct macsmc_reboot {
+ 	bool stage_set;
+ 	int saved_stage;
+ 	bool mask_set;
++	bool pmp_released;
+ 	u32 saved_mask[WAKEMASK_WORDS];
+ };
+ 
+@@ -78,6 +79,13 @@ struct macsmc_reboot {
+  * Linux finds the mask at 0 (every source enabled).
+  */
+ #define MACSMC_SLEEP_WAKEMASK	BIT(4)
++/*
++ * Suspend to RAM only (test): the PMP's sleep-release requests (pmp-report's display ones, and with its test
++ * switches ISP_SYS) withdrawn just before slpa, while the PMP still acknowledges them, as macOS has them released
++ * by slpa; asserted again on resume, after the SMC driver has woken the PMP.
++ */
++#define MACSMC_SLEEP_PMPREL	BIT(5)
++int apple_pmp_report_sleep_release(bool release);
+ #define WAKEMASK_PHYS		0x29e00400cULL
+ static const u32 wake_valid[WAKEMASK_WORDS] = {
+ 	0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff, 0x0000007f,
+@@ -104,7 +112,7 @@ MODULE_PARM_DESC(s2idle_steps, "SMC sleep handshake in s2idle, bit mask: 1 WKTP,
+  */
+ static unsigned int deep_steps;
+ module_param(deep_steps, uint, 0644);
+-MODULE_PARM_DESC(deep_steps, "SMC sleep handshake in suspend to RAM, bit mask as s2idle_steps plus 8: PMU boot_stage 0x50, 16: macOS's AP wake-source mask (default 0, off; test only)");
++MODULE_PARM_DESC(deep_steps, "SMC sleep handshake in suspend to RAM, bit mask as s2idle_steps plus 8: PMU boot_stage 0x50, 16: macOS's AP wake-source mask, 32: the PMP's sleep-release requests withdrawn before slpa (default 0, off; test only)");
+ 
+ /* Helpers to read/write a u8 given a struct nvmem_cell */
+ static int nvmem_cell_get_u8(struct nvmem_cell *cell)
+@@ -447,6 +455,11 @@ static int macsmc_reboot_pm_suspend_late(struct device *dev)
+ 		reboot->stage_set = ret >= 0;
+ 		dev_info(dev, "sleep: boot_stage %#x -> %#x (%d)\n", reboot->saved_stage, BOOT_STAGE_SLEEP, ret);
+ 	}
++	if ((reboot->sleep_steps & MACSMC_SLEEP_PMPREL) && pm_suspend_target_state == PM_SUSPEND_MEM) {
++		ret = apple_pmp_report_sleep_release(true);
++		reboot->pmp_released = true;
++		dev_info(dev, "sleep: PMP requests released before slpa (%d)\n", ret);
++	}
+ 	if (reboot->sleep_steps & MACSMC_SLEEP_SLPA) {
+ 		ret = apple_smc_write_u32(reboot->smc, SMC_KEY(MBSE), SMC_KEY(slpa));
+ 		reboot->slpa_sent = ret >= 0;
+@@ -462,6 +475,11 @@ static int macsmc_reboot_pm_resume_early(struct device *dev)
+ 	u8 mbsw[8] = {};
+ 	int r1, r2, ret;
+ 
++	if (reboot->pmp_released) {
++		reboot->pmp_released = false;
++		ret = apple_pmp_report_sleep_release(false);
++		dev_info(dev, "sleep: PMP requests asserted again (%d)\n", ret);
++	}
+ 	if (reboot->stage_set) {
+ 		reboot->stage_set = false;
+ 		ret = nvmem_cell_set_u8(reboot->nvm.boot_stage, reboot->saved_stage);
+-- 
+2.55.0
+
