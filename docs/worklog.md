@@ -2076,3 +2076,9 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 - PMGR counters: `AWAKE` only; `SLP_S2R` and `SYS_S2R_AOP` 0, as expected without `slpa`.
 - So macOS must do something before `SetAPPower 0x201` that Linux does not, or the firmware's sleep path touches state that Linux left differently (the bad FAR looks like a garbage 32-bit pointer, sign-extended).
 - **Control run armed:** the same run with `apple_aop.sleep_ap_idle=0` (new `install.sh` flag `/var/lib/deepidle/aop-ap-idle-off`). If the CPUs come back, the AOP's 0x201 is what broke them.
+
+## 2026-11-05 22:14: control run void (wrong parameter name); both results repeat; control armed again
+
+- The control boot had `apple_aop.sleep_ap_idle=0`, but the module is `aop.ko` (`apple_aop` is only the driver name), so the parameter was ignored and the AOP got 0x201 again. Log: `data/aop-sleep/2026-11-05-2208-ap-idle-on-again.log`.
+- That run reproduced both results: the AOP crashed 220 ms after acking 0x201, and CPUs 1 to 9 failed to come online after the first `deep` resume (106.6 s cycle). 4 of 4 cycles back, rc 0.
+- `install.sh` now passes `aop.sleep_ap_idle=0`. Control armed again.

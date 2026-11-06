@@ -97,7 +97,7 @@ if [ $STEP != step0 ]; then
     # the ANS wrapper's IO RVBAR save/restore (test kernel, 2026-11-05 evening): a logged no-op on normal wakes
     [ $STEP = suspendall ] && sed -i "/vmlinuz-psci-efi-test /s/\( panic=0.*\)$/\1 nvme_apple.iorvbar_phys=0x347050000/" /boot/grub/grub.cfg
     # /var/lib/deepidle/aop-ap-idle-off: no SetAPPower to the AOP across sleep (test kernel default is on)
-    [ $STEP = suspendall ] && [ -e /var/lib/deepidle/aop-ap-idle-off ] && sed -i "/vmlinuz-psci-efi-test /s/\( panic=0.*\)$/\1 apple_aop.sleep_ap_idle=0/" /boot/grub/grub.cfg
+    [ $STEP = suspendall ] && [ -e /var/lib/deepidle/aop-ap-idle-off ] && sed -i "/vmlinuz-psci-efi-test /s/\( panic=0.*\)$/\1 aop.sleep_ap_idle=0/" /boot/grub/grub.cfg
 fi
 
 if [ $STEP = ram ]; then
