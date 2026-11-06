@@ -2394,3 +2394,21 @@ Run J (slpa + PMP IDLE + AOP handshake + the whole quiesceHW incl. the soc-clust
 
 - `pm_genpd.test_dump` now also prints, after `N of M domains on`, one line per non-always-on domain still on at syscore suspend: `held NAME: susp S/D [defer] [awake]; dev X(syscore|wakepath|not-noirq) … child C … nodev FWNODE … unbound DEV`. Those are genpd's conditions for powering a domain off at sleep (`genpd_sync_power_off`, `genpd_finish_suspend`, `genpd_must_defer`). Software state only, no locks taken. Test Image `b83b00e1e29edf5f` (previous at `/var/lib/deepidle/vmlinuz-psci-efi-test.pre-genpdheld`); patch `0001-TEST-pmdomain-core-pm_genpd.test_dump-prints-why-eac.patch`. Clean build.
 - **Run S3** (unattended, normal path, no unbinds): S2 on the new kernel.
+
+## 2026-11-06 17:20 run S3: why each domain is held at sleep: the DCPs hold every display chain on purpose, the USB-C ports are syscore or on a wake path, sio and PCIe have always-on children
+
+- Run S3 (normal path, `deep_steps` 32, the new dump, no unbinds): **back on the alarm, 32.6 s, `online 0-9`**, PMP requests back to `0xf000`, one device error (the old SMC endpoint line). Flags removed; default boot.bin, `next_entry` unset, btrfs counters 0; watcher running. Lines in `data/s2r-domains/2026-11-06-1718-s3-held-reasons.txt`.
+- The 19 held domains (99 of 200 on, as S2), by reason:
+  - **Display, 13 domains:**
+    - `pmp-disp0`, `pmp-dispext0` and `pmp-dispext1` are each held by their DCP (`389c00000`, `289c00000`, `315c00000.dcp`) on a **wake path**;
+    - every parent above them stays on because a child is on: `disp*_cpu0` (its DARTs and mailbox all suspended, 3/3), `disp*_fe`, `disp*_sys`, and `afr` (child `dispext0_sys`);
+    - the DCP driver does this on purpose: `dcp_platform_suspend()` calls `device_set_wakeup_path(dev)`, "which forces its power domains to stay on. We need this as we do not support full shutdown properly yet." (`drivers/gpu/drm/apple/dcp.c`). The firmware stays up across sleep; for the panel the pipe even keeps scanning out with DPMS off.
+  - **USB-C, 3 domains:**
+    - `atc0_usb`: `702280000.usb` is syscore;
+    - `atc2_usb`: `f02280000.usb` is syscore and has wakeup enabled (its xHCI is up);
+    - `atc1_usb`: `b02280000.usb` has wakeup enabled (`power/wakeup`), with no core up;
+    - in each, the DARTs, PHY and mux are suspended (4/5).
+  - **Held by always-on children (DT), 3 domains:** `sio` (children `aes`, `dptx_phy_ps`), and `apcie_gp` / `apcie_gpshr_sys` above `apcie_gp_sys`.
+  - No domain was held by DEFER_OFF in a normal suspend (no absent consumers); that only appears once something is unbound (U2).
+- So on the Linux side the display chains are the DCP driver's deliberate choice (no full DCP shutdown and restart yet: Phase 4 work), the USB-C ones are dwc3-apple's (syscore while the core is up, to keep xHCI over sleep) plus a wakeup setting, and the rest come from DT always-on flags.
+- Whether these domains are what the PMGR's S2R entry waits for is still untested. The direct test: Aura turns the 19 off (children first) just before the S2R timer, on the `slpa` path, where the run ends in the timer's reset anyway. That is a new kind of `slpa` step, so it gets one attended run first.
