@@ -138,7 +138,7 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
             [ -n "$PC" ] && log "pmgr counters after $MODE $i: $($PC show)"
             # the AOP's mailbox interrupts over the cycle (its outbox is an AP wake source), and the test kernel's
             # SetAPPower to the AOP around the sleep (apple_aop.sleep_ap_idle)
-            log "aop mbox irqs over the cycle: $(( q1 - q0 )); $(dmesg | grep 'TEST SetAPPower' | tail -2 | sed 's/^\[[ 0-9.]*\] //' | tr '\n' '|')"
+            log "aop mbox irqs over the cycle: $(( q1 - q0 )); als $(timeout 5 cat /sys/bus/iio/devices/iio:device*/in_illuminance_input 2>&1 | head -1), lid angle $(timeout 5 cat /sys/bus/iio/devices/iio:device*/in_angl_raw 2>&1 | head -1); $(dmesg | grep 'TEST SetAPPower' | tail -2 | sed 's/^\[[ 0-9.]*\] //' | tr '\n' '|')"
             log "suspend $MODE $i: back, rc=$rc, elapsed $(echo "$t1 - $t0" | bc); online $(cat /sys/devices/system/cpu/online); energy $e0 -> $e1 uWh: $(echo "scale=3; ($e0 - $e1) * 3.6 / ($t1 - $t0) / 1000" | bc) W average over the cycle"
             [ -e /var/lib/deepidle/pmp-release-modes ] && log "pmp requests after resume: $(/usr/local/lib/deepidle/mmio-read 0x28e3c2000 1 | awk '{print $2}') ack $(/usr/local/lib/deepidle/mmio-read 0x28e3c2080 1 | awk '{print $2}')"
             [ $rc = 0 ] || break
