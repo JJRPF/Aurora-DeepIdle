@@ -2202,3 +2202,8 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 - **Armed:** 1 `deep` cycle with aura-ctl 16 only: the five soc-clusters' targets go to 0 under Aura, no timer, no `slpa`, read-only. `run.sh` logs the live cluster words after the resume; `psci_dbg[6..10]` hold before/after and `[23]` the poll timeouts (bits 27 and 28).
   - Expected: the actual-state bits fall (the PMGR acts), and the undo brings them back on the resume.
   - Possible cost: the P-cores (PACC0/1) or the display do not come back until a reboot.
+
+## 2026-11-06 00:17: cluster run void (`aura-ctl` refused 16); tool fixed; armed again
+
+- Run 00:14: `aura-ctl: only bits 0 to 3 (and the test marker 0x80) are defined`, so Aura got no step. The cycle was a plain `deep` one: back, `online 0-9`, cluster words unchanged (`0xf 0x2f 0x2f 0x2f 0x2f 0 0x2f`). The one device error is the known SMC "Failed to send command".
+- `harness/mmio/aura-ctl.c` now accepts bit 4 (16). Armed again, the same run.
