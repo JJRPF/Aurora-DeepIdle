@@ -1,0 +1,51 @@
+From a777e76a7009349b42611635eef45cc91e00bead Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Thu, 5 Nov 2026 22:53:04 -0500
+Subject: [PATCH] TEST: soc: apple: aop: sleep_ap_idle=2, queues only
+
+---
+ drivers/soc/apple/aop.rs | 7 +++++--
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/soc/apple/aop.rs b/drivers/soc/apple/aop.rs
+index d81a165ae529..a25cc301898d 100644
+--- a/drivers/soc/apple/aop.rs
++++ b/drivers/soc/apple/aop.rs
+@@ -1174,6 +1174,8 @@ unsafe impl Send for ChildDevice {}
+ static SLEEP_QUEUES: Atomic<bool> = Atomic::new(false);
+ /// Every queue acknowledged its stop, so the AOP may be told the AP is asleep.
+ static SLEEP_QUEUES_ALL: Atomic<bool> = Atomic::new(false);
++/// `sleep_ap_idle=2`: stop and start the queues, never tell the AOP the AP is asleep.
++static SLEEP_QUEUES_ONLY: Atomic<bool> = Atomic::new(false);
+ // SAFETY (all uses): only the PM notifier chain touches the block, under its own lock.
+ static mut SLEEP_NB: bindings::notifier_block = bindings::notifier_block {
+     notifier_call: Some(aop_pm_notify),
+@@ -1223,7 +1225,7 @@ struct Syscore {
+ /// and the AOP is not told.
+ unsafe extern "C" fn aop_syscore_suspend(_data: *mut c_void) -> c_int {
+     let rtk = SLEEP_RTK.load(CoreOrdering::Acquire);
+-    if rtk.is_null() || !SLEEP_QUEUES_ALL.load(Acquire) {
++    if rtk.is_null() || !SLEEP_QUEUES_ALL.load(Acquire) || SLEEP_QUEUES_ONLY.load(Acquire) {
+         return 0;
+     }
+     // SAFETY: as in `aop_syscore_resume`.
+@@ -2642,6 +2644,7 @@ fn probe<'bound>(
+         }
+         probe_guard.dismiss();
+         if *module_parameters::sleep_ap_idle.value() != 0 {
++            SLEEP_QUEUES_ONLY.store(*module_parameters::sleep_ap_idle.value() == 2, Release);
+             data.register_sleep_notifier();
+         }
+         let data = data as Arc<dyn AOP>;
+@@ -2673,7 +2676,7 @@ unsafe impl Send for AopDriver {}
+     params: {
+         sleep_ap_idle: u32 {
+             default: 1,
+-            description: "TEST (S2R): SetAPPower 0x201 to the AOP across system sleep, as macOS (0: off)",
++            description: "TEST (S2R): AOP queue stop and SetAPPower 0x201 across system sleep, as macOS (0: off, 2: queues only)",
+         },
+     },
+ }
+-- 
+2.55.0
+

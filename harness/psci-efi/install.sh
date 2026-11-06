@@ -98,6 +98,8 @@ if [ $STEP != step0 ]; then
     [ $STEP = suspendall ] && sed -i "/vmlinuz-psci-efi-test /s/\( panic=0.*\)$/\1 nvme_apple.iorvbar_phys=0x347050000/" /boot/grub/grub.cfg
     # /var/lib/deepidle/aop-ap-idle-off: no SetAPPower to the AOP across sleep (test kernel default is on)
     [ $STEP = suspendall ] && [ -e /var/lib/deepidle/aop-ap-idle-off ] && sed -i "/vmlinuz-psci-efi-test /s/\( panic=0.*\)$/\1 aop.sleep_ap_idle=0/" /boot/grub/grub.cfg
+    # /var/lib/deepidle/aop-sleep-mode <n>: aop.sleep_ap_idle=<n> (2: the AOP's queues stop and start, no SetAPPower)
+    [ $STEP = suspendall ] && [ -s /var/lib/deepidle/aop-sleep-mode ] && sed -i "/vmlinuz-psci-efi-test /s/\( panic=0.*\)$/\1 aop.sleep_ap_idle=$(cat /var/lib/deepidle/aop-sleep-mode)/" /boot/grub/grub.cfg
 fi
 
 if [ $STEP = ram ]; then
