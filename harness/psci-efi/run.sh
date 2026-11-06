@@ -111,6 +111,9 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
         REL_P=/sys/module/pmp_report/parameters/test_release_aon
         # /var/lib/deepidle/pmp-release-ids <mask>: pmp_report.test_release_ids, further entries withdrawn (0x1000 = ISP_SYS)
         IDS_P=/sys/module/pmp_report/parameters/test_release_ids
+        # /var/lib/deepidle/genpd-dump: pm_genpd.test_dump, the PM domains still on at syscore suspend (test kernel)
+        GD_P=/sys/module/pm_genpd/parameters/test_dump
+        [ -e $GD_P ] && { [ -e /var/lib/deepidle/genpd-dump ] && echo Y > $GD_P || echo N > $GD_P; }
         [ -e $IDS_P ] && echo $(cat /var/lib/deepidle/pmp-release-ids 2>/dev/null || echo 0) > $IDS_P
         if [ -e /var/lib/deepidle/pmp-release-modes ] && [ -e $REL_P ]; then
             if grep -qw $MODE /var/lib/deepidle/pmp-release-modes; then echo 1 > $REL_P; else echo 0 > $REL_P; fi

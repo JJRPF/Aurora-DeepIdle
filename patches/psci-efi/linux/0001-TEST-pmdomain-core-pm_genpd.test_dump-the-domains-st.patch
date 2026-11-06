@@ -1,0 +1,91 @@
+From ee87ed9e8c7ac5395d783ff65c52b54d7cd0f63d Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Fri, 6 Nov 2026 16:53:26 -0500
+Subject: [PATCH] TEST: pmdomain: core: pm_genpd.test_dump, the domains still
+ on at syscore suspend
+
+---
+ drivers/pmdomain/core.c | 60 +++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 60 insertions(+)
+
+diff --git a/drivers/pmdomain/core.c b/drivers/pmdomain/core.c
+index 87b5d2f3f95c..059d728204eb 100644
+--- a/drivers/pmdomain/core.c
++++ b/drivers/pmdomain/core.c
+@@ -24,6 +24,8 @@
+ #include <linux/export.h>
+ #include <linux/cpu.h>
+ #include <linux/debugfs.h>
++#include <linux/moduleparam.h>
++#include <linux/syscore_ops.h>
+ 
+ /* Provides a unique ID for each genpd device */
+ static DEFINE_IDA(genpd_ida);
+@@ -4194,6 +4196,64 @@ static int __init genpd_debug_init(void)
+ }
+ late_initcall(genpd_debug_init);
+ 
++/*
++ * TEST (S2R): list the PM domains still on at syscore suspend, after every
++ * device's noirq phase and just before the platform (PSCI SYSTEM_SUSPEND)
++ * takes over, from genpd's own state (no register access). '*' = always-on.
++ * Single CPU, interrupts off: the list is walked without its mutex.
++ */
++#undef MODULE_PARAM_PREFIX
++#define MODULE_PARAM_PREFIX "pm_genpd."
++static bool genpd_test_dump;
++module_param_named(test_dump, genpd_test_dump, bool, 0644);
++
++static void genpd_test_dump_on(const char *when)
++{
++	struct generic_pm_domain *genpd;
++	char buf[900];
++	int len = 0, on = 0, total = 0;
++
++	buf[0] = 0;
++	list_for_each_entry(genpd, &gpd_list, gpd_list_node) {
++		total++;
++		if (genpd->status != GENPD_STATE_ON)
++			continue;
++		on++;
++		if (len > 800) {
++			pr_info("genpd test %s:%s\n", when, buf);
++			len = 0;
++			buf[0] = 0;
++		}
++		len += scnprintf(buf + len, sizeof(buf) - len, " %s%s", genpd->name,
++				 genpd_is_always_on(genpd) ? "*" : "");
++	}
++	pr_info("genpd test %s:%s\n", when, buf);
++	pr_info("genpd test %s: %d of %d domains on\n", when, on, total);
++}
++
++static int genpd_test_syscore_suspend(void *data)
++{
++	if (READ_ONCE(genpd_test_dump))
++		genpd_test_dump_on("syscore suspend");
++	return 0;
++}
++
++static const struct syscore_ops genpd_test_syscore_ops = {
++	.suspend = genpd_test_syscore_suspend,
++};
++
++static struct syscore genpd_test_syscore = {
++	.ops = &genpd_test_syscore_ops,
++};
++
++static int __init genpd_test_init(void)
++{
++	register_syscore(&genpd_test_syscore);
++	return 0;
++}
++late_initcall(genpd_test_init);
++
++
+ static void __exit genpd_debug_exit(void)
+ {
+ 	debugfs_remove_recursive(genpd_debugfs_dir);
+-- 
+2.55.0
+
