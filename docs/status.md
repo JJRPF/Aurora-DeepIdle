@@ -1,4 +1,4 @@
-# Where the work stands (2026-11-06, 15:45, after run M)
+# Where the work stands (2026-11-06, 15:55, after the wake-mask check run)
 
 This is the summary of the whole effort: what was measured, what was built,
 what works, what does not, and what comes next. Each section points to the
@@ -134,10 +134,17 @@ There are two goals:
   are among macOS's 22 sources, yet nothing wakes Aura's deep sleep with
   macOS's mask, with or without the SoC asleep. So Aura needs a source
   macOS disables, and until it has one, L cannot show whether the SoC slept.
+* **2026-11-06 15:44: correction to L and M.** A check run that wrote a
+  wake mask of 0 (Linux's own value) never came back either. So it is the
+  mask step itself, done in `suspend_late`, that breaks the suspend, not
+  macOS's value. L and M most likely stopped there, before `slpa` and the
+  S2R timer, so the missing 85 s reset and the failed key wake say nothing
+  about the SoC. The step now runs from the PM notifier, before tasks
+  freeze, and logs what it writes.
 * **Next:**
-  * find that source: a bisection on the normal path (no `slpa`), about 8
-    unattended runs (`tools/wake-bisect.py`);
-  * then L again with it, unattended;
+  * the check run again; if it wakes, the wake-source bisection with
+    macOS's mask (`tools/wake-bisect.py`, unattended);
+  * then L again, unattended;
   * then the devices that lose power (Phase 4), DCP above all.
 * **From 2026-11-06 the owner lets slpa runs that repeat or vary a
   self-recovering setup go unattended** (one at a time, dead-man switch
@@ -254,7 +261,7 @@ wakes cost milliwatts. The 1.4 W is power left on.
 | AIC | **works** (kernel 1ac4376) | Save and mask every bank, restore on resume (syscore); runs every suspend | |
 | Recovery | **works** | SoC watchdog around SYSTEM_SUSPEND (proven by a deliberate hang); dead-man switch after `slpa` runs | |
 | SMC handshake | **tested** | `WKTP` and `slpw` are harmless. `slpa` makes the SMC cut the ANS's power; the Mac still resumes on the alarm | `slpa` goes last, after the PMGR's own entry |
-| PMGR sleep entry | **started** (images 52, 53) | Aura writes the S2R timer (`MPMGR_AON` + 0x4000); it resets the SoC about 60 s later unless the entry completes, and it does not complete with `slpa` and every core powered down (runs D to F). Image 53 adds the rest of `quiesceHW` (the GPU fabric domain off, the SmartIO auto power-on off, the clock-generator and PLL-off writes), built and regression-checked | G, H and I (11-05 21:30 to 21:41): the whole quiesce before the timer, with or without the PMP's IDLE, still resets at 85 s. The AOP's sleep handshake (queue stop, `SetAPPower` 0x201 before `slpa`, restart before the CPU bring-up) is built and passes 4 of 4 without `slpa` (11-06 00:00). J (11-06 15:18): all of that plus the AOP handshake and the cluster power-off (`0x28e088000`), still 86 s. L (J with macOS's wake mask): no timer reset, WD1 at 146 s; M (L + the power key) no wake. Next: find the wake source Aura's deep WFI needs (bisection), then L with it |
+| PMGR sleep entry | **started** (images 52, 53) | Aura writes the S2R timer (`MPMGR_AON` + 0x4000); it resets the SoC about 60 s later unless the entry completes, and it does not complete with `slpa` and every core powered down (runs D to F). Image 53 adds the rest of `quiesceHW` (the GPU fabric domain off, the SmartIO auto power-on off, the clock-generator and PLL-off writes), built and regression-checked | G, H and I (11-05 21:30 to 21:41): the whole quiesce before the timer, with or without the PMP's IDLE, still resets at 85 s. The AOP's sleep handshake (queue stop, `SetAPPower` 0x201 before `slpa`, restart before the CPU bring-up) is built and passes 4 of 4 without `slpa` (11-06 00:00). J (11-06 15:18): all of that plus the AOP handshake and the cluster power-off (`0x28e088000`), still 86 s. L and M (J with macOS's wake mask) ended in WD1, but so did a check run with a mask of 0: the mask step in `suspend_late` broke them before `slpa`. Next: the step from the PM notifier, then L again |
 | NVMe (ANS) | **fails after `slpa`** | Clean in every Phase 2 cycle. After `slpa` the ANS firmware starts (answers the RTKit HELLO) but never acks IOP power-on (`-62`), CPU status 0x08. The SART and its boot address (IO RVBAR) are intact (run A, 11-05 18:04). Likely waits on the storage power the SMC cut, which only a real S2R wake restores | Comes after the SoC sleep (runs C, G, H) |
 | PMP | IDLE works, the wake does not | IDLE acks in about 400 us in s2idle. Run C's crash after `slpa` was the test kernel's double SetAPPower (fixed 11-05). The display requests are released for sleep and come back (test switch, 2 of 2); only ISP's stays. RUN alone: 0 of 3. A PMGR reset of `ps_pmp` crashes the SoC | Its wake after a real S2R (run L first) |
 | Devices (PCIe L2, Wi-Fi, DCP) | s2idle only | DCP cannot resume from power loss today | Phase 4 |

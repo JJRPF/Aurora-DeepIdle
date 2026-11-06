@@ -1,0 +1,143 @@
+From 4afadadaf10d8f580ebd7ad9d66039ae7dc098c8 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Fri, 6 Nov 2026 15:50:32 -0500
+Subject: [PATCH] TEST: power: reset: macsmc-reboot: write the wake mask at
+ PM_SUSPEND_PREPARE, restore at PM_POST_SUSPEND
+
+---
+ drivers/power/reset/macsmc-reboot.c | 91 +++++++++++++++++++----------
+ 1 file changed, 61 insertions(+), 30 deletions(-)
+
+diff --git a/drivers/power/reset/macsmc-reboot.c b/drivers/power/reset/macsmc-reboot.c
+index beea15ac7b28..23107c57f9c3 100644
+--- a/drivers/power/reset/macsmc-reboot.c
++++ b/drivers/power/reset/macsmc-reboot.c
+@@ -42,6 +42,7 @@ struct macsmc_reboot {
+ 	struct device *dev;
+ 	struct apple_smc *smc;
+ 	struct notifier_block reboot_notify;
++	struct notifier_block pm_notify;
+ 
+ 	union {
+ 		struct macsmc_reboot_nvmem nvm;
+@@ -259,6 +260,58 @@ static void macsmc_power_init_error_counts(struct macsmc_reboot *reboot)
+ 		dev_err(reboot->dev, "Failed to reset boot_error_count\n");
+ }
+ 
++/*
++ * The wake mask goes in at PM_SUSPEND_PREPARE, before tasks freeze, so its lines still reach a
++ * remote dmesg (in suspend_late the 11-05/11-06 runs never came back, even with a mask of 0), and
++ * comes out at PM_POST_SUSPEND. The notifier cannot tell deep from s2idle (mem_sleep_current is not
++ * exported); deep_steps bit 16 is meant for "echo mem" with mem_sleep deep.
++ */
++static int macsmc_reboot_pm_notify(struct notifier_block *nb, unsigned long action, void *data)
++{
++	struct macsmc_reboot *reboot = container_of(nb, struct macsmc_reboot, pm_notify);
++	void __iomem *m;
++	u32 st[WAKEMASK_WORDS] = {};
++
++	if (action == PM_SUSPEND_PREPARE && (READ_ONCE(deep_steps) & MACSMC_SLEEP_WAKEMASK)) {
++		m = ioremap(WAKEMASK_PHYS, 0x40);
++		if (!m)
++			return NOTIFY_DONE;
++		for (int i = 0; i < WAKEMASK_WORDS; i++)
++			reboot->saved_mask[i] = readl(m + 4 * i);
++		dev_info(reboot->dev, "sleep: wake mask read %08x %08x %08x %08x %08x %08x %08x %08x %08x\n",
++			 reboot->saved_mask[0], reboot->saved_mask[1], reboot->saved_mask[2], reboot->saved_mask[3],
++			 reboot->saved_mask[4], reboot->saved_mask[5], reboot->saved_mask[6], reboot->saved_mask[7],
++			 reboot->saved_mask[8]);
++		for (int i = 0; i < WAKEMASK_WORDS; i++)
++			writel(wake_valid[i] & ~(macos_wake_sources[i] | READ_ONCE(wake_extra[i])), m + 4 * i);
++		reboot->mask_set = true;
++		dev_info(reboot->dev, "sleep: wake mask now %08x %08x %08x %08x %08x %08x %08x %08x %08x\n",
++			 readl(m), readl(m + 4), readl(m + 8), readl(m + 12), readl(m + 16), readl(m + 20),
++			 readl(m + 24), readl(m + 28), readl(m + 32));
++		iounmap(m);
++	} else if (action == PM_POST_SUSPEND && reboot->mask_set) {
++		reboot->mask_set = false;
++		m = ioremap(WAKEMASK_PHYS, 0x40);
++		if (!m)
++			return NOTIFY_DONE;
++		for (int i = 0; i < WAKEMASK_WORDS; i++)
++			st[i] = readl(m + 0x24 + 4 * i);
++		for (int i = 0; i < WAKEMASK_WORDS; i++)
++			writel(reboot->saved_mask[i], m + 4 * i);
++		iounmap(m);
++		dev_info(reboot->dev, "sleep: wake status %08x %08x %08x %08x %08x %08x %08x %08x %08x; wake mask restored\n",
++			 st[0], st[1], st[2], st[3], st[4], st[5], st[6], st[7], st[8]);
++	}
++	return NOTIFY_DONE;
++}
++
++static void macsmc_reboot_pm_unregister(void *data)
++{
++	struct macsmc_reboot *reboot = data;
++
++	unregister_pm_notifier(&reboot->pm_notify);
++}
++
+ static int macsmc_reboot_probe(struct platform_device *pdev)
+ {
+ 	struct apple_smc *smc = dev_get_drvdata(pdev->dev.parent);
+@@ -333,6 +386,14 @@ static int macsmc_reboot_probe(struct platform_device *pdev)
+ 	if (ret)
+ 		return dev_err_probe(&pdev->dev, ret, "Failed to register reboot notifier\n");
+ 
++	reboot->pm_notify.notifier_call = macsmc_reboot_pm_notify;
++	ret = register_pm_notifier(&reboot->pm_notify);
++	if (ret)
++		return dev_err_probe(&pdev->dev, ret, "Failed to register PM notifier\n");
++	ret = devm_add_action_or_reset(&pdev->dev, macsmc_reboot_pm_unregister, reboot);
++	if (ret)
++		return ret;
++
+ 	dev_info(&pdev->dev, "Handling reboot and poweroff requests via SMC\n");
+ 
+ 	return 0;
+@@ -383,22 +444,6 @@ static int macsmc_reboot_pm_suspend_late(struct device *dev)
+ 		reboot->stage_set = ret >= 0;
+ 		dev_info(dev, "sleep: boot_stage %#x -> %#x (%d)\n", reboot->saved_stage, BOOT_STAGE_SLEEP, ret);
+ 	}
+-	if ((reboot->sleep_steps & MACSMC_SLEEP_WAKEMASK) && pm_suspend_target_state == PM_SUSPEND_MEM) {
+-		void __iomem *m = ioremap(WAKEMASK_PHYS, 0x40);
+-
+-		if (m) {
+-			for (int i = 0; i < WAKEMASK_WORDS; i++) {
+-				reboot->saved_mask[i] = readl(m + 4 * i);
+-				writel(wake_valid[i] & ~(macos_wake_sources[i] | READ_ONCE(wake_extra[i])), m + 4 * i);
+-			}
+-			reboot->mask_set = true;
+-			dev_info(dev, "sleep: wake mask %08x %08x %08x %08x -> %08x %08x %08x %08x %08x %08x %08x %08x %08x\n",
+-				 reboot->saved_mask[0], reboot->saved_mask[1], reboot->saved_mask[2],
+-				 reboot->saved_mask[3], readl(m), readl(m + 4), readl(m + 8), readl(m + 12),
+-				 readl(m + 16), readl(m + 20), readl(m + 24), readl(m + 28), readl(m + 32));
+-			iounmap(m);
+-		}
+-	}
+ 	if (reboot->sleep_steps & MACSMC_SLEEP_SLPA) {
+ 		ret = apple_smc_write_u32(reboot->smc, SMC_KEY(MBSE), SMC_KEY(slpa));
+ 		reboot->slpa_sent = ret >= 0;
+@@ -414,20 +459,6 @@ static int macsmc_reboot_pm_resume_early(struct device *dev)
+ 	u8 mbsw[8] = {};
+ 	int r1, r2, ret;
+ 
+-	if (reboot->mask_set) {
+-		void __iomem *m = ioremap(WAKEMASK_PHYS, 0x40);
+-		u32 st[4] = {};
+-
+-		reboot->mask_set = false;
+-		if (m) {
+-			for (int i = 0; i < 4; i++)
+-				st[i] = readl(m + 0x24 + 4 * i);
+-			for (int i = 0; i < WAKEMASK_WORDS; i++)
+-				writel(reboot->saved_mask[i], m + 4 * i);
+-			iounmap(m);
+-		}
+-		dev_info(dev, "sleep: wake status %08x %08x %08x %08x; wake mask restored\n", st[0], st[1], st[2], st[3]);
+-	}
+ 	if (reboot->stage_set) {
+ 		reboot->stage_set = false;
+ 		ret = nvmem_cell_set_u8(reboot->nvm.boot_stage, reboot->saved_stage);
+-- 
+2.55.0
+
