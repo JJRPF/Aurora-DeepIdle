@@ -9,3 +9,16 @@ S2R status with the PMP enabled on J414s (M2 Pro), from GH-8 testing on 2026-11-
 - That is suspend with the CPUs in deep WFI and the devices suspended; the SoC and DRAM stay powered.
   The real SoC sleep steps (what macOS does after `slpa`) are not implemented yet, so S2R with the PMP is
   qualified only at this level. Nothing seen so far points at the PMP being a problem for it.
+
+Update, 2026-11-06 (GH-8 runs since; still NOT posted, for the owner to approve or cut):
+
+- The PMP takes part in the sleep handshake as in macOS: `SetAPPower`/`SetIOPPower` 0x201 (IDLE) for sleep are
+  acked, and it answers again after the wake. Sending `SetAPPower` twice crashes its firmware ("Invalid AP power");
+  that was a bug in our test kernel, not in the PMP or this PR.
+- Order matters: once the PMP is IDLE it refuses to drop device requests (`-EALREADY`). genpd releases the display
+  and ISP requests only in the noirq phase, after a driver has sent IDLE in `suspend_late`, so the PMP went to sleep
+  still holding them (0xf000). Releasing them before IDLE takes the request word to 0 as macOS does; after the wake
+  all four are asserted again. Normal suspends with that release came back on the alarm in every run (8 of 8 today).
+- The SoC's own S2R entry still does not complete with every macOS sleep step we know of, the PMP's included (the
+  PMGR's S2R timer resets the SoC about 86 s in). Nothing points at the PMP; the open difference is the devices Linux
+  keeps powered at sleep (the display coprocessors, the USB-C controllers).
