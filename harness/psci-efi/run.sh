@@ -212,6 +212,10 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
     # next boot's agent session reads the results (they are on disk by now).
     rm -f /var/lib/deepidle/psci-efi-armed
     if [ -e /run/psci-unbound ]; then log "unbound devices: rebooting in 20 s"; sync; sleep 20; systemctl reboot; fi
+    # /var/lib/deepidle/reboot-after: the run leaves devices unusable (e.g. Aura powered their domains off): reboot too
+    if [ -e /var/lib/deepidle/reboot-after ]; then rm -f /var/lib/deepidle/reboot-after; log "reboot-after: sysrq reboot in 20 s"; sync; sleep 20
+        # devices whose power went away under their drivers can hang device_shutdown(): sync, read-only, reset
+        echo s > /proc/sysrq-trigger; sleep 2; echo u > /proc/sysrq-trigger; sleep 2; echo b > /proc/sysrq-trigger; fi
     exit 0
 fi
 case $STEP in step1|step1m) ;; *) log "$STEP done"; rm -f /var/lib/deepidle/psci-efi-armed; exit 0 ;; esac
