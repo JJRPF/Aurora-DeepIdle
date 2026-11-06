@@ -141,11 +141,12 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
             AB=$(xxd -p /proc/device-tree/chosen/aura,psci-runtime-code | cut -c1-16)
             log "aura dbg (words, low/high pairs): $(/usr/local/lib/deepidle/mmio-read $((0x$AB + 0x1472c8)) 16 | awk '{printf "%s ", $2}')"
             log "aura dbg scan: $(/usr/local/lib/deepidle/scan-magic 0xA0AA0001 64 | head -3 | tr '\n' ';')"
-            # Aura's shared SMP state (image 53 build: psci_dbg at +0x1473e8, psci_cpu_state at +0xc0000, spin_table
+            # Aura's shared SMP state (psci_cpu_state at +0xc0000, spin_table
             # at +0xc01b0, 0x40 per CPU: mpidr, flag (entries taken), target): where a core that did not come back is
-            DBGA=$(/usr/local/lib/deepidle/scan-magic 0xA0AA0001 64 | head -1 | cut -d: -f1)
-            if [ -n "$DBGA" ]; then
-                SB=$(( DBGA - 0x1473e8 + 0xc0000 ))
+            # image base = the DT's aura,psci-runtime-code - 0x10000 (images 53, 54); psci_cpu_state is at +0xc0000 in both
+            AB0=$(xxd -p /proc/device-tree/chosen/aura,psci-runtime-code | cut -c1-16)
+            if [ -n "$AB0" ]; then
+                SB=$(( 0x$AB0 - 0x10000 + 0xc0000 ))
                 log "aura cpu states (0 parked, 1 on, 2 off): $(/usr/local/lib/deepidle/mmio-read $SB 3 | awk '{printf "%s ", $2}'); spin flag/target: $(for c in 1 2 3 4 5 6 8 9 10; do o=$(( SB + 0x1b0 + c * 0x40 )); printf '%s:%s/%s ' $c $(/usr/local/lib/deepidle/mmio-read $(( o + 8 )) 1 | awk '{print $2}') $(/usr/local/lib/deepidle/mmio-read $(( o + 16 )) 1 | awk '{print $2}'); done)"
             fi
             log "battery after: $(cat /sys/class/power_supply/macsmc-battery/status) charge_now $(cat /sys/class/power_supply/macsmc-battery/charge_now); smc: $(dmesg | grep -E 'macsmc-reboot.*sleep:|SetAPPower' | grep -v psci-efi-test | tail -4 | sed 's/^\[[ 0-9.]*\] //' | tr '\n' '|')"

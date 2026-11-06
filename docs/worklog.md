@@ -2178,3 +2178,20 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 - status.md and s2r-status.json updated (new AOP piece and finding; estimate stays 45%).
 - Mac state: default boot.bin `76f850895fed53d1`, `next_entry` unset; `trace-cpuhp` removed.
 - Next: ask the owner for an attended window for run J. Meanwhile, static: the cluster power-off and the PMU's SPMI quiesce.
+
+## 2026-11-06 00:07: static: `quiesceHW`'s cluster power-off resolved (the PMGR's soc-clusters, not the CPU complexes); image 54 built; regression armed
+
+- **The PMU item is closed:** `AppleDialogSPMIPMU`'s quiesce only locks the SPMI bus and sends no sleep command (17:24 entry), so there is nothing to port.
+- **`enableCluster`** (`ApplePMGR`, 13.5 `0xfffffe00098957e4`):
+  - It reads RegMap `[this+9788]` at `[this+9792]` + 4 × the cluster's id, writes `(v & ~0xf) | (enable ? 0xf : 0)`, and with the wait flag polls bit 4 to 0.
+  - The clusters are the ADT pmgr's `soc-clusters` (`EACC`, `PACC0`, `PACC1`, `ANE0`, `AVEMSR`, `DISPLAY`; the first byte of each entry is the id: 0, 1, 2, 3, 6, 4).
+  - The base is `cluster-ctl-offset` `0x88000` in pmgr reg 4: **Linux `0x28e088000`**. Read live: `0xf` at +0 (EACC, the boot cluster) and `0x2f` at +4, +8, +0xc, +0x10 and +0x18, 0 elsewhere. The occupied words are exactly those ids.
+  - So `quiesceHW` step 4 (c = 1..5, wait for c > 3) sets the target of PACC0, PACC1, ANE0, AVEMSR and DISPLAY to 0, and waits on AVEMSR and DISPLAY.
+  - Not ported: for AVEMSR macOS makes one more PMGR call first (vtable +0xa08 with the entry's byte 11, `0x0d`).
+  - The earlier guess `0x28e080060` to `0x70` was wrong.
+- **Image 54** (Aura `2d7db967f92f5f8a`, `boot.bin.psci-test54` `78a01628af5e79e9`, diff `patches/psci-efi/aura/wip-image54.diff`):
+  - It is image 53 plus aura-ctl bit 16 (`PSCI_S2R_CLUSTERS`): the five words' targets go to 0 after the domain step and before the clocks. The old values are saved and written back on any resume, and before/after go to `psci_dbg[6..10]`.
+  - The MMIO range is added (10 of 16).
+  - The current tree first rebuilt image 53 byte for byte (`e93c3a7644406710`), so the base is known.
+  - `install.sh` suspendall now uses image 54. `run.sh` takes the image base from the DT (`aura,psci-runtime-code` − `0x10000`), since `psci_dbg` moved to +`0x147400`.
+- **Regression armed:** image 54, aura-ctl 0x80 (marker only), AOP mode 3, 2 `deep` and 2 `s2idle` cycles, read-only. After that, the cluster step alone (aura-ctl 16) without `slpa`, to see whether the PMGR acts on the writes.
