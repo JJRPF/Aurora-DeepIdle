@@ -2299,3 +2299,10 @@ Run J (slpa + PMP IDLE + AOP handshake + the whole quiesceHW incl. the soc-clust
 - So with the SoC up, the PMU alarm wakes the boot CPU through macOS's 22 sources. The bisection is not needed (`data/wake-bisect/state.json` stays at its start).
 - **Run L again** (J + macOS's mask, `deep_steps` 30), now with a working mask step: unattended under the owner's 15:15 rule, since both parts recover on their own (J: the S2R timer's reset; the mask: tested on the normal path). New possible end: the SoC really sleeps; the alarm then has macOS's path. If it neither wakes nor resets, the Mac stays dark until the power key; the push before the run says so.
 - Readings: about 85 s = the timer's reset again, the mask was not what held the entry; a resume or a dead-man push = read the PMGR counters (`SLP_S2R`, `SYS_S2R_AOP`), `psci_dbg[13]`, the wake status; about 145 s = WD1.
+
+## 2026-11-06 16:14 run L again, with the mask really set: the S2R timer's reset at about 86 s; no more slpa runs until a new step
+
+- Unattended. Pi kmsg: `sleep: wake mask now f3ffafff ffa1f6ff …` (macOS's value), then the AOP's `queues stopped 12 of 12` and `0x201: 0`, then nothing (as always after `slpa`). `echo mem` 16:11:51.6, next kernel 16:13:18: **about 86 s, the timer's reset, as J.** No dead-man push, no hand reset, btrfs counters 0.
+- So with every macOS sleep step found so far **and** macOS's wake mask, the S2R entry still does not complete. A pending wake source was not what held it.
+- Per the plan: no more `slpa` runs until there is a new step. Next is static: what the PMGR's S2R entry waits for in macOS 13.5 (`AppleT6020PMGR` / `ApplePMGR` S2R entry, the XNU last-core path in `ml_arm_sleep`), and which devices Linux leaves powered that macOS has off at that point (DCP, GPU, ISP, the PCIe links: Phase 4).
+- Flags removed; default boot.bin, `next_entry` unset; headless on; watcher running.
