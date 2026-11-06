@@ -1,0 +1,144 @@
+2026-11-05 23:19:15 step suspendall; kernel 7.2.11-psci-efi+; booted m1n1 image e93c3a7644406710
+2026-11-05 23:19:15 online: 0-9; nproc 10
+2026-11-05 23:19:15 pmu: boot-stage=30 boot-error-count=00 boot-error-stage=50 panic-count=00 shutdown-flag=00 fault-shadow=10120000000000000000000000000000 
+2026-11-05 23:19:15 mem_sleep: s2idle [deep]; state: freeze mem; online 0-9
+2026-11-05 23:19:15 filesystems ro: 1 of 4
+2026-11-05 23:19:17 slpa run: emergency read-only remount: superblock ro 1 of 4
+2026-11-05 23:19:17 pmgr counters: before SLP_DDR=0:0 SLP_DDR.2=0:0 AWAKE=0:0 AWAKE.2=0:0 SLP_S2R=0:0 SLP_S2R.2=0:0 DEEP_WAIT=0:0 DEEP_WAIT.2=0:0 SYS_AWAKE=0:0 SYS_AWAKE.2=0:0 SYS_S2R_AOP=0:0 SYS_S2R_AOP.2=0:0 SYS_SLP_DDR=0:0 SYS_SLP_DDR.2=0:0 ctl=30000
+2026-11-05 23:19:17 pmgr counters: enabled SLP_DDR=1:0 SLP_DDR.2=1:0 AWAKE=1:0 AWAKE.2=1:0 SLP_S2R=1:0 SLP_S2R.2=1:0 DEEP_WAIT=1:0 DEEP_WAIT.2=1:0 SYS_AWAKE=1:0 SYS_AWAKE.2=1:0 SYS_S2R_AOP=1:0 SYS_S2R_AOP.2=1:0 SYS_SLP_DDR=1:0 SYS_SLP_DDR.2=1:0 ctl=30001
+2026-11-05 23:19:19 pmgr counters: 2 s later SLP_DDR=1:0 SLP_DDR.2=1:0 AWAKE=1:48147064 AWAKE.2=1:48147112 SLP_S2R=1:0 SLP_S2R.2=1:0 DEEP_WAIT=1:0 DEEP_WAIT.2=1:0 SYS_AWAKE=1:48147344 SYS_AWAKE.2=1:48147384 SYS_S2R_AOP=1:0 SYS_S2R_AOP.2=1:0 SYS_SLP_DDR=1:0 SYS_SLP_DDR.2=1:0 ctl=30001
+2026-11-05 23:19:19 cpuhp tracing on: 1
+2026-11-05 23:19:19 mode deep: mem_sleep s2idle [deep]; apple_wdt suspend_timeout 120
+2026-11-05 23:19:19 alarm: 1793938820
+2026-11-05 23:19:19 battery: Not charging charge_now 4596000 ac 1; cmdline steps: 
+2026-11-05 23:19:19 suspend deep 1: echo mem ... (energy_now 52394400 uWh, Not charging, behaviour auto)
+2026-11-05 23:21:09 dead-man switch: rc=0; 23:21:09 regs: wake mask 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000; wake status 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000; ps_ans2 1f0000ff; ANS cpu 00000010 00000028; IORVBAR 00004001 00000100; mbox 00020001 00020001; SART cfg 000000ff 000000ff 000000ea 000000ff 000000ff 000000ea 000000ff 000000ff 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000; SART pa 002a2414 002a2434 0029e2cc 107ff4ec 10006400 10000004 10018e64 1012db4c 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000; SART size 00000003 00000033 00000003 00000033 00000008 000001d7 00000004 00000004 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000; pmgr counters SLP_DDR=1:0 SLP_DDR.2=1:0 AWAKE=1:2665664808 AWAKE.2=1:2665664864 SLP_S2R=1:0 SLP_S2R.2=1:0 DEEP_WAIT=1:0 DEEP_WAIT.2=1:0 SYS_AWAKE=1:2665665120 SYS_AWAKE.2=1:2665665168 SYS_S2R_AOP=1:0 SYS_S2R_AOP.2=1:0 SYS_SLP_DDR=1:0 SYS_SLP_DDR.2=1:0 ctl=30001; aura dbg 0x1000256f3e8: 488000038 3c0 1 2d4 54ca94cf 0 0 0 0 0 100000000 1 1 2000000 2000000 0 5300000000 0 0 0 0 0 0 0
+2026-11-05 23:21:09 aura dbg (words, low/high pairs): 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 
+2026-11-05 23:21:10 aura dbg scan: 0x1000256f3e8: 488000038 3c0 1 2d4 54ca94cf 0 0 0 0 0 100000000 1 1 2000000 2000000 0 5300000000 0 0 0 0 0 0 0;
+2026-11-05 23:21:10 aura cpu states (0 parked, 1 on, 2 off): 0x01010100 0x00010101 0x00010101 ; spin flag/target: 1:0x00000004/0x00000000 2:0x00000004/0x00000000 3:0x00000004/0x00000000 4:0x00000004/0x00000000 5:0x00000004/0x00000000 6:0x00000004/0x00000000 8:0x00000004/0x00000000 9:0x00000004/0x00000000 10:0x00000004/0x00000000 
+2026-11-05 23:21:10 battery after: Not charging charge_now 4596000; smc: macsmc 2a2400000.smc: SetAPPower IDLE: 0|macsmc 2a2400000.smc: SetAPPower ON: 0|
+2026-11-05 23:21:10 pmgr counters after deep 1: SLP_DDR=1:0 SLP_DDR.2=1:0 AWAKE=1:2713443456 AWAKE.2=1:2713443496 SLP_S2R=1:0 SLP_S2R.2=1:0 DEEP_WAIT=1:0 DEEP_WAIT.2=1:0 SYS_AWAKE=1:2713443744 SYS_AWAKE.2=1:2713443784 SYS_S2R_AOP=1:0 SYS_S2R_AOP.2=1:0 SYS_SLP_DDR=1:0 SYS_SLP_DDR.2=1:0 ctl=30001
+2026-11-05 23:21:10 aop mbox irqs over the cycle: -284; als 0.000000, lid angle 13; 
+2026-11-05 23:21:10 suspend deep 1: back, rc=0, elapsed 107.053484496; online 0; energy 52394400 -> 52394400 uWh: 0 W average over the cycle
+2026-11-05 23:21:10 cpuhp trace deep 1: 2502 events; last on cpu1: cpuhp/1-20      [001] .....    67.104698: cpuhp_enter: cpu: 0001 target: 143 step: 146 (kvm_offline_cpu)|cpuhp/1-20      [001] .....    67.104712: cpuhp_exit:  cpu: 0001  state: 145 step: 146 ret: 0|
+2026-11-05 23:21:12 alarm: 1793938933
+2026-11-05 23:21:12 battery: Not charging charge_now 4596000 ac 1; cmdline steps: 
+2026-11-05 23:21:12 suspend deep 2: echo mem ... (energy_now 52394400 uWh, Not charging, behaviour auto)
+2026-11-05 23:22:16 dead-man switch: rc=0; 23:22:16 regs: wake mask 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000; wake status 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000; ps_ans2 1f0000ff; ANS cpu 00000010 00000028; IORVBAR 00004001 00000100; mbox 00020001 00020001; SART cfg 000000ff 000000ff 000000ea 000000ff 000000ff 000000ea 000000ff 000000ff 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000; SART pa 002a2414 002a2434 0029e2cc 107ff4ec 10006400 10000004 1012db4c 10018e64 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000; SART size 00000003 00000033 00000003 00000033 00000008 000001d7 00000004 00000004 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000; pmgr counters SLP_DDR=1:0 SLP_DDR.2=1:0 AWAKE=1:4263839416 AWAKE.2=1:4263839472 SLP_S2R=1:0 SLP_S2R.2=1:0 DEEP_WAIT=1:0 DEEP_WAIT.2=1:0 SYS_AWAKE=1:4263839720 SYS_AWAKE.2=1:4263839768 SYS_S2R_AOP=1:0 SYS_S2R_AOP.2=1:0 SYS_SLP_DDR=1:0 SYS_SLP_DDR.2=1:0 ctl=30001; aura dbg 0x1000256f3e8: 488000038 3c0 1 2d4 54b096cf 0 0 0 0 0 100000000 1 1 2000000 2000000 0 5300000000 0 0 0 0 0 0 0
+2026-11-05 23:22:16 aura dbg (words, low/high pairs): 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 
+2026-11-05 23:22:16 aura dbg scan: 0x1000256f3e8: 488000038 3c0 1 2d4 54b096cf 0 0 0 0 0 100000000 1 1 2000000 2000000 0 5300000000 0 0 0 0 0 0 0;
+2026-11-05 23:22:17 aura cpu states (0 parked, 1 on, 2 off): 0x01010100 0x00010101 0x00010101 ; spin flag/target: 1:0x00000004/0x00000000 2:0x00000004/0x00000000 3:0x00000004/0x00000000 4:0x00000004/0x00000000 5:0x00000004/0x00000000 6:0x00000004/0x00000000 8:0x00000004/0x00000000 9:0x00000004/0x00000000 10:0x00000004/0x00000000 
+2026-11-05 23:22:17 battery after: Not charging charge_now 4596000; smc: macsmc 2a2400000.smc: SetAPPower IDLE: 0|macsmc 2a2400000.smc: SetAPPower ON: 0|macsmc 2a2400000.smc: SetAPPower IDLE: 0|macsmc 2a2400000.smc: SetAPPower ON: 0|
+2026-11-05 23:22:17 pmgr counters after deep 2: SLP_DDR=1:0 SLP_DDR.2=1:0 AWAKE=1:4315232792 AWAKE.2=1:4315232848 SLP_S2R=1:0 SLP_S2R.2=1:0 DEEP_WAIT=1:0 DEEP_WAIT.2=1:0 SYS_AWAKE=1:4315233104 SYS_AWAKE.2=1:4315233160 SYS_S2R_AOP=1:0 SYS_S2R_AOP.2=1:0 SYS_SLP_DDR=1:0 SYS_SLP_DDR.2=1:0 ctl=30001
+2026-11-05 23:22:17 aop mbox irqs over the cycle: 24; als 0.000000, lid angle 13; 
+2026-11-05 23:22:17 suspend deep 2: back, rc=0, elapsed 60.475047800; online 0; energy 52394400 -> 52394400 uWh: 0 W average over the cycle
+2026-11-05 23:22:17 cpuhp trace deep 2: 0 events; last on cpu1: 
+2026-11-05 23:22:19 mode s2idle: mem_sleep [s2idle] deep; apple_wdt suspend_timeout 0
+2026-11-05 23:22:19 alarm: 1793939000
+2026-11-05 23:22:19 battery: Not charging charge_now 4596000 ac 1; cmdline steps: 
+2026-11-05 23:22:19 suspend s2idle 1: echo mem ... (energy_now 52394400 uWh, Not charging, behaviour auto)
+2026-11-05 23:23:23 dead-man switch: rc=0; 23:23:23 regs: wake mask 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000; wake status 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000; ps_ans2 1f0000ff; ANS cpu 00000010 00000028; IORVBAR 00004001 00000100; mbox 00020001 00020001; SART cfg 000000ff 000000ff 000000ea 000000ff 000000ff 000000ea 000000ff 000000ff 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000; SART pa 002a2414 002a2434 0029e2cc 107ff4ec 10006400 10000004 10018e64 1012db4c 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000; SART size 00000003 00000033 00000003 00000033 00000008 000001d7 00000004 00000004 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000; pmgr counters SLP_DDR=1:0 SLP_DDR.2=1:0 AWAKE=1:5870865520 AWAKE.2=1:5870865576 SLP_S2R=1:0 SLP_S2R.2=1:0 DEEP_WAIT=1:0 DEEP_WAIT.2=1:0 SYS_AWAKE=1:5870865864 SYS_AWAKE.2=1:5870865912 SYS_S2R_AOP=1:0 SYS_S2R_AOP.2=1:0 SYS_SLP_DDR=1:0 SYS_SLP_DDR.2=1:0 ctl=30001; aura dbg 0x1000256f3e8: 488000038 3c0 1 2d4 54b096cf 0 0 0 0 0 100000000 1 1 2000000 2000000 0 5300000000 0 0 0 0 0 0 0
+2026-11-05 23:23:23 aura dbg (words, low/high pairs): 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 
+2026-11-05 23:23:23 aura dbg scan: 0x1000256f3e8: 488000038 3c0 1 2d4 54b096cf 0 0 0 0 0 100000000 1 1 2000000 2000000 0 5300000000 0 0 0 0 0 0 0;
+2026-11-05 23:23:24 aura cpu states (0 parked, 1 on, 2 off): 0x01010100 0x00010101 0x00010101 ; spin flag/target: 1:0x00000004/0x00000000 2:0x00000004/0x00000000 3:0x00000004/0x00000000 4:0x00000004/0x00000000 5:0x00000004/0x00000000 6:0x00000004/0x00000000 8:0x00000004/0x00000000 9:0x00000004/0x00000000 10:0x00000004/0x00000000 
+2026-11-05 23:23:24 battery after: Not charging charge_now 4596000; smc: macsmc 2a2400000.smc: SetAPPower IDLE: 0|macsmc 2a2400000.smc: SetAPPower ON: 0|macsmc 2a2400000.smc: SetAPPower IDLE: 0|macsmc 2a2400000.smc: SetAPPower ON: 0|
+2026-11-05 23:23:24 pmgr counters after s2idle 1: SLP_DDR=1:0 SLP_DDR.2=1:0 AWAKE=1:5917984016 AWAKE.2=1:5917984064 SLP_S2R=1:0 SLP_S2R.2=1:0 DEEP_WAIT=1:0 DEEP_WAIT.2=1:0 SYS_AWAKE=1:5917984320 SYS_AWAKE.2=1:5917984376 SYS_S2R_AOP=1:0 SYS_S2R_AOP.2=1:0 SYS_SLP_DDR=1:0 SYS_SLP_DDR.2=1:0 ctl=30001
+2026-11-05 23:23:24 aop mbox irqs over the cycle: 24; als 0.000000, lid angle 13; 
+2026-11-05 23:23:24 suspend s2idle 1: back, rc=0, elapsed 60.704792922; online 0; energy 52394400 -> 52394400 uWh: 0 W average over the cycle
+2026-11-05 23:23:24 cpuhp trace s2idle 1: 0 events; last on cpu1: 
+2026-11-05 23:23:26 alarm: 1793939067
+2026-11-05 23:23:26 battery: Not charging charge_now 4596000 ac 1; cmdline steps: 
+2026-11-05 23:23:26 suspend s2idle 2: echo mem ... (energy_now 52394400 uWh, Not charging, behaviour auto)
+2026-11-05 23:24:29 dead-man switch: rc=0; 23:24:29 regs: wake mask 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000; wake status 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000; ps_ans2 1f0000ff; ANS cpu 00000010 00000028; IORVBAR 00004001 00000100; mbox 00020001 00020001; SART cfg 000000ff 000000ff 000000ea 000000ff 000000ff 000000ea 000000ff 000000ff 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000; SART pa 002a2414 002a2434 0029e2cc 107ff4ec 10006400 10000004 1012db4c 10018e64 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000; SART size 00000003 00000033 00000003 00000033 00000008 000001d7 00000004 00000004 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000; pmgr counters SLP_DDR=1:0 SLP_DDR.2=1:0 AWAKE=1:7477961224 AWAKE.2=1:7477961272 SLP_S2R=1:0 SLP_S2R.2=1:0 DEEP_WAIT=1:0 DEEP_WAIT.2=1:0 SYS_AWAKE=1:7477961520 SYS_AWAKE.2=1:7477961576 SYS_S2R_AOP=1:0 SYS_S2R_AOP.2=1:0 SYS_SLP_DDR=1:0 SYS_SLP_DDR.2=1:0 ctl=30001; aura dbg 0x1000256f3e8: 488000038 3c0 1 2d4 54b096cf 0 0 0 0 0 100000000 1 1 2000000 2000000 0 5300000000 0 0 0 0 0 0 0
+2026-11-05 23:24:30 aura dbg (words, low/high pairs): 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 0x00000000 
+2026-11-05 23:24:30 aura dbg scan: 0x1000256f3e8: 488000038 3c0 1 2d4 54b096cf 0 0 0 0 0 100000000 1 1 2000000 2000000 0 5300000000 0 0 0 0 0 0 0;
+2026-11-05 23:24:31 aura cpu states (0 parked, 1 on, 2 off): 0x01010100 0x00010101 0x00010101 ; spin flag/target: 1:0x00000004/0x00000000 2:0x00000004/0x00000000 3:0x00000004/0x00000000 4:0x00000004/0x00000000 5:0x00000004/0x00000000 6:0x00000004/0x00000000 8:0x00000004/0x00000000 9:0x00000004/0x00000000 10:0x00000004/0x00000000 
+2026-11-05 23:24:31 battery after: Not charging charge_now 4596000; smc: macsmc 2a2400000.smc: SetAPPower IDLE: 0|macsmc 2a2400000.smc: SetAPPower ON: 0|macsmc 2a2400000.smc: SetAPPower IDLE: 0|macsmc 2a2400000.smc: SetAPPower ON: 0|
+2026-11-05 23:24:31 pmgr counters after s2idle 2: SLP_DDR=1:0 SLP_DDR.2=1:0 AWAKE=1:7524041088 AWAKE.2=1:7524041136 SLP_S2R=1:0 SLP_S2R.2=1:0 DEEP_WAIT=1:0 DEEP_WAIT.2=1:0 SYS_AWAKE=1:7524041408 SYS_AWAKE.2=1:7524041456 SYS_S2R_AOP=1:0 SYS_S2R_AOP.2=1:0 SYS_SLP_DDR=1:0 SYS_SLP_DDR.2=1:0 ctl=30001
+2026-11-05 23:24:31 aop mbox irqs over the cycle: 25; als 0.000000, lid angle 13; 
+2026-11-05 23:24:31 suspend s2idle 2: back, rc=0, elapsed 60.890152078; online 0; energy 52394400 -> 52394400 uWh: 0 W average over the cycle
+2026-11-05 23:24:31 cpuhp trace s2idle 2: 0 events; last on cpu1: 
+2026-11-05 23:24:33 filesystems rw again: superblock rw 4 of 4
+2026-11-05 23:24:33 summary: 4 cycles back with rc=0; device errors after the first suspend: 27
+2026-11-05 23:24:33 suspend step done; online 0
+=== cpuhp, cpu 1, deep 1 ===
+ psci-efi-run.sh-2435    [000] .....    72.527598: cpuhp_multi_enter: cpu: 0001 target:   0 step:  32 (iova_cpuhp_dead)
+ psci-efi-run.sh-2435    [000] .....    72.527607: cpuhp_exit:  cpu: 0001  state:  31 step:  32 ret: 0
+ psci-efi-run.sh-2435    [000] .....    72.527607: cpuhp_multi_enter: cpu: 0001 target:   0 step:  32 (iova_cpuhp_dead)
+ psci-efi-run.sh-2435    [000] .....    72.527611: cpuhp_exit:  cpu: 0001  state:  31 step:  32 ret: 0
+ psci-efi-run.sh-2435    [000] .....    72.527611: cpuhp_multi_enter: cpu: 0001 target:   0 step:  32 (iova_cpuhp_dead)
+ psci-efi-run.sh-2435    [000] .....    72.527619: cpuhp_exit:  cpu: 0001  state:  31 step:  32 ret: 0
+ psci-efi-run.sh-2435    [000] .....    72.527619: cpuhp_multi_enter: cpu: 0001 target:   0 step:  32 (iova_cpuhp_dead)
+ psci-efi-run.sh-2435    [000] .....    72.527628: cpuhp_exit:  cpu: 0001  state:  31 step:  32 ret: 0
+ psci-efi-run.sh-2435    [000] .....    72.527629: cpuhp_multi_enter: cpu: 0001 target:   0 step:  32 (iova_cpuhp_dead)
+ psci-efi-run.sh-2435    [000] .....    72.527639: cpuhp_exit:  cpu: 0001  state:  31 step:  32 ret: 0
+ psci-efi-run.sh-2435    [000] .....    72.527640: cpuhp_multi_enter: cpu: 0001 target:   0 step:  32 (iova_cpuhp_dead)
+ psci-efi-run.sh-2435    [000] .....    72.527647: cpuhp_exit:  cpu: 0001  state:  31 step:  32 ret: 0
+ psci-efi-run.sh-2435    [000] .....    72.527648: cpuhp_multi_enter: cpu: 0001 target:   0 step:  32 (iova_cpuhp_dead)
+ psci-efi-run.sh-2435    [000] .....    72.527655: cpuhp_exit:  cpu: 0001  state:  31 step:  32 ret: 0
+ psci-efi-run.sh-2435    [000] .....    72.527655: cpuhp_multi_enter: cpu: 0001 target:   0 step:  32 (iova_cpuhp_dead)
+ psci-efi-run.sh-2435    [000] .....    72.527662: cpuhp_exit:  cpu: 0001  state:  31 step:  32 ret: 0
+ psci-efi-run.sh-2435    [000] .....    72.527662: cpuhp_multi_enter: cpu: 0001 target:   0 step:  32 (iova_cpuhp_dead)
+ psci-efi-run.sh-2435    [000] .....    72.527673: cpuhp_exit:  cpu: 0001  state:  31 step:  32 ret: 0
+ psci-efi-run.sh-2435    [000] .....    72.527673: cpuhp_multi_enter: cpu: 0001 target:   0 step:  32 (iova_cpuhp_dead)
+ psci-efi-run.sh-2435    [000] .....    72.527680: cpuhp_exit:  cpu: 0001  state:  31 step:  32 ret: 0
+ psci-efi-run.sh-2435    [000] .....    72.527680: cpuhp_multi_enter: cpu: 0001 target:   0 step:  32 (iova_cpuhp_dead)
+ psci-efi-run.sh-2435    [000] .....    72.527687: cpuhp_exit:  cpu: 0001  state:  31 step:  32 ret: 0
+ psci-efi-run.sh-2435    [000] .....    72.527688: cpuhp_multi_enter: cpu: 0001 target:   0 step:  32 (iova_cpuhp_dead)
+ psci-efi-run.sh-2435    [000] .....    72.527696: cpuhp_exit:  cpu: 0001  state:  31 step:  32 ret: 0
+ psci-efi-run.sh-2435    [000] .....    72.527696: cpuhp_multi_enter: cpu: 0001 target:   0 step:  32 (iova_cpuhp_dead)
+ psci-efi-run.sh-2435    [000] .....    72.527700: cpuhp_exit:  cpu: 0001  state:  31 step:  32 ret: 0
+ psci-efi-run.sh-2435    [000] .....    72.527700: cpuhp_multi_enter: cpu: 0001 target:   0 step:  32 (iova_cpuhp_dead)
+ psci-efi-run.sh-2435    [000] .....    72.527706: cpuhp_exit:  cpu: 0001  state:  31 step:  32 ret: 0
+ psci-efi-run.sh-2435    [000] .....    72.527706: cpuhp_multi_enter: cpu: 0001 target:   0 step:  32 (iova_cpuhp_dead)
+ psci-efi-run.sh-2435    [000] .....    72.527714: cpuhp_exit:  cpu: 0001  state:  31 step:  32 ret: 0
+ psci-efi-run.sh-2435    [000] .....    72.527714: cpuhp_multi_enter: cpu: 0001 target:   0 step:  32 (iova_cpuhp_dead)
+ psci-efi-run.sh-2435    [000] .....    72.527717: cpuhp_exit:  cpu: 0001  state:  31 step:  32 ret: 0
+ psci-efi-run.sh-2435    [000] .....    72.527718: cpuhp_multi_enter: cpu: 0001 target:   0 step:  32 (iova_cpuhp_dead)
+ psci-efi-run.sh-2435    [000] .....    72.527725: cpuhp_exit:  cpu: 0001  state:  31 step:  32 ret: 0
+ psci-efi-run.sh-2435    [000] .....    72.527725: cpuhp_multi_enter: cpu: 0001 target:   0 step:  32 (iova_cpuhp_dead)
+ psci-efi-run.sh-2435    [000] .....    72.527730: cpuhp_exit:  cpu: 0001  state:  31 step:  32 ret: 0
+ psci-efi-run.sh-2435    [000] .....    72.527730: cpuhp_multi_enter: cpu: 0001 target:   0 step:  32 (iova_cpuhp_dead)
+ psci-efi-run.sh-2435    [000] .....    72.527740: cpuhp_exit:  cpu: 0001  state:  31 step:  32 ret: 0
+ psci-efi-run.sh-2435    [000] .....    72.527740: cpuhp_multi_enter: cpu: 0001 target:   0 step:  32 (iova_cpuhp_dead)
+ psci-efi-run.sh-2435    [000] .....    72.527747: cpuhp_exit:  cpu: 0001  state:  31 step:  32 ret: 0
+ psci-efi-run.sh-2435    [000] .....    72.527747: cpuhp_enter: cpu: 0001 target:   0 step:  31 (dev_cpu_dead)
+ psci-efi-run.sh-2435    [000] .....    72.527774: cpuhp_exit:  cpu: 0001  state:  30 step:  31 ret: 0
+ psci-efi-run.sh-2435    [000] .....    72.527775: cpuhp_enter: cpu: 0001 target:   0 step:  30 (page_alloc_cpu_dead)
+ psci-efi-run.sh-2435    [000] .....    72.527783: cpuhp_exit:  cpu: 0001  state:  29 step:  30 ret: 0
+ psci-efi-run.sh-2435    [000] .....    72.527783: cpuhp_enter: cpu: 0001 target:   0 step:  29 (radix_tree_cpu_dead)
+ psci-efi-run.sh-2435    [000] .....    72.527785: cpuhp_exit:  cpu: 0001  state:  28 step:  29 ret: 0
+ psci-efi-run.sh-2435    [000] .....    72.527785: cpuhp_enter: cpu: 0001 target:   0 step:  28 (percpu_counter_cpu_dead)
+ psci-efi-run.sh-2435    [000] .....    72.527878: cpuhp_exit:  cpu: 0001  state:  27 step:  28 ret: 0
+ psci-efi-run.sh-2435    [000] .....    72.527878: cpuhp_enter: cpu: 0001 target:   0 step:  27 (memcg_hotplug_cpu_dead)
+ psci-efi-run.sh-2435    [000] .....    72.527883: cpuhp_exit:  cpu: 0001  state:  26 step:  27 ret: 0
+ psci-efi-run.sh-2435    [000] .....    72.527883: cpuhp_enter: cpu: 0001 target:   0 step:  26 (console_cpu_notify)
+ psci-efi-run.sh-2435    [000] .....    72.527883: cpuhp_exit:  cpu: 0001  state:  25 step:  26 ret: 0
+ psci-efi-run.sh-2435    [000] .....    72.527883: cpuhp_enter: cpu: 0001 target:   0 step:  25 (buffer_exit_cpu_dead)
+ psci-efi-run.sh-2435    [000] .....    72.527886: cpuhp_exit:  cpu: 0001  state:  24 step:  25 ret: 0
+ psci-efi-run.sh-2435    [000] .....    72.527887: cpuhp_multi_enter: cpu: 0001 target:   0 step:  24 (blk_mq_hctx_notify_dead)
+ psci-efi-run.sh-2435    [000] .....    72.527888: cpuhp_exit:  cpu: 0001  state:  23 step:  24 ret: 0
+ psci-efi-run.sh-2435    [000] .....    72.527888: cpuhp_multi_enter: cpu: 0001 target:   0 step:  24 (blk_mq_hctx_notify_dead)
+ psci-efi-run.sh-2435    [000] .....    72.527891: cpuhp_exit:  cpu: 0001  state:  23 step:  24 ret: 0
+ psci-efi-run.sh-2435    [000] .....    72.527891: cpuhp_multi_enter: cpu: 0001 target:   0 step:  24 (blk_mq_hctx_notify_dead)
+ psci-efi-run.sh-2435    [000] .....    72.527891: cpuhp_exit:  cpu: 0001  state:  23 step:  24 ret: 0
+ psci-efi-run.sh-2435    [000] .....    72.527892: cpuhp_multi_enter: cpu: 0001 target:   0 step:  24 (blk_mq_hctx_notify_dead)
+ psci-efi-run.sh-2435    [000] .....    72.527895: cpuhp_exit:  cpu: 0001  state:  23 step:  24 ret: 0
+ psci-efi-run.sh-2435    [000] .....    72.527896: cpuhp_multi_enter: cpu: 0001 target:   0 step:  21 (bio_cpu_dead)
+ psci-efi-run.sh-2435    [000] .....    72.527898: cpuhp_exit:  cpu: 0001  state:  20 step:  21 ret: 0
+ psci-efi-run.sh-2435    [000] .....    72.527898: cpuhp_multi_enter: cpu: 0001 target:   0 step:  21 (bio_cpu_dead)
+ psci-efi-run.sh-2435    [000] .....    72.527898: cpuhp_exit:  cpu: 0001  state:  20 step:  21 ret: 0
+ psci-efi-run.sh-2435    [000] .....    72.527899: cpuhp_enter: cpu: 0001 target:   0 step:  20 (blk_softirq_cpu_dead)
+ psci-efi-run.sh-2435    [000] .....    72.527899: cpuhp_exit:  cpu: 0001  state:  19 step:  20 ret: 0
+ psci-efi-run.sh-2435    [000] .....    72.527899: cpuhp_enter: cpu: 0001 target:   0 step:  19 (irq_poll_cpu_dead)
+ psci-efi-run.sh-2435    [000] .....    72.527900: cpuhp_exit:  cpu: 0001  state:  18 step:  19 ret: 0
+ psci-efi-run.sh-2435    [000] .....    72.527901: cpuhp_enter: cpu: 0001 target:   0 step:  17 (fpsimd_cpu_dead)
+ psci-efi-run.sh-2435    [000] .....    72.527901: cpuhp_exit:  cpu: 0001  state:  16 step:  17 ret: 0
+ psci-efi-run.sh-2435    [000] .....    72.527901: cpuhp_enter: cpu: 0001 target:   0 step:  14 (takeover_tasklets)
+ psci-efi-run.sh-2435    [000] .....    72.527908: cpuhp_exit:  cpu: 0001  state:  13 step:  14 ret: 0
+ psci-efi-run.sh-2435    [000] .....    72.527908: cpuhp_enter: cpu: 0001 target:   0 step:  13 (vmstat_cpu_dead)
+ psci-efi-run.sh-2435    [000] .....    72.527909: cpuhp_exit:  cpu: 0001  state:  12 step:  13 ret: 0
+ psci-efi-run.sh-2435    [000] .....    72.527909: cpuhp_enter: cpu: 0001 target:   0 step:  12 (page_writeback_cpu_online)
+ psci-efi-run.sh-2435    [000] .....    72.527910: cpuhp_exit:  cpu: 0001  state:  11 step:  12 ret: 0
+ psci-efi-run.sh-2435    [000] .....    72.527910: cpuhp_enter: cpu: 0001 target:   0 step:  10 (slub_cpu_dead)
+ psci-efi-run.sh-2435    [000] .....    72.527963: cpuhp_exit:  cpu: 0001  state:   9 step:  10 ret: 0

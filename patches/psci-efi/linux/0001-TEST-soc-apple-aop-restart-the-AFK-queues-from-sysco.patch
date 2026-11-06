@@ -1,0 +1,118 @@
+From fddaa48c95e3a5e5dbe1f05939baa1fd6f90ce8f Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Thu, 5 Nov 2026 23:26:27 -0500
+Subject: [PATCH] TEST: soc: apple: aop: restart the AFK queues from syscore
+ resume, before the secondary CPUs
+
+---
+ drivers/soc/apple/aop.rs | 50 ++++++++++++++++++++++++++++++++++++----
+ 1 file changed, 45 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/soc/apple/aop.rs b/drivers/soc/apple/aop.rs
+index a25cc301898d..023633f1c9d2 100644
+--- a/drivers/soc/apple/aop.rs
++++ b/drivers/soc/apple/aop.rs
+@@ -1174,6 +1174,10 @@ unsafe impl Send for ChildDevice {}
+ static SLEEP_QUEUES: Atomic<bool> = Atomic::new(false);
+ /// Every queue acknowledged its stop, so the AOP may be told the AP is asleep.
+ static SLEEP_QUEUES_ALL: Atomic<bool> = Atomic::new(false);
++/// Endpoints whose queue was stopped for sleep (bit = endpoint − `AFK_ENDPOINT_START`), for the syscore restart.
++static SLEEP_STOPPED_EPS: Atomic<u32> = Atomic::new(0);
++/// The syscore resume hook already restarted the queues.
++static SLEEP_QUEUES_EARLY: Atomic<bool> = Atomic::new(false);
+ /// `sleep_ap_idle=2`: stop and start the queues, never tell the AOP the AP is asleep.
+ static SLEEP_QUEUES_ONLY: Atomic<bool> = Atomic::new(false);
+ // SAFETY (all uses): only the PM notifier chain touches the block, under its own lock.
+@@ -1244,18 +1248,43 @@ struct Syscore {
+ /// they did), so the AOP is told the AP is on here, with interrupts off on the boot CPU, before
+ /// `pm_sleep_enable_secondary_cpus()`. The ack is handled once interrupts are back on.
+ unsafe extern "C" fn aop_syscore_resume(_data: *mut c_void) {
+-    if !SLEEP_AP_IDLE.xchg(false, Acquire) {
+-        return;
+-    }
+     let rtk = SLEEP_RTK.load(CoreOrdering::Acquire);
+     if rtk.is_null() {
+         return;
+     }
++    if !SLEEP_AP_IDLE.xchg(false, Acquire) {
++        aop_syscore_restart_queues(rtk);
++        return;
++    }
+     // SAFETY: the handle is valid while the notifier is registered (see `aop_set_ap_power`); the send is atomic.
+     let ret = unsafe {
+         bindings::apple_rtkit_send_message(rtk, RTKIT_EP_MGMT, RTKIT_MGMT_SET_AP_PWR | RTKIT_AP_ON as u64, ptr::null_mut(), true)
+     };
+     pr_info!("TEST SetAPPower 0x20 from syscore resume (before the secondary CPUs): {}\n", ret);
++    aop_syscore_restart_queues(rtk);
++}
++
++/// TEST (S2R): the queues' START (`0xa3`) from syscore resume, before the secondary CPUs come back, without waiting
++/// for the acks (interrupts are off). With the queues stopped across the bring-up, CPUs 1 to 9 hung in the kernel's
++/// secondary entry (2026-11-05 22:54, 23:10, 23:18).
++fn aop_syscore_restart_queues(rtk: *mut bindings::apple_rtkit) {
++    let stopped = SLEEP_STOPPED_EPS.xchg(0, Acquire);
++    if stopped == 0 {
++        return;
++    }
++    let (mut sent, mut failed) = (0, 0);
++    for ep in 0..AFK_ENDPOINT_COUNT as u32 {
++        if stopped & (1 << ep) == 0 {
++            continue;
++        }
++        // SAFETY: as in `aop_syscore_resume`; an atomic send.
++        let ret = unsafe {
++            bindings::apple_rtkit_send_message(rtk, AFK_ENDPOINT_START + ep as u8, AFK_MSG_START, ptr::null_mut(), true)
++        };
++        if ret == 0 { sent += 1 } else { failed += 1 }
++    }
++    SLEEP_QUEUES_EARLY.store(true, Release);
++    pr_info!("TEST queues restarted from syscore resume: {} sent, {} failed\n", sent, failed);
+ }
+ 
+ const PM_SUSPEND_PREPARE: c_ulong = 3;
+@@ -1294,7 +1323,9 @@ struct Syscore {
+     }
+     SLEEP_QUEUES_ALL.store(false, Release);
+     aop_set_ap_power(data, entering);
+-    if !entering {
++    if !entering && SLEEP_QUEUES_EARLY.xchg(false, Acquire) {
++        dev_info!(data.dev, "TEST queues already restarted from syscore resume\n");
++    } else if !entering {
+         let (total, acked) = data.set_queues(false);
+         dev_info!(data.dev, "TEST queues started after system sleep: {} of {}\n", acked, total);
+     }
+@@ -1699,6 +1730,7 @@ fn set_queues(&self, stop: bool) -> (u32, u32) {
+             (AFK_MSG_START, AFK_OPC_START_ACK)
+         };
+         let (mut total, mut acked) = (0, 0);
++        let mut stopped = 0u32;
+         for ep in 0..AFK_ENDPOINT_COUNT as usize {
+             let index = AFK_ENDPOINT_START + ep as u8;
+             {
+@@ -1716,7 +1748,12 @@ fn set_queues(&self, stop: bool) -> (u32, u32) {
+                 }
+             }
+             match self.ep_queue[ep].wait_timeout(AFK_QUEUE_TIMEOUT_MS) {
+-                Some(opc) if opc == ack => acked += 1,
++                Some(opc) if opc == ack => {
++                    acked += 1;
++                    if stop {
++                        stopped |= 1 << ep;
++                    }
++                }
+                 got => dev_warn!(
+                     self.dev,
+                     "TEST endpoint {:#04x}: queue {} not acknowledged ({:?})\n",
+@@ -1726,6 +1763,9 @@ fn set_queues(&self, stop: bool) -> (u32, u32) {
+                 ),
+             }
+         }
++        if stop {
++            SLEEP_STOPPED_EPS.store(stopped, Release);
++        }
+         (total, acked)
+     }
+ 
+-- 
+2.55.0
+
