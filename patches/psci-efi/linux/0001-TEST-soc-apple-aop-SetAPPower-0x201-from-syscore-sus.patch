@@ -1,0 +1,81 @@
+From fe6458092af7b41fc34edb48c8e0b3da65104996 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Thu, 5 Nov 2026 22:44:54 -0500
+Subject: [PATCH] TEST: soc: apple: aop: SetAPPower 0x201 from syscore suspend,
+ after the secondary CPUs are parked
+
+Sent at PM_SUSPEND_PREPARE, the parked CPUs did not come back even with
+the 0x20 from syscore resume. The queues still stop at PM_SUSPEND_PREPARE.
+---
+ drivers/soc/apple/aop.rs | 32 +++++++++++++++++++++++++++++---
+ 1 file changed, 29 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/soc/apple/aop.rs b/drivers/soc/apple/aop.rs
+index 5e55e00011a4..d81a165ae529 100644
+--- a/drivers/soc/apple/aop.rs
++++ b/drivers/soc/apple/aop.rs
+@@ -1172,6 +1172,8 @@ unsafe impl Send for ChildDevice {}
+ static SLEEP_AP_IDLE: Atomic<bool> = Atomic::new(false);
+ /// Set when the queues were stopped for sleep, so that they are started again after it.
+ static SLEEP_QUEUES: Atomic<bool> = Atomic::new(false);
++/// Every queue acknowledged its stop, so the AOP may be told the AP is asleep.
++static SLEEP_QUEUES_ALL: Atomic<bool> = Atomic::new(false);
+ // SAFETY (all uses): only the PM notifier chain touches the block, under its own lock.
+ static mut SLEEP_NB: bindings::notifier_block = bindings::notifier_block {
+     notifier_call: Some(aop_pm_notify),
+@@ -1199,7 +1201,7 @@ struct Syscore {
+     fn unregister_syscore(syscore: *mut Syscore);
+ }
+ static SLEEP_SYSCORE_OPS: SyscoreOps = SyscoreOps {
+-    suspend: None,
++    suspend: Some(aop_syscore_suspend),
+     resume: Some(aop_syscore_resume),
+     shutdown: None,
+ };
+@@ -1215,6 +1217,26 @@ struct Syscore {
+ const RTKIT_EP_MGMT: u8 = 0;
+ const RTKIT_MGMT_SET_AP_PWR: u64 = 0xb << 52;
+ 
++/// TEST (S2R): `SetAPPower` 0x201 only after the secondary CPUs are parked. Sent at `PM_SUSPEND_PREPARE`, CPUs 1 to 9
++/// did not come back even with the 0x20 before they were started again (2026-11-05 22:36). Here interrupts are off
++/// on the boot CPU alone; the ack is handled after resume. Not in `s2idle` (no syscore phase): there the queues stop
++/// and the AOP is not told.
++unsafe extern "C" fn aop_syscore_suspend(_data: *mut c_void) -> c_int {
++    let rtk = SLEEP_RTK.load(CoreOrdering::Acquire);
++    if rtk.is_null() || !SLEEP_QUEUES_ALL.load(Acquire) {
++        return 0;
++    }
++    // SAFETY: as in `aop_syscore_resume`.
++    let ret = unsafe {
++        bindings::apple_rtkit_send_message(rtk, RTKIT_EP_MGMT, RTKIT_MGMT_SET_AP_PWR | RTKIT_AP_IDLE as u64, ptr::null_mut(), true)
++    };
++    if ret == 0 {
++        SLEEP_AP_IDLE.store(true, Release);
++    }
++    pr_info!("TEST SetAPPower 0x201 from syscore suspend (after the secondary CPUs): {}\n", ret);
++    0
++}
++
+ /// TEST (S2R): `SetAPPower` 0x20 before the secondary CPUs come back. With the AOP told the AP is asleep, CPUs 1 to
+ /// 9 parked by Aura did not come back from a `deep` suspend (2026-11-05 22:25, 22:00, 22:09; 22:15 without the 0x201
+ /// they did), so the AOP is told the AP is on here, with interrupts off on the boot CPU, before
+@@ -1261,10 +1283,14 @@ struct Syscore {
+         let (total, acked) = data.set_queues(true);
+         SLEEP_QUEUES.store(true, Release);
+         dev_info!(data.dev, "TEST queues stopped for system sleep: {} of {}\n", acked, total);
+-        if acked != total {
+-            return 0;
++        if let Some(rtk) = &*data.rtkit.lock() {
++            SLEEP_RTK.store(rtk.as_raw(), CoreOrdering::Release);
+         }
++        // The 0x201 itself goes from syscore suspend (`aop_syscore_suspend`), once the secondaries are parked.
++        SLEEP_QUEUES_ALL.store(acked == total, Release);
++        return 0;
+     }
++    SLEEP_QUEUES_ALL.store(false, Release);
+     aop_set_ap_power(data, entering);
+     if !entering {
+         let (total, acked) = data.set_queues(false);
+-- 
+2.55.0
+
