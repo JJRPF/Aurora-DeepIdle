@@ -1,0 +1,72 @@
+From 2bcb80c6d275483dc6e03a000457cbe307ba2ef6 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Thu, 5 Nov 2026 23:54:29 -0500
+Subject: [PATCH] TEST: soc: apple: rtkit: apple_rtkit_send_message_early; aop
+ restarts its queues with it from syscore resume
+
+After an acked 0x201 RTKit refuses app endpoint messages until the 0x20's
+ack is handled, which cannot happen with interrupts off.
+---
+ drivers/soc/apple/aop.rs        |  2 +-
+ drivers/soc/apple/rtkit.c       | 14 ++++++++++++++
+ include/linux/soc/apple/rtkit.h |  6 ++++++
+ 3 files changed, 21 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/soc/apple/aop.rs b/drivers/soc/apple/aop.rs
+index 5943976842ea..76b58ab6b3b0 100644
+--- a/drivers/soc/apple/aop.rs
++++ b/drivers/soc/apple/aop.rs
+@@ -1282,7 +1282,7 @@ fn aop_syscore_restart_queues(rtk: *mut bindings::apple_rtkit) {
+         }
+         // SAFETY: as in `aop_syscore_resume`; an atomic send.
+         let ret = unsafe {
+-            bindings::apple_rtkit_send_message(rtk, AFK_ENDPOINT_START + ep as u8, AFK_MSG_START, ptr::null_mut(), true)
++            bindings::apple_rtkit_send_message_early(rtk, AFK_ENDPOINT_START + ep as u8, AFK_MSG_START)
+         };
+         if ret == 0 { sent += 1 } else { failed += 1 }
+     }
+diff --git a/drivers/soc/apple/rtkit.c b/drivers/soc/apple/rtkit.c
+index 11284c6cd088..6da0e4cbada7 100644
+--- a/drivers/soc/apple/rtkit.c
++++ b/drivers/soc/apple/rtkit.c
+@@ -974,6 +974,20 @@ int apple_rtkit_send_message(struct apple_rtkit *rtk, u8 ep, u64 message,
+ }
+ EXPORT_SYMBOL_GPL(apple_rtkit_send_message);
+ 
++int apple_rtkit_send_message_early(struct apple_rtkit *rtk, u8 ep, u64 message)
++{
++	struct apple_mbox_msg msg = {
++		.msg0 = message,
++		.msg1 = ep,
++	};
++
++	if (rtk->crashed)
++		return -EINVAL;
++	dma_wmb();
++	return apple_mbox_send(rtk->mbox, msg, true);
++}
++EXPORT_SYMBOL_GPL(apple_rtkit_send_message_early);
++
+ int apple_rtkit_poll(struct apple_rtkit *rtk)
+ {
+ 	return apple_mbox_poll(rtk->mbox);
+diff --git a/include/linux/soc/apple/rtkit.h b/include/linux/soc/apple/rtkit.h
+index f75786e73068..64d574550f01 100644
+--- a/include/linux/soc/apple/rtkit.h
++++ b/include/linux/soc/apple/rtkit.h
+@@ -199,6 +199,12 @@ int apple_rtkit_idle(struct apple_rtkit *rtk);
+ 
+ int apple_rtkit_set_ap_power(struct apple_rtkit *rtk, unsigned int state);
+ 
++/*
++ * TEST (S2R): send to an endpoint atomically without the running check, for a syscore resume hook that restarts
++ * endpoints right after an atomic SetAPPower ON whose ack cannot be handled yet (interrupts are off).
++ */
++int apple_rtkit_send_message_early(struct apple_rtkit *rtk, u8 ep, u64 message);
++
+ /*
+  * Checks if RTKit is running and ready to handle messages.
+  */
+-- 
+2.55.0
+
