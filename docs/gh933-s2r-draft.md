@@ -18,7 +18,8 @@ Update, 2026-11-06 (GH-8 runs since; still NOT posted, for the owner to approve 
 - Order matters: once the PMP is IDLE it refuses to drop device requests (`-EALREADY`). genpd releases the display
   and ISP requests only in the noirq phase, after a driver has sent IDLE in `suspend_late`, so the PMP went to sleep
   still holding them (0xf000). Releasing them before IDLE takes the request word to 0 as macOS does; after the wake
-  all four are asserted again. Normal suspends with that release came back on the alarm in every run (8 of 8 today).
+  all four are asserted again. Normal suspends with that release came back on the alarm in every run today except one
+  whose own test register dump hung it.
 - The SoC's own S2R entry still does not complete with every macOS sleep step we know of, the PMP's included (the
   PMGR's S2R timer resets the SoC about 86 s in). Nothing points at the PMP; the open difference is the devices Linux
   keeps powered at sleep (the display coprocessors, the USB-C controllers).
