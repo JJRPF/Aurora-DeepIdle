@@ -1,0 +1,180 @@
+From 2e49ab5d4fd18a58fe61864fe8c46201d08cccc2 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Thu, 5 Nov 2026 21:57:04 -0500
+Subject: [PATCH] TEST: soc: apple: aop: SetAPPower 0x201 to the AOP across
+ system sleep, as macOS's RTBuddy
+
+macOS tells each IOP it does not power-manage, the AOP among them, that
+the AP is going to sleep (RTBuddyManagementEndpoint::_signalApPowerGated:
+SetAPPower 0x201, wait for the ack; 0x20 on wake) and leaves it running.
+Linux never sent it. Sent from a PM notifier, outside the driver's rtkit
+lock (the ordered receive work takes it for AFK messages queued ahead of
+the ack). apple_aop.sleep_ap_idle=0 turns it off.
+---
+ drivers/soc/apple/aop.rs       | 92 ++++++++++++++++++++++++++++++++++
+ rust/kernel/soc/apple/rtkit.rs |  6 +++
+ 2 files changed, 98 insertions(+)
+
+diff --git a/drivers/soc/apple/aop.rs b/drivers/soc/apple/aop.rs
+index 6641e1d50136..10274b52e80b 100644
+--- a/drivers/soc/apple/aop.rs
++++ b/drivers/soc/apple/aop.rs
+@@ -7,6 +7,7 @@
+ 
+ use core::{
+     arch::asm,
++    sync::atomic::{AtomicPtr, Ordering as CoreOrdering},
+     cmp,
+     marker::Unpin,
+     mem,
+@@ -16,6 +17,7 @@
+ 
+ use kernel::{
+     bindings,
++    ffi::{c_int, c_ulong, c_void},
+     c_str,
+     device,
+     device::{Bound, Core},
+@@ -1151,6 +1153,57 @@ unsafe impl Send for ChildDevice {}
+ /// before a reboot.
+ static RETIRED: Atomic<bool> = Atomic::new(false);
+ 
++/// TEST (S2R): macOS's RTBuddy tells each IOP it does not power-manage, the AOP among them, that the AP is going
++/// to sleep: `SetAPPower` 0x201 (`RTBuddyManagementEndpoint::_signalApPowerGated`), waiting for the ack, and 0x20
++/// on wake. The AOP keeps running. Linux never sent it, and the AOP's outbox (an AP wake source in the PMGR) stayed
++/// busy through every sleep. Sent from a PM notifier, which has no context pointer: the `AopData` is reached
++/// through this global, an `Arc` reference held while the notifier is registered. `sleep_ap_idle=0` turns it off.
++static SLEEP_AOP: AtomicPtr<AopData> = AtomicPtr::new(ptr::null_mut());
++/// Set when the AOP acknowledged 0x201, so that 0x20 is sent only then (an RTKit firmware may panic when asked for
++/// the AP state it already has, as the PMP's does).
++static SLEEP_AP_IDLE: Atomic<bool> = Atomic::new(false);
++// SAFETY (all uses): only the PM notifier chain touches the block, under its own lock.
++static mut SLEEP_NB: bindings::notifier_block = bindings::notifier_block {
++    notifier_call: Some(aop_pm_notify),
++    next: ptr::null_mut(),
++    priority: 0,
++};
++const PM_SUSPEND_PREPARE: c_ulong = 3;
++const PM_POST_SUSPEND: c_ulong = 4;
++const RTKIT_AP_IDLE: u32 = 0x201;
++const RTKIT_AP_ON: u32 = 0x20;
++
++unsafe extern "C" fn aop_pm_notify(
++    _nb: *mut bindings::notifier_block,
++    action: c_ulong,
++    _data: *mut c_void,
++) -> c_int {
++    let entering = match action {
++        PM_SUSPEND_PREPARE => true,
++        PM_POST_SUSPEND => false,
++        _ => return 0,
++    };
++    let data = SLEEP_AOP.load(CoreOrdering::Acquire);
++    if data.is_null() || (!entering && !SLEEP_AP_IDLE.xchg(false, Acquire)) {
++        return 0;
++    }
++    // SAFETY: `remove` unregisters the notifier, which waits for a call in progress, before it drops the reference.
++    let data = unsafe { &*data };
++    let raw = match &*data.rtkit.lock() {
++        Some(rtk) => rtk.as_raw(),
++        None => return 0,
++    };
++    let state = if entering { RTKIT_AP_IDLE } else { RTKIT_AP_ON };
++    // SAFETY: the RTKit handle is dropped only in `remove`, after the notifier is unregistered. Not under `rtkit`'s
++    // lock: the receive work is ordered, and an AFK message queued ahead of the ack takes that lock.
++    let ret = unsafe { bindings::apple_rtkit_set_ap_power(raw, state) };
++    if entering && ret == 0 {
++        SLEEP_AP_IDLE.store(true, Release);
++    }
++    dev_info!(data.dev, "TEST SetAPPower {:#x} for system sleep: {}\n", state, ret);
++    0
++}
++
+ impl ChildDevice {
+     /// Keeps the child from binding to any driver again; it stays registered.
+     fn retire(&self) {
+@@ -1374,6 +1427,35 @@ fn start(&self) -> Result<()> {
+         self.wake()?;
+         self.start_afk()
+     }
++    fn register_sleep_notifier(self: &Arc<Self>) {
++        let raw = Arc::into_raw(self.clone()).cast_mut();
++        if SLEEP_AOP
++            .compare_exchange(ptr::null_mut(), raw, CoreOrdering::AcqRel, CoreOrdering::Acquire)
++            .is_err()
++        {
++            // SAFETY: `raw` came from `into_raw` above and was not published.
++            drop(unsafe { Arc::from_raw(raw) });
++            return;
++        }
++        // SAFETY: see `SLEEP_NB`.
++        let ret = unsafe { bindings::register_pm_notifier(ptr::addr_of_mut!(SLEEP_NB)) };
++        if ret != 0 {
++            dev_warn!(self.dev, "sleep notifier not registered ({})\n", ret);
++            let raw = SLEEP_AOP.swap(ptr::null_mut(), CoreOrdering::AcqRel);
++            // SAFETY: the pointer published above, now taken back.
++            drop(unsafe { Arc::from_raw(raw) });
++        }
++    }
++    fn unregister_sleep_notifier(&self) {
++        if SLEEP_AOP.load(CoreOrdering::Acquire) != ptr::from_ref(self).cast_mut() {
++            return;
++        }
++        // SAFETY: see `SLEEP_NB`. This waits for a notifier call in progress.
++        unsafe { bindings::unregister_pm_notifier(ptr::addr_of_mut!(SLEEP_NB)) };
++        let raw = SLEEP_AOP.swap(ptr::null_mut(), CoreOrdering::AcqRel);
++        // SAFETY: the reference `register_sleep_notifier` published; no notifier call can use it now.
++        drop(unsafe { Arc::from_raw(raw) });
++    }
+     /// Runs the RTKit handshake up to AP power on.
+     fn wake(&self) -> Result<()> {
+         let mut guard = self.rtkit.lock();
+@@ -1733,6 +1815,7 @@ fn remove(&self) {
+                 return;
+             }
+         }
++        self.unregister_sleep_notifier();
+         // No registration is queued after this point, so once the queue is
+         // empty the list of children is complete.
+         self.registration_queue.drain();
+@@ -2386,6 +2469,9 @@ fn probe<'bound>(
+             data.start()?;
+         }
+         probe_guard.dismiss();
++        if *module_parameters::sleep_ap_idle.value() != 0 {
++            data.register_sleep_notifier();
++        }
+         let data = data as Arc<dyn AOP>;
+         Ok(Self(data))
+     }
+@@ -2412,4 +2498,10 @@ unsafe impl Send for AopDriver {}
+     name: "apple_aop",
+     description: "AOP driver",
+     license: "Dual MIT/GPL",
++    params: {
++        sleep_ap_idle: u32 {
++            default: 1,
++            description: "TEST (S2R): SetAPPower 0x201 to the AOP across system sleep, as macOS (0: off)",
++        },
++    },
+ }
+diff --git a/rust/kernel/soc/apple/rtkit.rs b/rust/kernel/soc/apple/rtkit.rs
+index 3baaaa30d196..77f43889b22c 100644
+--- a/rust/kernel/soc/apple/rtkit.rs
++++ b/rust/kernel/soc/apple/rtkit.rs
+@@ -311,6 +311,12 @@ pub fn set_ap_power(self: Pin<&mut Self>, state: u32) -> Result {
+         to_result(unsafe { bindings::apple_rtkit_set_ap_power(self.rtk, state) })
+     }
+ 
++    /// Returns the C handle, for a call that waits for an ack and so must not run under a lock that this
++    /// coprocessor's receive path takes. The handle is valid while `self` is.
++    pub fn as_raw(&self) -> *mut bindings::apple_rtkit {
++        self.rtk
++    }
++
+     /// Waits for the RTKit coprocessor to finish booting.
+     pub fn boot(self: Pin<&mut Self>) -> Result {
+         // SAFETY: `rtk` is valid per the type invariant.
+-- 
+2.55.0
+

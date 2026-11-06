@@ -93,6 +93,7 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
             echo auto-discharge > $BAT/charge_behaviour; sleep 30
             log "discharge on: $(cat $BAT/status), limit $(cat $BAT/charge_control_end_threshold)%, capacity $(cat $BAT/capacity)%"
         fi
+        aopirq() { awk '/2a6408000.mbox-recv/ { s = 0; for (i = 2; i <= NF && $i ~ /^[0-9]+$/; i++) s += $i; print s }' /proc/interrupts; }
         for MODE in $(cat /var/lib/deepidle/sleep-modes 2>/dev/null || echo deep); do
         echo $MODE > /sys/power/mem_sleep
         WDT_P=/sys/module/apple_wdt/parameters/suspend_timeout
@@ -113,7 +114,7 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
             # /var/lib/deepidle/aura-ctl <value>: Aura's S2R steps for this suspend (image 52, harness/mmio/aura-ctl.c;
             # 1 the PMGR's S2R timer, 2 every core into macOS's deep sleep, 0x80 a marker that changes nothing)
             [ -e /var/lib/deepidle/aura-ctl ] && log "aura ctl: $(/usr/local/lib/deepidle/aura-ctl $(cat /var/lib/deepidle/aura-ctl) 2>&1)"
-            t0=$(date +%s.%N); e0=$(cat $BAT/energy_now)
+            t0=$(date +%s.%N); e0=$(cat $BAT/energy_now); q0=$(aopirq)
             setsid $DM/deadman.sh $DM/resumed-$MODE-$i $(( ${SUSPEND_ALARM:-10} + 300 )) < /dev/null > /dev/null 2>&1 &
             DMPID=$!
             log "suspend $MODE $i: echo mem ... (energy_now $e0 uWh, $(cat $BAT/status), behaviour $(sed 's/.*\[\(.*\)\].*/\1/' $BAT/charge_behaviour))"
@@ -125,7 +126,7 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
             else
                 echo mem > /sys/power/state; rc=$?
             fi
-            t1=$(date +%s.%N); e1=$(cat $BAT/energy_now)
+            t1=$(date +%s.%N); e1=$(cat $BAT/energy_now); q1=$(aopirq)
             : > $DM/resumed-$MODE-$i
             wait $DMPID; dmrc=$?
             log "dead-man switch: rc=$dmrc; $(tail -1 $DM/log)"
@@ -135,6 +136,9 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
             log "aura dbg scan: $(/usr/local/lib/deepidle/scan-magic 0xA0AA0001 64 | head -3 | tr '\n' ';')"
             log "battery after: $(cat /sys/class/power_supply/macsmc-battery/status) charge_now $(cat /sys/class/power_supply/macsmc-battery/charge_now); smc: $(dmesg | grep -E 'macsmc-reboot.*sleep:|SetAPPower' | grep -v psci-efi-test | tail -4 | sed 's/^\[[ 0-9.]*\] //' | tr '\n' '|')"
             [ -n "$PC" ] && log "pmgr counters after $MODE $i: $($PC show)"
+            # the AOP's mailbox interrupts over the cycle (its outbox is an AP wake source), and the test kernel's
+            # SetAPPower to the AOP around the sleep (apple_aop.sleep_ap_idle)
+            log "aop mbox irqs over the cycle: $(( q1 - q0 )); $(dmesg | grep 'TEST SetAPPower' | tail -2 | sed 's/^\[[ 0-9.]*\] //' | tr '\n' '|')"
             log "suspend $MODE $i: back, rc=$rc, elapsed $(echo "$t1 - $t0" | bc); online $(cat /sys/devices/system/cpu/online); energy $e0 -> $e1 uWh: $(echo "scale=3; ($e0 - $e1) * 3.6 / ($t1 - $t0) / 1000" | bc) W average over the cycle"
             [ -e /var/lib/deepidle/pmp-release-modes ] && log "pmp requests after resume: $(/usr/local/lib/deepidle/mmio-read 0x28e3c2000 1 | awk '{print $2}') ack $(/usr/local/lib/deepidle/mmio-read 0x28e3c2080 1 | awk '{print $2}')"
             [ $rc = 0 ] || break
