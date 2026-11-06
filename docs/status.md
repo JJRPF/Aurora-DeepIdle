@@ -1,4 +1,4 @@
-# Where the work stands (2026-11-05, 18:20, after runs A to F and A again)
+# Where the work stands (2026-11-05, 20:30, after the sleep A/B)
 
 This is the summary of the whole effort: what was measured, what was built,
 what works, what does not, and what comes next. Each section points to the
@@ -87,6 +87,12 @@ There are two goals:
   normal suspend the PMP acks both (requests `0xf000` → `0x1000` → back to
   `0xf000`), 2 of 2, 0 device errors, the panel still connected. Only ISP's
   request differs from macOS now. The sleep A/B on battery with it is next.
+* **2026-11-05, 20:27: the sleep A/B the owner asked for.** What we have
+  now (suspend to RAM through Aura, every CPU parked, the PMP's display
+  requests released) drew 1.458 W for an hour on battery; s2idle in the
+  same boot 1.504 W. That is 3% less, the same small gap as in the
+  morning, and the display release added nothing measurable. macOS: 0.24 W.
+  The rest of the gap needs the SoC itself to sleep.
 * **Next (owner-attended):**
   * run C again (`slpa` plus the PMP's IDLE, now sent once);
   * runs G and H: image 53's PMGR quiesce steps before the S2R timer;
@@ -184,6 +190,7 @@ There are two goals:
 | Suspend to RAM, image 50, all CPUs, one long cycle (2026-11-05) | 1.444 W over 1 h 46 min on battery, 106 watchdog heartbeats, 0 device errors; woke early on an SMC mailbox event | `data/drain-ab/` |
 | s2idle, image 51 test kernel, one long cycle (2026-11-05) | 1.478 W over 1 h 45 min on battery, the A/B partner of the row above: suspend to RAM with parked CPUs saves about 0.03 W | `data/drain-ab/` |
 | Suspend to RAM, image 51, 90 min, PMGR counters on (2026-11-05) | 1.489 W on battery; the PMGR’s counters show the SoC in AWAKE for the whole sleep. The three long runs (1.44 to 1.49 W) put suspend to RAM and s2idle within the run-to-run spread | `data/drain-ab/` |
+| Sleep A/B, image 53, 1 h each, same boot (2026-11-05 evening) | **suspend to RAM 1.458 W** (every CPU parked, the PMP's display requests released) against **s2idle 1.504 W**: 0.046 W (3%) less. Releasing the display requests saved nothing measurable (1.444 W without it in the morning). The SoC stayed `AWAKE` in both | `data/drain-ab/` |
 | macOS 15.7.1 sleep | 0.24 W over 5.9 h, 98.7% of it in S2R | issue #3 |
 | Overnight s2idle, 10-23 to 10-24 | 8.33 h, a clean wake; 3.4 SoC wakes a second, 72% from the AOP mailbox; drain hidden by the charge limit (only a 0.57 W lower bound) | `data/overnight/` |
 

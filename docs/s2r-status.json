@@ -258,6 +258,7 @@
     { "what": "s2idle, PMP running", "value": "1.39 to 1.46 W", "detail": "9.6 h, 23% of the battery a night" },
     { "what": "s2idle, stock, on battery", "value": "1.41 W", "detail": "" },
     { "what": "s2idle, everything optional off", "value": "2.1 W", "detail": "The SD link without L1" },
+    { "what": "Sleep A/B, image 53, same boot, 1 h each (2026-11-05 evening)", "value": "1.458 W against 1.504 W", "detail": "Suspend to RAM through Aura (every CPU parked, the PMP’s display requests released) against s2idle: 3% less. The release saved nothing measurable; the SoC stayed AWAKE in both" },
     { "what": "macOS 15.7.1", "value": "0.24 W", "detail": "5.9 h, 98.7% of it in S2R" }
   ],
   "findings": [
@@ -288,7 +289,8 @@
     "Apple coprocessors boot from an IO RVBAR in their ASC wrapper (`0x347050000` for the ANS, `0x28e850000` for the PMP), set and locked by iBoot; macOS rewrites it on every CPU start (`AppleASCWrapV4::_setIORVBAR`), Linux never does. It survives a normal suspend with `ps_ans2` gated and `slpa` too (run A, 2026-11-05 18:04), so it is not why the ANS fails after `slpa`",
     { "title": "The PMP crash was ours", "body": "After `slpa` the PMP firmware crashed because the test kernel told it the AP’s sleep state twice; the firmware panics when given the state it already has. One request, as macOS sends, is the fix. The PMP still holds display and ISP requests that macOS releases before `slpa`." },
     { "title": "The storage controller does start after `slpa`", "body": "Its firmware answers the first handshake but never acknowledges power-on, and its boot address and SART are intact. It most likely waits on the storage power the SMC cut, which a real S2R wake would restore. So the SoC sleep comes first." },
-    { "title": "The PMP lets the displays go for sleep", "body": "Withdrawing the three display requests in suspend and asserting them on resume works in a normal suspend; the PMP acks both. That puts the PMP close to macOS’s state at `slpa`; only ISP’s request differs." }
+    { "title": "The PMP lets the displays go for sleep", "body": "Withdrawing the three display requests in suspend and asserting them on resume works in a normal suspend; the PMP acks both. That puts the PMP close to macOS’s state at `slpa`; only ISP’s request differs." },
+    { "title": "What we have now sleeps at 1.46 W", "body": "An hour each on battery in one boot: suspend to RAM through Aura 1.458 W, s2idle 1.504 W, macOS 0.24 W. Parking the CPUs and releasing the display requests barely matter while the SoC stays up; the gap is the SoC sleep itself." }
   ],
   "rules": [
     "Never remove and rescan PCI devices: it kills Wi-Fi until a reboot.",

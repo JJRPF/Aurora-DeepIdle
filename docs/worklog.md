@@ -1978,3 +1978,23 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 - 3600 s alarm each, on battery: forced discharge from 89%, limits 20/15 for the run, 80/75 put back after (`discharge` holds `80 75`). PMGR counters on, root read-only.
 - Earlier references (11-05 12:01): `deep` 1.444 W over 6391 s, `s2idle` 1.478 W over 6300 s. macOS: 0.24 W. The difference this run can show beyond that is the release (estimated 0.25 W for the J514S external display case; not measured here).
 - The docs commit (c9b8a78) was rejected twice by GitHub (`remote: fatal error in commit_refs`, both refs), with githubstatus all operational and admin permission. It was retried after this entry.
+
+## 2026-11-05 20:28: sleep A/B: what we have now 1.458 W, s2idle (baseline) 1.504 W, macOS 0.24 W
+
+- Run 18:25 to 20:27, one boot, test kernel `6ad0396dbb7259df`, image 53 with no aura-ctl, on battery (forced discharge from 89%), root read-only, PMGR counters on.
+
+  | Arm | Elapsed | Energy (µWh) | Average |
+  |---|---|---|---|
+  | `deep`: Aura `SYSTEM_SUSPEND`, every CPU parked, the PMP's display requests released | 3602.8 s | 52029600 → 50570400 | **1.458 W** |
+  | `s2idle` (baseline) | 3600.4 s | 50547600 → 49042800 | **1.504 W** |
+
+- Both back on the alarm, rc 0, `online 0-9`, 0 device errors.
+- The release ran only in `deep`: 3 withdrawn, 3 asserted, requests `0xf000` after each resume.
+- PMGR counters: `AWAKE` only in both cycles, `SLP_S2R` 0. The SoC never slept.
+- Reading:
+  - Suspend to RAM is 0.046 W (3%) below s2idle in the same boot. The morning's long pair gave 0.034 W (1.444 against 1.478 W).
+  - Both arms are about 0.015 to 0.025 W higher than in the morning, so the absolute level moves run to run.
+  - Releasing the display requests made no measurable difference: 1.458 W with it, 1.444 W without it in the morning, inside the 1.44 to 1.49 W spread of the long runs. With nothing plugged in, the display domains it lets go draw little.
+- So what we have now is the same as before: about 1.46 W, against s2idle's 1.50 W and macOS's 0.24 W. The 1.2 W gap is the SoC staying awake, and only the attended S2R runs (C, G, H) can move it.
+- Afterwards: `charge_behaviour` auto, limits 80/75 (`discharge off` in the log), flags removed, `sleep-modes` back to `deep`. Default boot.bin `76f850895fed53d1`, `next_entry` unset.
+- Log: `data/drain-ab/2026-11-05-image53-deep-release-vs-s2idle.log`.
