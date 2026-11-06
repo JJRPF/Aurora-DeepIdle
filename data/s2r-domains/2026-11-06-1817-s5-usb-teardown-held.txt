@@ -1,0 +1,29 @@
+# run S5, 2026-11-06 18:17, test kernel b83b00e1e29edf5f + test modules (dwc3_apple.test_deep_teardown=1, phy_apple_atc.test_restore_pd_off=1), image 57 (no Aura steps), normal path, USB-C wakeup off; back on the alarm in 32.7 s; '*' = always-on
+2026-11-06 18:17:29 wakeup off: 702280000.usb/power/wakeup
+2026-11-06 18:17:29 wakeup off: b02280000.usb/power/wakeup
+2026-11-06 18:17:29 wakeup off: f02280000.usb/power/wakeup
+2026-11-06 18:17:29 wakeup off: f02280000.usb/xhci-hcd.4.auto/power/wakeup
+2026-11-06 18:17:29 usb teardown: Y; phy restore: Y
+[   66.461983] dwc3-apple 702280000.usb: TEST: core stopped for deep suspend (role 2): 0
+[   66.508412] dwc3-apple f02280000.usb: TEST: core stopped for deep suspend (role 1): 0
+[   67.715832] PM: genpd test syscore suspend: pmp-dispext0 dispext0_cpu0 dispext0_fe dispext0_sys pmp-dispext1 pmp-disp0 afr gpx* debug_switch* nub_sram* mtp_fabric* atc3_usb_aon* atc2_usb_aon* atc1_usb_aon* atc0_usb_aon* nub_fabric* nub_gpio* msg* nub_aon* nub_spmi1* nub_spmi0* debug* sep* apcie_phy_sw* apcie_gp_sys* apcie_gpshr_sys dcs_15* dcs_14* dcs_13* dcs_12* dcs_07* dcs_06* dcs_05* dcs_04* amcc3* amcc1* dptx_phy_ps* aes* disp0_cpu0 disp0_fe sio disp0_sys apcie_gp afnc3_lw0* afnc3_ls* afnc3_ioa* afnc2_lw1* afnc2_lw0* afnc2_ls* afnc2_ioa* afnc6_lw0* afnc6_ls* afnc6_ioa* clvr_spmi4* clvr_spmi3* clvr_spmi2* clvr_spmi1* clvr_spmi0* pms_sram* pmp* dispext1_cpu0 dispext1_fe atc3_pcie* atc2_pcie* atc1_pcie* atc0_pcie* pms_bridge* dispext1_sys atc3_common* atc2_common* atc1_common* atc0_common* afnc0_lw0* afnc1_lw2* afnc1_lw1* afnc1_lw0*
+[   67.715958] PM: genpd test syscore suspend: afnc0_ls* afnc1_ls* afnc0_ioa* afc* afnc1_ioa* dcs_11* dcs_10* dcs_09* dcs_08* dcs_03* dcs_02* dcs_01* dcs_00* amcc2* amcc0* pms_c1ppt* soc_dpe* pms* aic* afi*
+[   67.715962] PM: genpd test syscore suspend: 96 of 200 domains on
+[   67.715991] PM: genpd test syscore suspend held pmp-dispext0: susp 0/1 awake; dev 289c00000.dcp(wakepath)
+[   67.716033] PM: genpd test syscore suspend held dispext0_cpu0: susp 3/3 defer awake; child pmp-dispext0
+[   67.716044] PM: genpd test syscore suspend held dispext0_fe: susp 0/0 defer awake; child dispext0_cpu0
+[   67.716066] PM: genpd test syscore suspend held dispext0_sys: susp 0/0 defer awake; child dispext0_fe
+[   67.716078] PM: genpd test syscore suspend held pmp-dispext1: susp 0/1 awake; dev 315c00000.dcp(wakepath)
+[   67.716088] PM: genpd test syscore suspend held pmp-disp0: susp 0/1 awake; dev 389c00000.dcp(wakepath)
+[   67.716101] PM: genpd test syscore suspend held afr: susp 0/0 defer awake; child dispext0_sys
+[   67.716119] PM: genpd test syscore suspend held apcie_gpshr_sys: susp 0/0 defer awake; child apcie_gp_sys
+[   67.716155] PM: genpd test syscore suspend held disp0_cpu0: susp 3/3 defer awake; child pmp-disp0
+[   67.716170] PM: genpd test syscore suspend held disp0_fe: susp 0/0 defer awake; child disp0_cpu0
+[   67.716260] PM: genpd test syscore suspend held sio: susp 1/1 defer awake; child aes child dptx_phy_ps
+[   67.716274] PM: genpd test syscore suspend held disp0_sys: susp 0/0 defer awake; child disp0_fe
+[   67.716291] PM: genpd test syscore suspend held apcie_gp: susp 0/0 defer awake; child apcie_gpshr_sys
+[   67.716323] PM: genpd test syscore suspend held dispext1_cpu0: susp 3/3 defer awake; child pmp-dispext1
+[   67.716335] PM: genpd test syscore suspend held dispext1_fe: susp 0/0 defer awake; child dispext1_cpu0
+[   67.716345] PM: genpd test syscore suspend held dispext1_sys: susp 0/0 defer awake; child dispext1_fe
+[   70.342315] dwc3-apple 702280000.usb: TEST: core restarted after deep suspend (role 2): 0
+[   70.347448] dwc3-apple f02280000.usb: TEST: core restarted after deep suspend (role 1): 0

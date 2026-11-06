@@ -1,4 +1,4 @@
-# Where the work stands (2026-11-06, 18:10, after run S4)
+# Where the work stands (2026-11-06, 18:18, after run S5)
 
 This is the summary of the whole effort: what was measured, what was built,
 what works, what does not, and what comes next. Each section points to the
@@ -193,10 +193,15 @@ There are two goals:
   sleep and comes back (98 of 200 domains on). The two ports with a cable
   (the charger, the receiver) stay on because the USB driver keeps them
   running over sleep on purpose.
-* **Next:** a test-kernel change that shuts those two USB ports down
-  before a deep sleep and brings them back after it (devices re-enumerate,
-  as after a macOS sleep), then the display coprocessors' full shutdown
-  and restart (Phase 4). Then the S2R entry is tried again with them off.
+* **2026-11-06 18:17: run S5, a test-kernel change that stops the USB
+  ports before a deep sleep and starts them after it, freed the other two
+  USB-C domains.** 96 of 200 domains on; the USB receiver came back and
+  the charger port is in device mode again. Only the three display
+  coprocessors' chains (13 domains) and two always-on groups are left.
+* **Next:** the display coprocessors (Phase 4): first the two external
+  ones, which have nothing attached and no firmware running, then the
+  panel's (full shutdown and restart). Then the S2R entry is tried again
+  with them off.
 * **From 2026-11-06 the owner lets slpa runs that repeat or vary a
   self-recovering setup go unattended** (one at a time, dead-man switch
   on, a push before each); a new kind of step still gets one attended run.
