@@ -93,6 +93,13 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
             echo auto-discharge > $BAT/charge_behaviour; sleep 30
             log "discharge on: $(cat $BAT/status), limit $(cat $BAT/charge_control_end_threshold)%, capacity $(cat $BAT/capacity)%"
         fi
+        # /var/lib/deepidle/trace-cpuhp: trace the CPU hotplug steps (they run on the incoming core too), saved after
+        # each cycle, to see where a secondary that does not come back stops
+        T=/sys/kernel/tracing
+        if [ -e /var/lib/deepidle/trace-cpuhp ] && [ -d $T/events/cpuhp ]; then
+            echo 8192 > $T/buffer_size_kb; echo > $T/trace; echo 1 > $T/events/cpuhp/enable; echo 1 > $T/tracing_on
+            log "cpuhp tracing on: $(cat $T/events/cpuhp/enable)"
+        fi
         aopirq() { awk '/2a6408000.mbox-recv/ { s = 0; for (i = 2; i <= NF && $i ~ /^[0-9]+$/; i++) s += $i; print s }' /proc/interrupts; }
         for MODE in $(cat /var/lib/deepidle/sleep-modes 2>/dev/null || echo deep); do
         echo $MODE > /sys/power/mem_sleep
@@ -148,6 +155,10 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
             log "aop mbox irqs over the cycle: $(( q1 - q0 )); als $(timeout 5 cat /sys/bus/iio/devices/iio:device*/in_illuminance_input 2>&1 | head -1), lid angle $(timeout 5 cat /sys/bus/iio/devices/iio:device*/in_angl_raw 2>&1 | head -1); $(dmesg | grep 'TEST SetAPPower' | tail -2 | sed 's/^\[[ 0-9.]*\] //' | tr '\n' '|')"
             log "suspend $MODE $i: back, rc=$rc, elapsed $(echo "$t1 - $t0" | bc); online $(cat /sys/devices/system/cpu/online); energy $e0 -> $e1 uWh: $(echo "scale=3; ($e0 - $e1) * 3.6 / ($t1 - $t0) / 1000" | bc) W average over the cycle"
             [ -e /var/lib/deepidle/pmp-release-modes ] && log "pmp requests after resume: $(/usr/local/lib/deepidle/mmio-read 0x28e3c2000 1 | awk '{print $2}') ack $(/usr/local/lib/deepidle/mmio-read 0x28e3c2080 1 | awk '{print $2}')"
+            if [ -e /var/lib/deepidle/trace-cpuhp ] && [ -e $T/trace ]; then
+                mkdir -p /run/psci-cpuhp; TF=/run/psci-cpuhp/cpuhp-$MODE-$i.txt; cp $T/trace $TF; echo > $T/trace
+                log "cpuhp trace $MODE $i: $(grep -c cpuhp $TF) events; last on cpu1: $(grep -E '\[001\]' $TF | tail -2 | sed 's/^ *//' | cut -c1-150 | tr '\n' '|')"
+            fi
             [ $rc = 0 ] || break
             sleep 2
         done
@@ -166,6 +177,7 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
     fi
     for m in $(findmnt -rno TARGET -t ext4,btrfs,vfat | sort); do mount -o remount,rw "$m" 2>&1 | head -1; done
     if [ "${SLPA:-0}" = 1 ]; then cat $LOGF >> $OUT/run.log; LOGF=$OUT/run.log; log "filesystems rw again: superblock rw $(findmnt -rno TARGET,FS-OPTIONS -t ext4,btrfs,vfat | grep -c '\brw\b') of $(findmnt -rno TARGET -t ext4,btrfs,vfat | wc -l)"; fi
+    [ -d /run/psci-cpuhp ] && cp /run/psci-cpuhp/* $OUT/ 2>/dev/null
     dmesg > $OUT/dmesg-after.txt; chmod 644 $OUT/*; sync
     log "summary: $(grep -c 'back, rc=0' $OUT/run.log) cycles back with rc=0; device errors after the first suspend: $(sed -n '/PM: suspend entry/,$p' $OUT/dmesg-after.txt | grep -i -E 'error|fail|timeout|warning:|\bbug:' | grep -v -E 'audit|psci-deadman|psci-efi-test|Endpoint 0x20 is not running|Failed to send command|brcmf_p2p|p2p_disc|add iface p2p|join_pref|Util_Reset_FailGeom|set affinity failed\(-38\)' | wc -l)"
     log "suspend step done; online $(cat /sys/devices/system/cpu/online)"
