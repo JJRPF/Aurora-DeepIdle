@@ -1,0 +1,113 @@
+From b99b49171c296b66c158eb676040d499d83014e4 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Thu, 5 Nov 2026 22:35:20 -0500
+Subject: [PATCH] TEST: soc: apple: aop: SetAPPower 0x20 from syscore resume,
+ before the secondary CPUs come back
+
+With the AOP told the AP is asleep, the CPUs Aura parked across a deep
+suspend did not come back. Send the 0x20 atomically from syscore_resume
+(interrupts off, boot CPU only); the ack is handled afterwards.
+---
+ drivers/soc/apple/aop.rs | 65 +++++++++++++++++++++++++++++++++++++++-
+ 1 file changed, 64 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/soc/apple/aop.rs b/drivers/soc/apple/aop.rs
+index 1fe96faee211..5e55e00011a4 100644
+--- a/drivers/soc/apple/aop.rs
++++ b/drivers/soc/apple/aop.rs
+@@ -1178,6 +1178,62 @@ unsafe impl Send for ChildDevice {}
+     next: ptr::null_mut(),
+     priority: 0,
+ };
++/// The RTKit handle the 0x201 went to, for the syscore resume hook, which cannot take the `rtkit` lock.
++static SLEEP_RTK: AtomicPtr<bindings::apple_rtkit> = AtomicPtr::new(ptr::null_mut());
++
++/// `struct syscore_ops` and `struct syscore` (`include/linux/syscore_ops.h`); not in the Rust bindings.
++#[repr(C)]
++struct SyscoreOps {
++    suspend: Option<unsafe extern "C" fn(*mut c_void) -> c_int>,
++    resume: Option<unsafe extern "C" fn(*mut c_void)>,
++    shutdown: Option<unsafe extern "C" fn(*mut c_void)>,
++}
++#[repr(C)]
++struct Syscore {
++    node: bindings::list_head,
++    ops: *const SyscoreOps,
++    data: *mut c_void,
++}
++extern "C" {
++    fn register_syscore(syscore: *mut Syscore);
++    fn unregister_syscore(syscore: *mut Syscore);
++}
++static SLEEP_SYSCORE_OPS: SyscoreOps = SyscoreOps {
++    suspend: None,
++    resume: Some(aop_syscore_resume),
++    shutdown: None,
++};
++// SAFETY (all uses): only the syscore list touches it, under its own lock.
++static mut SLEEP_SYSCORE: Syscore = Syscore {
++    node: bindings::list_head {
++        next: ptr::null_mut(),
++        prev: ptr::null_mut(),
++    },
++    ops: &SLEEP_SYSCORE_OPS,
++    data: ptr::null_mut(),
++};
++const RTKIT_EP_MGMT: u8 = 0;
++const RTKIT_MGMT_SET_AP_PWR: u64 = 0xb << 52;
++
++/// TEST (S2R): `SetAPPower` 0x20 before the secondary CPUs come back. With the AOP told the AP is asleep, CPUs 1 to
++/// 9 parked by Aura did not come back from a `deep` suspend (2026-11-05 22:25, 22:00, 22:09; 22:15 without the 0x201
++/// they did), so the AOP is told the AP is on here, with interrupts off on the boot CPU, before
++/// `pm_sleep_enable_secondary_cpus()`. The ack is handled once interrupts are back on.
++unsafe extern "C" fn aop_syscore_resume(_data: *mut c_void) {
++    if !SLEEP_AP_IDLE.xchg(false, Acquire) {
++        return;
++    }
++    let rtk = SLEEP_RTK.load(CoreOrdering::Acquire);
++    if rtk.is_null() {
++        return;
++    }
++    // SAFETY: the handle is valid while the notifier is registered (see `aop_set_ap_power`); the send is atomic.
++    let ret = unsafe {
++        bindings::apple_rtkit_send_message(rtk, RTKIT_EP_MGMT, RTKIT_MGMT_SET_AP_PWR | RTKIT_AP_ON as u64, ptr::null_mut(), true)
++    };
++    pr_info!("TEST SetAPPower 0x20 from syscore resume (before the secondary CPUs): {}\n", ret);
++}
++
+ const PM_SUSPEND_PREPARE: c_ulong = 3;
+ const PM_POST_SUSPEND: c_ulong = 4;
+ const RTKIT_AP_IDLE: u32 = 0x201;
+@@ -1231,6 +1287,7 @@ fn aop_set_ap_power(data: &AopData, entering: bool) -> c_int {
+     // lock: the receive work is ordered, and an AFK message queued ahead of the ack takes that lock.
+     let ret = unsafe { bindings::apple_rtkit_set_ap_power(raw, state) };
+     if entering && ret == 0 {
++        SLEEP_RTK.store(raw, CoreOrdering::Release);
+         SLEEP_AP_IDLE.store(true, Release);
+     }
+     dev_info!(data.dev, "TEST SetAPPower {:#x} for system sleep: {}\n", state, ret);
+@@ -1476,7 +1533,10 @@ fn register_sleep_notifier(self: &Arc<Self>) {
+         }
+         // SAFETY: see `SLEEP_NB`.
+         let ret = unsafe { bindings::register_pm_notifier(ptr::addr_of_mut!(SLEEP_NB)) };
+-        if ret != 0 {
++        if ret == 0 {
++            // SAFETY: see `SLEEP_SYSCORE`.
++            unsafe { register_syscore(ptr::addr_of_mut!(SLEEP_SYSCORE)) };
++        } else {
+             dev_warn!(self.dev, "sleep notifier not registered ({})\n", ret);
+             let raw = SLEEP_AOP.swap(ptr::null_mut(), CoreOrdering::AcqRel);
+             // SAFETY: the pointer published above, now taken back.
+@@ -1489,6 +1549,9 @@ fn unregister_sleep_notifier(&self) {
+         }
+         // SAFETY: see `SLEEP_NB`. This waits for a notifier call in progress.
+         unsafe { bindings::unregister_pm_notifier(ptr::addr_of_mut!(SLEEP_NB)) };
++        // SAFETY: see `SLEEP_SYSCORE`; registered together with the notifier.
++        unsafe { unregister_syscore(ptr::addr_of_mut!(SLEEP_SYSCORE)) };
++        SLEEP_RTK.store(ptr::null_mut(), CoreOrdering::Release);
+         let raw = SLEEP_AOP.swap(ptr::null_mut(), CoreOrdering::AcqRel);
+         // SAFETY: the reference `register_sleep_notifier` published; no notifier call can use it now.
+         drop(unsafe { Arc::from_raw(raw) });
+-- 
+2.55.0
+
