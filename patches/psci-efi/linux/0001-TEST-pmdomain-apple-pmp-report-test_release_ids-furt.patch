@@ -1,0 +1,57 @@
+From cffc2988cf384111076a8907e5b6fb9c02ed8f00 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Fri, 6 Nov 2026 16:19:00 -0500
+Subject: [PATCH] TEST: pmdomain: apple: pmp-report: test_release_ids, further
+ entries withdrawn for system sleep (ISP_SYS)
+
+---
+ drivers/pmdomain/apple/pmp-report.c | 19 +++++++++++++++++--
+ 1 file changed, 17 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/pmdomain/apple/pmp-report.c b/drivers/pmdomain/apple/pmp-report.c
+index a90045c9d206..eba47edd898b 100644
+--- a/drivers/pmdomain/apple/pmp-report.c
++++ b/drivers/pmdomain/apple/pmp-report.c
+@@ -1382,6 +1382,21 @@ static bool test_release_aon;
+ module_param(test_release_aon, bool, 0644);
+ MODULE_PARM_DESC(test_release_aon, "TEST: withdraw the always-on report requests for system sleep");
+ 
++/*
++ * TEST (S2R): further report entries (bit = entry id) withdrawn for system
++ * sleep, e.g. ISP_SYS (12): macOS's request word reaches 0 before the cores
++ * sleep (the CPU complexes last), Linux's stays at 0x1000.
++ */
++static unsigned int test_release_ids;
++module_param(test_release_ids, uint, 0644);
++MODULE_PARM_DESC(test_release_ids, "TEST: report entries (bit = id) also withdrawn for system sleep");
++
++static bool apple_pmp_report_entry_test_release(struct apple_pmp_report_entry *ent)
++{
++	return (test_release_aon && ent->aon) ||
++	       (ent->id < 32 && (READ_ONCE(test_release_ids) & BIT(ent->id)));
++}
++
+ /*
+  * System sleep. An external display processor's request keeps the PMP's
+  * external display state up while nothing is shown, about 0.25 W in
+@@ -1404,7 +1419,7 @@ static int apple_pmp_report_entry_sleep(struct apple_pmp_report_entry *ent, bool
+ 			ret = -EALREADY;
+ 		else
+ 			ret = apple_pmp_report_set_state(rep, ent->id, !release, ent->no_ack);
+-		if (test_release_aon && ent->aon)
++		if (apple_pmp_report_entry_test_release(ent))
+ 			dev_info(rep->dev, "TEST request %u %s for sleep: %d, ack %#llx\n", ent->id,
+ 				 release ? "withdrawn" : "asserted", ret,
+ 				 readq(rep->base + rep->offsets->actual));
+@@ -1419,7 +1434,7 @@ static int apple_pmp_report_entry_suspend_noirq(struct device *dev)
+ 	struct apple_pmp_report_entry *ent = dev_get_drvdata(dev);
+ 	int ret;
+ 
+-	if (!ent || !(ent->sleep_release || (test_release_aon && ent->aon)) ||
++	if (!ent || !(ent->sleep_release || apple_pmp_report_entry_test_release(ent)) ||
+ 	    READ_ONCE(ent->removed))
+ 		return 0;
+ 	ret = apple_pmp_report_entry_sleep(ent, true);
+-- 
+2.55.0
+

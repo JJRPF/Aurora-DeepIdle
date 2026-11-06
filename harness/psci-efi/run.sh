@@ -109,6 +109,9 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
         # /var/lib/deepidle/pmp-release-modes "<modes>": in those modes the PMP's always-on display requests are
         # withdrawn for sleep (test kernel pmp_report.test_release_aon), as macOS has them at slpa; off in the others.
         REL_P=/sys/module/pmp_report/parameters/test_release_aon
+        # /var/lib/deepidle/pmp-release-ids <mask>: pmp_report.test_release_ids, further entries withdrawn (0x1000 = ISP_SYS)
+        IDS_P=/sys/module/pmp_report/parameters/test_release_ids
+        [ -e $IDS_P ] && echo $(cat /var/lib/deepidle/pmp-release-ids 2>/dev/null || echo 0) > $IDS_P
         if [ -e /var/lib/deepidle/pmp-release-modes ] && [ -e $REL_P ]; then
             if grep -qw $MODE /var/lib/deepidle/pmp-release-modes; then echo 1 > $REL_P; else echo 0 > $REL_P; fi
             log "pmp release for sleep: $(cat $REL_P); requests $(/usr/local/lib/deepidle/mmio-read 0x28e3c2000 1 | awk '{print $2}') ack $(/usr/local/lib/deepidle/mmio-read 0x28e3c2080 1 | awk '{print $2}')"
