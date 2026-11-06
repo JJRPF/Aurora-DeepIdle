@@ -2118,3 +2118,9 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 
 - Run 22:45 (`data/aop-sleep/2026-11-05-2245-ap-idle-syscore.log`, read-only): the queues stopped at `PM_SUSPEND_PREPARE` (12 of 12). `SetAPPower 0x201 from syscore suspend (after the secondary CPUs): 0`, then `0x20 from syscore resume: 0` once the sleep ended. CPUs 1 to 9 still failed to come online. 4 of 4 back, rc 0.
 - So when the 0x201 goes does not matter: cores already parked are lost too. But every failing run also stopped the queues, and the clean control (22:15) did neither. **Queues-only run armed:** `aop.sleep_ap_idle=2` (new mode: stop and start the queues, no SetAPPower; `install.sh` flag `/var/lib/deepidle/aop-sleep-mode`). If the CPUs come back, the AOP's AP-sleep state is the cause. If not, stopping the queues is.
+
+## 2026-11-05 23:00: queues only, no SetAPPower: CPUs still stuck; a confound, the lid; AOP-off control armed with the lid as it is
+
+- Run 22:54 (`data/aop-sleep/2026-11-05-2254-queues-only.log`, `aop.sleep_ap_idle=2`): the queues stopped and started (12 of 12), no SetAPPower at all. CPUs 1 to 9 still failed to come online after the first `deep` resume.
+- **A confound:** the lid. The clean control (22:15) read a lid angle of 106. Every run from 22:25 on reads 13, so the lid was closed between those runs. The two lid-open failures (21:59, 22:08) both had the AOP crash. So the CPU failure may come from the closed lid (or what the SMC does with it) and not from the AOP handshake at all.
+- **Control armed:** `aop.sleep_ap_idle=0` (no notifier, no syscore hooks), the lid left as it is. If the CPUs fail now, the lid is the variable and the AOP handshake is cleared. Then the next test is the full handshake again with the lid open, which needs the owner.
