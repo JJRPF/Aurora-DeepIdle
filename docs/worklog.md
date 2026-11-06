@@ -2335,3 +2335,8 @@ Run J (slpa + PMP IDLE + AOP handshake + the whole quiesceHW incl. the soc-clust
 - **Image 55** (Aura `a6c53ba8caa72b6e`, `boot.bin.psci-test55` `e53a793bb3c942c7`, diff `patches/psci-efi/aura/wip-image55.diff`): aura-ctl bit 5 (32) writes each parked secondary's stop request before its IPI. Aura's step mask and `aura-ctl` (now up to 0x3f) let it through. `tools/swapimg.py` (puts a new Aura image in front of a boot.bin's DTB chain) is now in the repo. `install.sh` suspendall uses image 55.
 - Runs: **G55** = image 55 regression on the normal path (aura-ctl 0x80), then **R** = N + aura-ctl 63. Both unattended.
 - Flags removed; default boot.bin, `next_entry` unset; headless on.
+
+## 2026-11-06 16:39 image 55 regression clean; run R armed
+
+- G55: booted `e53a793bb3c942c7`, aura-ctl `0x80` (`psci_dbg[17]` `0x5300000080`), back on the alarm line (`psci_dbg[4]` 0x2d4 = 724) after 33.1 s, `online 0-9`; the old SMC endpoint 0x20 line only.
+- **Run R armed** (unattended): N + aura-ctl 63, each parked secondary's PMGR stop request before it sleeps.
