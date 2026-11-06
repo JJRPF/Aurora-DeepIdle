@@ -2348,3 +2348,9 @@ Run J (slpa + PMP IDLE + AOP handshake + the whole quiesceHW incl. the soc-clust
 - What macOS has and Linux does not, as far as the trace shows: the devices themselves. In macOS every driver has powered its device down by then (DCP, GPU, ANE, AVE, ISP, the PCIe links and Wi-Fi, the DARTs), and their PMGR power domains are off. Linux suspends the drivers, but many `ps_*` domains stay on (always-on in the DT, or held). The PMGR's S2R entry may wait for them.
 - Next, static (no more `slpa` runs until there is a new step): list the `ps_*` domains on at `suspend_late` in a Linux suspend (a normal-path run can log `pm_genpd_summary` and the PMGR power-state registers just before `echo mem` and from `suspend_late`), and compare with what macOS turns off (the PMGR kext's per-domain sleep handling).
 - Flags removed; default boot.bin, `next_entry` unset; headless on; watcher running.
+
+## 2026-11-06 16:46 power-domain dump built (deep_steps bit 64); run S armed
+
+- Awake, `pm_genpd_summary` has 121 domains on (the PMP's display and ISP ones, gfx, afr, the ATC/USB and PCIe ones, the DCS and AMCC, ans2, dcp's disp0/dispext, ane, sio, SPMI, …).
+- `deep_steps` bit 64: macsmc-reboot reads every enabled `apple,pmgr-pwrstate` register (the parent PMGR block mapped with `ioremap_np`; 195 nodes in 5 blocks) at `suspend_late`, just before where `slpa` goes, and again at `resume_early`, and logs each domain whose actual state is not 0 (`name=state`, 0xf on, 4 clock-gated) and the count. Module only; patch `0001-TEST-power-reset-macsmc-reboot-deep_steps-bit-64-log…`.
+- **Run S** (unattended, normal path, no `slpa`): `deep_steps` 96 (the PMP release + the dump). It shows what Linux leaves powered at `slpa`'s place, to compare with macOS, whose drivers have every device off by then.

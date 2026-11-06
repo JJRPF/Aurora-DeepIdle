@@ -1,0 +1,122 @@
+From b74bae0621580d18b78e71d41b45a12e0ce7686a Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Fri, 6 Nov 2026 16:46:01 -0500
+Subject: [PATCH] TEST: power: reset: macsmc-reboot: deep_steps bit 64, log the
+ PMGR power domains not off at suspend_late
+
+---
+ drivers/power/reset/macsmc-reboot.c | 63 ++++++++++++++++++++++++++++-
+ 1 file changed, 62 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/power/reset/macsmc-reboot.c b/drivers/power/reset/macsmc-reboot.c
+index 061b2ec21afc..fe9eac92b17b 100644
+--- a/drivers/power/reset/macsmc-reboot.c
++++ b/drivers/power/reset/macsmc-reboot.c
+@@ -9,6 +9,8 @@
+ #include <linux/mfd/core.h>
+ #include <linux/mfd/macsmc.h>
+ #include <linux/module.h>
++#include <linux/of.h>
++#include <linux/of_address.h>
+ #include <linux/nvmem-consumer.h>
+ #include <linux/platform_device.h>
+ #include <linux/reboot.h>
+@@ -85,6 +87,8 @@ struct macsmc_reboot {
+  * by slpa; asserted again on resume, after the SMC driver has woken the PMP.
+  */
+ #define MACSMC_SLEEP_PMPREL	BIT(5)
++/* Suspend to RAM only (test): log the PMGR power domains not off (actual state != 0) at suspend_late and resume_early */
++#define MACSMC_SLEEP_PSDUMP	BIT(6)
+ int apple_pmp_report_sleep_release(bool release);
+ #define WAKEMASK_PHYS		0x29e00400cULL
+ static const u32 wake_valid[WAKEMASK_WORDS] = {
+@@ -112,7 +116,7 @@ MODULE_PARM_DESC(s2idle_steps, "SMC sleep handshake in s2idle, bit mask: 1 WKTP,
+  */
+ static unsigned int deep_steps;
+ module_param(deep_steps, uint, 0644);
+-MODULE_PARM_DESC(deep_steps, "SMC sleep handshake in suspend to RAM, bit mask as s2idle_steps plus 8: PMU boot_stage 0x50, 16: macOS's AP wake-source mask, 32: the PMP's sleep-release requests withdrawn before slpa (default 0, off; test only)");
++MODULE_PARM_DESC(deep_steps, "SMC sleep handshake in suspend to RAM, bit mask as s2idle_steps plus 8: PMU boot_stage 0x50, 16: macOS's AP wake-source mask, 32: the PMP's sleep-release requests withdrawn before slpa, 64: log the PMGR power domains not off at suspend_late (default 0, off; test only)");
+ 
+ /* Helpers to read/write a u8 given a struct nvmem_cell */
+ static int nvmem_cell_get_u8(struct nvmem_cell *cell)
+@@ -410,6 +414,59 @@ static int macsmc_reboot_probe(struct platform_device *pdev)
+ 	return 0;
+ }
+ 
++/*
++ * Test (S2R): which PMGR power domains are still up at suspend_late. Each apple,pmgr-pwrstate node's reg is an
++ * offset in its parent PMGR block; the block is mapped non-posted (the SoC fabric needs it, see the wake mask).
++ */
++static void macsmc_reboot_ps_dump(struct device *dev, const char *when)
++{
++	struct device_node *np, *parent, *last = NULL;
++	void __iomem *base = NULL;
++	char *buf = kzalloc(900, GFP_KERNEL);
++	int len = 0, on = 0, total = 0;
++
++	if (!buf)
++		return;
++	for_each_compatible_node(np, NULL, "apple,pmgr-pwrstate") {
++		struct resource res;
++		const char *label = NULL;
++		u32 off, v, act;
++
++		if (!of_device_is_available(np))
++			continue;
++		parent = of_get_parent(np);
++		if (parent != last) {
++			if (base)
++				iounmap(base);
++			base = NULL;
++			last = parent;
++			if (!of_address_to_resource(parent, 0, &res))
++				base = ioremap_np(res.start, resource_size(&res));
++		}
++		of_node_put(parent);
++		if (!base || of_property_read_u32_index(np, "reg", 0, &off))
++			continue;
++		v = readl(base + off);
++		act = (v >> 4) & 0xf;
++		total++;
++		if (!act)
++			continue;
++		on++;
++		of_property_read_string(np, "label", &label);
++		if (len > 800) {
++			dev_info(dev, "sleep: ps %s:%s\n", when, buf);
++			len = 0;
++			buf[0] = 0;
++		}
++		len += scnprintf(buf + len, 900 - len, " %s=%x", label ?: np->name, act);
++	}
++	if (base)
++		iounmap(base);
++	dev_info(dev, "sleep: ps %s:%s\n", when, buf);
++	dev_info(dev, "sleep: ps %s: %d of %d domains not off\n", when, on, total);
++	kfree(buf);
++}
++
+ static int macsmc_reboot_pm_prepare(struct device *dev)
+ {
+ 	struct macsmc_reboot *reboot = dev_get_drvdata(dev);
+@@ -455,6 +512,8 @@ static int macsmc_reboot_pm_suspend_late(struct device *dev)
+ 		reboot->stage_set = ret >= 0;
+ 		dev_info(dev, "sleep: boot_stage %#x -> %#x (%d)\n", reboot->saved_stage, BOOT_STAGE_SLEEP, ret);
+ 	}
++	if ((reboot->sleep_steps & MACSMC_SLEEP_PSDUMP) && pm_suspend_target_state == PM_SUSPEND_MEM)
++		macsmc_reboot_ps_dump(dev, "suspend_late");
+ 	if ((reboot->sleep_steps & MACSMC_SLEEP_PMPREL) && pm_suspend_target_state == PM_SUSPEND_MEM) {
+ 		ret = apple_pmp_report_sleep_release(true);
+ 		reboot->pmp_released = true;
+@@ -475,6 +534,8 @@ static int macsmc_reboot_pm_resume_early(struct device *dev)
+ 	u8 mbsw[8] = {};
+ 	int r1, r2, ret;
+ 
++	if (reboot->sleep_steps & MACSMC_SLEEP_PSDUMP)
++		macsmc_reboot_ps_dump(dev, "resume_early");
+ 	if (reboot->pmp_released) {
+ 		reboot->pmp_released = false;
+ 		ret = apple_pmp_report_sleep_release(false);
+-- 
+2.55.0
+
