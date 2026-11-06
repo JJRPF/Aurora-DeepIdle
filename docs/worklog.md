@@ -2009,3 +2009,14 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 - C: `slpa` and the PMU boot stage (`deep_steps` 14), plus the PMP's IDLE (now sent once).
 - G: `slpa` + aura-ctl 7: the S2R timer, every core in deep sleep, and `quiesceHW`'s power domains.
 - H: G + the clock-generator and PLL-off writes (aura-ctl 15).
+
+## 2026-11-05 21:26: owner-attended run C again: the PMP accepts its IDLE now; the SoC still stays AWAKE
+
+- Image 53, `deep_steps=14`, `pmp_sleep=1`, aura-ctl 0, the PMP display release on, 1 `deep` cycle, 30 s alarm, counters on, root read-only. Test kernel `6ad0396dbb7259df`. Started 21:21:18 (push). Dead-man push and reset at 21:24:38; the owner confirmed it ("Dead man switch was activated @ 9:24"), no hand reset. Back on the default kernel at 21:25.
+- `PMP SetAPPower/SetIOPPower IDLE: 0`: **the PMP accepted macOS's step 5, no crash**. So the double SetAPPower was the whole cause of the 16:01 crash.
+- The display release ran after that, in `suspend_noirq`, and found the PMP already idle: `withdrawn for sleep: -114` (`-EALREADY`: the status is not READY), `ack 0x0`. Once IDLE, the PMP has dropped every ack. So with `pmp_sleep` the release has to come before `slpa`, as in macOS (step 3 before step 4), not in `suspend_noirq`.
+- Wake: `SetAPPower ON: 0` to the SMC; the PMP did not ack the IOP power-on (`PMP wake: -62`), as expected without a power cycle (10-23).
+- ANS: `RTKit: Initializing`, then `IOP power acknowledgment failed: -62`, `ANS did not boot`. The dead-man snapshot has ANS CPU status `0x28` this time, not `0x08` (0x28 is its healthy value); `ps_ans2` `1f0002ff`. IO RVBAR kept, SART kept.
+- PMGR counters `AWAKE` only, `SLP_S2R` 0; `psci_dbg[17]` 0x5300000000.
+- btrfs error counters 0, no errors in the log. Flags removed; default boot.bin, `next_entry` unset; headless on.
+- Chain: G next (`NEXT="H" attended.sh G`).
