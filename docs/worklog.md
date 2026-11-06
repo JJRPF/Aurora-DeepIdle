@@ -2286,3 +2286,9 @@ Run J (slpa + PMP IDLE + AOP handshake + the whole quiesceHW incl. the soc-clust
 - Fix: `ioremap_np()` for both accesses (patch `0001-TEST-power-reset-macsmc-reboot-map-the-wake-mask-non…`), module reinstalled. Check run 4 armed.
 - Lesson for any new raw MMIO in a test patch: `ioremap_np()` on this SoC. The other raw maps in the test kernel (`nvme_apple.iorvbar_phys`) read fine at boot; to be checked if they ever write.
 - Flags removed; default boot.bin, `next_entry` unset; headless on; btrfs counters 0.
+
+## 2026-11-06 16:05 check run 4: the mask step works with ioremap_np (back on the alarm); next macOS's own mask alone
+
+- Check run 4 (`ioremap_np`, notifier before the AOP's, `wake_extra` all, mask written 0): `sleep: wake mask: reading`, `read` all 0, `now` all 0, then the suspend; **back on the 30 s alarm, 33.1 s, `online 0-9`**, `sleep: wake status` all 9 words 0, mask restored. So the non-posted mapping was the whole problem.
+- The one counted device error is `macsmc: RTKit: Endpoint 0x20 is not running, cannot send message` at the first SMC command after resume; it is in every resume since 2026-11-05 23:55 (1 to 4 times), not new. Noted for later.
+- Before bisecting: no run has yet tested macOS's mask with a working module (the 11-05 08:00 "nothing wakes" was the posted-mapping stall). So next is `wake_extra` = 0, macOS's 22 sources only, normal path. A wake = no bisection needed, L (J + macOS's mask) next; no wake = bisect.
