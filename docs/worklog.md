@@ -2278,3 +2278,11 @@ Run J (slpa + PMP IDLE + AOP handshake + the whole quiesceHW incl. the soc-clust
 - That fits macOS: `setAPWakeupSources` runs from `initAON` (boot) and `restoreHW` (each wake), never at sleep entry. The mask is set while the AOP is up and simply stays.
 - Change: the notifier has priority 100 (runs before the AOP's) and logs "sleep: wake mask: reading" before the first access. Patch `0001-TEST-power-reset-macsmc-reboot-wake-mask-notifier-be…`, module reinstalled.
 - Check run 3 armed (unattended). Flags removed; default boot.bin, `next_entry` unset; headless on.
+
+## 2026-11-06 16:02 check run 3: the mask read hangs before the AOP's message too; cause: a posted mapping (ioremap, not ioremap_np)
+
+- Check run 3 (the mask notifier before the AOP's): `echo mem` 15:59:05.1, then nothing on the Pi (not even `PM: suspend entry`: in a bus stall the last lines never leave), next kernel 16:00:22, **about 77 s** again. So the AOP was not the trigger: the module's own access to `0x29e00400c` stalls the system wherever it runs.
+- Cause, by comparison: the 11-05 08:00 poke from userspace read and wrote the same words fine. `harness/mmio/wakemask.c` maps `/dev/mem` with `O_SYNC` (Device-nGnRnE, non-posted). The module used `ioremap()` (Device-nGnRE, posted). The DT's `/soc` node has `nonposted-mmio`: Apple's SoC fabric needs non-posted accesses, and every DT driver gets them, but a raw `ioremap()` of a physical address does not. So **every module mask access since 11-05 07:49 stalled the bus**: 07:49, 08:00, L, M and the three check runs. None of them tested a wake mask.
+- Fix: `ioremap_np()` for both accesses (patch `0001-TEST-power-reset-macsmc-reboot-map-the-wake-mask-non…`), module reinstalled. Check run 4 armed.
+- Lesson for any new raw MMIO in a test patch: `ioremap_np()` on this SoC. The other raw maps in the test kernel (`nvme_apple.iorvbar_phys`) read fine at boot; to be checked if they ever write.
+- Flags removed; default boot.bin, `next_entry` unset; headless on; btrfs counters 0.
