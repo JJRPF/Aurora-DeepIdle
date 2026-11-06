@@ -160,7 +160,9 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
             log "dead-man switch: rc=$dmrc; $(tail -1 $DM/log)"
             # Aura's debug words (psci_dbg, ELF symbol 0x1472c8 from the image base): magic, HCR_EL2, DAIF, exit (1 wake line, 2 timeout), last ISR_EL1, ticks
             AB=$(xxd -p /proc/device-tree/chosen/aura,psci-runtime-code | cut -c1-16)
-            log "aura dbg (words, low/high pairs): $(/usr/local/lib/deepidle/mmio-read $((0x$AB + 0x1472c8)) 16 | awk '{printf "%s ", $2}')"
+            # image 56 moved psci_dbg to 0x147430
+            DBGOFF=0x1472c8; [ "$(cat /run/psci-efi-booted-sha 2>/dev/null)" = 20f6d711f9f7add5 ] && DBGOFF=0x147430
+            log "aura dbg (words, low/high pairs): $(/usr/local/lib/deepidle/mmio-read $((0x$AB + DBGOFF)) 16 | awk '{printf "%s ", $2}')"
             log "aura dbg scan: $(/usr/local/lib/deepidle/scan-magic 0xA0AA0001 64 | head -3 | tr '\n' ';')"
             # the PMGR's soc-cluster words (image 54, aura-ctl 16): EACC, PACC0, PACC1, ANE0, DISPLAY, -, AVEMSR
             log "soc clusters: $(/usr/local/lib/deepidle/mmio-read 0x28e088000 7 | awk '{printf "%s ", $2}')"

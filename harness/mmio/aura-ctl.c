@@ -42,7 +42,7 @@ int main(int argc, char **argv)
 	volatile uint64_t *w = p + (hit - page) / 8 + 1;
 	if (argc > 1) {
 		uint64_t v = strtoull(argv[1], NULL, 0);
-		if (v > 0x3f && v != 0x80) { fprintf(stderr, "aura-ctl: only bits 0 to 5 (and the test marker 0x80) are defined; bit 4 (16) is image 54\x27s soc-cluster power-off, bit 5 (32) image 55\x27s CPU stop requests\n"); return 2; }
+		if (v > 0x7f && v != 0x80) { fprintf(stderr, "aura-ctl: only bits 0 to 6 (and the test marker 0x80) are defined; bit 4 (16) is image 54\x27s soc-cluster power-off, bit 5 (32) image 55\x27s CPU stop requests, bit 6 (64) image 56\x27s held domains off\n"); return 2; }
 		*w = v;
 	}
 	printf("aura ctl at 0x%llx: 0x%llx\n", (unsigned long long)hit, (unsigned long long)*w);

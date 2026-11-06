@@ -2412,3 +2412,13 @@ Run J (slpa + PMP IDLE + AOP handshake + the whole quiesceHW incl. the soc-clust
   - No domain was held by DEFER_OFF in a normal suspend (no absent consumers); that only appears once something is unbound (U2).
 - So on the Linux side the display chains are the DCP driver's deliberate choice (no full DCP shutdown and restart yet: Phase 4 work), the USB-C ones are dwc3-apple's (syscore while the core is up, to keep xHCI over sleep) plus a wakeup setting, and the rest come from DT always-on flags.
 - Whether these domains are what the PMGR's S2R entry waits for is still untested. The direct test: Aura turns the 19 off (children first) just before the S2R timer, on the `slpa` path, where the run ends in the timer's reset anyway. That is a new kind of `slpa` step, so it gets one attended run first.
+
+## 2026-11-06 17:23 image 56: Aura turns the domains Linux keeps on at sleep off before quiesceHW (aura-ctl 64); runs G56 and X
+
+- From S3's list, the 12 PMGR power-state registers of the held, not-always-on domains (addresses from the live DT):
+  - the display chains, children first: `dispext0_cpu0/_fe/_sys` (`0x28e0802d8`, `…2c0`, `…258`), `dispext1_*` (`0x28e0802b8`, `…2b0`, `…248`), `disp0_*` (`0x2902801d8`, `…1d0`, `…1b0`);
+  - `atc0/1/2_usb` (`0x29e2800c8`, `…0d0`, `…0d8`).
+  - Left out: `pmp-disp*` are PMP request domains, which `deep_steps` 32 already releases before `slpa`; `afr` is already in image 53's quiesce step (bit 2, after this one, as `dispext0_sys`'s parent); `sio` and the `apcie_gp` pair have always-on children.
+- **Image 56** (Aura `d559aa68b0027293`, `boot.bin.psci-test56` `20f6d711f9f7add5`, diff `patches/psci-efi/aura/wip-image56.diff`): `PSCI_S2R_HELD` (bit 6, aura-ctl 64) writes each register with target 0 and AUTO_ENABLE, reset, disable and the flag bits cleared (as Linux's `apple_pmgr_ps_set`), then polls its actual state to 0 (10 ms each; timeouts in `psci_dbg[23]` bits 32-43). It runs before quiesceHW's domains. The old words go back on any resume, parents first.
+- `psci_dbg` moved to `+0x147430` in image 56; `run.sh` reads it there when that image booted. `install.sh` suspendall now uses image 56 (55 with bit 6 off). `aura-ctl` takes up to `0x7f`.
+- **Run G56** (unattended, normal path, aura-ctl `0x80` marker only): the image check, as G55. Then **run X** = R + bit 6 (aura-ctl 127): a new kind of `slpa` step, so **attended**, when the owner is at the Mac.
