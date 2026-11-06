@@ -1,4 +1,4 @@
-# Where the work stands (2026-11-06, 18:04, after run Y2T)
+# Where the work stands (2026-11-06, 18:14, after run S4)
 
 This is the summary of the whole effort: what was measured, what was built,
 what works, what does not, and what comes next. Each section points to the
@@ -188,11 +188,15 @@ There are two goals:
   turning off the USB-C or the external display domains: the devices are
   still running, and pulling their power stalls the SoC. So run X as
   designed is dropped.
-* **Next:** Linux turns these domains off itself, after quiescing their
-  devices: run S4 first (the USB-C ports' wakeup off, so the PMGR driver
-  may power an idle port down), then the USB controllers stopped in
-  suspend, then the display coprocessors' full shutdown and restart
-  (Phase 4). Then the S2R entry is tried again with them off.
+* **2026-11-06 18:08: run S4, the USB-C ports' wakeup off, freed the
+  first domain the right way:** the port with no cable now powers off in
+  sleep and comes back (98 of 200 domains on). The two ports with a cable
+  (the charger, the receiver) stay on because the USB driver keeps them
+  running over sleep on purpose.
+* **Next:** a test-kernel change that shuts those two USB ports down
+  before a deep sleep and brings them back after it (devices re-enumerate,
+  as after a macOS sleep), then the display coprocessors' full shutdown
+  and restart (Phase 4). Then the S2R entry is tried again with them off.
 * **From 2026-11-06 the owner lets slpa runs that repeat or vary a
   self-recovering setup go unattended** (one at a time, dead-man switch
   on, a push before each); a new kind of step still gets one attended run.
