@@ -2020,3 +2020,10 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 - PMGR counters `AWAKE` only, `SLP_S2R` 0; `psci_dbg[17]` 0x5300000000.
 - btrfs error counters 0, no errors in the log. Flags removed; default boot.bin, `next_entry` unset; headless on.
 - Chain: G next (`NEXT="H" attended.sh G`).
+
+## 2026-11-05 21:31: owner-attended run G (image 53, aura-ctl 7): the same S2R-timer reset, 85.3 s after `echo mem`
+
+- `slpa` (`deep_steps` 6) and the PMP display release. aura-ctl 7: the S2R timer, every core in deep sleep, and `quiesceHW`'s power domains (`ps_afr` off, the SmartIO auto power-on off) before the timer. `run.sh` logged `aura ctl … 0x7`.
+- Started 21:26:37 (push). `echo mem` 21:28:43.3. No dead-man push, so no resume. Next kernel 21:30:08.6 (the RTC line at 21:30:22.5 minus its 13.9 s): **85.3 s**, the S2R timer's own reset as in D, D2 and E (84.8 to 86 s). It was not a hand reset.
+- So the GPU fabric domain and the SmartIO auto power-on are not what the S2R entry waits for. Aura's before/after register words (`psci_dbg[19..21]`) are lost with the reset.
+- btrfs counters 0; flags removed; default boot.bin, `next_entry` unset. Chain: H next (adds the clock-generator and PLL-off writes).
