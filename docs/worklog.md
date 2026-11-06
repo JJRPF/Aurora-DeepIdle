@@ -1998,3 +1998,14 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 - So what we have now is the same as before: about 1.46 W, against s2idle's 1.50 W and macOS's 0.24 W. The 1.2 W gap is the SoC staying awake, and only the attended S2R runs (C, G, H) can move it.
 - Afterwards: `charge_behaviour` auto, limits 80/75 (`discharge off` in the log), flags removed, `sleep-modes` back to `deep`. Default boot.bin `76f850895fed53d1`, `next_entry` unset.
 - Log: `data/drain-ab/2026-11-05-image53-deep-release-vs-s2idle.log`.
+
+## 2026-11-05 21:21: owner at the Mac for attended runs: C, then G, then H
+
+- Owner: "ready for attended tests. send notifications before starting each."
+- `attended.sh` sends the owner a push before each reboot: what to expect, and when to hold power.
+- New options:
+  - `REL=1` (default): the PMP's display requests are released for sleep in each run, so the PMP is in macOS's state at `slpa` (harmless in normal suspends, 2 of 2).
+  - `NEXT="G H"`: each run's boot prompt arms the next run once the result is recorded and the Mac is clean. It stops the chain on a btrfs error, a hand reset or a missing default boot.bin.
+- C: `slpa` and the PMU boot stage (`deep_steps` 14), plus the PMP's IDLE (now sent once).
+- G: `slpa` + aura-ctl 7: the S2R timer, every core in deep sleep, and `quiesceHW`'s power domains.
+- H: G + the clock-generator and PLL-off writes (aura-ctl 15).
