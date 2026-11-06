@@ -1,4 +1,4 @@
-# Where the work stands (2026-11-06, 17:20, after run S3)
+# Where the work stands (2026-11-06, 17:26, after run G56)
 
 This is the summary of the whole effort: what was measured, what was built,
 what works, what does not, and what comes next. Each section points to the
@@ -175,8 +175,11 @@ There are two goals:
   13 display domains on deliberately (the driver cannot fully shut them
   down yet), the USB-C controllers 3 (kept running over sleep), and DT
   always-on children 3.
-* **Next:** Aura turns those 19 domains off just before the S2R timer (a
-  new kind of slpa step: one attended run first). If the entry then
+* **2026-11-06 17:26: Aura image 56 can turn 12 of them off** (the
+  display chains and USB-C) just before the S2R timer; checked on the
+  normal path (run G56).
+* **Next:** run X, every macOS step plus those domains off (a new kind of
+  slpa step: one attended run first, waiting for the owner). If the entry then
   completes, the Linux side is the DCP full shutdown and restart (Phase 4).
 * **From 2026-11-06 the owner lets slpa runs that repeat or vary a
   self-recovering setup go unattended** (one at a time, dead-man switch
