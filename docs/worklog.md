@@ -2082,3 +2082,11 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 - The control boot had `apple_aop.sleep_ap_idle=0`, but the module is `aop.ko` (`apple_aop` is only the driver name), so the parameter was ignored and the AOP got 0x201 again. Log: `data/aop-sleep/2026-11-05-2208-ap-idle-on-again.log`.
 - That run reproduced both results: the AOP crashed 220 ms after acking 0x201, and CPUs 1 to 9 failed to come online after the first `deep` resume (106.6 s cycle). 4 of 4 cycles back, rc 0.
 - `install.sh` now passes `aop.sleep_ap_idle=0`. Control armed again.
+
+## 2026-11-05 22:21: control run (AOP message off): 4 of 4 back, CPUs 0-9, 0 device errors; the AOP's 0x201 breaks the CPU bring-up
+
+- Same image and run with `aop.sleep_ap_idle=0`. Log: `data/aop-sleep/2026-11-05-2215-ap-idle-off.log`.
+- 4 of 4 back, rc 0 (63.3, 63.0, 60.7, 60.9 s), `online 0-9` after every resume, 0 device errors, no AOP crash.
+- AOP mailbox interrupts over each cycle: 16 and 14 in `deep` (Aura's deep WFI), 219 and 219 in `s2idle` (3.6 a second, as in the s2idle nights).
+- **So the AOP's `SetAPPower 0x201`, or the crash that follows it, is what keeps CPUs 1 to 9 from coming back.** Two runs with it failed the same way, the run without it is clean. The AOP takes part in the AP's power at sleep, which fits the PMGR's `SYS_S2R_AOP` state. It is the first Linux-side change that has altered how the CPUs behave across a suspend.
+- Next: the crash itself, statically (PC `0x1002880` in the AOP firmware from the 13.5 IPSW), and what macOS gives the AOP before the 0x201.
