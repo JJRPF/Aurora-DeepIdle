@@ -1,0 +1,68 @@
+From 69cae31dd16599805754ea6c3090a2f9fa5646d8 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Thu, 5 Nov 2026 23:40:43 -0500
+Subject: [PATCH] TEST: soc: apple: aop: sleep_ap_idle=3, the 0x201 at
+ PM_SUSPEND_PREPARE (before slpa, as macOS)
+
+---
+ drivers/soc/apple/aop.rs | 15 ++++++++++++---
+ 1 file changed, 12 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/soc/apple/aop.rs b/drivers/soc/apple/aop.rs
+index 023633f1c9d2..5943976842ea 100644
+--- a/drivers/soc/apple/aop.rs
++++ b/drivers/soc/apple/aop.rs
+@@ -1178,6 +1178,8 @@ unsafe impl Send for ChildDevice {}
+ static SLEEP_STOPPED_EPS: Atomic<u32> = Atomic::new(0);
+ /// The syscore resume hook already restarted the queues.
+ static SLEEP_QUEUES_EARLY: Atomic<bool> = Atomic::new(false);
++/// `sleep_ap_idle=3`: the 0x201 at `PM_SUSPEND_PREPARE`, acknowledged, right after the queues stop.
++static SLEEP_AP_EARLY: Atomic<bool> = Atomic::new(false);
+ /// `sleep_ap_idle=2`: stop and start the queues, never tell the AOP the AP is asleep.
+ static SLEEP_QUEUES_ONLY: Atomic<bool> = Atomic::new(false);
+ // SAFETY (all uses): only the PM notifier chain touches the block, under its own lock.
+@@ -1229,7 +1231,8 @@ struct Syscore {
+ /// and the AOP is not told.
+ unsafe extern "C" fn aop_syscore_suspend(_data: *mut c_void) -> c_int {
+     let rtk = SLEEP_RTK.load(CoreOrdering::Acquire);
+-    if rtk.is_null() || !SLEEP_QUEUES_ALL.load(Acquire) || SLEEP_QUEUES_ONLY.load(Acquire) {
++    if rtk.is_null() || !SLEEP_QUEUES_ALL.load(Acquire) || SLEEP_QUEUES_ONLY.load(Acquire) || SLEEP_AP_IDLE.load(Acquire)
++    {
+         return 0;
+     }
+     // SAFETY: as in `aop_syscore_resume`.
+@@ -1317,8 +1320,13 @@ fn aop_syscore_restart_queues(rtk: *mut bindings::apple_rtkit) {
+         if let Some(rtk) = &*data.rtkit.lock() {
+             SLEEP_RTK.store(rtk.as_raw(), CoreOrdering::Release);
+         }
+-        // The 0x201 itself goes from syscore suspend (`aop_syscore_suspend`), once the secondaries are parked.
++        // The 0x201 itself goes from syscore suspend (`aop_syscore_suspend`), once the secondaries are parked;
++        // with `sleep_ap_idle=3` here, acknowledged and before every later suspend step (macOS sends `slpa` after
++        // every driver, so after RTBuddy's 0x201 to the AOP).
+         SLEEP_QUEUES_ALL.store(acked == total, Release);
++        if acked == total && SLEEP_AP_EARLY.load(Acquire) {
++            aop_set_ap_power(data, true);
++        }
+         return 0;
+     }
+     SLEEP_QUEUES_ALL.store(false, Release);
+@@ -2685,6 +2693,7 @@ fn probe<'bound>(
+         probe_guard.dismiss();
+         if *module_parameters::sleep_ap_idle.value() != 0 {
+             SLEEP_QUEUES_ONLY.store(*module_parameters::sleep_ap_idle.value() == 2, Release);
++            SLEEP_AP_EARLY.store(*module_parameters::sleep_ap_idle.value() == 3, Release);
+             data.register_sleep_notifier();
+         }
+         let data = data as Arc<dyn AOP>;
+@@ -2716,7 +2725,7 @@ unsafe impl Send for AopDriver {}
+     params: {
+         sleep_ap_idle: u32 {
+             default: 1,
+-            description: "TEST (S2R): AOP queue stop and SetAPPower 0x201 across system sleep, as macOS (0: off, 2: queues only)",
++            description: "TEST (S2R): AOP queue stop and SetAPPower 0x201 across system sleep, as macOS (0: off, 2: queues only, 3: 0x201 at suspend prepare)",
+         },
+     },
+ }
+-- 
+2.55.0
+
