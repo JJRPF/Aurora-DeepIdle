@@ -1,0 +1,49 @@
+From 9bed166c22ca19ce1351d2edd4611e409e71891f Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Fri, 6 Nov 2026 15:40:09 -0500
+Subject: [PATCH] TEST: power: reset: macsmc-reboot: wake_extra, AP wake
+ sources kept enabled besides macOS's with deep_steps bit 16
+
+---
+ drivers/power/reset/macsmc-reboot.c | 15 ++++++++++++---
+ 1 file changed, 12 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/power/reset/macsmc-reboot.c b/drivers/power/reset/macsmc-reboot.c
+index 6e5eee9dab56..beea15ac7b28 100644
+--- a/drivers/power/reset/macsmc-reboot.c
++++ b/drivers/power/reset/macsmc-reboot.c
+@@ -85,6 +85,14 @@ static const u32 macos_wake_sources[WAKEMASK_WORDS] = {
+ 	0x0c005000, 0x005e0900, 0x04200000, 0xc0000000, 0x0000003f, 0, 0x80000000, 0, 0,
+ };
+ 
++/*
++ * Test only: sources to keep enabled in addition to macOS's when deep_steps bit 16 writes the mask
++ * (1 = keep enabled), to find which source wakes the boot CPU from Aura's deep WFI.
++ */
++static unsigned int wake_extra[WAKEMASK_WORDS];
++module_param_array(wake_extra, uint, NULL, 0644);
++MODULE_PARM_DESC(wake_extra, "AP wake sources kept enabled besides macOS's with deep_steps bit 16 (9 words, 1 = enabled; test only)");
++
+ static unsigned int s2idle_steps;
+ module_param(s2idle_steps, uint, 0644);
+ MODULE_PARM_DESC(s2idle_steps, "SMC sleep handshake in s2idle, bit mask: 1 WKTP, 2 slpw, 4 slpa/waka (default 0, off)");
+@@ -381,12 +389,13 @@ static int macsmc_reboot_pm_suspend_late(struct device *dev)
+ 		if (m) {
+ 			for (int i = 0; i < WAKEMASK_WORDS; i++) {
+ 				reboot->saved_mask[i] = readl(m + 4 * i);
+-				writel(wake_valid[i] & ~macos_wake_sources[i], m + 4 * i);
++				writel(wake_valid[i] & ~(macos_wake_sources[i] | READ_ONCE(wake_extra[i])), m + 4 * i);
+ 			}
+ 			reboot->mask_set = true;
+-			dev_info(dev, "sleep: wake mask %08x %08x %08x %08x -> %08x %08x %08x %08x\n",
++			dev_info(dev, "sleep: wake mask %08x %08x %08x %08x -> %08x %08x %08x %08x %08x %08x %08x %08x %08x\n",
+ 				 reboot->saved_mask[0], reboot->saved_mask[1], reboot->saved_mask[2],
+-				 reboot->saved_mask[3], readl(m), readl(m + 4), readl(m + 8), readl(m + 12));
++				 reboot->saved_mask[3], readl(m), readl(m + 4), readl(m + 8), readl(m + 12),
++				 readl(m + 16), readl(m + 20), readl(m + 24), readl(m + 28), readl(m + 32));
+ 			iounmap(m);
+ 		}
+ 	}
+-- 
+2.55.0
+

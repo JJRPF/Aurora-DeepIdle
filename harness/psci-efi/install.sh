@@ -100,6 +100,8 @@ if [ $STEP != step0 ]; then
     [ $STEP = suspendall ] && [ -e /var/lib/deepidle/aop-ap-idle-off ] && sed -i "/vmlinuz-psci-efi-test /s/\( panic=0.*\)$/\1 aop.sleep_ap_idle=0/" /boot/grub/grub.cfg
     # /var/lib/deepidle/aop-sleep-mode <n>: aop.sleep_ap_idle=<n> (2: the AOP's queues stop and start, no SetAPPower)
     [ $STEP = suspendall ] && [ -s /var/lib/deepidle/aop-sleep-mode ] && sed -i "/vmlinuz-psci-efi-test /s/\( panic=0.*\)$/\1 aop.sleep_ap_idle=$(cat /var/lib/deepidle/aop-sleep-mode)/" /boot/grub/grub.cfg
+    # /var/lib/deepidle/wake-extra "w0,...,w8": macsmc_reboot.wake_extra, wake sources kept enabled besides macOS's (deep_steps bit 16)
+    [ $STEP = suspendall ] && [ -s /var/lib/deepidle/wake-extra ] && sed -i "/vmlinuz-psci-efi-test /s/\( panic=0.*\)$/\1 macsmc_reboot.wake_extra=$(tr -d ' \n' < /var/lib/deepidle/wake-extra)/" /boot/grub/grub.cfg
 fi
 
 if [ $STEP = ram ]; then
