@@ -115,9 +115,11 @@ There are two goals:
   With that, 4 of 4 suspend cycles come back with all 10 CPUs, the sensors
   live and no AOP crash.
 * **Next (owner-attended):**
-  * run J: run I plus the AOP handshake, the one macOS step towards the
-    SoC's sleep (the PMGR's `SYS_S2R_AOP` state) that no run had;
-  * static meanwhile: the cluster power-off step and the PMU's SPMI quiesce;
+  * run J: run I plus the AOP handshake and the last `quiesceHW` step, the
+    PMGR's soc-cluster power-off (found 11-06 at `0x28e088000`; unattended,
+    the ANE and AVE clusters powered off and the busy ones stayed pending).
+    With it, every macOS sleep step found so far runs in one sleep;
+  * the PMU's SPMI quiesce needs nothing (it only locks the bus);
   * then the devices that lose power (Phase 4), DCP above all.
 
 ## The last two days

@@ -2207,3 +2207,22 @@ All work is on main (nothing ahead of origin/main, tree clean), so there is no P
 
 - Run 00:14: `aura-ctl: only bits 0 to 3 (and the test marker 0x80) are defined`, so Aura got no step. The cycle was a plain `deep` one: back, `online 0-9`, cluster words unchanged (`0xf 0x2f 0x2f 0x2f 0x2f 0 0x2f`). The one device error is the known SMC "Failed to send command".
 - `harness/mmio/aura-ctl.c` now accepts bit 4 (16). Armed again, the same run.
+
+## 2026-11-06 00:21: the cluster step alone: the PMGR acts on it (ANE, AVE off; P-cores and display pending), CPUs back; runs J and K set; status
+
+- Run 00:18 (`data/aop-sleep/2026-11-06-0018-clusters-only.log`, image 54, aura-ctl 0x10, 1 `deep` cycle, read-only): Aura read `0x10` (`psci_dbg[17]` `0x5300000010`).
+  - `psci_dbg[6..10]` (before → after):
+
+    | Cluster | Before | After |
+    |---|---|---|
+    | PACC0 | `0x2f` | `0x10` |
+    | PACC1 | `0x2f` | `0x10` |
+    | ANE0 | `0x2f` | `0x00` |
+    | AVEMSR | `0x2f` | `0x00` |
+    | DISPLAY | `0x2f` | `0x10` |
+
+  - `[23]` = `0x10000000`: DISPLAY's bit-4 poll timed out after 10 ms; AVEMSR's passed.
+  - So bits 5:4 read as the actual state (2 as boot leaves it, 0 off, 1 in between). The idle ANE and AVE clusters power fully off. The P-core clusters (the cores parked in retention) and the display (DCP running) stop in state 1.
+- Back after 63.2 s, **`online 0-9`**. After Aura's undo (targets back to `0xf`), PACC0, PACC1 and DISPLAY read `0x1f` (state 1), not `0x2f`, and stay so. ANE and AVE are back at `0x2f`. Nothing failed (1 device error, the known SMC "Failed to send command"), the CPUs work, and the display is headless. macOS's `restoreHW` re-enables the clusters on wake; that path is not ported, and a reboot clears it.
+- **`attended.sh`:** J is now I plus the AOP handshake plus aura-ctl 16 (CTL 31): every macOS sleep step found so far, in one sleep. K is the same without the cluster step, the fallback if J fails in a new way.
+- status.md and s2r-status.json updated. Flags back to the default unattended set (`deep s2idle`, 2 cycles, no aura-ctl); default boot.bin, `next_entry` unset.
