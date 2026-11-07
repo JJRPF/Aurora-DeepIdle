@@ -1,4 +1,4 @@
-# Where the work stands (2026-11-06, 21:23, after run S6)
+# Where the work stands (2026-11-06, 21:30, after run R6)
 
 This is the summary of the whole effort: what was measured, what was built,
 what works, what does not, and what comes next. Each section points to the
@@ -203,9 +203,14 @@ There are two goals:
   stay dark until a reboot), and every domain a driver held went off: 83
   of 200 on, the rest are the always-on ones.** One new problem: the GPU's
   domain did not power on again after the wake.
-* **Next:** run R6, run R's full macOS sleep sequence with these domains
-  off: does the S2R entry complete now? Then, whatever it shows: the
-  display coprocessors' restart after sleep, and the GPU's power-up.
+* **2026-11-06 21:26: run R6, run R's full sleep sequence with all those
+  domains off, still ended in the S2R timer's reset at 86 s.** So the
+  devices' power domains are not what the S2R entry waits for (they still
+  have to be off in a real S2R, so the work is not lost).
+* **Next:** the one difference left in macOS's trace: macOS requests the
+  CPU complexes' power at the power-management processor (PMP) while
+  awake and releases it right after the sleep trigger; Linux never
+  requests it, so that release never happens.
 * **From 2026-11-06 the owner lets slpa runs that repeat or vary a
   self-recovering setup go unattended** (one at a time, dead-man switch
   on, a push before each); a new kind of step still gets one attended run.
