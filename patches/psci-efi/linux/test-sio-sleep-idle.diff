@@ -1,0 +1,37 @@
+diff --git i/drivers/dma/apple-sio.c w/drivers/dma/apple-sio.c
+index b212460a125b..40dd8369c9a2 100644
+--- i/drivers/dma/apple-sio.c
++++ w/drivers/dma/apple-sio.c
+@@ -1628,7 +1628,31 @@ static __maybe_unused int sio_resume(struct device *dev)
+ 	return 0;
+ }
+ 
+-static DEFINE_RUNTIME_DEV_PM_OPS(sio_pm_ops, sio_suspend, sio_resume, NULL);
++/*
++ * TEST (GH-8): when set, a system suspend tells the SIO firmware to sleep
++ * (RTKit AP and IOP power IDLE 0x201, as macOS's coprocessor sleep) in the
++ * .suspend phase, before any suspend_late (where macsmc sends slpa). Nothing
++ * wakes it again: for runs that end in a reset only.
++ */
++static bool test_sleep_idle;
++module_param(test_sleep_idle, bool, 0644);
++MODULE_PARM_DESC(test_sleep_idle, "TEST: put the SIO firmware into IDLE for a system suspend");
++
++static __maybe_unused int sio_system_suspend(struct device *dev)
++{
++	struct sio_data *sio = dev_get_drvdata(dev);
++
++	if (READ_ONCE(test_sleep_idle) && apple_rtkit_is_running(sio->rtk))
++		dev_info(dev, "TEST: firmware IDLE for system sleep: %d\n",
++			 apple_rtkit_idle(sio->rtk));
++
++	return pm_runtime_force_suspend(dev);
++}
++
++static const struct dev_pm_ops sio_pm_ops = {
++	SYSTEM_SLEEP_PM_OPS(sio_system_suspend, pm_runtime_force_resume)
++	RUNTIME_PM_OPS(sio_suspend, sio_resume, NULL)
++};
+ 
+ static struct platform_driver apple_sio_driver = {
+ 	.driver = {

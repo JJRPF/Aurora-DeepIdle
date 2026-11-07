@@ -286,6 +286,9 @@ There are two goals:
   state the enclave shares with macOS, so it needs the owner's OK first.
   The test is built but not installed or armed: it sends the enclave the
   same sleep message macOS sends (run R18 = R17 plus that message).
+* **Meanwhile, run R19:** the SIO coprocessor (audio and DMA) is also never
+  told to sleep; Linux's driver has a TODO there. R19 is R17 plus the
+  standard firmware sleep message to the SIO. It needs no special OK.
 * **From 2026-11-06 the owner lets slpa runs that repeat or vary a
   self-recovering setup go unattended** (one at a time, dead-man switch
   on, a push before each); a new kind of step still gets one attended run.

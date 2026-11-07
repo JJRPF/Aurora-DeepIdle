@@ -169,6 +169,14 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
         elif [ -s /var/lib/deepidle/sep-sleep ]; then
             log "sep sleep: requested but apple_sep has no test_sleep_msg"
         fi
+        # /var/lib/deepidle/sio-idle: the SIO firmware gets RTKit IDLE (0x201) in the .suspend phase (never woken again)
+        SI_P=/sys/module/apple_sio/parameters/test_sleep_idle
+        if [ -e $SI_P ]; then
+            if [ -s /var/lib/deepidle/sio-idle ]; then echo Y > $SI_P; else echo N > $SI_P; fi
+            log "sio idle: $(cat $SI_P)"
+        elif [ -s /var/lib/deepidle/sio-idle ]; then
+            log "sio idle: requested but apple_sio has no test_sleep_idle"
+        fi
         # /var/lib/deepidle/usb-teardown: dwc3-apple stops a live USB-C core before a deep suspend and restarts it after
         UT_P=/sys/module/dwc3_apple/parameters/test_deep_teardown
         if [ -e $UT_P ]; then

@@ -3012,3 +3012,26 @@ The owner pointed to his post: 0.05 W averaged over a 3-hour sleep on the M1 Air
   - `run.sh` writes `/var/lib/deepidle/sep-sleep` into the parameter (log `sep sleep: N`).
   - `attended.sh` has **R18** = R17 + `SEP=2`, and `sep-sleep` joins the flags removed after a run.
 - **Not armed.** The module is not installed into `/usr/lib/modules/7.2.11-psci-efi+` until the owner answers. Even with the switch off by default, it replaces the module every psci-efi run uses.
+
+## 2026-11-07 07:37 SIO IDLE: a second coprocessor that runs into every commit awake; test switch and run R19 built, not armed
+- **macOS's trace covered only the SMC and the PMP** (`docs/hv-boot-trace-reference.md`: `trace_smc.py`, `trace_pmp.py`). Messages to the other coprocessors (SEP, SIO, MTP, ANS, GPU) at sleep were never seen, so "every macOS step is reproduced" holds only for the SMC, the PMP and the CPU side.
+- **In macOS every RTKit coprocessor goes through one generic sleep path.** `RTBuddy::setPowerState` (`_setPowerStatePerformChangeGated`, `RTBuddyEndpoint::isGoingToSleep`) runs at system sleep for each IOP RTBuddy manages. AppleSmartIO2 (SIO) has no power methods of its own. The exact state RTBuddy sends each IOP is not decoded yet.
+- **What Linux sends at our commit (test kernel, R17's settings):**
+
+  | Coprocessor | What it gets before the commit |
+  |---|---|
+  | SMC | `SetAPPower` 0x201 |
+  | PMP | `SetAPPower` / `SetIOPPower` 0x201 |
+  | AOP | queues stopped, `SetAPPower` 0x201 |
+  | DCP x3 | shut down (`dcp-off`) |
+  | ANS | power cut by the SMC at `slpa` |
+  | ANE | not bound |
+  | **SEP** | nothing (R18) |
+  | **SIO** | nothing: `sio_suspend` is `/* TODO: SIO coproc sleep state */` |
+  | **MTP** (`rtkit-helper`) | nothing: no PM ops |
+  | **GPU** (asahi) | its own firmware power handling; `afr` kept on |
+
+- **Test kernel change:** `apple_sio.test_sleep_idle` (bool, 0644, default off). The system-sleep `.suspend` (which now wraps `pm_runtime_force_suspend`) calls `apple_rtkit_idle` (AP and IOP power 0x201, "sleeping, retain state") and logs `TEST: firmware IDLE for system sleep: N`. It is in `.suspend`, so it runs before every `suspend_late` (macsmc's `slpa`). Runtime PM is unchanged. The diff is in `patches/psci-efi/linux/test-sio-sleep-idle.diff`.
+- **MTP is left out for now.** `CONFIG_APPLE_RTKIT_HELPER=y` is built in, so changing it needs a new test kernel image, not just a module.
+- **Harness:** `/var/lib/deepidle/sio-idle` (run.sh log `sio idle: Y`). `attended.sh` has **R19** = R17 + `SI=1`, and `sio-idle` joins the flags removed after a run.
+- **R19 needs no special OK.** It touches no state shared with macOS, and the SIO is reset with the SoC. It is still a new kind of step, so it gets one attended run with the owner notified first.
