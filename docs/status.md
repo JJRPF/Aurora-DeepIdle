@@ -266,13 +266,19 @@ There are two goals:
   core (cpu3) never did, and the Mac still reset at 86 s.
 * **R13 (image 60e): cpu3 is sent the same wake-up as the others and
   never acts on it.** Both P-core complexes are off within 6 ms.
-* **R14 (image 60f): cpu3 sleeps in its parking spot and no wake-up
-  reaches it**, not even a second one.
+* **R14 (image 60f): cpu3 sleeps in its parking spot and the wake-up
+  never reaches it.**
 * **R15: without the per-core stop request Aura wrote before each
   wake-up, every core reaches its final deep sleep.** The chip still does
   not go down (86 s reset).
-* **Next:** run R16 (image 60g): do every hardware access before the sleep
-  commit and nothing after it, as on Naeem's working M1.
+* **R16 (image 60g): every hardware access before the sleep commit and
+  nothing after it, as on Naeem's working M1.** Every core sleeps; the
+  chip still resets at 86 s.
+* **Found by reading macOS: Aura never let the efficiency-core cluster
+  (the one the last core runs on) power down.** macOS does that before
+  the commit on this chip, and so does the M1. An earlier misreading of
+  the cluster table had left it out.
+* **Next:** run R17 (image 60h): the same as R16 plus that cluster.
 * **From 2026-11-06 the owner lets slpa runs that repeat or vary a
   self-recovering setup go unattended** (one at a time, dead-man switch
   on, a push before each); a new kind of step still gets one attended run.

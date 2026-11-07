@@ -181,7 +181,7 @@ index c0c95255..812cce9a 100644
  
  #endif
 diff --git i/src/psci.c w/src/psci.c
-index 444d71e5..d78f0498 100644
+index 444d71e5..3d27b95a 100644
 --- i/src/psci.c
 +++ w/src/psci.c
 @@ -1,14 +1,19 @@
@@ -206,7 +206,7 @@ index 444d71e5..d78f0498 100644
   */
  
  static unsigned long psci_affinity_info(unsigned long target_affinity,
-@@ -20,9 +25,833 @@ static unsigned long psci_affinity_info(unsigned long target_affinity,
+@@ -20,9 +25,846 @@ static unsigned long psci_affinity_info(unsigned long target_affinity,
      return smp_psci_affinity_info(target_affinity);
  }
  
@@ -293,10 +293,11 @@ index 444d71e5..d78f0498 100644
 +#define MPMGR_AON_S2R_TIMER 0x29e5c4000ULL      /* MPMGR_AON (PMGR reg 38, T6020) + 0x4000 */
 +
 +static volatile struct {
-+    u32 saved; /* bit 0 domains, bit 1 clocks, bit 2 clusters, bit 3 held */
++    u32 saved; /* bit 0 domains, bit 1 clocks, bit 2 clusters, bit 3 held, 4 AMCC, 5 AIC, 6 EACC */
 +    u32 afr, sio, sio_cpu, pll;
 +    u32 clk[5];
 +    u32 cluster[5];
++    u32 eacc;              /* image 60h: bit 6, PSCI_S2R_EACC: EACC's cluster word (0x28e088000) before its target went to 0 */
 +    u32 held[12];
 +    u32 held_mask;
 +    u32 amcc_en[8][4][2]; /* image 58: bit 4, PSCI_S2R_AMCC: each plane's error enable words 0 and 1 */
@@ -488,6 +489,14 @@ index 444d71e5..d78f0498 100644
 +    psci_dbg[23] |= fail;
 +}
 +
++static void psci_quiesce_eacc(void)
++{
++    qs_save.eacc = read32(QS_CLUSTER);
++    qs_save.saved |= 64;
++    dc_civac_range((void *)&qs_save, sizeof(qs_save));
++    write32(QS_CLUSTER, qs_save.eacc & ~0xf);
++}
++
 +static void psci_quiesce_undo(void)
 +{
 +    dc_ivac_range((void *)&qs_save, sizeof(qs_save));
@@ -496,6 +505,8 @@ index 444d71e5..d78f0498 100644
 +        for (int i = 4; i >= 0; i--)
 +            write32(QS_CLKGEN + qs_clkgen_off[i], qs_save.clk[i]);
 +    }
++    if (qs_save.saved & 64)
++        write32(QS_CLUSTER, qs_save.eacc);
 +    if (qs_save.saved & 4) {
 +        for (unsigned i = 0; i < 5; i++)
 +            write32(QS_CLUSTER + 4 * qs_cluster_id[i], qs_save.cluster[i]);
@@ -853,7 +864,7 @@ index 444d71e5..d78f0498 100644
 +    psci_dbg[2] = daif;
 +    psci_dbg[14] = mrs(SYS_IMP_APL_CYC_OVRD);
 +    dc_ivac_range((void *)psci_ctl, sizeof(psci_ctl));
-+    u64 steps = psci_ctl[1] & (PSCI_S2R_TIMER | PSCI_S2R_CORESOFF | PSCI_S2R_DOMAINS | PSCI_S2R_CLOCKS | PSCI_S2R_CLUSTERS | PSCI_S2R_STOPREQ | PSCI_S2R_HELD | PSCI_S2R_REC | PSCI_S2R_AMCC | PSCI_S2R_STOPWD2 | PSCI_S2R_AICMASK | PSCI_S2R_WD1OFF | PSCI_S2R_RESUMENOW | PSCI_S2R_CRUMB | PSCI_S2R_QUIET);
++    u64 steps = psci_ctl[1] & (PSCI_S2R_TIMER | PSCI_S2R_CORESOFF | PSCI_S2R_DOMAINS | PSCI_S2R_CLOCKS | PSCI_S2R_CLUSTERS | PSCI_S2R_STOPREQ | PSCI_S2R_HELD | PSCI_S2R_REC | PSCI_S2R_AMCC | PSCI_S2R_STOPWD2 | PSCI_S2R_AICMASK | PSCI_S2R_WD1OFF | PSCI_S2R_RESUMENOW | PSCI_S2R_CRUMB | PSCI_S2R_QUIET | PSCI_S2R_EACC);
 +    for (unsigned i = 0; i < 48; i++)
 +        psci_dbg2[i] = 0;
 +    psci_dbg2[1] = steps | ((u64)qs_amcc_n << 32) | ((u64)qs_amcc_planes << 40);
@@ -916,6 +927,8 @@ index 444d71e5..d78f0498 100644
 +        psci_quiesce_domains();
 +    if (steps & PSCI_S2R_CLUSTERS)
 +        psci_quiesce_clusters();
++    if (steps & PSCI_S2R_EACC)
++        psci_quiesce_eacc();
 +    if (steps & PSCI_S2R_CLOCKS)
 +        psci_quiesce_clocks();
 +    if (steps & PSCI_S2R_AMCC)
@@ -1040,7 +1053,7 @@ index 444d71e5..d78f0498 100644
      switch (fid) {
          case PSCI_0_2_FN_PSCI_VERSION:
              return PSCI_VERSION_1_0;
-@@ -34,6 +863,8 @@ unsigned long psci_efi_handler(unsigned long fid, unsigned long arg0, unsigned l
+@@ -34,6 +876,8 @@ unsigned long psci_efi_handler(unsigned long fid, unsigned long arg0, unsigned l
              return smp_psci_cpu_off();
          case PSCI_0_2_FN64_CPU_ON:
              return smp_psci_cpu_on(arg0, arg1, arg2);
@@ -1049,7 +1062,7 @@ index 444d71e5..d78f0498 100644
          case PSCI_0_2_FN64_AFFINITY_INFO:
              return psci_affinity_info(arg0, arg1);
          default:
-@@ -53,5 +884,6 @@ const struct psci_efi_table psci_efi_table = {
+@@ -53,5 +897,6 @@ const struct psci_efi_table psci_efi_table = {
              [PSCI_FN(PSCI_0_2_FN_CPU_OFF)] = PSCI_RET_SUCCESS,
              [PSCI_FN(PSCI_0_2_FN64_CPU_ON)] = PSCI_RET_SUCCESS,
              [PSCI_FN(PSCI_0_2_FN64_AFFINITY_INFO)] = PSCI_RET_SUCCESS,
@@ -1057,7 +1070,7 @@ index 444d71e5..d78f0498 100644
          },
  };
 diff --git i/src/psci.h w/src/psci.h
-index 92d225ab..8c10edda 100644
+index 92d225ab..f1d02608 100644
 --- i/src/psci.h
 +++ w/src/psci.h
 @@ -31,6 +31,7 @@ enum psci_fn_id {
@@ -1068,7 +1081,7 @@ index 92d225ab..8c10edda 100644
  };
  
  enum psci_ret {
-@@ -63,6 +64,33 @@ struct psci_efi_table {
+@@ -63,6 +64,38 @@ struct psci_efi_table {
  
  extern const struct psci_efi_table psci_efi_table;
  
@@ -1093,6 +1106,11 @@ index 92d225ab..8c10edda 100644
 +/* image 60g: Naeem's M1 order: AIC mask, secondaries released and snapshot before the commit; the commit written three
 + * times (macOS); after it no MMIO or SPMI access at all, only the boot core's flush and deep WFI (needs TIMER and CORESOFF) */
 +#define PSCI_S2R_QUIET    BIT(15)
++/* image 60h: AppleT6020PMGR::quiesceHW's enableCluster(c, false, c > 3) starts at logical cluster 1, which is EACC (the ADT
++ * soc-clusters entry's byte 3 is the logical number: EACC 1, PACC0 2, PACC1 3, ANE0 6, DISPLAY 8, AVEMSR 9; byte 0 is the
++ * word's index). Image 54 read byte 0 and left EACC, the boot cluster, out. With this bit EACC's target goes to 0 too, with
++ * no poll (as macOS: c = 1 is not waited on), after the other clusters; the M1 entry also writes both CPU complexes to 0 */
++#define PSCI_S2R_EACC     BIT(16)
 +void psci_ctl_init(void);
 +
 +bool psci_suspend_resuming(void);
