@@ -2656,3 +2656,17 @@ The owner is at the Mac for attended runs and asked to test the leads from DJ's 
   - a reset 60 s after the alarm's wake attempt (30 s + 60 s ≈ 90 s after the timer).
 - **Next diagnostic (image 59, unattended, normal path):** Aura resumes the kernel right after the timer write and WD2 stop, without waiting for the alarm. Linux then logs the WDT block (WD0..2) and the timer word every second, synced to disk, until the reset. That shows directly which watchdog runs out.
 - Per the chain, R8 now (the owner is at the Mac): every sleep step with slpa, plus the AMCC enables cleared and the AIC masked. Its reading stands: about 86 s = the entry still did not complete.
+
+## 2026-11-06 22:43 run R8: R7 plus clearing the AMCC errors and masking the AIC: the timer reset at 86 s again
+
+- Run R8 (owner attended; image 58, slpa, DS 62, PMP sleep, AOP mode 3, the PMP release, aura-ctl `0xb3f`; plus wakeup off, `sleep keep: afr`, PCPM `0x300`, dcp off, USB teardown):
+  - Pi kmsg: every switch line, `aura ctl … 0xb3f`, `TEST pcpm 0x300 asserted: 0, request 0xf300 ack 0xf300`, the AOP's queues stopped (12 of 12) and its `0x201` acked, and both live USB-C cores stopped. The stream ends when the network goes down (22:41:17), as in every slpa run.
+  - `echo mem` 22:41:15.6; the next kernel at 22:42:41: **about 86 s, the timer's reset**.
+  - No dead-man push, no hand reset, btrfs counters 0. Flags removed; default boot.bin `76f850895fed53d1`, `next_entry` unset; headless on, watcher running.
+- **So neither DJ lead completes the entry here.** The AMCC DSID_AGE_OUT/UNEXP_RT_HIT_DIR enables were cleared before the timer, and every AIC line was masked after it. Nor does R7's own lead (PCPM0/1 asserted and then released after the PMP's IDLE).
+- Two caveats:
+  - Only the enables were cleared. The two status bits stay pending, and macOS also zeroes the plane + `0x22000` words. Whether a pending status still counts as a wake source with its enable off is not known.
+  - The records are lost with the reset.
+- Next:
+  - the image 59 watchdog log (W1's open question, unattended, normal path);
+  - a static comparison of the cluster-level steps in Naeem's t8103 entry (CPM power gating `0x23b71c080/088 = 0x80000000`, cluster PS `0x23b718000/4 = 0`, cluster controls) and DJ's T8140 entry (pmgr-pwrgate `0x300724060/68`, CLLT `0x300768030/34/3c`) with what Aura does on T6020. Aura so far does only the soc-cluster targets (image 54) and each core's own deep sleep.

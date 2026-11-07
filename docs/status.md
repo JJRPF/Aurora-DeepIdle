@@ -1,4 +1,4 @@
-# Where the work stands (2026-11-06, 22:38, after run W1)
+# Where the work stands (2026-11-06, 22:43, after run R8)
 
 This is the summary of the whole effort: what was measured, what was built,
 what works, what does not, and what comes next. Each section points to the
@@ -227,9 +227,12 @@ There are two goals:
 * **2026-11-06 22:34: run W1: stopping WD2 right after the timer moved
   the reset from about 85 s to about 116 s.** So WD2 is part of it, but
   something else still resets the SoC, and the alarm did not wake it.
-* **Next (owner attended):**
-  * R8: R7 plus the AMCC errors cleared and every interrupt masked
-    after the sleep starts.
+* **2026-11-06 22:41: run R8 (owner attended): every step so far plus
+  the AMCC errors cleared and every interrupt masked: the 86 s reset
+  again.** Those leads do not complete the sleep entry here.
+* **Next:** log the watchdogs after the sleep timer (which one resets
+  the SoC); compare the CPU-cluster power-gate steps in the M1 and Neo
+  sleep entries with what Aura does on this chip.
 * **From 2026-11-06 the owner lets slpa runs that repeat or vary a
   self-recovering setup go unattended** (one at a time, dead-man switch
   on, a push before each); a new kind of step still gets one attended run.
