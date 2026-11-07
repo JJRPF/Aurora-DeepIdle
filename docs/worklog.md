@@ -3036,3 +3036,12 @@ The owner pointed to his post: 0.05 W averaged over a 3-hour sleep on the M1 Air
 - **Harness:** `/var/lib/deepidle/sio-idle` (run.sh log `sio idle: Y`). `attended.sh` has **R19** = R17 + `SI=1`, and `sio-idle` joins the flags removed after a run.
 - **R19 needs no special OK.** It touches no state shared with macOS, and the SIO is reset with the SoC. It is still a new kind of step, so it gets one attended run with the owner notified first.
 - 07:41 R19 armed (attended.sh R19: aura-ctl 0x1db1f, sio-idle; apple-sio.ko installed, old one in /var/lib/deepidle/mods-pre-sioidle/). The owner was told first.
+
+## 2026-11-07 07:48 run R19 (image 60h + SIO IDLE): still the 86 s reset; the SIO's reply could not be seen
+- **Dead-man pushes:** only my 07:40 note and the R19 start; no resume push. No hand reset.
+- **Timing:** `echo mem` 07:43:03 (Pi kmsg), next kernel from 07:44:28 (uptime): **85 s**, the timer's reset, as R15 to R17.
+- **Harness lines (Pi kmsg; run.log stops at "filesystems ro", root is read-only):** `sio idle: Y`, `dcp off: Y`, `pcpm: 768`, `sleep keep: afr`, `aura ctl ... 0x1db1f`, then the AOP and dwc3 TEST lines.
+- **The SIO's own line (`TEST: firmware IDLE for system sleep: N`) is not in the kmsg copy.** Both R17's and R19's streams end at the same place (`dwc3-apple f02280000.usb: TEST: core stopped`, at PM_SUSPEND_PREPARE). The device `.suspend` phase comes after the stream has stopped, and the journal is lost (root read-only, then the reset). So whether the SIO acked IDLE is unknown from this run.
+- **PMU scratch after the reset:** identical to R17 (code `0x16`, CPU_OFF mask `077e`, never-slept `f880`, `0x6007` `ff`, wait 3 ms, EACC/PACC0/PACC1 `10/10/50`, `boot-error-stage` `0x50`). The SIO step changed nothing visible.
+- **Next:** confirm the SIO takes IDLE on a normal-path run that resumes, so its line reaches the journal (**S9**, unattended per the owner's 11-06 rule: S-series normal path, no `slpa`, `reboot-after`). If it acks 0, R19 is a real negative: the SIO is not what the entry waits for. The SEP test (R18) still waits for the owner.
+- Clean afterwards: flags removed, scratch zeroed, `/boot` mounted, default `boot.bin` `76f850895fed53d1`, no `next_entry`, btrfs 0, headless on, watcher running.

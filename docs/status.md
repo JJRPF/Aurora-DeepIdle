@@ -289,6 +289,9 @@ There are two goals:
 * **Meanwhile, run R19:** the SIO coprocessor (audio and DMA) is also never
   told to sleep; Linux's driver has a TODO there. R19 is R17 plus the
   standard firmware sleep message to the SIO. It needs no special OK.
+  **R19 result:** still the same 86 s reset. Whether the SIO actually
+  accepted the message is not visible from that run; a normal resume test
+  (S9) checks it.
 * **From 2026-11-06 the owner lets slpa runs that repeat or vary a
   self-recovering setup go unattended** (one at a time, dead-man switch
   on, a push before each); a new kind of step still gets one attended run.
