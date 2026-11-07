@@ -2670,3 +2670,30 @@ The owner is at the Mac for attended runs and asked to test the leads from DJ's 
 - Next:
   - the image 59 watchdog log (W1's open question, unattended, normal path);
   - a static comparison of the cluster-level steps in Naeem's t8103 entry (CPM power gating `0x23b71c080/088 = 0x80000000`, cluster PS `0x23b718000/4 = 0`, cluster controls) and DJ's T8140 entry (pmgr-pwrgate `0x300724060/68`, CLLT `0x300768030/34/3c`) with what Aura does on T6020. Aura so far does only the soc-cluster targets (image 54) and each core's own deep sleep.
+
+## 2026-11-06 22:50 static: macOS's PMGR quiesce has no write that this Mac is missing; the AON watchdogs do differ; image 59, runs W2 and R9
+
+Checked against the M1 and Neo sleep entries, which write the CPU-complex power gates and CLLT before the commit. 13.5 kernelcache:
+
+- **`ApplePMGR::quiesceHW`**, the base-class call that `AppleT6020PMGR::quiesceHW` makes first. Its whole content:
+  - `quiesceACC(i)` for each CPU complex (vtable `0x930`). T6020's override calls the base, which does a perf request, turns the perf counters off and takes an energy snapshot; `_enableFeatureACC(77)` is skipped because `isFeatureACC(77)` is false on T6020. Then **`enableCPMPowerDomainGating(true)`**: bit 31 of PMGR map 0 (ADT reg 0, `0x28e080000`) + `0xc030/0xc034/0xc038` per die. This is the counterpart of the M1's `0x23b71c080/088 = 0x80000000` and the Neo's pwrgate writes.
+  - `_enableFeature(77, false)`: a no-op, since `_enableFeature` ignores ids above 50.
+  - `enableVoltageChanges(false)`: only a check that can panic.
+  - **`quiescePerfState()`**: fabric perf state 5, then 3; DCS (DRAM) 7, then 5; each is the low nibble of MPMGR ClkGen-SOC (map `0x40` = ADT reg 40, `0x28e20c000`; DCS at + `0x400`) followed by a poll for bit 31 to clear.
+- **Live values on this Mac** (read-only, `mmio-read`):
+  - `0x28e08c030/34/38` = `0x80000000`: CPM gating is already on.
+  - `0x28e20c000` = `0x333` and `0x28e20c400` = `0x555`: fabric 3 and DCS 5, exactly where macOS's quiesce ends.
+  - **So the PMGR quiesce has no write that this Mac is missing.**
+- **CLLT on T6020** (`setCLLTAgentConfig`: PMGR + `0x54040/0x54050`) is a boot-time tunable (`ApplePMGR::_applyParam`), not a sleep step.
+- **The watchdogs (13.5 `AppleARMWatchdogTimer`):**
+  - The ADT `wdt` node: reg 0 `0x29e2c4000` (WD0..2), reg 1 `0x29e2a8254`, reg 2 `0x29e2a002c`, reg 3 `0x29e2a0008`, reg 4 `0x29e2a0020`; `reconfig-wdog-support` is present.
+  - Its sleep action (not hibernating) calls `enableReconfigWatchdogMonitoring()` (WDT interrupt off, WD0 ctl = 0) and `disableWatchdog()` (reg 3's low byte cleared; WD1 is not touched on this path).
+  - Live: reg 1..4 all 0 and WD0 ctl 0, so that is already the state. **WD1, however, is armed:** Linux's `apple_wdt` has it at ctl 4 with a 60 s alarm, and Aura re-arms it at 120 s for every suspend.
+  - Naeem's M1 trace: "AON AP watchdog disabled", and at the entry WD0/WD1/WD2 ctl were all 0. **Aura is the only side with an AON watchdog running into the commit.**
+- **Image 59** (Aura `c00741f7d3f10754`, `boot.bin.psci-test59` `246054fceb614142`, diff `patches/psci-efi/aura/wip-image59.diff`; `psci_dbg` still at `+0x137940`):
+  - aura-ctl `0x1000` disarms WD1 right before the timer. The timer's reset is still the safety net, and dbg2 `[45]` = `0x5100000001`.
+  - aura-ctl `0x2000` resumes the kernel right after the timer, for the normal path only.
+  - The `run.sh` flag `/var/lib/deepidle/wd-log` logs WD0..2 and the timer word every second after the resume to `wdlog.txt`, each line synced.
+- **Runs:**
+  - **W2** (unattended, normal path, `0x2101`): Linux logs the watchdogs from the timer write to the reset. That shows which one fires, which W1 could not.
+  - **R9** (owner attended, slpa): R8 + `0x1000`. 86 s = WD1 was not it.

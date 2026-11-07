@@ -197,7 +197,7 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
             AB=$(xxd -p /proc/device-tree/chosen/aura,psci-runtime-code | cut -c1-16)
             # offset = ELF symbol - 0x10000 (the DT gives the runtime code, image base + 0x10000); image 56: psci_dbg at
             # 0x147430 in the ELF. Older images read zeros here (the offset went stale); their scan line below has the words.
-            DBGOFF=0x1472c8; case "$(cat /run/psci-efi-booted-sha 2>/dev/null)" in 20f6d711f9f7add5) DBGOFF=0x137430 ;; ae5f5e93323269a6) DBGOFF=0x137470 ;; 29448f1a7cab4ddd) DBGOFF=0x137940 ;; esac
+            DBGOFF=0x1472c8; case "$(cat /run/psci-efi-booted-sha 2>/dev/null)" in 20f6d711f9f7add5) DBGOFF=0x137430 ;; ae5f5e93323269a6) DBGOFF=0x137470 ;; 29448f1a7cab4ddd) DBGOFF=0x137940 ;; 246054fceb614142) DBGOFF=0x137940 ;; esac
             log "aura dbg (words, low/high pairs): $(/usr/local/lib/deepidle/mmio-read $((0x$AB + DBGOFF)) 16 | awk '{printf "%s ", $2}')"
             log "aura dbg scan: $(/usr/local/lib/deepidle/scan-magic 0xA0AA0001 64 | head -3 | tr '\n' ';')"
             # image 58 (aura-ctl 0x100): psci_dbg2 after its magic: [1] steps | AMCC instances << 32 | planes << 40; per
@@ -244,6 +244,16 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
     fi
     for m in $(findmnt -rno TARGET -t ext4,btrfs,vfat | sort); do mount -o remount,rw "$m" 2>&1 | head -1; done
     if [ "${SLPA:-0}" = 1 ]; then cat $LOGF >> $OUT/run.log; LOGF=$OUT/run.log; log "filesystems rw again: superblock rw $(findmnt -rno TARGET,FS-OPTIONS -t ext4,btrfs,vfat | grep -c '\brw\b') of $(findmnt -rno TARGET -t ext4,btrfs,vfat | wc -l)"; fi
+    # image 59 (aura-ctl 0x2000 + /var/lib/deepidle/wd-log): Aura resumed the kernel right after the S2R timer; log the
+    # AON watchdogs (WDT 0x29e2c4000: WD0..2 as count alarm - ctl) and the timer word every second until the reset,
+    # each line synced, so the last line before the reset survives
+    if [ -e /var/lib/deepidle/wd-log ]; then
+        log "wd-log: logging the AON watchdogs every second to $OUT/wdlog.txt"
+        for i in $(seq 1 200); do
+            echo "$(date +%T.%N | cut -c1-12) $(/usr/local/lib/deepidle/mmio-read 0x29e2c4000 12 | awk '{printf "%s ", $2}')t $(/usr/local/lib/deepidle/mmio-read 0x29e5c4000 1 | awk '{print $2}')" >> $OUT/wdlog.txt
+            sync $OUT/wdlog.txt; sleep 1
+        done
+    fi
     [ -d /run/psci-cpuhp ] && cp /run/psci-cpuhp/* $OUT/ 2>/dev/null
     dmesg > $OUT/dmesg-after.txt; chmod 644 $OUT/*; sync
     log "summary: $(grep -c 'back, rc=0' $OUT/run.log) cycles back with rc=0; device errors after the first suspend: $(sed -n '/PM: suspend entry/,$p' $OUT/dmesg-after.txt | grep -i -E 'error|fail|timeout|warning:|\bbug:' | grep -v -E 'audit|psci-deadman|psci-efi-test|Endpoint 0x20 is not running|Failed to send command|brcmf_p2p|p2p_disc|add iface p2p|join_pref|Util_Reset_FailGeom|set affinity failed\(-38\)' | wc -l)"

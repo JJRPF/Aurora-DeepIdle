@@ -20,7 +20,7 @@ REL=7.2.11-psci-efi+
 STAGE=/home/jjr/Work/staging-psci-efi
 BIN0=/home/jjr/Work/psci-test/boot.bin.aura-stage2; SHA0=19d5f8f627f966a1
 BIN1=/home/jjr/Work/psci-test/boot.bin.psci-test15;  SHA1=a5e3ced5b3007515
-BIN2=/home/jjr/Work/psci-test/boot.bin.psci-test58;  SHA2=29448f1a7cab4ddd   # image 58: image 57 + aura-ctl 0x100 records, 0x200 AMCC errors off, 0x400 stop WD2, 0x800 AIC mask-all, the held pages mapped; image 57 was boot.bin.psci-test57, ae5f5e93323269a6:: image 56 + psci_ctl[2] = which held domains bit 6 turns off (aura-ctl <steps> <mask>); image 56 was boot.bin.psci-test56, 20f6d711f9f7add5
+BIN2=/home/jjr/Work/psci-test/boot.bin.psci-test59;  SHA2=246054fceb614142   # image 59: image 58 + aura-ctl 0x1000 WD1 off before the timer, 0x2000 resume right after it; image 58 was boot.bin.psci-test58, 29448f1a7cab4ddd: image 57 + aura-ctl 0x100 records, 0x200 AMCC errors off, 0x400 stop WD2, 0x800 AIC mask-all, the held pages mapped; image 57 was boot.bin.psci-test57, ae5f5e93323269a6:: image 56 + psci_ctl[2] = which held domains bit 6 turns off (aura-ctl <steps> <mask>); image 56 was boot.bin.psci-test56, 20f6d711f9f7add5
 STOCK=/var/lib/deepidle/boot.bin.default; STOCKSHA=76f850895fed53d1
 stockback() {
     [ "$(sha256sum /boot/m1n1/boot.bin | cut -c1-16)" = $STOCKSHA ] || {
