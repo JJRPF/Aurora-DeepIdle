@@ -59,7 +59,7 @@ case $RUN in
     U2) DS=32; PMP=0; CTL=0; AOP=3; PIDS=${PIDS:-0x1000}; GD=1; UB=1; KIND="UNATTENDED normal-path (no slpa) unbind run" ;;   # U again; run.sh now skips a dwc3 whose core never probed (U oopsed there)
     S8) DS=32; PMP=0; CTL=0; AOP=3; PIDS=${PIDS:-0x1000}; GD=1; WO=1; UT=1; DO=1; RA=1; SK=${SK:-afr}; KIND="UNATTENDED normal-path (no slpa) afr-kept run" ;;   # S6 + pmgr_pwrstate.test_sleep_keep=afr: does gfx power up after the wake when its parent afr stayed on?
     S7) DS=32; PMP=0; CTL=0; AOP=3; PIDS=${PIDS:-0x1000}; GD=1; PC=0x300; KIND="UNATTENDED normal-path (no slpa) PCPM check run" ;;   # S3 + pmp_report.test_pcpm 0x300: PCPM0/1 asserted at PM_SUSPEND_PREPARE, withdrawn at PM_POST_SUSPEND (no PMP sleep on this path)
-    R7) DS=62; PMP=1; CTL=63; AOP=3; PIDS=${PIDS:-0x1000}; GD=1; WO=1; UT=1; DO=1; RA=1; PC=0x300 ;;   # R6 + PCPM0/1 asserted for the suspend, withdrawn after the PMP's IDLE (macOS trace step 6); a new step: attended first
+    R7) DS=62; PMP=1; CTL=63; AOP=3; PIDS=${PIDS:-0x1000}; GD=1; WO=1; UT=1; DO=1; RA=1; PC=0x300; SK=${SK:-afr} ;;   # R6 + PCPM0/1 asserted for the suspend, withdrawn after the PMP's IDLE (macOS trace step 6); a new step: attended first
     R6) DS=62; PMP=1; CTL=63; AOP=3; PIDS=${PIDS:-0x1000}; GD=1; WO=1; UT=1; DO=1; RA=1; KIND="UNATTENDED slpa run (a variation of R)" ;;   # R + S6's Linux-side domain-offs (USB-C teardown, DCP firmware off): 83 of 200 domains on
     V) DS=62; PMP=1; CTL=63; AOP=3; PIDS=${PIDS:-0x1000}; GD=1; UB=1 ;;   # R + the same unbinds
     *) echo "run A to N, P, Q, R, S, S2, U, V, W, G55"; exit 2 ;;

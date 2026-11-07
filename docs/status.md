@@ -1,4 +1,4 @@
-# Where the work stands (2026-11-06, 21:37, after run S7)
+# Where the work stands (2026-11-06, 21:44, after run S8)
 
 This is the summary of the whole effort: what was measured, what was built,
 what works, what does not, and what comes next. Each section points to the
@@ -209,6 +209,9 @@ There are two goals:
   have to be off in a real S2R, so the work is not lost).
 * **2026-11-06 21:36: run S7: the PMP accepts and acknowledges the CPU
   complexes' requests from Linux.**
+* **2026-11-06 21:41: run S8: the GPU problem after S6 came from a
+  fabric domain (afr) that the displays used to keep on;** with it kept on
+  through the sleep, the GPU powers up again.
 * **Next:** run R7 (R6 with those requests released right after the sleep
   trigger, as macOS does). It is a new kind of step, so it waits for the
   owner to be near the Mac once. Meanwhile: why the GPU did not power up
