@@ -3106,3 +3106,11 @@ Sources: `pmgr-regs.txt` (J414s ADT `pmgr` reg list) and the J414s ADT `error-ha
 - **Most of the trace's targets are at the same physical addresses on T6020.** These are the cluster CPM/DVFS blocks, `0x28e224000`, `0x28e20c800`, the two error-handler blocks in `0x28e0…`, and the request/DVFS pair in `0x28e3c0000`. What each register does there is still to be checked (read-only on the normal kernel, within ADT-declared ranges, after confirming their clock gates are on).
 - **Next:** read the same-address registers live (values only), compare with the trace's written values, then build a new Aura image with the same-address writes in trace order before the timer (new aura-ctl bit), as one attended run.
 - **Also pending:** a test Image with `apple_rtkit_helper.test_sleep_idle` (MTP IDLE) is built (`f573144a4452768c`, `depmod -e` clean against all installed modules) but **not installed**. The trace makes it a lower priority.
+
+## 2026-11-07 08:11 Unplanned reboot at about 08:07 (not a test; looks like a hand reboot)
+Nothing was armed (no flags, normal kernel 7.2.11-14-1-ARCH). The last command from this session ran at 08:02:15 (a worklog commit) and none ran again until the new boot at 08:09.
+- The Pi kmsg shows `sudo` PAM events from user session 1 (tty1/Hyprland, i.e. the desktop or a herdr pane, not this agent) at 08:06:37, 08:06:42 and 08:07:18, then the stream ends at 08:07:52. The ping went down at 08:07:21 and came back up at 08:09:04.
+- No clean shutdown: `last` marks the 07:53 session `crash`, and the persistent journal stops at about 08:06:14, before those sudo calls. The PMU reports "1 boot error(s) and 0 panic(s)" (the same message as earlier boots). The scratch keys are all zero except 0x6017=01.
+- Health: boot.bin `76f850895fed53d1`, `/boot` mounted, `grub-editenv list` empty, no btrfs errors or device-stat counts, headless active, Pi watcher running.
+
+Per the standing rule (stop after a hand reset), nothing gets armed and no live register reads happen until the owner says what happened. Asked the owner.
