@@ -3114,3 +3114,26 @@ Nothing was armed (no flags, normal kernel 7.2.11-14-1-ARCH). The last command f
 - Health: boot.bin `76f850895fed53d1`, `/boot` mounted, `grub-editenv list` empty, no btrfs errors or device-stat counts, headless active, Pi watcher running.
 
 Per the standing rule (stop after a hand reset), nothing gets armed and no live register reads happen until the owner says what happened. Asked the owner.
+
+## 2026-11-07 08:16 maralcbr's post-slpa list, second pass: most of it is already in Aura; the new piece is the cluster DVFS teardown
+Static only (DTs in linux-psci-efi-72, m1n1/Aura `cpufreq.c`, J414s ADT); no hardware touched. This corrects the first-pass table above.
+
+**Already done by Aura's quiesce steps (independent match with our macOS 13.5 J414s RE):**
+- Trace `error-handler[1]+0x3815c/64/68/6c/70 = 0x80100000` (T6000) is Aura's CLOCKS step (`QS_CLKGEN` 0x28e000000 + `{0x38160, 0x38168, 0x38164, 0x38158, 0x3816c}`, `(v & 0x70ffffff) | 0x80000000`). It's the same order, with each T6000 offset +4 from T6020's.
+- Trace `pmgr[46] 0x28e224000 = 0x219, 0x21b, 0x8000021a, 0x21a` is Aura's PLL-off (`QS_PLLOFF`: bits 5:3 = 3, set bit 1, clear bit 0, wait bit 31).
+- Trace `error-handler[2]+0x18000..0x18020` (0x28e098000 + 4k) is Aura's CLUSTERS/EACC soc-cluster words (`QS_CLUSTER` 0x28e088000 + 4·id), shifted −0x10000 on T6020.
+- Trace `pmgr[2]+0x188 = 0x400024f` is `ps_sio_cpu` (T6000 `pmgr_east` 0x28e580000 + 0x188, T6020 `pmgr_east` 0x290280000 + 0x1e0). The value decodes as TARGET f, PS_AUTO 4, WAS_CLKGATED (W1C), AUTO_ENABLE clear: a read-back write that clears AUTO_ENABLE, which is what Aura's DOMAINS step does to `QS_SIO_CPU`.
+- Trace `wdt[0]+0x0c = 0` is WD0_CTRL. T6000's Linux `wdt` is 0x2922b0000 = T6020's 0x29e2c4000 (ADT `wdt,t6020` reg 0), so the J414s address is **0x29e2c400c** (the first pass said 0x29e2b000c, which is wrong). Image 59 found WD0 already 0 at entry.
+
+**Not at the same address on J414s (do not replay):**
+- `apcie[2] 0x580080000`: on T6000 that is the PCIe `rc` block (0x580000000, 0x100000). On T6020, 0x580000000 is PCIe **config space**, and `rc` is 0x591000000 (size 0x4000).
+- `error-handler[7..10]+0xa00` (0x282000a00, 0x304000a00, 0x383000a00, 0x402000a00): J414s error-handler regs 8..11 are 0x280000000/0x300000000/0x380000000/0x400000000, each only 0x4000 long, so these targets are outside every reg.
+- `0x28e3d0860` and `0x28e3d8328` (pre-slpa): they are in `pmp_report` (0x28e3c0000, 0x20000) and the `pmgr_dcp` window. The DCP bw-scratch offsets in that window differ by chip (T6000 0x988/0x990/0x998, T6020 0x1208/0x1210/0x1218), so the same offset probably isn't the same register. These wait for CoreyH's answer on #9.
+- The remaining `error-handler[1]/[2]` zero writes (0x28e0ad000, 0x28e0f8000..fd000, 0x28e0c8000..600, 0x28e0801e8, 0x28e070000), `pmgr_east` +0x58000/+0x60000/+0x64000 (would be 0x2902d8000.. on T6020), `pmgr_misc+0x800` (0x557, 0x775) and `pmgr[56]` 0x58c0080xx: the three blocks above show the layout shifts between chips, so their T6020 offsets are unknown. Not replayed.
+
+**New and translatable: the cluster DVFS teardown** (cluster bases 0x210e00000/0x211e00000/0x212e00000, the same on both chips per m1n1's tables):
+- `+0x48400` (ppt-thrtl), `+0x40250` (amx-thrtl), `+0x40240` (T6000 llc-thrtl; **T6020 has it at +0x40270**): macOS writes values with **bit 63 clear**. m1n1/Aura set bit 63 on all three at boot (`t6020_features`), so macOS turns the throttles off before sleep.
+- `+0x20020` (CLUSTER_PSTATE): macOS writes `0x100101` then `0x40000500101` = DESIRED1 1, bit 42 (FIXED_FREQ_PLL_RECLOCK), **bit 22 = M1_APSC_DIS** and bit 20 = UNK_M1. The T6020 equivalent is **bit 23 (M2_APSC_DIS)**, with UNK_M2 at bit 22. m1n1/Aura clear APSC_DIS at boot ("cpu-apsc" feature), so macOS disables APSC before sleep. Linux already drops each cluster to its lowest pstate (`suspend_freq`); nothing turns APSC or the throttles off.
+- `+0x20660` and `+0x48080` = 0: unknown registers, left out.
+
+**Next:** Aura image 61 with a new step bit 17 `PSCI_S2R_DVFS`, placed before the timer as in the trace: per cluster, clear bit 63 at +0x48400/+0x40270/+0x40250, set bit 23 at +0x20020 and wait for APSC_BUSY (bit 7) to clear; save and undo on the way back. Build only. Installing and running it is a new kind of step: one attended run after the owner answers about this morning's reboot.

@@ -217,14 +217,15 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
             AB=$(xxd -p /proc/device-tree/chosen/aura,psci-runtime-code | cut -c1-16)
             # offset = ELF symbol - 0x10000 (the DT gives the runtime code, image base + 0x10000); image 56: psci_dbg at
             # 0x147430 in the ELF. Older images read zeros here (the offset went stale); their scan line below has the words.
-            DBGOFF=0x1472c8; case "$(cat /run/psci-efi-booted-sha 2>/dev/null)" in 20f6d711f9f7add5) DBGOFF=0x137430 ;; ae5f5e93323269a6) DBGOFF=0x137470 ;; 29448f1a7cab4ddd) DBGOFF=0x137940 ;; 246054fceb614142) DBGOFF=0x137940 ;; 4ba57db10e3fc58b) DBGOFF=0x137980 ;; 438533ef2e0b277b) DBGOFF=0x137980 ;; 59049072223cef33) DBGOFF=0x137980 ;; 040cefaccda4b569) DBGOFF=0x137980 ;; 7b444f57629d6a98) DBGOFF=0x137980 ;; 6dfefe678261390d) DBGOFF=0x137980 ;; e75fe2baf56c3e09|4bdc26ae2b5a1c55) DBGOFF=0x137980 ;; esac
+            DBGOFF=0x1472c8; case "$(cat /run/psci-efi-booted-sha 2>/dev/null)" in 20f6d711f9f7add5) DBGOFF=0x137430 ;; ae5f5e93323269a6) DBGOFF=0x137470 ;; 29448f1a7cab4ddd) DBGOFF=0x137940 ;; 246054fceb614142) DBGOFF=0x137940 ;; 4ba57db10e3fc58b) DBGOFF=0x137980 ;; 438533ef2e0b277b) DBGOFF=0x137980 ;; 59049072223cef33) DBGOFF=0x137980 ;; 040cefaccda4b569) DBGOFF=0x137980 ;; 7b444f57629d6a98) DBGOFF=0x137980 ;; 6dfefe678261390d) DBGOFF=0x137980 ;; e75fe2baf56c3e09|4bdc26ae2b5a1c55) DBGOFF=0x137980 ;; 4b272bdd49094b8a) DBGOFF=0x137998 ;; esac
             log "aura dbg (words, low/high pairs): $(/usr/local/lib/deepidle/mmio-read $((0x$AB + DBGOFF)) 16 | awk '{printf "%s ", $2}')"
             log "aura dbg scan: $(/usr/local/lib/deepidle/scan-magic 0xA0AA0001 64 | head -3 | tr '\n' ';')"
             # image 58 (aura-ctl 0x100): psci_dbg2 after its magic: [1] steps | AMCC instances << 32 | planes << 40; per
             # snapshot (entry [2], before the timer [8], after it [14], +100 ms [20]) WD0..2 as (alarm<<32|count),
             # (timer word<<32|ctl); AMCC status per instance (w1<<32|w0) at entry [26] and before the timer [30]; plane 0
-            # enables at entry [34]; [42] instance 0 plane 0 enables after the clear; [44] 0x57.. WD2 ctl after the stop
-            log "aura dbg2: $(/usr/local/lib/deepidle/scan-magic 0xA0AA0002 64 47 | head -2 | tr '\n' ';')"
+            # enables at entry [34]; [42] instance 0 plane 0 enables after the clear; [44] 0x57.. WD2 ctl after the stop; image 61
+            # (aura-ctl 0x20000): [48..50] ECPU0/PCPU0/PCPU1 CLUSTER_PSTATE low half before << 32 | after APSC_DIS
+            log "aura dbg2: $(/usr/local/lib/deepidle/scan-magic 0xA0AA0002 64 51 | head -2 | tr '\n' ';')"
             # the PMGR's soc-cluster words (image 54, aura-ctl 16): EACC, PACC0, PACC1, ANE0, DISPLAY, -, AVEMSR
             log "soc clusters: $(/usr/local/lib/deepidle/mmio-read 0x28e088000 7 | awk '{printf "%s ", $2}')"
             # Aura's shared SMP state (psci_cpu_state at +0xc0000, spin_table

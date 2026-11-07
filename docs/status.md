@@ -292,6 +292,14 @@ There are two goals:
   **R19 result:** still the same 86 s reset. Whether the SIO actually
   accepted the message is not visible from that run; a normal resume test
   (S9) checks it. **S9:** the SIO accepted it, so the SIO is ruled out.
+* **A trace of macOS going to sleep on an M1 Pro** (shared on issue #9)
+  lists 74 chip writes macOS makes after telling the SMC to sleep. Most
+  of them turn out to be steps Aura already does, which independently
+  confirms our reading of macOS. A few are at addresses that mean
+  something else on this chip, so they are left out. The one new step
+  is switching off each CPU cluster's automatic frequency control
+  (APSC). Image 61 adds it (run R20 = R17 plus that step). It is
+  built, not installed, and waits for the owner.
 * **From 2026-11-06 the owner lets slpa runs that repeat or vary a
   self-recovering setup go unattended** (one at a time, dead-man switch
   on, a push before each); a new kind of step still gets one attended run.
