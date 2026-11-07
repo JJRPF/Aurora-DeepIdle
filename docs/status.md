@@ -278,7 +278,12 @@ There are two goals:
   (the one the last core runs on) power down.** macOS does that before
   the commit on this chip, and so does the M1. An earlier misreading of
   the cluster table had left it out.
-* **Next:** run R17 (image 60h): the same as R16 plus that cluster.
+* **R17 (image 60h): with that cluster turned off too, the chip still
+  resets at 86 s.** Everything we know macOS does on the chip side before
+  the commit is now done.
+* **Next lead, waiting for the owner:** macOS tells the Secure Enclave to
+  sleep before system sleep; Linux never does. Trying it touches security
+  state the enclave shares with macOS, so it needs the owner's OK first.
 * **From 2026-11-06 the owner lets slpa runs that repeat or vary a
   self-recovering setup go unattended** (one at a time, dead-man switch
   on, a push before each); a new kind of step still gets one attended run.
