@@ -2697,3 +2697,10 @@ Checked against the M1 and Neo sleep entries, which write the CPU-complex power 
 - **Runs:**
   - **W2** (unattended, normal path, `0x2101`): Linux logs the watchdogs from the timer write to the reset. That shows which one fires, which W1 could not.
   - **R9** (owner attended, slpa): R8 + `0x1000`. 86 s = WD1 was not it.
+
+## 2026-11-06 22:58 run W2: invalid, aura-ctl refused 0x2101; fixed, W2 re-armed
+
+- `run.log`: `aura-ctl: only bits 0 to 11 are defined`. The word stayed 0, so Aura ran image 51's plain suspend: `suspend deep 1: back, rc=0, elapsed 32.19`, dbg2 `[1]` = `0x40400000000`. No timer write, no reset.
+- The wd-log loop still ran its 200 s (`wdlog.txt`, 200 lines): with no timer the baseline is steady. WD1 is armed by Linux (ctl 4, alarm `0x55d4a800` = 60 s, count kicked), WD2 alarm `0x80befc00` (90 s) ctl 0, WD0 ctl 0, timer word 1. That is the before picture for the real W2.
+- Cause: `harness/mmio/aura-ctl.c` still capped the word at `0xfff` (image 58's bits). Now `0x3fff` (image 59's `0x1000` WD1 off and `0x2000` resume now). R9's `0x1b3f` would have hit the same refusal. `install.sh` rebuilds the tool before each armed run.
+- No hand reset, btrfs counters 0, default `boot.bin` `76f850895fed53d1`, no next_entry. Re-armed: `NEXT="R9" bash harness/psci-efi/attended.sh W2`.

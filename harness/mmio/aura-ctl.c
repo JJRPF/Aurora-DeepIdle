@@ -2,7 +2,7 @@
  * "reserved" DRAM ranges of /proc/iomem (as scan-magic does), refuses unless there is exactly one, and writes only the
  * word after the magic. Bits: 1 PMGR S2R timer, 2 every core into macOS's deep sleep, 4 quiesceHW's power domains
  * (AFR off, SIO auto-enable off), 8 quiesceHW's ClkGen and PLL-off writes (image 53), 16 to 64 images 54 to 56, image 58:
- * 0x100 records (psci_dbg2), 0x200 AMCC error enables off, 0x400 stop WD2 after the timer, 0x800 AIC mask-all. 0 = image 51's suspend.
+ * 0x100 records (psci_dbg2), 0x200 AMCC error enables off, 0x400 stop WD2 after the timer, 0x800 AIC mask-all; image 59: 0x1000 WD1 off before the timer, 0x2000 resume right after it. 0 = image 51's suspend.
  * usage: aura-ctl            print the address and the word
  *        aura-ctl <value>    write it, read it back
  *        aura-ctl <value> <mask>  also write the next word, psci_ctl[2]: image 57's held-domain mask (bits 0-11, 0 = all) */
@@ -44,7 +44,7 @@ int main(int argc, char **argv)
 	volatile uint64_t *w = p + (hit - page) / 8 + 1;
 	if (argc > 1) {
 		uint64_t v = strtoull(argv[1], NULL, 0);
-		if (v & ~0xfffULL) { fprintf(stderr, "aura-ctl: only bits 0 to 11 are defined: 1 timer, 2 cores off, 4 domains, 8 clocks, 16 clusters (54), 32 stop requests (55), 64 held domains (56), 0x80 test marker, 0x100 records, 0x200 AMCC errors off, 0x400 stop WD2, 0x800 AIC mask-all (58)\n"); return 2; }
+		if (v & ~0x3fffULL) { fprintf(stderr, "aura-ctl: only bits 0 to 13 are defined: 1 timer, 2 cores off, 4 domains, 8 clocks, 16 clusters (54), 32 stop requests (55), 64 held domains (56), 0x80 test marker, 0x100 records, 0x200 AMCC errors off, 0x400 stop WD2, 0x800 AIC mask-all (58), 0x1000 WD1 off before the timer, 0x2000 resume right after it (59)\n"); return 2; }
 		*w = v;
 		w[1] = argc > 2 ? strtoull(argv[2], NULL, 0) & 0xfff : 0;
 	}

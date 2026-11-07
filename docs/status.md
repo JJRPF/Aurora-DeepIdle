@@ -1,4 +1,4 @@
-# Where the work stands (2026-11-06, 22:43, after run R8)
+# Where the work stands (2026-11-06, 22:58, after run W2, invalid; re-armed)
 
 This is the summary of the whole effort: what was measured, what was built,
 what works, what does not, and what comes next. Each section points to the
