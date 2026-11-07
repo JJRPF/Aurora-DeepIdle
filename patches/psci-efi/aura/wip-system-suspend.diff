@@ -181,7 +181,7 @@ index c0c95255..812cce9a 100644
  
  #endif
 diff --git i/src/psci.c w/src/psci.c
-index 444d71e5..9a934363 100644
+index 444d71e5..d78f0498 100644
 --- i/src/psci.c
 +++ w/src/psci.c
 @@ -1,14 +1,19 @@
@@ -206,7 +206,7 @@ index 444d71e5..9a934363 100644
   */
  
  static unsigned long psci_affinity_info(unsigned long target_affinity,
-@@ -20,9 +25,809 @@ static unsigned long psci_affinity_info(unsigned long target_affinity,
+@@ -20,9 +25,833 @@ static unsigned long psci_affinity_info(unsigned long target_affinity,
      return smp_psci_affinity_info(target_affinity);
  }
  
@@ -853,7 +853,7 @@ index 444d71e5..9a934363 100644
 +    psci_dbg[2] = daif;
 +    psci_dbg[14] = mrs(SYS_IMP_APL_CYC_OVRD);
 +    dc_ivac_range((void *)psci_ctl, sizeof(psci_ctl));
-+    u64 steps = psci_ctl[1] & (PSCI_S2R_TIMER | PSCI_S2R_CORESOFF | PSCI_S2R_DOMAINS | PSCI_S2R_CLOCKS | PSCI_S2R_CLUSTERS | PSCI_S2R_STOPREQ | PSCI_S2R_HELD | PSCI_S2R_REC | PSCI_S2R_AMCC | PSCI_S2R_STOPWD2 | PSCI_S2R_AICMASK | PSCI_S2R_WD1OFF | PSCI_S2R_RESUMENOW | PSCI_S2R_CRUMB);
++    u64 steps = psci_ctl[1] & (PSCI_S2R_TIMER | PSCI_S2R_CORESOFF | PSCI_S2R_DOMAINS | PSCI_S2R_CLOCKS | PSCI_S2R_CLUSTERS | PSCI_S2R_STOPREQ | PSCI_S2R_HELD | PSCI_S2R_REC | PSCI_S2R_AMCC | PSCI_S2R_STOPWD2 | PSCI_S2R_AICMASK | PSCI_S2R_WD1OFF | PSCI_S2R_RESUMENOW | PSCI_S2R_CRUMB | PSCI_S2R_QUIET);
 +    for (unsigned i = 0; i < 48; i++)
 +        psci_dbg2[i] = 0;
 +    psci_dbg2[1] = steps | ((u64)qs_amcc_n << 32) | ((u64)qs_amcc_planes << 40);
@@ -930,11 +930,35 @@ index 444d71e5..9a934363 100644
 +     * (120 s) through every entry so far. The timer's own reset stays as the safety net.
 +     */
 +    qs_crumb(0x12);
++    bool quiet = (steps & PSCI_S2R_QUIET) && (steps & PSCI_S2R_TIMER) && (steps & PSCI_S2R_CORESOFF);
++    if (quiet) {
++        /* image 60g: everything that touches hardware happens before the commit */
++        if (steps & PSCI_S2R_AICMASK)
++            psci_quiesce_aic();
++        qs_crumb(0x17);
++        smp_psci_release_parked(steps & PSCI_S2R_STOPREQ);
++        udelay(2000);
++        qs_crumb_snapshot();
++        qs_crumb(0x16); /* the last access before the commit */
++    }
 +    if ((steps & PSCI_S2R_WD1OFF) && (steps & PSCI_S2R_TIMER)) {
 +        wdt_psci_disarm();
 +        psci_dbg2[45] = 0x5100000000ULL | 1;
 +    }
-+    if (steps & PSCI_S2R_TIMER) {
++    if (quiet) {
++        write32(MPMGR_AON_S2R_TIMER, 1);
++        sysop("dsb sy");
++        write32(MPMGR_AON_S2R_TIMER, 1);
++        sysop("dsb sy");
++        write32(MPMGR_AON_S2R_TIMER, 1);
++        sysop("dsb sy");
++        psci_dbg[18] = 3;
++        psci_dbg[0] = 0xA0AA0003;
++        dcsw_op_all(DCSW_OP_DCCISW);
++        sysop("dsb sy");
++        cpu_sleep(true); /* back only through RVBAR: psci_suspend_rvbar() */
++    }
++    if (!quiet && (steps & PSCI_S2R_TIMER)) {
 +        write32(MPMGR_AON_S2R_TIMER, 1);
 +        sysop("dsb sy");
 +        psci_dbg[18] = 1;
@@ -965,7 +989,7 @@ index 444d71e5..9a934363 100644
 +        asm volatile("msr daifset, #0xf\n isb" ::: "memory");
 +        psci_resume_kernel(-1, 0);
 +    }
-+    if (steps & PSCI_S2R_CORESOFF) {
++    if (!quiet && (steps & PSCI_S2R_CORESOFF)) {
 +        psci_dbg[0] = 0xA0AA0001;
 +        dc_civac_range((void *)psci_dbg, sizeof(psci_dbg));
 +        qs_crumb(0x17);
@@ -1016,7 +1040,7 @@ index 444d71e5..9a934363 100644
      switch (fid) {
          case PSCI_0_2_FN_PSCI_VERSION:
              return PSCI_VERSION_1_0;
-@@ -34,6 +839,8 @@ unsigned long psci_efi_handler(unsigned long fid, unsigned long arg0, unsigned l
+@@ -34,6 +863,8 @@ unsigned long psci_efi_handler(unsigned long fid, unsigned long arg0, unsigned l
              return smp_psci_cpu_off();
          case PSCI_0_2_FN64_CPU_ON:
              return smp_psci_cpu_on(arg0, arg1, arg2);
@@ -1025,7 +1049,7 @@ index 444d71e5..9a934363 100644
          case PSCI_0_2_FN64_AFFINITY_INFO:
              return psci_affinity_info(arg0, arg1);
          default:
-@@ -53,5 +860,6 @@ const struct psci_efi_table psci_efi_table = {
+@@ -53,5 +884,6 @@ const struct psci_efi_table psci_efi_table = {
              [PSCI_FN(PSCI_0_2_FN_CPU_OFF)] = PSCI_RET_SUCCESS,
              [PSCI_FN(PSCI_0_2_FN64_CPU_ON)] = PSCI_RET_SUCCESS,
              [PSCI_FN(PSCI_0_2_FN64_AFFINITY_INFO)] = PSCI_RET_SUCCESS,
@@ -1033,7 +1057,7 @@ index 444d71e5..9a934363 100644
          },
  };
 diff --git i/src/psci.h w/src/psci.h
-index 92d225ab..f3780160 100644
+index 92d225ab..8c10edda 100644
 --- i/src/psci.h
 +++ w/src/psci.h
 @@ -31,6 +31,7 @@ enum psci_fn_id {
@@ -1044,7 +1068,7 @@ index 92d225ab..f3780160 100644
  };
  
  enum psci_ret {
-@@ -63,6 +64,30 @@ struct psci_efi_table {
+@@ -63,6 +64,33 @@ struct psci_efi_table {
  
  extern const struct psci_efi_table psci_efi_table;
  
@@ -1066,6 +1090,9 @@ index 92d225ab..f3780160 100644
 +#define PSCI_S2R_RESUMENOW BIT(13) /* resume the kernel right after the timer (no wait, no cores off): Linux logs the dogs */
 +u64 psci_crumb_base(void);
 +#define PSCI_S2R_CRUMB    BIT(14) /* image 60: stage codes in the PMU's legacy scratch key 4 (0x6004), which survives a SoC reset */
++/* image 60g: Naeem's M1 order: AIC mask, secondaries released and snapshot before the commit; the commit written three
++ * times (macOS); after it no MMIO or SPMI access at all, only the boot core's flush and deep WFI (needs TIMER and CORESOFF) */
++#define PSCI_S2R_QUIET    BIT(15)
 +void psci_ctl_init(void);
 +
 +bool psci_suspend_resuming(void);

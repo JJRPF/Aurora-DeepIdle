@@ -268,8 +268,11 @@ There are two goals:
   never acts on it.** Both P-core complexes are off within 6 ms.
 * **R14 (image 60f): cpu3 sleeps in its parking spot and no wake-up
   reaches it**, not even a second one.
-* **Next:** run R15: the same without the per-core stop request Aura
-  writes before each wake-up.
+* **R15: without the per-core stop request Aura wrote before each
+  wake-up, every core reaches its final deep sleep.** The chip still does
+  not go down (86 s reset).
+* **Next:** run R16 (image 60g): do every hardware access before the sleep
+  commit and nothing after it, as on Naeem's working M1.
 * **From 2026-11-06 the owner lets slpa runs that repeat or vary a
   self-recovering setup go unattended** (one at a time, dead-man switch
   on, a push before each); a new kind of step still gets one attended run.

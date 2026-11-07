@@ -2942,3 +2942,21 @@ The owner pointed to his post: 0.05 W averaged over a 3-hour sleep on the M1 Air
   - bit 4 (`CLUSTERS`), the cluster targets to 0, and bit 3 (`CLOCKS`), the ClkGen muxes and PLL-off, both before the release.
 - **Run R15** = R14 with only `STOPREQ` removed (aura-ctl `0x5b1f`), image 60f. It is a one-step reduction of a self-recovering setup. If cpu3 then sleeps (`0x6015`/`16` without bit 3, `0x6007` = `ff`), the stop request is what holds it; if not, the cluster or clock step is next.
 - Clean before it: flags removed, `/boot` mounted, default `boot.bin` `76f850895fed53d1`, no `next_entry`, btrfs 0, headless on, watcher running, scratch `0x6004`–`0x6016` and `0x601b`–`0x601e` zeroed.
+
+## 2026-11-07 07:06 run R15 (60f, no CPUSTART stop request): every core reaches its S2R sleep, still the 86 s reset; image 60g (quiet commit), run R16 armed
+- **Dead-man pushes:** only the R14 result and the R15 start. No hand reset. `PM: suspend entry` 07:02:03; the Pi saw the Mac down at 07:02:08 and up at 07:03:58; uptime from 07:03:29. **86 s**, the timer's reset.
+- **PMU scratch after the reset:** `00300050197e07ff 00000000ff000000 ffff1f100380f801 000000000f105000`:
+  - **Never slept `f880`: only 7, 11 (unused) and 12–15 (absent). cpu3 slept.** `0x6007` = `ff` (no never-slept core) and the per-core keys `0x6010`/`11`, `0x600c` read `ff`. (`0x600d`/`0e` read 0, not `ff`. The snapshot writes `ff ff ff` when every core slept, so those two bytes did not land as written; the `0x600c` byte did.)
+  - CPU_OFF mask `077e`; `0x6004` `0x19`; P complexes off in 6 ms; PMP requests 0. All as R13/R14.
+- **So the CPUSTART stop request (aura-ctl bit 5) is what held cpu3.** Aura wrote each secondary's bit in CPUSTART + 0 just before its release IPI. cpus 1–2 and the P cores still woke; cpu3 never did. Without it, **for the first time every core is in its final deep sleep**: 9 secondaries in `cpu_sleep(true)` after flushing, the boot core at `0x19`, both P complexes off. The SoC still did not sleep.
+- **What is left against Naeem's working M1 order** (try23/try32: clkgen muxes, cluster controls, CPM power gating, cluster PS, commit, PMU RTC alarm, commit twice more, then every core WFI with nothing touched after the commit):
+  - Ours writes the commit (the S2R timer word) **before** the AIC mask, the release IPIs, the 2 ms wait and the snapshot (PMGR reads + SPMI writes), plus crumbs `0x13`–`0x18`. That is a lot of MMIO and SPMI after the commit, where his M1 slept only once nothing was touched.
+  - We write the commit once; macOS writes it three times.
+- **Image 60g** (Aura `9664a8fe1c37a12b`, `boot.bin.psci-test60g` `e75fe2baf56c3e09`, diff `wip-image60g.diff`; `psci_dbg` still `+0x137980`; `install.sh` uses it). New aura-ctl bit **`0x8000` "quiet commit"** (with TIMER and CORESOFF):
+  - right after crumb `0x12`: the AIC mask, crumb `0x17`, the release IPIs, 2 ms, the snapshot, then **crumb `0x16`, the last access before the commit**;
+  - then WD1 disarmed (bit 12), the timer word written **three times**, `psci_dbg[18]` = 3, the set/way flush and `cpu_sleep(true)`. **No MMIO, no SPMI after the commit**, so no `0x13`–`0x15`, `0x18`, `0x19` crumbs on this path.
+  - if `cpu_sleep` ever returns, the old timer and release blocks are skipped (straight to the heartbeat loop).
+  - `aura-ctl.c` takes bits 0–15 now; `/usr/local/lib/deepidle/aura-ctl` rebuilt.
+- **Reading the next scratch:** `0x16` = the quiet path ran up to the commit. `0x21`/`0x22` = the SoC slept and woke through RVBAR (the alarm). A timer reset at 86 s with `0x16` = the commit alone, nothing after it, is still not enough.
+- **Run R16** = R15 + `0x8000` (aura-ctl `0xdb1f`), image 60g. It is a new kind of step (a reordering), so it gets one attended run, owner notified first. It stays self-recovering: the timer still resets the SoC 60 s after the commit.
+- Clean before it: flags removed, `/boot` mounted, default `boot.bin` `76f850895fed53d1`, no `next_entry`, btrfs 0, headless on, watcher running, scratch `0x6004`–`0x6016` and `0x601b`–`0x601e` zeroed.
