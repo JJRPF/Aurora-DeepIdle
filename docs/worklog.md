@@ -2995,3 +2995,20 @@ The owner pointed to his post: 0.05 W averaged over a 3-hour sleep on the M1 Air
   - **Why this one waits for the owner:** the SEP holds state it shares with macOS (the xART records, Touch ID enrolment, keybags; the driver guards those writes). A SLEEP may make the SEP save state through the AP. With the SoC then reset by the timer, an interrupted save could touch that state. That risk is a different kind from our PMGR writes, which a reset fully undoes.
   - **Proposed test (not built yet):** a test-only `apple-sep` switch, off by default. For a `mem` suspend only, in `suspend_late` (after captures stop, before `slpa`), it sends SLEEP type 2 on EP 0 and logs the reply. Only R-series runs set it. A resume or reset reboots the SEP through iBoot.
 - Clean afterwards: flags removed, `/boot` mounted, default `boot.bin` `76f850895fed53d1`, no `next_entry`, btrfs 0, headless on, watcher running, scratch zeroed. Nothing armed.
+
+## 2026-11-07 07:33 SEP SLEEP test built, not armed (run R18 waits for the owner's OK)
+- **What macOS sends** (13.5, read from the kext, local analysis only):
+  - `AppleSEPControl::cmsgSLEEP(SleepType, u32)` builds the 8-byte message `0x000c0000` with the type in byte 3: EP 0 (control), op `0x0c`, param = type, data 0. That is the same layout as Linux's `encode_control` (type << 16, param << 24, data << 32).
+  - The `u32` is not data. It is passed to `_cmsgSend` by pointer as the reply timeout: `[this+180] × 15000` ms.
+  - `[this+180]` comes from `_initTimeoutMultiplier`. It is 1 unless the platform is a simulator (then 20), so the timeout is 15 s.
+  - The type is 2 (3 only when `_getSleepMode` says mode 1). So the message is EP 0, op 0x0c, param 2, data 0, with a 15 s wait.
+- **The J414s SEP node has one power domain** (`ps_sep`, `apple,always-on`), so `sep_pm_keep_domains` does nothing here. The SEP is kept powered by the always-on domain itself, not by the driver.
+- **Test kernel change** (~/Work/linux-psci-efi-72, uncommitted like the other TEST switches; diff in `patches/psci-efi/linux/test-sep-sleep-msg.diff`):
+  - `proto.rs`: `op_sleep(type)`.
+  - `pm_shim.c`: `apple_sep.test_sleep_msg` (int, 0644, default 0).
+  - `pm.rs`: at PM_SUSPEND_PREPARE, after entropy and captures are held, it sends SLEEP with that type and logs `TEST SLEEP type N: reply tag .. data ..` or the error.
+  - Nothing wakes the enclave again, so this is for reset-ending runs only (R18 keeps `reboot-after`).
+- **Harness:**
+  - `run.sh` writes `/var/lib/deepidle/sep-sleep` into the parameter (log `sep sleep: N`).
+  - `attended.sh` has **R18** = R17 + `SEP=2`, and `sep-sleep` joins the flags removed after a run.
+- **Not armed.** The module is not installed into `/usr/lib/modules/7.2.11-psci-efi+` until the owner answers. Even with the switch off by default, it replaces the module every psci-efi run uses.

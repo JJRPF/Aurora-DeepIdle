@@ -284,6 +284,8 @@ There are two goals:
 * **Next lead, waiting for the owner:** macOS tells the Secure Enclave to
   sleep before system sleep; Linux never does. Trying it touches security
   state the enclave shares with macOS, so it needs the owner's OK first.
+  The test is built but not installed or armed: it sends the enclave the
+  same sleep message macOS sends (run R18 = R17 plus that message).
 * **From 2026-11-06 the owner lets slpa runs that repeat or vary a
   self-recovering setup go unattended** (one at a time, dead-man switch
   on, a push before each); a new kind of step still gets one attended run.

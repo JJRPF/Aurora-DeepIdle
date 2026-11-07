@@ -160,6 +160,15 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
             if [ -s /var/lib/deepidle/dcp-off ]; then echo 1 > $DO_P; else echo 0 > $DO_P; fi
             log "dcp off: $(cat $DO_P)"
         fi
+        # /var/lib/deepidle/sep-sleep: the SEP is sent macOS's SLEEP control message (0x0c, this sleep type) at
+        # PM_SUSPEND_PREPARE (never woken again; reset-ending runs only)
+        SE_P=/sys/module/apple_sep/parameters/test_sleep_msg
+        if [ -e $SE_P ]; then
+            if [ -s /var/lib/deepidle/sep-sleep ]; then cat /var/lib/deepidle/sep-sleep > $SE_P; else echo 0 > $SE_P; fi
+            log "sep sleep: $(cat $SE_P)"
+        elif [ -s /var/lib/deepidle/sep-sleep ]; then
+            log "sep sleep: requested but apple_sep has no test_sleep_msg"
+        fi
         # /var/lib/deepidle/usb-teardown: dwc3-apple stops a live USB-C core before a deep suspend and restarts it after
         UT_P=/sys/module/dwc3_apple/parameters/test_deep_teardown
         if [ -e $UT_P ]; then

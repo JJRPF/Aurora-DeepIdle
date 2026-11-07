@@ -1,0 +1,100 @@
+diff --git i/drivers/soc/apple/pm.rs w/drivers/soc/apple/pm.rs
+index 3701f08c1848..5f04662d69d9 100644
+--- i/drivers/soc/apple/pm.rs
++++ w/drivers/soc/apple/pm.rs
+@@ -26,6 +26,7 @@
+     fn sep_pm_register(event: unsafe extern "C" fn(bool)) -> c_int;
+     fn sep_pm_unregister();
+     fn sep_pm_keep_domains(dev: *mut c_void) -> c_int;
++    fn sep_pm_test_sleep_msg() -> c_int;
+ }
+ 
+ /// Attaches every power domain of a multi-domain SEP node and keeps them on
+@@ -90,6 +91,17 @@ fn sleep_event(sep: &impl SleepHolds, entering: bool) {
+     // notifier call, so it is live for this borrow.
+     let sep = unsafe { <Arc<SepData> as ForeignOwnable>::borrow(ptr) };
+     sleep_event(&*sep, entering);
++    // SAFETY: no preconditions; reads a module parameter.
++    let ty = unsafe { sep_pm_test_sleep_msg() };
++    if entering && ty > 0 {
++        // TEST (GH-8): tell the enclave the system is going to sleep, as macOS does. Only for
++        // runs that end in a reset: nothing here wakes the enclave again on a resume.
++        match sep.control_request(&crate::proto::op_sleep(ty as u8)) {
++            Ok(Some(r)) => dev_info!(sep.dev, "TEST SLEEP type {}: reply tag {:#x} data {:#x}\n", ty, r.tag, r.data_lo),
++            Ok(None) => dev_info!(sep.dev, "TEST SLEEP type {}: no reply\n", ty),
++            Err(e) => dev_warn!(sep.dev, "TEST SLEEP type {}: {:?}\n", ty, e),
++        }
++    }
+ }
+ 
+ pub(crate) fn register(sep: Arc<SepData>) -> Result<()> {
+diff --git i/drivers/soc/apple/pm_shim.c w/drivers/soc/apple/pm_shim.c
+index 884ecbb354a0..a7b6b291940a 100644
+--- i/drivers/soc/apple/pm_shim.c
++++ w/drivers/soc/apple/pm_shim.c
+@@ -10,12 +10,27 @@
+ #include <linux/notifier.h>
+ #include <linux/of.h>
+ #include <linux/pm_domain.h>
++#include <linux/moduleparam.h>
+ #include <linux/suspend.h>
+ 
+ #include "shim.h"
+ 
+ static void (*sep_pm_event)(bool entering);
+ 
++/*
++ * TEST (GH-8): when nonzero, the enclave is sent macOS's SLEEP control message
++ * (type 0x0c, this value as the sleep type) once the system is about to
++ * suspend. Writable at run time; for runs that end in a reset only.
++ */
++static int test_sleep_msg;
++module_param(test_sleep_msg, int, 0644);
++MODULE_PARM_DESC(test_sleep_msg, "TEST: send the enclave SLEEP with this type before a suspend (0 = off)");
++
++int sep_pm_test_sleep_msg(void)
++{
++	return READ_ONCE(test_sleep_msg);
++}
++
+ static int sep_pm_notify(struct notifier_block *nb, unsigned long action,
+ 			 void *data)
+ {
+diff --git i/drivers/soc/apple/proto.rs w/drivers/soc/apple/proto.rs
+index 8fc7278550d9..b85e38df3ba4 100644
+--- i/drivers/soc/apple/proto.rs
++++ w/drivers/soc/apple/proto.rs
+@@ -149,6 +149,21 @@ pub(crate) fn op_security_mode() -> ControlOp {
+ 
+ // no op for control 0x18: it wedges the control endpoint
+ 
++/// TEST (GH-8): macOS 13.5's `AppleSEPControl::cmsgSLEEP` as `AppleSEPManager::_sleepSEPAsync`
++/// sends it before system sleep: type 0x0c, param = the sleep type (2; 3 in one platform mode),
++/// data 0. The 15000 ms there is the reply timeout (times a multiplier of 1 outside simulators).
++pub(crate) fn op_sleep(sleep_type: u8) -> ControlOp {
++    ControlOp {
++        ty: 0x0c,
++        param: sleep_type,
++        data: 0,
++        expect_reply: true,
++        timeout_ms: 15000,
++        reserved_tag: false,
++        name: c"SLEEP",
++    }
++}
++
+ pub(crate) fn op_get_entropy() -> ControlOp {
+     ControlOp {
+         ty: 0x36,
+diff --git i/drivers/soc/apple/shim.h w/drivers/soc/apple/shim.h
+index 0425bf2cdaa6..4f382a82f403 100644
+--- i/drivers/soc/apple/shim.h
++++ w/drivers/soc/apple/shim.h
+@@ -28,6 +28,7 @@ void sep_cancel_delayed_work_sync(void *work);
+ int sep_pm_register(void (*event)(bool entering));
+ void sep_pm_unregister(void);
+ int sep_pm_keep_domains(void *dev);
++int sep_pm_test_sleep_msg(void);
+ 
+ /* -- hwrng_shim.c ------------------------------------------------------- */
+ 
