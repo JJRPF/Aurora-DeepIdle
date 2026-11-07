@@ -2626,3 +2626,18 @@ The owner is at the Mac for attended runs and asked to test the leads from DJ's 
   - **G58**: normal path, records only (`0x100`). Checks image 58 and reads the watchdogs and AMCC status at entry.
   - **W1**: T0 + records + WD2 stopped (`0x501`). A resume = the 60 s reset is WD2; 85 s = it is not.
   - **R8**: R7 (R6 + PCPM + afr kept) + the AMCC clear + the AIC mask-all + records (`0xb3f`, slpa).
+
+## 2026-11-06 22:32 run G58: image 58 is sound; the AMCC errors DJ named are enabled and pending on all four instances; WD2 sits at 90 s
+
+- Run G58 (image 58, `boot.bin.psci-test58` `29448f1a7cab4ddd`, normal path, DS 32, the PMP release, genpd dump, aura-ctl `0x100`): `echo mem` 22:30:31, **back on the alarm, 31.7 s, `online 0-9`**, PMP requests `0xf000`, filesystems rw. The one device error is the usual one; the rest of the new kernel lines are `set affinity failed(-38)`. No reset, btrfs counters 0. Flags removed; default boot.bin `76f850895fed53d1`, `next_entry` unset; headless on, watcher running.
+- Image 58's extra MMIO ranges and reads are fine (the scan finds both blocks; `psci_dbg` at `+0x137940` as computed).
+- **`aura dbg2`** (words after the magic):
+  - `[1]` = `0x40400000100`: steps `0x100`, **4 AMCC instances of 4 planes**.
+  - WD0 counts with alarm 0 and ctl 0.
+  - WD1 = Aura's dog: alarm `0xaba95000` = 120 s, ctl 4.
+  - **WD2: alarm `0x80befc00` = 90 s, ctl 0, counter running** (`0x7c8f58fe` ≈ 87 s at entry, `0x7d4663ce` just before the wait). That is iBoot's leftover, as on the M1 (Naeem try28: 90 s).
+  - The S2R timer word reads 1 before any write in this boot, as on the M1 after a reboot, so its value means nothing.
+  - **AMCC status at entry and before the wait: `0x00000100_04000000` on every instance**, so word 0 bit 26 **DSID_AGE_OUT** and word 1 bit 8 **UNEXP_RT_HIT_DIR** are pending.
+  - **Plane 0 enables: `0xb7bffdfd` / `0x00003f00`, both bits enabled.** This is DJ's condition (with no platform error handler, an enabled pending AMCC error wakes the SoC within 20 ms of the commit), present here even without a display power-off.
+- Not fitting yet: if the commit started WD2 from its 90 s alarm, the reset would come about 90 s after the timer, not 60. W1 checks directly: it stops WD2 100 ms after the timer and records it.
+- Next, per the chain: **W1** (T0 + records + WD2 stop, `0x501`), then **R8**.

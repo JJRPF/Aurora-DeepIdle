@@ -1,4 +1,4 @@
-# Where the work stands (2026-11-06, 21:44, after run S8)
+# Where the work stands (2026-11-06, 22:31, after run G58)
 
 This is the summary of the whole effort: what was measured, what was built,
 what works, what does not, and what comes next. Each section points to the
@@ -212,10 +212,22 @@ There are two goals:
 * **2026-11-06 21:41: run S8: the GPU problem after S6 came from a
   fabric domain (afr) that the displays used to keep on;** with it kept on
   through the sleep, the GPU powers up again.
-* **Next:** run R7 (R6 with those requests released right after the sleep
-  trigger, as macOS does). It is a new kind of step, so it waits for the
-  owner to be near the Mac once. Meanwhile: why the GPU did not power up
-  after S6 (its domain hangs off one the displays kept on before).
+* **2026-11-06 22:13 to 22:31: leads from two other people's work, and
+  run G58.**
+  * DJ (Neo) and Naeem Malik (M1) got real S2R working with macOS doing the
+    sleep under a hypervisor.
+  * Their two leads checked on this Mac's macOS 13.5 (Aura image 58):
+    * a memory-controller (AMCC) error left enabled wakes the SoC right
+      after the sleep starts;
+    * a watchdog (WD2) that only a completed sleep entry stops.
+  * Run G58 shows both AMCC errors enabled and pending before our sleep
+    starts, on all four controllers. WD2 sits at a 90 s alarm.
+  * Also found: images 56 and 57 never mapped two register pages they
+    wrote to, so the "Aura cannot force domains off" result is unproven.
+* **Next (owner attended):**
+  * W1: does stopping WD2 prevent the 60 s reset?
+  * R8: R7 plus the AMCC errors cleared and every interrupt masked
+    after the sleep starts.
 * **From 2026-11-06 the owner lets slpa runs that repeat or vary a
   self-recovering setup go unattended** (one at a time, dead-man switch
   on, a push before each); a new kind of step still gets one attended run.
