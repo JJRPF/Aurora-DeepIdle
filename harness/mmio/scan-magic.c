@@ -13,6 +13,7 @@ int main(int argc, char **argv)
 	if (argc < 2) return 2;
 	uint64_t magic = strtoull(argv[1], NULL, 0);
 	uint64_t maxlen = (argc > 2 ? strtoull(argv[2], NULL, 0) : 64) << 20;
+	int words = argc > 3 ? atoi(argv[3]) : 24; /* image 58: psci_dbg2 has 47 after its magic */
 	int fd = open("/dev/mem", O_RDONLY | O_SYNC);
 	if (fd < 0) { perror("/dev/mem"); return 1; }
 	FILE *f = fopen("/proc/iomem", "r");
@@ -29,7 +30,7 @@ int main(int argc, char **argv)
 		for (uint64_t i = 0; i < len / 8; i++)
 			if (p[i] == magic) {
 				printf("0x%llx:", (unsigned long long)(a + i * 8));
-				for (int k = 1; k <= 24 && i + k < len / 8; k++)
+				for (int k = 1; k <= words && i + k < len / 8; k++)
 					printf(" %llx", (unsigned long long)p[i + k]);
 				printf("\n");
 			}

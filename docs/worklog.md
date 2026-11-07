@@ -2602,3 +2602,27 @@ What they found that bears on our open questions (their SoCs, not checked on T60
   - So the DCP restart after sleep (deferred at 21:46) is required for a real S2R, and the ANS has to come back through a fresh firmware start.
 
 No runs changed. R7 and R7N still wait for the owner; the AMCC clear and a WD2 read at the commit are candidates to add before them.
+
+## 2026-11-06 22:27 image 58: DJ's and Naeem Malik's leads, mapped to T6020; the Y-run "stalls" were unmapped pages; chain G58, W1, R8 (owner attended)
+
+The owner is at the Mac for attended runs and asked to test the leads from DJ's and Naeem Malik's work (22:13 entry).
+
+- **Correction to the 22:13 entry: "go hib" is not a missing step.** In our 13.5 analysis (11-05) the PMU log line "pmu go hib" comes from `AppleDialogSPMIPMU`'s quiesce re-programming the RTC alarm; it sends no sleep command. DJ's J700 trace agrees: the four SPMI writes after the commit are the alarm (`0xf80c`, `0xf808`, `0xf80e`, `0xf800 <- 0x41`), then the log line.
+- **AMCC errors on T6020, from the 13.5 kernelcache** (`AppleT6020PlatformErrorHandler::_amccEnableErrors`, `fffffe0009b1a93c`, and its decoder tables):
+  - each plane's error enable word *i* is at plane + `0x21000` + 8*i*, its status at + 4 (`_amccDecodeInterrupts` reads `0x21004` + 8*i*); planes `0x40000` apart, 4 per instance (Aura's `mcc.c` T6000 layout); macOS also zeroes plane + `0x22000` + 8*i*;
+  - word 0 bit 26 is DSID_AGE_OUT (T8140: bit 25) and word 1 bit 8 UNEXP_RT_HIT_DIR. DJ's offset (`0x25000`) would have hit the wrong register here.
+- **The Y-run stalls were most likely a mapping bug, not the hardware.** Aura's handler runs under Linux's EFI runtime map, which holds only the MMIO ranges Aura lists (`smp_psci_mmio_ranges`). Image 56 added the 12 held domains' writes but not their pages: `0x28e080000` (dispext0/1 chains) and `0x29e280000` (atc0/1/2_usb) were never mapped; disp0's chain shares the mapped `ps_sio` page. Y1, Y1T (USB-C) and Y2T (external displays) are exactly the unmapped groups, and Y3 (the panel's, mapped) never ran.
+  - So "Aura cannot force those domains off" (17:41 to 18:04) is unproven.
+  - R6's conclusion stands: Linux turned those domains off itself in R6, and the timer still reset at 86 s.
+- **Image 58** (Aura `464131290c7949c2`, `boot.bin.psci-test58` `29448f1a7cab4ddd`, diff `patches/psci-efi/aura/wip-image58.diff`; `psci_dbg` at `+0x137940`; `install.sh` uses it). New aura-ctl bits, each off by default:
+  - `0x100` records in a second block, `psci_dbg2` (magic `0xA0AA0002`, `run.sh` logs `aura dbg2`). It holds WD0..2 (count, alarm, ctl; WD*n* at WDT + `0x10`*n*) and the S2R timer word at four points: entry, just before the timer, right after it, and 100 ms later. It also holds each AMCC instance's error status at entry and before the timer, and the plane 0 enables.
+  - `0x200` clears DSID_AGE_OUT and UNEXP_RT_HIT_DIR in every plane's enables before the timer, and restores them on any resume.
+  - `0x400` stops WD2 100 ms after the timer.
+  - `0x800` masks every AIC line after the timer, as macOS's AIC quiesce does; it applies only with bit 2, and the masks are restored on resume.
+  - The held pages and the AMCC planes' pages are now in the runtime map (up to 48 ranges; U-Boot passes any number); the WD range is `0x30`.
+  - `scan-magic` takes a word count and `aura-ctl` accepts bits 0 to 11.
+- **Why WD2 matters:** on t8103 (Naeem, try38) and T8140 (DJ) the commit loads WD2, the AON "reconfig watchdog", and only a completed entry stops it. On the M1, iBoot leaves WD2's alarm at 90 s. Our timer resets the SoC about 60 s after it is written, even awake (T0). If that reset is WD2, every 86 s run was the engine's own "entry incomplete", and the timer is the commit the entry needs, not a separate safety net. In that case **R7N (no timer) cannot work and is dropped**.
+- **Chain, owner attended** (each arms the next after it is recorded):
+  - **G58**: normal path, records only (`0x100`). Checks image 58 and reads the watchdogs and AMCC status at entry.
+  - **W1**: T0 + records + WD2 stopped (`0x501`). A resume = the 60 s reset is WD2; 85 s = it is not.
+  - **R8**: R7 (R6 + PCPM + afr kept) + the AMCC clear + the AIC mask-all + records (`0xb3f`, slpa).
