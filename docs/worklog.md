@@ -2838,7 +2838,7 @@ Boot after R9 (image 59, `246054fceb614142`, aura-ctl `0x1b3f` = R8 + `0x1000`).
   - The range list goes from 48 to 64 entries (`dt_set_psci`), so that a full list cannot drop it silently. U-Boot reads any count.
 - **Next:** R10 again on 60b (same `attended.sh R10`, owner still present). It is a self-recovering variation either way: if the crumb write itself hangs, WD1 resets at about 146 s again.
 
-## 2026-11-06 23:47 run R10 on image 60b (owner attended): the breadcrumb works; the boot core's last code is `18`, the reset is the timer's at 86 s
+## 2026-11-07 06:26 run R10 on image 60b (owner attended): the breadcrumb works; the boot core's last code is `18`, the reset is the timer's at 86 s
 - **Dead-man pushes:** none (only the two "starting" pushes and my result push). No hand reset.
 - **Timing:** `echo mem` 23:43:34 (Pi kmsg, `aura ctl ... 0x5b3f`, `SetAPPower 0x201`), the next kernel at 23:45:00: **86 s**, the S2R timer's reset as in R6, R8, R9.
 - The test boot listed 29 runtime MMIO ranges, `0x29e114000` among them.
