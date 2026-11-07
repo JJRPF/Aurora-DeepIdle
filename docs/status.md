@@ -266,8 +266,10 @@ There are two goals:
   core (cpu3) never did, and the Mac still reset at 86 s.
 * **R13 (image 60e): cpu3 is sent the same wake-up as the others and
   never acts on it.** Both P-core complexes are off within 6 ms.
-* **Next:** run R14 (image 60f): what cpu3 is doing, and whether a second
-  wake-up reaches it.
+* **R14 (image 60f): cpu3 sleeps in its parking spot and no wake-up
+  reaches it**, not even a second one.
+* **Next:** run R15: the same without the per-core stop request Aura
+  writes before each wake-up.
 * **From 2026-11-06 the owner lets slpa runs that repeat or vary a
   self-recovering setup go unattended** (one at a time, dead-man switch
   on, a push before each); a new kind of step still gets one attended run.

@@ -2927,3 +2927,18 @@ The owner pointed to his post: 0.05 W averaged over a 3-hour sleep on the M1 Air
   - All `ff` if every core slept.
 - **Run R14** = R13 on 60f (`attended.sh R14`), a self-recovering variation.
 - Clean before it: flags removed, `/boot` mounted, default `boot.bin` `76f850895fed53d1`, no `next_entry`, btrfs 0, headless on, watcher running. Scratch `0x6004`–`0x600b`, `0x6010`–`0x6016`, `0x601b`–`0x601e` zeroed; `0x600c`–`0x600e` = `a5 5a 3c`.
+
+## 2026-11-07 06:59 run R14 (image 60f): cpu3 entered its park WFI once and never came out, not even for a second IPI; run R15 (no CPUSTART stop request) armed
+- **Dead-man pushes:** only the R13 result and the R14 start. No hand reset. `PM: suspend entry` 06:55:38; the Pi saw the Mac down at 06:55:45 and up at 06:57:35; uptime from 06:57:04. **86 s**, the timer's reset.
+- **PMU scratch after the reset:** `00300050197e0732 0000000001000000 03001f100388f801 000000000f105000`:
+  - `0x6004` `0x19`, `0x6014` 6 ms, never slept `f888`, CPU_OFF mask `077e`, first never-slept `0x32` (cpu3, `CPU_OFF`): all as R13.
+  - **`0x6010`/`0x6011` = `0x0003`:** the release IPI went to MPIDR 3, cpu3's own.
+  - **`0x600c` = 1:** cpu3 entered `psci_park_c` once since boot (its `CPU_OFF` at the suspend).
+  - **`0x600d` = 0:** it never returned from the park loop's WFI after the S2R clear.
+  - **`0x600e` = 0:** 2 ms after a second IPI (from the reset table's MPIDR) it still had not slept.
+  - The `a5 5a 3c` marker was overwritten by these values, so `0x600c`–`0x600e` survive a reset and take writes. The zeros in R12 and R13 were values written, not drops. That leaves the old again/max reading unexplained, but nothing depends on it.
+- **Reading:** cpu3 is in its park WFI (or below it) and nothing wakes it: neither the release IPI nor a second one. cpus 1 and 2, in the same cluster, on the same code path, wake on the first. What differs is what was done to the E cluster between their `CPU_OFF` and the release, all of it before the IPIs:
+  - aura-ctl bit 5 (`STOPREQ`): CPUSTART + 0 written with each secondary's bit right before its IPI. Aura's own `smp_psci_cpu_off` comment says a core stopped that way did not come back from any start strobe (boot tests 2026-10-25).
+  - bit 4 (`CLUSTERS`), the cluster targets to 0, and bit 3 (`CLOCKS`), the ClkGen muxes and PLL-off, both before the release.
+- **Run R15** = R14 with only `STOPREQ` removed (aura-ctl `0x5b1f`), image 60f. It is a one-step reduction of a self-recovering setup. If cpu3 then sleeps (`0x6015`/`16` without bit 3, `0x6007` = `ff`), the stop request is what holds it; if not, the cluster or clock step is next.
+- Clean before it: flags removed, `/boot` mounted, default `boot.bin` `76f850895fed53d1`, no `next_entry`, btrfs 0, headless on, watcher running, scratch `0x6004`–`0x6016` and `0x601b`–`0x601e` zeroed.
