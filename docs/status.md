@@ -256,8 +256,13 @@ There are two goals:
   resets a few seconds after the commit came from his last core hanging on
   a clock-parked device before its WFI; with nothing touched after the
   commit, the M1 slept and woke on the RTC alarm.
-* **Next:** run R11 (image 60c): a code after the flush and a snapshot of
-  the CPU clusters and PMP requests at the last moment.
+* **R11 (image 60c): the boot core reaches its deep sleep, but one of the
+  two P-core complexes is still powered at that moment** (the other is
+  off, and the PMP's requests are all released). Aura never clears the
+  wake-up interrupt it sends the other cores, so they may keep waking
+  instead of powering down.
+* **Next:** run R12 (image 60d): that interrupt cleared, with per-core
+  sleep counters.
 * **From 2026-11-06 the owner lets slpa runs that repeat or vary a
   self-recovering setup go unattended** (one at a time, dead-man switch
   on, a push before each); a new kind of step still gets one attended run.

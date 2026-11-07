@@ -181,7 +181,7 @@ index c0c95255..812cce9a 100644
  
  #endif
 diff --git i/src/psci.c w/src/psci.c
-index 444d71e5..3c2cec66 100644
+index 444d71e5..c4771d01 100644
 --- i/src/psci.c
 +++ w/src/psci.c
 @@ -1,14 +1,19 @@
@@ -206,7 +206,7 @@ index 444d71e5..3c2cec66 100644
   */
  
  static unsigned long psci_affinity_info(unsigned long target_affinity,
-@@ -20,9 +25,738 @@ static unsigned long psci_affinity_info(unsigned long target_affinity,
+@@ -20,9 +25,766 @@ static unsigned long psci_affinity_info(unsigned long target_affinity,
      return smp_psci_affinity_info(target_affinity);
  }
  
@@ -689,10 +689,19 @@ index 444d71e5..3c2cec66 100644
 +#define QS_CPM_PS  0x28e080060ULL
 +static void qs_crumb_snapshot(void)
 +{
-+    u8 a[4], c[4];
++    u8 a[4], c[4], w[4];
++    u64 t0, t;
++    u32 zero = 0, again = 0, maxl = 0;
 +
 +    if (!qs_crumbs.on)
 +        return;
++    /* image 60d: wait up to 500 ms for both P complexes to read off; 0x6014 = the wait in 2 ms units, 0xff = timeout */
++    asm volatile("isb\n mrs %0, cntpct_el0" : "=r"(t0));
++    do {
++        asm volatile("isb\n mrs %0, cntpct_el0" : "=r"(t));
++        if (!read32(QS_CPM_PS + 8) && !read32(QS_CPM_PS + 0x10))
++            break;
++    } while (t - t0 < 12000000);
 +    a[0] = read32(QS_PMP_REQ) >> 8;
 +    a[1] = read32(QS_PMP_REQ + 0x80) >> 8;
 +    a[2] = read32(QS_CPM_PS) >> 4;
@@ -701,8 +710,27 @@ index 444d71e5..3c2cec66 100644
 +    c[1] = read32(QS_CLUSTER);
 +    c[2] = read32(QS_CLUSTER + 4);
 +    c[3] = read32(QS_CLUSTER + 8);
++    /* image 60d: each secondary's cpu_sleep count (by Aura's CPU index; 0 = never got there, >1 = woke again) */
++    for (int i = 1; i < 16 && i < MAX_CPUS; i++) {
++        u32 n = smp_psci_s2r_loops(i);
++        if (!n)
++            zero |= BIT(i);
++        if (n > 1)
++            again |= BIT(i);
++        if (n > maxl)
++            maxl = n;
++    }
++    w[0] = (t - t0 >= 12000000) ? 0xff : (u8)((t - t0) / 48000);
++    w[1] = zero & 0xff;
++    w[2] = zero >> 8;
++    w[3] = maxl > 255 ? 255 : maxl;
 +    qs_crumb_write(0x6010, a, 4);
 +    qs_crumb_write(0x601b, c, 4);
++    qs_crumb_write(0x6014, w, 3);
++    w[0] = again & 0xff;
++    w[1] = again >> 8;
++    w[2] = w[3];
++    qs_crumb_write(0x600c, w, 3);
 +}
 +
 +static void __attribute__((noreturn)) psci_resume_kernel(int line, int via_rvbar)
@@ -945,7 +973,7 @@ index 444d71e5..3c2cec66 100644
      switch (fid) {
          case PSCI_0_2_FN_PSCI_VERSION:
              return PSCI_VERSION_1_0;
-@@ -34,6 +768,8 @@ unsigned long psci_efi_handler(unsigned long fid, unsigned long arg0, unsigned l
+@@ -34,6 +796,8 @@ unsigned long psci_efi_handler(unsigned long fid, unsigned long arg0, unsigned l
              return smp_psci_cpu_off();
          case PSCI_0_2_FN64_CPU_ON:
              return smp_psci_cpu_on(arg0, arg1, arg2);
@@ -954,7 +982,7 @@ index 444d71e5..3c2cec66 100644
          case PSCI_0_2_FN64_AFFINITY_INFO:
              return psci_affinity_info(arg0, arg1);
          default:
-@@ -53,5 +789,6 @@ const struct psci_efi_table psci_efi_table = {
+@@ -53,5 +817,6 @@ const struct psci_efi_table psci_efi_table = {
              [PSCI_FN(PSCI_0_2_FN_CPU_OFF)] = PSCI_RET_SUCCESS,
              [PSCI_FN(PSCI_0_2_FN64_CPU_ON)] = PSCI_RET_SUCCESS,
              [PSCI_FN(PSCI_0_2_FN64_AFFINITY_INFO)] = PSCI_RET_SUCCESS,
@@ -1005,7 +1033,7 @@ index 92d225ab..f3780160 100644
                                 unsigned long arg2);
  
 diff --git i/src/smp.c w/src/smp.c
-index 4c866a6c..eb49d921 100644
+index 4c866a6c..2ca2511e 100644
 --- i/src/smp.c
 +++ w/src/smp.c
 @@ -1,9 +1,11 @@
@@ -1038,7 +1066,7 @@ index 4c866a6c..eb49d921 100644
  asm(".text\n.globl psci_enter\npsci_enter:\n"
      "mrs x2, sctlr_el2\n"
      "bic x2, x2, #(1 << 0)\n"
-@@ -1083,6 +1085,39 @@ asm(".text\n.globl psci_enter\npsci_enter:\n"
+@@ -1083,6 +1085,52 @@ asm(".text\n.globl psci_enter\npsci_enter:\n"
      "mov x0, x1\n"
      "br x3\n");
  
@@ -1049,6 +1077,15 @@ index 4c866a6c..eb49d921 100644
 + * core is parked and the boot core is about to sleep the same way.
 + */
 +static volatile u64 psci_s2r_go __attribute__((aligned(64)));
++/* image 60d: how often each released secondary went into cpu_sleep(true); one cache line each */
++static volatile u32 psci_s2r_loops[MAX_CPUS][16] __attribute__((aligned(64)));
++
++u32 smp_psci_s2r_loops(int i)
++{
++    dc_ivac_range((void *)psci_s2r_loops[i], 64);
++    return psci_s2r_loops[i][0];
++}
++
 +
 +void smp_psci_release_parked(bool stopreq)
 +{
@@ -1071,6 +1108,10 @@ index 4c866a6c..eb49d921 100644
 +
 +void smp_psci_s2r_clear(void)
 +{
++    for (int i = 0; i < MAX_CPUS; i++) {
++        psci_s2r_loops[i][0] = 0;
++        dc_civac_range((void *)psci_s2r_loops[i], 64);
++    }
 +    psci_s2r_go = 0;
 +    dc_civac_range((void *)&psci_s2r_go, sizeof(psci_s2r_go));
 +}
@@ -1078,7 +1119,7 @@ index 4c866a6c..eb49d921 100644
  /* The parked state of a CPU_OFF'd core: deep WFI on the Aura stack until it is handed an entry. */
  void psci_park_c(u64 index) __attribute__((noreturn, used));
  void psci_park_c(u64 index)
-@@ -1090,15 +1125,32 @@ void psci_park_c(u64 index)
+@@ -1090,15 +1138,43 @@ void psci_park_c(u64 index)
      struct spin_table *me = &spin_table[index];
      u64 target;
  
@@ -1101,6 +1142,17 @@ index 4c866a6c..eb49d921 100644
          if ((target = *(volatile u64 *)&me->target))
              break;
 +        if (*(volatile u64 *)&psci_s2r_go) {
++            /*
++             * image 60d: the release IPI stays pending in IPI_SR (nothing here acked it, unlike the boot-time
++             * secondary loop), and a pending fast IPI ends each WFI at once, so the core spun instead of powering
++             * down (run R11: PCPM0 still on 2 ms after the release)
++             */
++            if (cpu_features->fast_ipi) {
++                msr(SYS_IMP_APL_IPI_SR_EL1, IPI_SR_PENDING);
++                sysop("isb");
++            }
++            psci_s2r_loops[index][0]++;
++            dc_civac_range((void *)psci_s2r_loops[index], 64);
 +            dcsw_op_all(DCSW_OP_DCCISW);
 +            sysop("dsb sy");
 +            cpu_sleep(true);
@@ -1115,7 +1167,7 @@ index 4c866a6c..eb49d921 100644
      }
      sysop("dmb sy");
      me->flag++;
-@@ -1162,8 +1214,44 @@ int smp_psci_mmio_ranges(u64 *ranges, int max)
+@@ -1162,8 +1238,44 @@ int smp_psci_mmio_ranges(u64 *ranges, int max)
          smp_psci_add_range(ranges, max, &n, cpu_start_base + cpu_info[i].die * PMGR_DIE_OFFSET,
                             0x100);
      }
@@ -1163,7 +1215,7 @@ index 4c866a6c..eb49d921 100644
      return n;
  }
 diff --git i/src/smp.h w/src/smp.h
-index 9f9840e5..979d2c2d 100644
+index 9f9840e5..84546d69 100644
 --- i/src/smp.h
 +++ w/src/smp.h
 @@ -36,6 +36,8 @@ uint64_t smp_get_mpidr(int cpu);
@@ -1175,14 +1227,17 @@ index 9f9840e5..979d2c2d 100644
  
  static inline int smp_id(void)
  {
-@@ -50,6 +52,7 @@ static inline int smp_id(void)
+@@ -50,8 +52,10 @@ static inline int smp_id(void)
  /* PSCI-via-EFI CPU operations (psci.c); return PSCI codes, CPU_OFF only on failure. */
  int smp_psci_cpu_on(u64 mpidr, u64 entry, u64 context);
  int smp_psci_cpu_off(void);
 +void psci_enter(u64 entry, u64 context) __attribute__((noreturn));
  int smp_psci_affinity_info(u64 mpidr);
  int smp_psci_mmio_ranges(u64 *ranges, int max);
++u32 smp_psci_s2r_loops(int i);
  
+ extern int boot_cpu_idx;
+ #endif
 diff --git i/src/start.S w/src/start.S
 index e66a83bd..7301b6ca 100644
 --- i/src/start.S

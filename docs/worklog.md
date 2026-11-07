@@ -2866,3 +2866,25 @@ The owner pointed to his post: 0.05 W averaged over a 3-hour sleep on the M1 Air
     - `0x601c`–`0x601e`: the EACC, PACC0 and PACC1 soc-cluster controls (`0x28e088000`, `+4`, `+8`).
   - The SPMI write takes 1 to 4 bytes now; `0x28e3c2000` is added to the runtime MMIO list. `0x6017` (iBoot's, presumably) is left alone.
 - **Run R11** = R10 on 60c (`attended.sh R11`, aura-ctl `0x5b3f`). It is a self-recovering variation. `0x6004` and the snapshot keys read 0 before it.
+
+## 2026-11-07 06:34 run R11 (image 60c): the boot core reaches its deep WFI; P-complex 0 is still on, P-complex 1 is off; image 60d, run R12 armed
+- **Dead-man pushes:** none. No hand reset. `echo mem` 06:29:17 (`aura ctl ... 0x5b3f`, `SetAPPower 0x201`); next kernel 06:30:43: **86 s**, the timer's reset.
+- **PMU scratch after the reset:** `0030005019000000 0000000000000000 00001f1f00000001 000000000f101000` (`0x6000`–`0x601f`):
+  - `0x6004` = **`0x19`**: the flush finished and the boot core executed `cpu_sleep(true)`. It never woke.
+  - `0x6010`/`0x6011` = **`00`/`00`**: the PMP request and ack words are 0, as at the end of macOS's entry (PCPM0/1 and the display bits all released).
+  - CPU complexes' power words (bits 4–11): ECPM `0x1f` (on: the boot core's), **PCPM0 `0x1f` (on)**, **PCPM1 `0x00` (off)**.
+  - Cluster controls: EACC `0x0f`, PACC0 `0x10`, PACC1 `0x10`: targets 0, bit 4 (the bit macOS polls until it clears) set on both.
+- **Reading:** 2 ms after the release, P-complex 1 was off and P-complex 0 was not. That is the first concrete difference from a completed entry.
+- **Likely cause, found in the code:**
+  - Linux's own secondary wait loop clears the fast-IPI pending bit `IPI_SR` after each wake (`smp.c:246`). Aura's `psci_park_c` never does.
+  - The release is a fast IPI (`IPI_RR_GLOBAL`), so a released secondary keeps `IPI_SR` pending. Each deep WFI can then end at once, and the core loops through flush + `cpu_sleep` instead of powering down.
+  - Why P-complex 1 got down anyway is not explained (timing, or which cores were still looping). Image 60d measures it.
+- **Image 60d** (Aura `d0d0c55253260d69`, `boot.bin.psci-test60d` `040cefaccda4b569`, diff `wip-image60d.diff`; `psci_dbg` `+0x137980`; `install.sh` uses it):
+  - In the S2R branch of `psci_park_c` only (normal hotplug parking unchanged): `IPI_SR` cleared before each `cpu_sleep(true)`, and a per-core counter of those sleeps (one cache line each, cleaned).
+  - The boot core waits up to 500 ms for the PCPM0 and PCPM1 power words to read 0, then takes the snapshot. New keys:
+    - `0x6014`: the wait in 2 ms units (`ff` = timeout);
+    - `0x6015`/`0x6016`: the cores that never reached the sleep (bit = Aura CPU index);
+    - `0x600c`/`0x600d`: the cores that slept more than once;
+    - `0x600e`: the highest count (capped at 255).
+- **Run R12** = R11 on 60d (`attended.sh R12`), a self-recovering variation.
+- Clean before it: flags removed, `/boot` mounted, default `boot.bin` `76f850895fed53d1`, no `next_entry`, btrfs 0, headless on, watcher running.
