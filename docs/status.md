@@ -1,4 +1,4 @@
-# Where the work stands (2026-11-06, 22:31, after run G58)
+# Where the work stands (2026-11-06, 22:38, after run W1)
 
 This is the summary of the whole effort: what was measured, what was built,
 what works, what does not, and what comes next. Each section points to the
@@ -224,8 +224,10 @@ There are two goals:
     starts, on all four controllers. WD2 sits at a 90 s alarm.
   * Also found: images 56 and 57 never mapped two register pages they
     wrote to, so the "Aura cannot force domains off" result is unproven.
+* **2026-11-06 22:34: run W1: stopping WD2 right after the timer moved
+  the reset from about 85 s to about 116 s.** So WD2 is part of it, but
+  something else still resets the SoC, and the alarm did not wake it.
 * **Next (owner attended):**
-  * W1: does stopping WD2 prevent the 60 s reset?
   * R8: R7 plus the AMCC errors cleared and every interrupt masked
     after the sleep starts.
 * **From 2026-11-06 the owner lets slpa runs that repeat or vary a
