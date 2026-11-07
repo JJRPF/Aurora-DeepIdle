@@ -3061,3 +3061,29 @@ The owner pointed to his post: 0.05 W averaged over a 3-hour sleep on the M1 Air
   - MTP (`rtkit-helper`, built into the kernel, so testing it needs a new test Image);
   - the GPU (asahi, `afr` kept on).
 - Clean afterwards: flags removed, `/boot` mounted, default `boot.bin` `76f850895fed53d1`, no `next_entry`, btrfs 0, headless on, watcher running.
+
+## 2026-11-07 08:00 issue #9: maralcbr's macOS 15.6.1 sleep-entry trace on J314s (T6000); replied
+- CoreyH's 11-05 comment on #9 (unanswered until now) points to [maralcbr/linux `macsmc-reboot.c`](https://github.com/maralcbr/linux/blob/37be2668e36f5e95bfb7132231b7700e3c0fa568/drivers/power/reset/macsmc-reboot.c#L231-L311). It is a lab-only replay of macOS 15.6.1's sleep entry on a J314s, traced under the m1n1 hypervisor. T6000 addresses; the trace itself and its results are not public. Read at commit `37be266`, copy in the scratchpad only.
+- **It confirms the SEP lead (R18) independently:**
+  - macOS sends `0x00000000020c0700` on the SEP mailbox (`0x396408000`): EP 0, tag 7, op 0x0c, param 2, data 0, exactly our static decode. It replies `0x10700`.
+  - macOS then clears OUTBOX_CTRL ENABLE (`+0x114` bit 0) and writes the SEP PMGR domain (`0x28e580c00` on T6000) off.
+  - Our R18 sends only the message.
+- **Before `slpa` (T6000):**
+  - the PMGR request word `0x28e3d8328` = 4 before `slpw`;
+  - SMC `MBSE`=`slpw`, `pmVC`=0x100, `WKTP`=2;
+  - then `1 << 61` to `0x28e3d0860` (SOC-DEV-DVFS + 4) and `0x28e3d8328` = 1;
+  - the internal-PCIe ports powered down;
+  - the PMGR domains macOS has off: PCIE0_REF, APCIE_GP_SYS, the AFNC LW domains, ATC*_PCIE/COMMON, the display FE/CPU0 domains, the UARTs, SEP, NUB_SPMI1, MSG, ATC*_USB_AON.
+- **After `slpa`: 74 writes, in order:**
+  - the PCIe root complex (`apcie[2]+0` 0x8f, 0x8c);
+  - WD0 ctl 0;
+  - the error handlers (`+0xa00` of four, many in error-handler[1]/[2]);
+  - each cluster's CPM/DVFS blocks (`pmgr[8/15/24]+0x20`, `pmgr[10/17/26]+0x240/0x250/0x8400/0x8080`, `+0x660`);
+  - `pmgr[56]` (`+0x8014`, `+0x82bc` 1, 2, 4);
+  - `pmgr[2]+0x58000/0x60000/0x64000/0x188`;
+  - `pmgr[38]+0x800` (0x557, 0x775);
+  - the `pmgr[46]` sequence (0x219, 0x21b, 0x8000021a, 0x21a x3);
+  - **last, 1 to `0x2925c4000`, T6000's S2R timer.**
+- **What we have never done** on J414s: the error-handler masks, the cluster CPM/DVFS writes, `pmgr[38]`/`pmgr[46]`/`pmgr[56]`, the PCIe RC/port power-down, the pre-`slpw` request word and the DVFS bit. On T6020 `0x28e3d…` is the PMP's mailbox block, so the request word may belong to a different unit here.
+- **Next:** map T6000's ADT `pmgr` reg indexes and error-handler nodes to T6020's (`DeviceTree.j414sap.bin`, static). Then build the post-`slpa` writes into Aura before the timer, as a new attended step.
+- Replied on #9 (as asked by the owner): our J414s state, what the tables add, two cautions for their s2idle runs (ANS dead after `slpa`; the 86 s timer reset as a signature), and a question on which unit owns `0x28e3d8328`/`0x28e3d0860`.
