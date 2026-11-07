@@ -1,4 +1,4 @@
-# Where the work stands (2026-11-06, 18:18, after run S5)
+# Where the work stands (2026-11-06, 21:23, after run S6)
 
 This is the summary of the whole effort: what was measured, what was built,
 what works, what does not, and what comes next. Each section points to the
@@ -198,10 +198,14 @@ There are two goals:
   USB-C domains.** 96 of 200 domains on; the USB receiver came back and
   the charger port is in device mode again. Only the three display
   coprocessors' chains (13 domains) and two always-on groups are left.
-* **Next:** the display coprocessors (Phase 4): first the two external
-  ones, which have nothing attached but run firmware Linux started at
-  boot (shut it down in sleep, start it again after), then the panel's. Then the S2R entry is tried again
-  with them off.
+* **2026-11-06 21:19: run S6, the display coprocessors' firmware shut
+  down for the sleep (a test switch; not restarted yet, so the displays
+  stay dark until a reboot), and every domain a driver held went off: 83
+  of 200 on, the rest are the always-on ones.** One new problem: the GPU's
+  domain did not power on again after the wake.
+* **Next:** run R6, run R's full macOS sleep sequence with these domains
+  off: does the S2R entry complete now? Then, whatever it shows: the
+  display coprocessors' restart after sleep, and the GPU's power-up.
 * **From 2026-11-06 the owner lets slpa runs that repeat or vary a
   self-recovering setup go unattended** (one at a time, dead-man switch
   on, a push before each); a new kind of step still gets one attended run.

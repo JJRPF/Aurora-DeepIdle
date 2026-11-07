@@ -1,0 +1,22 @@
+# run S6, 2026-11-06 21:19, test kernel b83b00e1e29edf5f + test modules (USB teardown, PHY restore, appledrm.test_sleep_off=1), image 57 (no Aura steps), normal path, USB-C wakeup off; back on the alarm in 32.8 s, then reboot-after; '*' = always-on
+2026-11-06 21:19:37 wakeup off: 702280000.usb/power/wakeup
+2026-11-06 21:19:37 wakeup off: b02280000.usb/power/wakeup
+2026-11-06 21:19:37 wakeup off: f02280000.usb/power/wakeup
+2026-11-06 21:19:37 wakeup off: f02280000.usb/xhci-hcd.4.auto/power/wakeup
+2026-11-06 21:19:37 dcp off: Y
+2026-11-06 21:19:37 usb teardown: Y; phy restore: Y
+[66.377019] dwc3-apple 702280000.usb: TEST: core stopped for deep suspend (role 2): 0
+[66.397021] dwc3-apple f02280000.usb: TEST: core stopped for deep suspend (role 1): 0
+[70.133477] apple-dcp 289c00000.dcp: TEST: firmware shut down for deep suspend, down until reboot
+[70.133663] apple-dcp 315c00000.dcp: TEST: firmware shut down for deep suspend, down until reboot
+[70.134583] apple-dcp 389c00000.dcp: TEST: firmware shut down for deep suspend, down until reboot
+[70.136806] PM: genpd test syscore suspend: gpx* debug_switch* nub_sram* mtp_fabric* atc3_usb_aon* atc2_usb_aon* atc1_usb_aon* atc0_usb_aon* nub_fabric* nub_gpio* msg* nub_aon* nub_spmi1* nub_spmi0* debug* sep* apcie_phy_sw* apcie_gp_sys* apcie_gpshr_sys dcs_15* dcs_14* dcs_13* dcs_12* dcs_07* dcs_06* dcs_05* dcs_04* amcc3* amcc1* dptx_phy_ps* aes* sio apcie_gp afnc3_lw0* afnc3_ls* afnc3_ioa* afnc2_lw1* afnc2_lw0* afnc2_ls* afnc2_ioa* afnc6_lw0* afnc6_ls* afnc6_ioa* clvr_spmi4* clvr_spmi3* clvr_spmi2* clvr_spmi1* clvr_spmi0* pms_sram* pmp* atc3_pcie* atc2_pcie* atc1_pcie* atc0_pcie* pms_bridge* atc3_common* atc2_common* atc1_common* atc0_common* afnc0_lw0* afnc1_lw2* afnc1_lw1* afnc1_lw0* afnc0_ls* afnc1_ls* afnc0_ioa* afc* afnc1_ioa* dcs_11* dcs_10* dcs_09* dcs_08* dcs_03* dcs_02* dcs_01* dcs_00* amcc2* amcc0* pms_c1ppt* soc_dpe* pms*
+[70.136917] PM: genpd test syscore suspend: aic* afi*
+[70.136945] PM: genpd test syscore suspend: 83 of 200 domains on
+[70.136963] PM: genpd test syscore suspend held apcie_gpshr_sys: susp 0/0 defer awake; child apcie_gp_sys
+[70.137014] PM: genpd test syscore suspend held sio: susp 1/1 defer awake; child aes child dptx_phy_ps
+[70.137030] PM: genpd test syscore suspend held apcie_gp: susp 0/0 defer awake; child apcie_gpshr_sys
+[70.137730] apple-pmgr-pwrstate 404e80000.power-management:power-controller@108: PS gfx: Failed to reach power state 0xf (requested 0xf00000f, now: 0xf000b0f)
+[70.139960] [drm:drm_mode_config_helper_resume] *ERROR* Failed to resume (-22)
+[70.157026] dwc3-apple 702280000.usb: TEST: core restarted after deep suspend (role 2): 0
+[70.160965] dwc3-apple f02280000.usb: TEST: core restarted after deep suspend (role 1): 0
