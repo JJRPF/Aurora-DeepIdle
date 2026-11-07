@@ -2731,3 +2731,26 @@ Boot after R9 (image 59, `246054fceb614142`, aura-ctl `0x1b3f` = R8 + `0x1000`).
   - WD1 off (R9).
   None changes it.
 - Clean afterwards: flags removed, `/boot` mounted, default `boot.bin` `76f850895fed53d1`, no next_entry, btrfs counters 0. The chain ends here (`NEXT=""`).
+
+## 2026-11-06 23:13 static: DJ's per-core deep-sleep register is T8140's; every DJ/Naeem lead now tried or ruled out on T6020
+
+- DJ's entry ends with each core's deep WFI flagged in `S3_5_C15_C6_2` (bits 63 and 0; `src/sptm_virt_s2r.c` on `feat/sptm-hv`, `sptm_virt_s2r_wfi()`).
+  - On this Mac, macOS's sleep code writes `S3_5_C15_C6_0` (ACC_OVRD) and CYC_OVRD `0x3000001` instead: our HV trace of the guest's sleep (worklog 2026-10-25 18:31, `docs/hv-boot-trace-reference.md` step 7), and XNU 8796's `arm64_prepare_for_sleep` (16:19 entry).
+  - Aura's `cpu_sleep(true)` writes the same fields.
+  - So `C6_2` is the T8140 form of the same step, not a missing T6020 write.
+- DJ's order also puts the PMU RTC alarm (SPMI `0xf80c/0xf808/0xf80e`, `0xf800 <- 0x41`) after the commit. That is the alarm re-programmed at Quiesce ("go hib", 22:27 correction). Linux sets the same alarm before the suspend.
+- **Where the leads stand on T6020:**
+  - secondaries stopped (CPUSTART stop requests, image 55);
+  - CPU complexes / CPM gating (already on, 22:50);
+  - fabric and DCS states (already macOS's, 22:50);
+  - AMCC errors (R8);
+  - AIC masked (R8);
+  - AON watchdogs off (R9);
+  - the debug USB port off (usb-teardown);
+  - per-core deep sleep (same as XNU).
+  None completes the entry.
+- **The gap is observability after the commit.**
+  - W2 showed Linux cannot run after the timer.
+  - Aura's DRAM records do not survive the reset into the default boot.
+  - Naeem proved his M1 slept with a breadcrumb in PMU scratch (`0x9f0a`), which survives a reset.
+  - **Next:** find PMU scratch registers on T6020 that are free and survive a watchdog reset (the ADT `pmu` node and 13.5's `AppleDialogSPMIPMU`), read-only first. Aura can then leave a few bytes after the timer: did each core reach its deep WFI, did the boot core come back through RVBAR before the reset. Linux reads them on the next boot.
