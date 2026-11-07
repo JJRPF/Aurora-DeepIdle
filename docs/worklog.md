@@ -3045,3 +3045,4 @@ The owner pointed to his post: 0.05 W averaged over a 3-hour sleep on the M1 Air
 - **PMU scratch after the reset:** identical to R17 (code `0x16`, CPU_OFF mask `077e`, never-slept `f880`, `0x6007` `ff`, wait 3 ms, EACC/PACC0/PACC1 `10/10/50`, `boot-error-stage` `0x50`). The SIO step changed nothing visible.
 - **Next:** confirm the SIO takes IDLE on a normal-path run that resumes, so its line reaches the journal (**S9**, unattended per the owner's 11-06 rule: S-series normal path, no `slpa`, `reboot-after`). If it acks 0, R19 is a real negative: the SIO is not what the entry waits for. The SEP test (R18) still waits for the owner.
 - Clean afterwards: flags removed, scratch zeroed, `/boot` mounted, default `boot.bin` `76f850895fed53d1`, no `next_entry`, btrfs 0, headless on, watcher running.
+- 07:49 S9 armed unattended (attended.sh S9: deep_steps 32, no slpa, no Aura steps, sio-idle, reboot-after); the owner was told first.
