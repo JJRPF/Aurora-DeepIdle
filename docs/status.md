@@ -291,7 +291,7 @@ There are two goals:
   standard firmware sleep message to the SIO. It needs no special OK.
   **R19 result:** still the same 86 s reset. Whether the SIO actually
   accepted the message is not visible from that run; a normal resume test
-  (S9) checks it.
+  (S9) checks it. **S9:** the SIO accepted it, so the SIO is ruled out.
 * **From 2026-11-06 the owner lets slpa runs that repeat or vary a
   self-recovering setup go unattended** (one at a time, dead-man switch
   on, a push before each); a new kind of step still gets one attended run.

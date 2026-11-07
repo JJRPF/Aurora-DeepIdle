@@ -3046,3 +3046,18 @@ The owner pointed to his post: 0.05 W averaged over a 3-hour sleep on the M1 Air
 - **Next:** confirm the SIO takes IDLE on a normal-path run that resumes, so its line reaches the journal (**S9**, unattended per the owner's 11-06 rule: S-series normal path, no `slpa`, `reboot-after`). If it acks 0, R19 is a real negative: the SIO is not what the entry waits for. The SEP test (R18) still waits for the owner.
 - Clean afterwards: flags removed, scratch zeroed, `/boot` mounted, default `boot.bin` `76f850895fed53d1`, no `next_entry`, btrfs 0, headless on, watcher running.
 - 07:49 S9 armed unattended (attended.sh S9: deep_steps 32, no slpa, no Aura steps, sio-idle, reboot-after); the owner was told first.
+
+## 2026-11-07 07:53 run S9 (normal path, SIO IDLE): the SIO acks IDLE, so R19 was a real negative
+- **No dead-man push** (a resume with the disk alive sends none). No hand reset.
+- **Result, journal of the S9 boot:**
+  - `echo mem` 07:51:17;
+  - `apple-sio 39bc00000.sio: TEST: firmware IDLE for system sleep: 0`, logged on the way down;
+  - the PMP release and re-assert lines as S3;
+  - `back, rc=0, elapsed 32.43`, online 0-9, PMGR SLP_S2R 0 (normal path, as expected);
+  - `reboot-after` sysrq-rebooted at 07:52:15. No errors around the SIO on the way back.
+- **So the SIO firmware accepts RTKit IDLE (0x201) in `.suspend`.** R19 sent it before the commit and the entry still reset at 86 s: the SIO is not what the PMGR S2R entry waits for.
+- **Left among the coprocessors that run into the commit with no sleep message:**
+  - the SEP: R18, built, waits for the owner;
+  - MTP (`rtkit-helper`, built into the kernel, so testing it needs a new test Image);
+  - the GPU (asahi, `afr` kept on).
+- Clean afterwards: flags removed, `/boot` mounted, default `boot.bin` `76f850895fed53d1`, no `next_entry`, btrfs 0, headless on, watcher running.
