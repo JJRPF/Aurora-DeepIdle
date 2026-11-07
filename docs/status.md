@@ -1,4 +1,4 @@
-# Where the work stands (2026-11-06, 21:30, after run R6)
+# Where the work stands (2026-11-06, 21:37, after run S7)
 
 This is the summary of the whole effort: what was measured, what was built,
 what works, what does not, and what comes next. Each section points to the
@@ -207,10 +207,12 @@ There are two goals:
   domains off, still ended in the S2R timer's reset at 86 s.** So the
   devices' power domains are not what the S2R entry waits for (they still
   have to be off in a real S2R, so the work is not lost).
-* **Next:** the one difference left in macOS's trace: macOS requests the
-  CPU complexes' power at the power-management processor (PMP) while
-  awake and releases it right after the sleep trigger; Linux never
-  requests it, so that release never happens.
+* **2026-11-06 21:36: run S7: the PMP accepts and acknowledges the CPU
+  complexes' requests from Linux.**
+* **Next:** run R7 (R6 with those requests released right after the sleep
+  trigger, as macOS does). It is a new kind of step, so it waits for the
+  owner to be near the Mac once. Meanwhile: why the GPU did not power up
+  after S6 (its domain hangs off one the displays kept on before).
 * **From 2026-11-06 the owner lets slpa runs that repeat or vary a
   self-recovering setup go unattended** (one at a time, dead-man switch
   on, a push before each); a new kind of step still gets one attended run.
