@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "updated": "2026-11-06",
+  "updated": "2026-11-07",
   "overall": 45,
   "overall_note": "Risk-weighted guess with a wide error bar. The page prefers the live figure in `docs/status.md` when it can read one.",
   "machine": "14-inch MacBook Pro, M2 Pro (`T6020`, `apple,j414s`), Aurora Silicon Linux",
@@ -241,7 +241,8 @@
     { "n": "60", "what": "Image 59 + aura-ctl 0x4000: a stage code in PMU legacy scratch key 4 (0x6004) over SPMI at each step of the sleep tail and on the RVBAR wake", "result": "R10: faulted on the first breadcrumb (SPMI page not in the EFI runtime map); WD1 reset at 146 s", "outcome": "fail" },
     { "n": "60b", "what": "Image 60 with the SPMI controller's page in the EFI runtime MMIO list (and room for 64 ranges)", "result": "R10: the breadcrumb works: last code 0x18 (before the flush and the boot core's deep WFI), the timer's reset at 86 s", "outcome": "info" },
     { "n": "60c", "what": "Image 60b + code 0x19 after the flush and a CPU-side snapshot (PMP request/ack, ECPM/PCPM0/PCPM1 power words, EACC/PACC0/PACC1 controls) in PMU scratch", "result": "R11: last code 0x19 (deep WFI reached); PMP requests 0; PCPM0 still on, PCPM1 off 2 ms after the release; timer reset at 86 s", "outcome": "info" },
-    { "n": "60d", "what": "Image 60c + the parked secondaries ack the release IPI (IPI_SR) before each S2R sleep, per-core sleep counters, a 500 ms wait for PCPM0/1 off before the snapshot", "result": "Built; run R12 next", "outcome": "info" }
+    { "n": "60d", "what": "Image 60c + the parked secondaries ack the release IPI (IPI_SR) before each S2R sleep, per-core sleep counters, a 500 ms wait for PCPM0/1 off before the snapshot", "result": "R12: code 0x19 again; both P complexes off (PCPM0 actual state 0, bit 8 is the was-power-gated flag), PACC0/1 bit 4 clear; E core 3 never reached its S2R sleep; the again/max write was dropped; timer reset at 86 s", "outcome": "info" },
+    { "n": "60e", "what": "Image 60d + scratch writes wait for the SPMI TX FIFO and reply (no drops), the P-complex wait on the actual-state nibble only, 0x6005-07 the CPU_OFF mask at the release and the first never-slept core's PSCI state", "result": "Built; run R13 next", "outcome": "info" }
   ],
   "macos_sleep": [
     { "step": "SMC `MSxb` writes from every CPU", "linux": "Housekeeping, not needed yet" },
@@ -328,7 +329,8 @@
     { "title": "The PMU has free scratch that Aura can write", "body": "13.5's AppleDialogSPMIPMU uses legacy scratch keys 0-3, 8-11, 0xf, 0x18-0x1a and 0x1f (base 0x6000). Keys 4-7, 0xc-0xe, 0x10-0x17 and 0x1b-0x1e are unused; 0x6004 takes a write from Linux and reads it back. Image 60 puts Aura's stage codes there." },
     { "title": "The boot core gets through Aura's whole sleep tail", "body": "Run R10 (image 60b, 2026-11-06 23:43): PMU scratch 0x6004 = 0x18 after the 86 s timer reset. Aura wrote the timer, stopped WD2, masked the AIC and released the secondaries, and reached the point before its cache flush and deep WFI. It never returned from the WFI and never came back through RVBAR." },
     { "title": "Naeem Malik's M1 sleeps once the last core reaches its WFI", "body": "malik-na/m1-power-lab (11-06/07): his ~5 s post-commit resets came from his own last core hanging on an MMIO access to a clock-parked USB controller. With no hardware access after the commit (try32) the M1 really slept, woke on the RTC alarm at the locked RVBAR, and held 0.05 W over 3 hours (try46)." },
-    { "title": "At the last moment one P complex is still on", "body": "Run R11 (image 60c, 2026-11-07 06:29): the boot core reached its deep WFI (code 0x19) and the PMP's requests were all released (0), but 2 ms after the secondaries' release the PCPM0 power word was still on while PCPM1 was off. Aura's park loop never acks the release IPI (IPI_SR), so released secondaries may spin instead of powering down." }
+    { "title": "At the last moment one P complex is still on", "body": "Run R11 (image 60c, 2026-11-07 06:29): the boot core reached its deep WFI (code 0x19) and the PMP's requests were all released (0), but 2 ms after the secondaries' release the PCPM0 power word was still on while PCPM1 was off. Aura's park loop never acks the release IPI (IPI_SR), so released secondaries may spin instead of powering down." },
+    { "title": "With IPI_SR cleared both P complexes power down; E core 3 does not sleep", "body": "Run R12 (image 60d, 2026-11-07 06:36): the boot core reached its deep WFI again, PCPM0 and PCPM1 both read actual state 0 and PACC0/1 bit 4 cleared, so the release-IPI ack fixed R11's lit P complex. Every P core and E cores 1-2 reached the S2R sleep; E core 3 (MPIDR 3) never did. The timer still reset the Mac at 86 s." }
   ],
   "rules": [
     "Never remove and rescan PCI devices: it kills Wi-Fi until a reboot.",

@@ -261,8 +261,10 @@ There are two goals:
   off, and the PMP's requests are all released). Aura never clears the
   wake-up interrupt it sends the other cores, so they may keep waking
   instead of powering down.
-* **Next:** run R12 (image 60d): that interrupt cleared, with per-core
-  sleep counters.
+* **R12 (image 60d): with that interrupt cleared, both P-core complexes
+  power down.** Every performance core reached its sleep; one efficiency
+  core (cpu3) never did, and the Mac still reset at 86 s.
+* **Next:** run R13 (image 60e): find out where cpu3 is at that moment.
 * **From 2026-11-06 the owner lets slpa runs that repeat or vary a
   self-recovering setup go unattended** (one at a time, dead-man switch
   on, a push before each); a new kind of step still gets one attended run.

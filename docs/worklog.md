@@ -2888,3 +2888,22 @@ The owner pointed to his post: 0.05 W averaged over a 3-hour sleep on the M1 Air
     - `0x600e`: the highest count (capped at 255).
 - **Run R12** = R11 on 60d (`attended.sh R12`), a self-recovering variation.
 - Clean before it: flags removed, `/boot` mounted, default `boot.bin` `76f850895fed53d1`, no `next_entry`, btrfs 0, headless on, watcher running.
+
+## 2026-11-07 06:45 run R12 (image 60d): both P complexes power down, cpu3 never reaches its S2R sleep; image 60e, run R13 armed
+- **Dead-man pushes:** only the R11 result and the R12 start. No hand reset. `echo mem` 06:36:23 (`aura ctl ... 0x5b3f`); the Pi saw the Mac down at 06:36:30 and up at 06:38:20; uptime from 06:37:49. That is **86 s**, the timer's reset again.
+- **PMU scratch after the reset:** `0030005019000000 0000000000000000 00001f10ff88f801 000000000f000000` (`0x6000`–`0x601f`):
+  - `0x6004` = **`0x19`**, as in R11: the boot core reached `cpu_sleep(true)` and never woke.
+  - `0x6010`/`0x6011` = `00`/`00`: the PMP requests are released.
+  - Power words (bits 4–11): ECPM `0x1f`, **PCPM0 `0x10`**, PCPM1 `0x00`. PCPM0 is `0x100`: the actual-state nibble (bits 4–7) is **0, so P-complex 0 is off**. Bit 8 is the PMGR's was-power-gated flag (`APPLE_PMGR_WAS_PWRGATED` in Linux's pmgr-pwrstate), set on PCPM0 whenever it is read live (`0x1f0`). So both P complexes were down this time; in R11 PCPM0 read `0x1f` (actual state f) 2 ms after the release.
+  - Cluster controls: EACC `0x0f`, **PACC0 `0x00`, PACC1 `0x00`**: bit 4, the one macOS polls until it clears, has cleared on both P clusters (it was set in R11).
+  - `0x6014` = `ff`: the 500 ms wait timed out. It waited for the whole power word to read 0, and bit 8 never clears, so the timeout is my condition's fault, not a stuck complex.
+  - **`0x6015`/`0x6016` = `f888`: the indices that never reached the S2R sleep are 3, 7 and 11–15.** Aura's index is the ADT `cpu-id` (13.5 ADT: E cores 0–3, P cluster 0 4–7, P cluster 1 8–11). This J414s runs P cores 4–6 and 8–10; 7 and 11 are not used (macOS's trace writes CPUSTART for 1–6 and 8–10 only), and 12–15 do not exist. So **every P core and E cores 1 and 2 slept; E core 3 (MPIDR 3, Linux cpu3) never did**.
+  - `0x600c`–`0x600e` = 0, which cannot be right: at least one core slept, so the highest count is at least 1. The last scratch write was dropped: `qs_crumb_write` skips a write when the SPMI TX FIFO is not empty, and it waited only about 1 ms for each reply. Whether any core slept more than once is unknown.
+- **Reading:** clearing `IPI_SR` worked. The P complexes now power down, which is the R11 difference gone. What is left is cpu3 and the reset itself. cpu3 is in the E cluster, which stays on for the boot core anyway, but Naeem's M1 only slept once **every** core was in its final WFI. cpu3 was either not CPU_OFF in Aura's table at the release (so it got no IPI), or it was and never left its park WFI, or it is somewhere else entirely.
+- **Image 60e** (Aura `1d975e14ecf8abf4`, `boot.bin.psci-test60e` `7b444f57629d6a98`, diff `wip-image60e.diff`; `psci_dbg` still `+0x137980`; `install.sh` uses it):
+  - Scratch writes wait up to about 5 ms for the TX FIFO and for the reply, instead of dropping the write.
+  - The P-complex wait checks only the actual-state nibble (bits 4–7) of PCPM0/1. `0x6014` becomes a real time.
+  - New keys `0x6005`/`0x6006`: the cores Aura held as `CPU_OFF` when it sent the release (bit = index). `0x6007`: the lowest valid secondary that never slept (bits 4–7) and its PSCI state (bits 0–3: 0 parked, 1 on, 2 off), `ff` if none.
+  - Everything else is as 60d.
+- **Run R13** = R12 on 60e (`attended.sh R13`), a self-recovering variation. The scratch keys `0x6004`–`0x6016` and `0x601b`–`0x601e` are zeroed before it.
+- Clean before it: flags removed, `/boot` mounted, default `boot.bin` `76f850895fed53d1`, no `next_entry`, btrfs 0, headless on, watcher running.
