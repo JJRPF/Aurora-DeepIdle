@@ -249,7 +249,15 @@ There are two goals:
   R10 (R9 + the stage codes) was void: image 60 had left the PMU's bus
   controller out of the memory map Aura runs under, so the first code
   faulted and Aura's watchdog reset the Mac at 146 s. Image 60b fixes it.
-* **Next (owner present):** R10 again on image 60b.
+* **R10 on image 60b: the boot core gets to the very end.** Its last stage
+  code is `18` (before its cache flush and deep WFI); it never woke, and the
+  timer reset the Mac at 86 s.
+* **Naeem Malik has a real S2R on the M1** (0.05 W over 3 hours). His
+  resets a few seconds after the commit came from his last core hanging on
+  a clock-parked device before its WFI; with nothing touched after the
+  commit, the M1 slept and woke on the RTC alarm.
+* **Next:** run R11 (image 60c): a code after the flush and a snapshot of
+  the CPU clusters and PMP requests at the last moment.
 * **From 2026-11-06 the owner lets slpa runs that repeat or vary a
   self-recovering setup go unattended** (one at a time, dead-man switch
   on, a push before each); a new kind of step still gets one attended run.

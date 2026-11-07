@@ -2837,3 +2837,32 @@ Boot after R9 (image 59, `246054fceb614142`, aura-ctl `0x1b3f` = R8 + `0x1000`).
   - `psci_crumb_base()` exported; `smp_psci_mmio_ranges` adds `0x29e114000` + `0x10`.
   - The range list goes from 48 to 64 entries (`dt_set_psci`), so that a full list cannot drop it silently. U-Boot reads any count.
 - **Next:** R10 again on 60b (same `attended.sh R10`, owner still present). It is a self-recovering variation either way: if the crumb write itself hangs, WD1 resets at about 146 s again.
+
+## 2026-11-06 23:47 run R10 on image 60b (owner attended): the breadcrumb works; the boot core's last code is `18`, the reset is the timer's at 86 s
+- **Dead-man pushes:** none (only the two "starting" pushes and my result push). No hand reset.
+- **Timing:** `echo mem` 23:43:34 (Pi kmsg, `aura ctl ... 0x5b3f`, `SetAPPower 0x201`), the next kernel at 23:45:00: **86 s**, the S2R timer's reset as in R6, R8, R9.
+- The test boot listed 29 runtime MMIO ranges, `0x29e114000` among them.
+- **PMU after the reset:** `0x6000`–`0x601f` = `00 30 00 50 18 00…` (`0x6017` = 1 as always). **`0x6004` = `0x18`.** `boot-error-stage` `0x50` again, fault log 0, `fault_shadow` `1012…`.
+- **Meaning:** Aura wrote `11` through `18` in order and nothing after. So the boot core:
+  - read the steps, wrote the timer, stopped WD2 100 ms later and masked the AIC;
+  - released the nine secondaries into their deep sleep and waited 2 ms;
+  - reached the point before its cache flush and its own deep WFI.
+  It never reached the heartbeat loop (`1a`, the deep WFI returned) and never came back through RVBAR (`21`). Either it hung in the set/way flush, or it slept and nothing ever woke it while the SoC stayed up until the timer reset.
+- Clean afterwards: flags removed, `/boot` mounted, default `boot.bin` `76f850895fed53d1`, no `next_entry`, btrfs 0, headless on, watcher running.
+
+## 2026-11-07 06:26 Naeem Malik's real S2R on the M1 (malik-na/m1-power-lab, branch omarchy-live-power, 11-06/07)
+The owner pointed to his post: 0.05 W averaged over a 3-hour sleep on the M1 Air. His evidence log (`docs/evidence/2026-11-06-mac27-hv/README.md`), read locally in `~/Work/ref/m1-power-lab`:
+- **try23:** macOS 27 runs its whole sleep entry as an m1n1 guest. In order: device domains off, PMP/DCP `SET_AP/IOP_POWER 0x201`, the AON AP watchdog disabled, PMU boot stage `0x50`, SMC `slpa`, CPUSTART bits, the clkgen muxes parked (`0x23b040140..154`), cluster controls 0, CPM power gating `0x23b71c080/088 = 0x80000000`, cluster PS `0x23b718000/4 = 0`, **the S2R-timer commit**, the PMU RTC alarm over SPMI, the commit written twice more, then each core ACC_OVRD deep sleep + CYC_OVRD `0x3000001` + WFI.
+- **try24–31, a reset about 5 s after the commit, the same kind of wall as ours:** with stage markers in PMU scratch (as image 60), the cause was his own last core. It **hung on the first MMIO access to the USB controller** after macOS had parked its clock, so it never reached its final WFI and an external timer reset the SoC.
+- **try32:** nothing touched hardware after the commit, and **the M1 really slept**. The RTC alarm brought the boot core back at the locked RVBAR (marker `Z`). try33 completed a round trip, and try46 held a 3-hour sleep at about 0.05 W.
+- **For us:** the same lesson. The SoC sleeps once the last core reaches its deep WFI with nothing pending, and the entry is otherwise what we already do. R10 shows our boot core gets to `18`. What it does after that (a set/way flush, then `cpu_sleep(true)`) and whether the secondaries and CPU clusters are really down by then are the open points. Image 60c answers both.
+
+## 2026-11-07 06:26 image 60c: code `19` after the flush and a CPU-side snapshot; run R11 armed
+- **Image 60c** (Aura `8716b085b8ad97a0`, `boot.bin.psci-test60c` `59049072223cef33`, diff `wip-image60c.diff`; `psci_dbg` still `+0x137980`; `install.sh` uses it):
+  - `19` after `dcsw_op_all` + `dsb`, right before `cpu_sleep(true)`.
+  - **A snapshot** 2 ms after the secondaries' release, before `18`, in the free keys:
+    - `0x6010`/`0x6011`: the PMP request and ack words bits 8–15 (`0x28e3c2000`, `+0x80`). macOS ends at 0; Linux's TEST log showed `0xf300` when the PCPM bits were asserted.
+    - `0x6012`/`0x6013`/`0x601b`: the ECPM, PCPM0 and PCPM1 power words bits 4–11 (`0x28e080060`, `68`, `70`; `0x1f` live).
+    - `0x601c`–`0x601e`: the EACC, PACC0 and PACC1 soc-cluster controls (`0x28e088000`, `+4`, `+8`).
+  - The SPMI write takes 1 to 4 bytes now; `0x28e3c2000` is added to the runtime MMIO list. `0x6017` (iBoot's, presumably) is left alone.
+- **Run R11** = R10 on 60c (`attended.sh R11`, aura-ctl `0x5b3f`). It is a self-recovering variation. `0x6004` and the snapshot keys read 0 before it.

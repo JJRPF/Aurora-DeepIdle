@@ -181,7 +181,7 @@ index c0c95255..812cce9a 100644
  
  #endif
 diff --git i/src/psci.c w/src/psci.c
-index 444d71e5..a37ac5c3 100644
+index 444d71e5..3c2cec66 100644
 --- i/src/psci.c
 +++ w/src/psci.c
 @@ -1,14 +1,19 @@
@@ -206,7 +206,7 @@ index 444d71e5..a37ac5c3 100644
   */
  
  static unsigned long psci_affinity_info(unsigned long target_affinity,
-@@ -20,9 +25,701 @@ static unsigned long psci_affinity_info(unsigned long target_affinity,
+@@ -20,9 +25,738 @@ static unsigned long psci_affinity_info(unsigned long target_affinity,
      return smp_psci_affinity_info(target_affinity);
  }
  
@@ -647,19 +647,22 @@ index 444d71e5..a37ac5c3 100644
 +    return qs_crumbs.base;
 +}
 +
-+static void qs_crumb(u8 v)
++static void qs_crumb_write(u16 reg, const u8 *v, int len)
 +{
 +    u64 b = qs_crumbs.base, t0, t;
++    u32 data = 0;
 +
-+    if (!qs_crumbs.on || !b)
++    if (!qs_crumbs.on || !b || len < 1 || len > 4)
 +        return;
 +    if (!(read32(b + qs_crumbs.st) & qs_crumbs.tx_empty))
 +        return;
 +    for (int i = 0; i < 16 && !(read32(b + qs_crumbs.st) & qs_crumbs.rx_empty); i++)
 +        read32(b + qs_crumbs.rsp);
-+    /* extended register write long, 1 byte (opcode 0x30 | len - 1), the register address in the upper half */
-+    write32(b + qs_crumbs.cmd, ((u32)QS_PMU_CRUMB_REG << 16) | BIT(15) | (QS_PMU_SPMI_ADDR << 8) | 0x30);
-+    write32(b + qs_crumbs.cmd, v);
++    /* extended register write long (opcode 0x30 | len - 1), the register address in the upper half */
++    write32(b + qs_crumbs.cmd, ((u32)reg << 16) | BIT(15) | (QS_PMU_SPMI_ADDR << 8) | 0x30 | (len - 1));
++    for (int i = 0; i < len; i++)
++        data |= (u32)v[i] << (8 * i);
++    write32(b + qs_crumbs.cmd, data);
 +    asm volatile("isb\n mrs %0, cntpct_el0" : "=r"(t0));
 +    do {
 +        if (!(read32(b + qs_crumbs.st) & qs_crumbs.rx_empty)) {
@@ -668,6 +671,38 @@ index 444d71e5..a37ac5c3 100644
 +        }
 +        asm volatile("isb\n mrs %0, cntpct_el0" : "=r"(t));
 +    } while (t - t0 < 24000); /* about 1 ms at 24 MHz */
++}
++
++static void qs_crumb(u8 v)
++{
++    qs_crumb_write(QS_PMU_CRUMB_REG, &v, 1);
++}
++
++/*
++ * Image 60c: what the CPU side looks like 2 ms after the secondaries were released, just before the boot core's
++ * flush and deep WFI (code 18). Free scratch keys 0x10-0x13 and 0x1b-0x1e (0x17 is left alone: it reads 1, iBoot's?):
++ *   0x10 PMP request word bits 8-15, 0x11 its ack (macOS ends at 0: PCPM0/1 and the display bits released)
++ *   0x12 0x13 the ECPM and PCPM0 power words bits 4-11 (0x28e080060, 68), 0x1b PCPM1's (0x70)
++ *   0x1c 0x1d 0x1e the EACC, PACC0, PACC1 soc-cluster controls (0x28e088000, 4, 8) bits 0-7
++ */
++#define QS_PMP_REQ 0x28e3c2000ULL
++#define QS_CPM_PS  0x28e080060ULL
++static void qs_crumb_snapshot(void)
++{
++    u8 a[4], c[4];
++
++    if (!qs_crumbs.on)
++        return;
++    a[0] = read32(QS_PMP_REQ) >> 8;
++    a[1] = read32(QS_PMP_REQ + 0x80) >> 8;
++    a[2] = read32(QS_CPM_PS) >> 4;
++    a[3] = read32(QS_CPM_PS + 8) >> 4;
++    c[0] = read32(QS_CPM_PS + 0x10) >> 4;
++    c[1] = read32(QS_CLUSTER);
++    c[2] = read32(QS_CLUSTER + 4);
++    c[3] = read32(QS_CLUSTER + 8);
++    qs_crumb_write(0x6010, a, 4);
++    qs_crumb_write(0x601b, c, 4);
 +}
 +
 +static void __attribute__((noreturn)) psci_resume_kernel(int line, int via_rvbar)
@@ -865,9 +900,11 @@ index 444d71e5..a37ac5c3 100644
 +        qs_crumb(0x17);
 +        smp_psci_release_parked(steps & PSCI_S2R_STOPREQ); /* the secondaries go first, as macOS's stall release */
 +        udelay(2000);
++        qs_crumb_snapshot();
 +        qs_crumb(0x18);
 +        dcsw_op_all(DCSW_OP_DCCISW);
 +        sysop("dsb sy");
++        qs_crumb(0x19);
 +        cpu_sleep(true); /* back only through RVBAR: psci_suspend_rvbar() */
 +    }
 +
@@ -908,7 +945,7 @@ index 444d71e5..a37ac5c3 100644
      switch (fid) {
          case PSCI_0_2_FN_PSCI_VERSION:
              return PSCI_VERSION_1_0;
-@@ -34,6 +731,8 @@ unsigned long psci_efi_handler(unsigned long fid, unsigned long arg0, unsigned l
+@@ -34,6 +768,8 @@ unsigned long psci_efi_handler(unsigned long fid, unsigned long arg0, unsigned l
              return smp_psci_cpu_off();
          case PSCI_0_2_FN64_CPU_ON:
              return smp_psci_cpu_on(arg0, arg1, arg2);
@@ -917,7 +954,7 @@ index 444d71e5..a37ac5c3 100644
          case PSCI_0_2_FN64_AFFINITY_INFO:
              return psci_affinity_info(arg0, arg1);
          default:
-@@ -53,5 +752,6 @@ const struct psci_efi_table psci_efi_table = {
+@@ -53,5 +789,6 @@ const struct psci_efi_table psci_efi_table = {
              [PSCI_FN(PSCI_0_2_FN_CPU_OFF)] = PSCI_RET_SUCCESS,
              [PSCI_FN(PSCI_0_2_FN64_CPU_ON)] = PSCI_RET_SUCCESS,
              [PSCI_FN(PSCI_0_2_FN64_AFFINITY_INFO)] = PSCI_RET_SUCCESS,
@@ -968,7 +1005,7 @@ index 92d225ab..f3780160 100644
                                 unsigned long arg2);
  
 diff --git i/src/smp.c w/src/smp.c
-index 4c866a6c..cc0aa4b3 100644
+index 4c866a6c..eb49d921 100644
 --- i/src/smp.c
 +++ w/src/smp.c
 @@ -1,9 +1,11 @@
@@ -1078,7 +1115,7 @@ index 4c866a6c..cc0aa4b3 100644
      }
      sysop("dmb sy");
      me->flag++;
-@@ -1162,8 +1214,41 @@ int smp_psci_mmio_ranges(u64 *ranges, int max)
+@@ -1162,8 +1214,44 @@ int smp_psci_mmio_ranges(u64 *ranges, int max)
          smp_psci_add_range(ranges, max, &n, cpu_start_base + cpu_info[i].die * PMGR_DIE_OFFSET,
                             0x100);
      }
@@ -1114,6 +1151,9 @@ index 4c866a6c..cc0aa4b3 100644
 +    /* image 60b: the PMU's SPMI controller for PSCI_S2R_CRUMB (image 60 faulted on its first read: run R10) */
 +    if (psci_crumb_base())
 +        smp_psci_add_range(ranges, max, &n, psci_crumb_base(), 0x10);
++    /* image 60c: the PMP's request/ack words for the PSCI_S2R_CRUMB snapshot (the CPM power words share a mapped page) */
++    if (psci_crumb_base() && chip_id == T6020)
++        smp_psci_add_range(ranges, max, &n, 0x28e3c2000, 0x84);
 +    if (aic) {
 +        /* the AIC's event page sits at +0xc000 (AIC2); the system-suspend wake poll reads it */
 +        u64 aic_size = aic->version == 2 ? 0xd000 : SZ_16K;
