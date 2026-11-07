@@ -2754,3 +2754,39 @@ Boot after R9 (image 59, `246054fceb614142`, aura-ctl `0x1b3f` = R8 + `0x1000`).
   - Aura's DRAM records do not survive the reset into the default boot.
   - Naeem proved his M1 slept with a breadcrumb in PMU scratch (`0x9f0a`), which survives a reset.
   - **Next:** find PMU scratch registers on T6020 that are free and survive a watchdog reset (the ADT `pmu` node and 13.5's `AppleDialogSPMIPMU`), read-only first. Aura can then leave a few bytes after the timer: did each core reach its deep WFI, did the boot core come back through RVBAR before the reset. Linux reads them on the next boot.
+
+## 2026-11-06 23:18 static and read-only: the PMU's scratch map; boot-error-stage 0x50 marks the resets that came after macOS's AP-sleep messages
+
+- **Where Naeem's breadcrumb lives.** `0x9f0a` on the M1 is `info-leg_scrpad + 0xa` (`leg_scrpad` = `0x9f00` there, `tools/hv-trace-kit/pmu_postmortem.py` in malik-na/m1-power-lab). On this Mac the primary PMU (ADT `nub-spmi0/spmi-mpmu`, `pmu,maverick`, from the 13.5 `DeviceTree.j414sap`) has:
+  - `info-leg_scrpad` `0x6000`;
+  - `info-scrpad` `0x8000`+`0x1000`, with `info-scrpad_socd` `0x8b00`+`0x400` and `info-fault_shadow` `0x867b`+`0x10` inside it (3666 of its 4096 bytes are nonzero, so it is in use);
+  - `info-fault_log` `0x1000`+`0xa`, whose bits are named in `info-fault_name-N` (4 `wdog,reset_in1`, 5 `dbg_rst,reset_in2`, 6 `sochot,reset_in3`, 7 `crash,crash_n`, 15 `crash_follower_n`, …).
+- **The legacy scratch keys macOS uses** (`AppleDialogSPMIPMU::_readBootKey/_writeBootKey`, which access `leg_scrpad + key`; every call in the 13.5 kext):
+  - 0 `BootDebug`;
+  - 1 `BootStage`;
+  - 2 the error and panic counts;
+  - 3 `BootErrorStage`;
+  - 8–11 `BootAppName` (so Naeem's `+0xa` is inside it here);
+  - `0xf` the shutdown flag;
+  - `0x18` `UPOState`;
+  - `0x19`–`0x1a` `UPOCounter`;
+  - `0x1f`.
+  - **Not used by macOS:** 4–7, `0xc`–`0xe`, `0x10`–`0x17`, `0x1b`–`0x1e`. They read 0 now, except `0x6017` = `0x01` (iBoot's, presumably). iBoot is encrypted in the IPSW, so whether iBoot reads 4–7 cannot be checked statically.
+- **Read now (read only, R9's post-reset boot):**
+  - `leg_scrpad` `00 30 00 50 00…`;
+  - the fault log is all 0. The 86 s reset is not a PMU fault, or iBoot clears the log.
+  - `fault_shadow` `1012…` (the same after every kind of reset, 11-04).
+- **A marker we already had:** `run.sh` logs `boot-error-stage` on every boot (122 readings). It changes only at unclean resets:
+  - It becomes `0x50` (macOS's "AP asleep" stage) after the resets of I, J, L (16:14), N, R, R6, R8 and R9. All of these sent macOS's `slpa` and `SetAPPower 0x201` and were then reset by the S2R timer.
+  - It becomes `0x30` after:
+    - D (`slpa` and the timer, without the AP-sleep messages);
+    - T0, W1 and W2 (no `slpa`);
+    - M and S (hung before the messages);
+    - C (Linux resumed).
+  - Linux never writes `0x50` (`deep_steps` bit 8 was never used). So the SMC or PMU firmware sets boot stage `0x50` when it takes the AP-sleep messages, and the timer's reset then finds it there.
+  - **Meaning:** the SMC side considers the AP asleep at the reset. The missing part is on the SoC side.
+  - It is a free per-run check from now on: `0x50` means the SMC got as far as macOS's sleep.
+- **Next: a breadcrumb in key 4 (`0x6004`).**
+  - First, one attended check from Linux: write `0x6004` = `0xa5`, reboot normally, read it back (does it survive, does iBoot ignore it), then clear it.
+  - Then image 60: Aura writes a stage code to `0x6004` over SPMI at each step of the sleep tail (before and after the timer, after WD2, after the AIC mask, before the last core's deep WFI, and on the RVBAR wake), and `run.sh` reads and clears it at boot.
+  - That says how far the boot core got before the reset, and whether a wake came back through RVBAR.
