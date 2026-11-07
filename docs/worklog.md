@@ -2704,3 +2704,15 @@ Checked against the M1 and Neo sleep entries, which write the CPU-complex power 
 - The wd-log loop still ran its 200 s (`wdlog.txt`, 200 lines): with no timer the baseline is steady. WD1 is armed by Linux (ctl 4, alarm `0x55d4a800` = 60 s, count kicked), WD2 alarm `0x80befc00` (90 s) ctl 0, WD0 ctl 0, timer word 1. That is the before picture for the real W2.
 - Cause: `harness/mmio/aura-ctl.c` still capped the word at `0xfff` (image 58's bits). Now `0x3fff` (image 59's `0x1000` WD1 off and `0x2000` resume now). R9's `0x1b3f` would have hit the same refusal. `install.sh` rebuilds the tool before each armed run.
 - No hand reset, btrfs counters 0, default `boot.bin` `76f850895fed53d1`, no next_entry. Re-armed: `NEXT="R9" bash harness/psci-efi/attended.sh W2`.
+
+## 2026-11-06 23:05 run W2: after the S2R timer, Linux cannot be resumed; the reset at 86 s again
+
+Boot after W2 (image 59, `246054fceb614142`, aura-ctl `0x2101`: records, the S2R timer, then straight back to the kernel). No dead-man push, no hand reset.
+
+- **Timing** (Pi kmsg and ping): `echo mem` at 23:01:39 (`aura ctl ... 0x2101` read back); the last kernel line is the AOP's `SetAPPower 0x201`; ping down at 23:01:45; the Pi's stream ended at 23:02:13; the next kernel (the default, `7.2.11-14-1-ARCH`) started at 23:03:05. **86 s, the timer's usual reset** (G58's T0, R6, R8).
+- **Linux never came back:** no resume line, no network, no `wdlog.txt` (the results dir stops at `filesystems ro`; the root was read-only for the run). Aura's dbg2 did not survive the reset: the default boot has no Aura, so there was nothing to read.
+- **The resume-now path is the normal one:** `psci_resume_kernel(-1, 0)` is the call the normal wake makes (wake lines masked, WD1 disarmed, quiesce undone, `psci_enter` to the kernel's resume entry); image 59 only skips the wait. And W1 showed Aura's own code still runs at least 100 ms after the timer (its WD2 stop took effect). So the CPU and DRAM keep working, but **the kernel's resume does not get through once the timer is written**. Likely something it needs (interrupt delivery, the fabric or a device link) is already going down. The timer write is the point of no return, as in macOS, where it is the last write before the cores stop.
+- **Consequence:** the reset source after the timer cannot be logged from Linux. A log kept by Aura in DRAM would not survive either: the next boot is the default without Aura, and the area is ordinary RAM there.
+- **What W1 and the reset times still say:** without anything stopped, ~86 s after echo mem (about 60 s after the timer). WD2 stopped: ~116 s. That is not WD1's 120 s from the PSCI call, which comes out at about 144 s. So a source other than WD1 and WD2 remains.
+- Clean afterwards: flags removed, `/boot` mounted, default `boot.bin` `76f850895fed53d1`, no next_entry, btrfs counters 0.
+- **Next (chain):** R9, owner attended: R8 + `0x1000` (WD1 off before the timer). WD2 is not stopped in R9, so the timer's own reset still recovers the Mac if the entry does not complete.
