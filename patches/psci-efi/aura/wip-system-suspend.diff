@@ -181,7 +181,7 @@ index c0c95255..812cce9a 100644
  
  #endif
 diff --git i/src/psci.c w/src/psci.c
-index 444d71e5..9901cc77 100644
+index 444d71e5..9a934363 100644
 --- i/src/psci.c
 +++ w/src/psci.c
 @@ -1,14 +1,19 @@
@@ -206,7 +206,7 @@ index 444d71e5..9901cc77 100644
   */
  
  static unsigned long psci_affinity_info(unsigned long target_affinity,
-@@ -20,9 +25,786 @@ static unsigned long psci_affinity_info(unsigned long target_affinity,
+@@ -20,9 +25,809 @@ static unsigned long psci_affinity_info(unsigned long target_affinity,
      return smp_psci_affinity_info(target_affinity);
  }
  
@@ -742,15 +742,38 @@ index 444d71e5..9901cc77 100644
 +     * valid secondary that never slept (bits 4-7) and its PSCI state (bits 0-3: 0 parked, 1 on, 2 off), ff if none
 +     */
 +    u32 offm = smp_psci_off_mask(), first = 0xff;
++    int fi = -1;
 +    for (int i = 1; i < 16 && i < MAX_CPUS; i++)
 +        if ((zero & BIT(i)) && smp_psci_cpu_valid(i)) {
 +            first = (i << 4) | (smp_psci_cpu_state(i) & 0xf);
++            fi = i;
 +            break;
 +        }
 +    w[0] = offm & 0xff;
 +    w[1] = (offm >> 8) & 0xff;
 +    w[2] = first;
 +    qs_crumb_write(0x6005, w, 3);
++    /*
++     * image 60f, for that core (R13: cpu3, CPU_OFF and sent the IPI, never slept): 0x6010/0x6011 the spin-table
++     * MPIDR the release IPI used (bits 0-15); 0x600c its park entries since boot, 0x600d its park-loop WFI returns
++     * since the clear (both capped at 255), 0x600e its S2R sleep count 2 ms after a second IPI built from the reset
++     * table's MPIDR. All ff if every core slept. R13's PMP request/ack were 0, as in R11 and R12.
++     */
++    u8 m[2] = {0xff, 0xff}, q[3] = {0xff, 0xff, 0xff};
++    if (fi > 0) {
++        u64 mp = smp_psci_ipi_mpidr(fi);
++        u32 pe = smp_psci_s2r_word(fi, 1), wr = smp_psci_s2r_word(fi, 2);
++        m[0] = mp & 0xff;
++        m[1] = (mp >> 8) & 0xff;
++        q[0] = pe > 255 ? 255 : pe;
++        q[1] = wr > 255 ? 255 : wr;
++        smp_psci_reipi(fi);
++        udelay(2000);
++        u32 n = smp_psci_s2r_loops(fi);
++        q[2] = n > 255 ? 255 : n;
++    }
++    qs_crumb_write(0x6010, m, 2);
++    qs_crumb_write(0x600c, q, 3);
 +}
 +
 +static void __attribute__((noreturn)) psci_resume_kernel(int line, int via_rvbar)
@@ -993,7 +1016,7 @@ index 444d71e5..9901cc77 100644
      switch (fid) {
          case PSCI_0_2_FN_PSCI_VERSION:
              return PSCI_VERSION_1_0;
-@@ -34,6 +816,8 @@ unsigned long psci_efi_handler(unsigned long fid, unsigned long arg0, unsigned l
+@@ -34,6 +839,8 @@ unsigned long psci_efi_handler(unsigned long fid, unsigned long arg0, unsigned l
              return smp_psci_cpu_off();
          case PSCI_0_2_FN64_CPU_ON:
              return smp_psci_cpu_on(arg0, arg1, arg2);
@@ -1002,7 +1025,7 @@ index 444d71e5..9901cc77 100644
          case PSCI_0_2_FN64_AFFINITY_INFO:
              return psci_affinity_info(arg0, arg1);
          default:
-@@ -53,5 +837,6 @@ const struct psci_efi_table psci_efi_table = {
+@@ -53,5 +860,6 @@ const struct psci_efi_table psci_efi_table = {
              [PSCI_FN(PSCI_0_2_FN_CPU_OFF)] = PSCI_RET_SUCCESS,
              [PSCI_FN(PSCI_0_2_FN64_CPU_ON)] = PSCI_RET_SUCCESS,
              [PSCI_FN(PSCI_0_2_FN64_AFFINITY_INFO)] = PSCI_RET_SUCCESS,
@@ -1053,7 +1076,7 @@ index 92d225ab..f3780160 100644
                                 unsigned long arg2);
  
 diff --git i/src/smp.c w/src/smp.c
-index 4c866a6c..32594afa 100644
+index 4c866a6c..f3fc7487 100644
 --- i/src/smp.c
 +++ w/src/smp.c
 @@ -1,9 +1,11 @@
@@ -1086,7 +1109,7 @@ index 4c866a6c..32594afa 100644
  asm(".text\n.globl psci_enter\npsci_enter:\n"
      "mrs x2, sctlr_el2\n"
      "bic x2, x2, #(1 << 0)\n"
-@@ -1083,6 +1085,72 @@ asm(".text\n.globl psci_enter\npsci_enter:\n"
+@@ -1083,6 +1085,99 @@ asm(".text\n.globl psci_enter\npsci_enter:\n"
      "mov x0, x1\n"
      "br x3\n");
  
@@ -1117,6 +1140,32 @@ index 4c866a6c..32594afa 100644
 +int smp_psci_cpu_valid(int i)
 +{
 +    return i >= 0 && i < MAX_CPUS && cpu_info[i].valid;
++}
++
++/* image 60f: [i][1] park entries since boot (not cleared), [i][2] WFI returns in the park loop since the S2R clear */
++u32 smp_psci_s2r_word(int i, int w)
++{
++    dc_ivac_range((void *)psci_s2r_loops[i], 64);
++    return psci_s2r_loops[i][w];
++}
++
++u64 smp_psci_ipi_mpidr(int i)
++{
++    dc_civac_range(&spin_table[i], sizeof(spin_table[i]));
++    return spin_table[i].mpidr;
++}
++
++/* image 60f: the release IPI again, built from the reset table's MPIDR (cluster bit 16) instead of the spin table's */
++void smp_psci_reipi(int i)
++{
++    dc_civac_range(&smp_reset_stacks[i], sizeof(smp_reset_stacks[i]));
++    u64 mpidr = smp_reset_stacks[i].mpidr;
++    if (cpu_features->fast_ipi)
++        msr(SYS_IMP_APL_IPI_RR_GLOBAL_EL1, (mpidr & 0xff) | ((mpidr & 0xff00) << 8));
++    else
++        smp_send_ipi(i);
++    sysop("isb");
++    sysop("sev");
 +}
 +
 +int smp_psci_cpu_state(int i)
@@ -1150,6 +1199,7 @@ index 4c866a6c..32594afa 100644
 +{
 +    for (int i = 0; i < MAX_CPUS; i++) {
 +        psci_s2r_loops[i][0] = 0;
++        psci_s2r_loops[i][2] = 0;
 +        dc_civac_range((void *)psci_s2r_loops[i], 64);
 +    }
 +    psci_s2r_go = 0;
@@ -1159,13 +1209,16 @@ index 4c866a6c..32594afa 100644
  /* The parked state of a CPU_OFF'd core: deep WFI on the Aura stack until it is handed an entry. */
  void psci_park_c(u64 index) __attribute__((noreturn, used));
  void psci_park_c(u64 index)
-@@ -1090,15 +1158,43 @@ void psci_park_c(u64 index)
+@@ -1090,15 +1185,48 @@ void psci_park_c(u64 index)
      struct spin_table *me = &spin_table[index];
      u64 target;
  
 -    if (cpu_features->apple_sysregs_unlocked)
 -        reg_mask(SYS_IMP_APL_CYC_OVRD, CYC_OVRD_WFI_MODE_MASK,
 -                 CYC_OVRD_WFI_MODE(3) | CYC_OVRD_DISABLE_WFI_RET);
++    psci_s2r_loops[index][1]++;
++    dc_civac_range((void *)psci_s2r_loops[index], 64);
++
 +    /*
 +     * Deep WFI with state retention, as the boot CPU's SYSTEM_SUSPEND wait (2026-11-04 images 41/42). This set
 +     * DISABLE_WFI_RET before: a core powered down without retention is not woken back into this loop (images
@@ -1198,6 +1251,8 @@ index 4c866a6c..32594afa 100644
 +            cpu_sleep(true);
 +        }
 +        _deep_wfi_helper();
++        psci_s2r_loops[index][2]++;
++        dc_civac_range((void *)psci_s2r_loops[index], 64);
 +    }
 +    /* the kernel must not inherit WFI_MODE 3: give the core back the CYC_OVRD it had when it called CPU_OFF */
 +    if (cpu_features->apple_sysregs_unlocked) {
@@ -1207,7 +1262,7 @@ index 4c866a6c..32594afa 100644
      }
      sysop("dmb sy");
      me->flag++;
-@@ -1162,8 +1258,44 @@ int smp_psci_mmio_ranges(u64 *ranges, int max)
+@@ -1162,8 +1290,44 @@ int smp_psci_mmio_ranges(u64 *ranges, int max)
          smp_psci_add_range(ranges, max, &n, cpu_start_base + cpu_info[i].die * PMGR_DIE_OFFSET,
                             0x100);
      }
@@ -1255,7 +1310,7 @@ index 4c866a6c..32594afa 100644
      return n;
  }
 diff --git i/src/smp.h w/src/smp.h
-index 9f9840e5..ab7ef750 100644
+index 9f9840e5..b8a9600b 100644
 --- i/src/smp.h
 +++ w/src/smp.h
 @@ -36,6 +36,8 @@ uint64_t smp_get_mpidr(int cpu);
@@ -1267,7 +1322,7 @@ index 9f9840e5..ab7ef750 100644
  
  static inline int smp_id(void)
  {
-@@ -50,8 +52,13 @@ static inline int smp_id(void)
+@@ -50,8 +52,16 @@ static inline int smp_id(void)
  /* PSCI-via-EFI CPU operations (psci.c); return PSCI codes, CPU_OFF only on failure. */
  int smp_psci_cpu_on(u64 mpidr, u64 entry, u64 context);
  int smp_psci_cpu_off(void);
@@ -1278,6 +1333,9 @@ index 9f9840e5..ab7ef750 100644
 +u32 smp_psci_off_mask(void);
 +int smp_psci_cpu_valid(int i);
 +int smp_psci_cpu_state(int i);
++u32 smp_psci_s2r_word(int i, int w);
++u64 smp_psci_ipi_mpidr(int i);
++void smp_psci_reipi(int i);
  
  extern int boot_cpu_idx;
  #endif

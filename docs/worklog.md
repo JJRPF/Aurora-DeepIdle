@@ -2907,3 +2907,23 @@ The owner pointed to his post: 0.05 W averaged over a 3-hour sleep on the M1 Air
   - Everything else is as 60d.
 - **Run R13** = R12 on 60e (`attended.sh R13`), a self-recovering variation. The scratch keys `0x6004`–`0x6016` and `0x601b`–`0x601e` are zeroed before it.
 - Clean before it: flags removed, `/boot` mounted, default `boot.bin` `76f850895fed53d1`, no `next_entry`, btrfs 0, headless on, watcher running.
+
+## 2026-11-07 06:53 run R13 (image 60e): cpu3 was CPU_OFF and got the release IPI but never left its park WFI; P complexes off in 6 ms; image 60f, run R14 armed
+- **Dead-man pushes:** only the R12 result and the R13 start. No hand reset. `echo mem` 06:48:36; the Pi saw the Mac down at 06:48:41 and up at 06:50:31; uptime from 06:50:02. **86 s**, the timer's reset.
+- **PMU scratch after the reset:** `00300050197e0732 0000000000000000 00001f100388f801 000000000f105000` (`0x6000`–`0x601f`):
+  - `0x6004` = `0x19` again: the boot core reached its deep WFI.
+  - **`0x6014` = 3: both P complexes read actual state 0 within 6 ms of the release.** With the fixed condition (bits 4–7 only) the wait is short; R12's timeout was the condition.
+  - PMP request/ack `00`/`00`; ECPM `0x1f`, PCPM0 `0x10` (off, was-gated flag), PCPM1 `0x00`.
+  - Cluster controls at 6 ms: EACC `0x0f`, PACC0 `0x10`, PACC1 `0x50`. Bit 4 is still set at 6 ms; in R12 it had cleared by 500 ms. PACC1 also shows bit 6.
+  - Never slept `f888` as in R12: **cpu3** (index 3), with 7, 11 (unused) and 12–15 (absent).
+  - **`0x6005`/`0x6006` = `077e`: Aura held cores 1–6 and 8–10 as `CPU_OFF` and sent each the release IPI.** cpu3 is among them.
+  - **`0x6007` = `0x32`: the first never-slept core is index 3, PSCI state 2 (`CPU_OFF`).** So cpu3 went through `smp_psci_cpu_off`, was sent the same IPI as cpus 1 and 2 (same cluster, same path), and still never ran the S2R branch of its park loop.
+  - `0x600c`–`0x600e` = 0 again, though at least one core slept, and the writes after it (`0x6005`) landed. So either those keys are cleared over a reset, or that write is still lost. `0x600c` reads back a write fine from Linux; I left `a5 5a 3c` in it before R14. After R14, `a5 5a 3c` = write lost, `00` = cleared over the reset, anything else = real values.
+- **Reading:** the release reaches every core but cpu3. cpu3 is either stuck before its park WFI (between setting `CPU_OFF` and the loop), in a WFI the IPI does not end, or the IPI goes elsewhere (the spin table's MPIDR for index 3 is the one cpu3 wrote itself at its first start). An E core still awake, or in a shallow state, would block the SoC sleep the way Naeem's last core did.
+- **Image 60f** (Aura `e56f88f23748ca11`, `boot.bin.psci-test60f` `6dfefe678261390d`, diff `wip-image60f.diff`; `psci_dbg` still `+0x137980`; `install.sh` uses it). For the first never-slept core:
+  - `0x6010`/`0x6011`: the spin-table MPIDR the release IPI used (bits 0–15). R11–R13 show the PMP request/ack are 0, so these keys are reused.
+  - `0x600c`: its park entries since boot (`psci_park_c` calls); `0x600d`: its park-loop WFI returns since the S2R clear.
+  - `0x600e`: its S2R sleep count 2 ms after a second IPI, built from the reset table's MPIDR.
+  - All `ff` if every core slept.
+- **Run R14** = R13 on 60f (`attended.sh R14`), a self-recovering variation.
+- Clean before it: flags removed, `/boot` mounted, default `boot.bin` `76f850895fed53d1`, no `next_entry`, btrfs 0, headless on, watcher running. Scratch `0x6004`–`0x600b`, `0x6010`–`0x6016`, `0x601b`–`0x601e` zeroed; `0x600c`–`0x600e` = `a5 5a 3c`.

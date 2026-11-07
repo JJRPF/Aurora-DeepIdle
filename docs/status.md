@@ -264,7 +264,10 @@ There are two goals:
 * **R12 (image 60d): with that interrupt cleared, both P-core complexes
   power down.** Every performance core reached its sleep; one efficiency
   core (cpu3) never did, and the Mac still reset at 86 s.
-* **Next:** run R13 (image 60e): find out where cpu3 is at that moment.
+* **R13 (image 60e): cpu3 is sent the same wake-up as the others and
+  never acts on it.** Both P-core complexes are off within 6 ms.
+* **Next:** run R14 (image 60f): what cpu3 is doing, and whether a second
+  wake-up reaches it.
 * **From 2026-11-06 the owner lets slpa runs that repeat or vary a
   self-recovering setup go unattended** (one at a time, dead-man switch
   on, a push before each); a new kind of step still gets one attended run.
