@@ -200,7 +200,7 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
             AB=$(xxd -p /proc/device-tree/chosen/aura,psci-runtime-code | cut -c1-16)
             # offset = ELF symbol - 0x10000 (the DT gives the runtime code, image base + 0x10000); image 56: psci_dbg at
             # 0x147430 in the ELF. Older images read zeros here (the offset went stale); their scan line below has the words.
-            DBGOFF=0x1472c8; case "$(cat /run/psci-efi-booted-sha 2>/dev/null)" in 20f6d711f9f7add5) DBGOFF=0x137430 ;; ae5f5e93323269a6) DBGOFF=0x137470 ;; 29448f1a7cab4ddd) DBGOFF=0x137940 ;; 246054fceb614142) DBGOFF=0x137940 ;; 4ba57db10e3fc58b) DBGOFF=0x137980 ;; esac
+            DBGOFF=0x1472c8; case "$(cat /run/psci-efi-booted-sha 2>/dev/null)" in 20f6d711f9f7add5) DBGOFF=0x137430 ;; ae5f5e93323269a6) DBGOFF=0x137470 ;; 29448f1a7cab4ddd) DBGOFF=0x137940 ;; 246054fceb614142) DBGOFF=0x137940 ;; 4ba57db10e3fc58b) DBGOFF=0x137980 ;; 438533ef2e0b277b) DBGOFF=0x137980 ;; esac
             log "aura dbg (words, low/high pairs): $(/usr/local/lib/deepidle/mmio-read $((0x$AB + DBGOFF)) 16 | awk '{printf "%s ", $2}')"
             log "aura dbg scan: $(/usr/local/lib/deepidle/scan-magic 0xA0AA0001 64 | head -3 | tr '\n' ';')"
             # image 58 (aura-ctl 0x100): psci_dbg2 after its magic: [1] steps | AMCC instances << 32 | planes << 40; per

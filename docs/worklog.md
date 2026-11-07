@@ -2826,3 +2826,14 @@ Boot after R9 (image 59, `246054fceb614142`, aura-ctl `0x1b3f` = R8 + `0x1000`).
 - `0x6004` cleared to 0 again, so R10's code is unambiguous (0 = Aura never wrote).
 - Correction: R9's word was `0x1b3f` (no `0x40`, no `0x400`), so R10 is `0x5b3f`. The earlier Next said `0x5f7f`; fixed.
 - **Run R10** (`attended.sh R10`): R9's settings + aura-ctl `0x4000`, image 60 `4ba57db10e3fc58b`. Expect the 86 s reset again; the point is the code in `0x6004` at the next boot. Headless on, Pi watcher running.
+
+## 2026-11-06 23:41 run R10 (owner attended): image 60 faulted on its first breadcrumb, WD1 reset at 146 s; image 60b fixes the mapping
+- **Dead-man pushes:** none. No hand reset. btrfs counters 0, default `boot.bin` `76f850895fed53d1`, `next_entry` unset, flags removed, headless on, watcher running.
+- **Pi kmsg:** the usual sequence: slpa (ro remount), PMP release `0xf000` acked, `aura ctl ... 0x5b3f` (the word reached Aura), `echo mem` 23:35:38, the AOP's `SetAPPower 0x201`.
+- **Timing:** the next kernel started at 23:38:04. That is **146 s after echo mem**: WD1's reset (about 144 s), not the timer's 86 s. So the timer was never written.
+- **PMU:** `0x6004` = 0 (cleared before the run), so not even the entry code `11` landed. `boot-error-stage` `0x50` (unchanged from R9; the AP-sleep messages were sent). Fault log 0.
+- **Cause:** the same bug as image 56's Y runs (worklog 22:27). Aura's handler runs under Linux's EFI runtime map, which holds only `smp_psci_mmio_ranges`. Image 60 never listed the SPMI controller's page `0x29e114000`, so the first `read32` in `qs_crumb(0x11)` faulted at the top of the sleep tail, and WD1 (still armed then; it is turned off only just before the timer) reset the SoC.
+- **Image 60b** (Aura `501d9ddc5471ad2f`, `boot.bin.psci-test60b` `438533ef2e0b277b`, diff `wip-image60b.diff`; `psci_dbg` still at `+0x137980`; `install.sh` uses it):
+  - `psci_crumb_base()` exported; `smp_psci_mmio_ranges` adds `0x29e114000` + `0x10`.
+  - The range list goes from 48 to 64 entries (`dt_set_psci`), so that a full list cannot drop it silently. U-Boot reads any count.
+- **Next:** R10 again on 60b (same `attended.sh R10`, owner still present). It is a self-recovering variation either way: if the crumb write itself hangs, WD1 resets at about 146 s again.

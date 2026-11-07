@@ -238,7 +238,8 @@
     { "n": "52", "what": "Control word from Linux: PMGR S2R timer (1) and macOS’s all-core deep sleep (2); 0 is image 51", "result": "Regression 2 of 2. With `slpa`: timer → reset at about 85 s (D, D2, E); cores only → WD1 at 145 s (F)", "outcome": "info" },
     { "n": "58", "what": "Image 57 + aura-ctl 0x100 records (psci_dbg2: WD0..2, timer word, AMCC status/enables), 0x200 AMCC DSID_AGE_OUT/UNEXP_RT_HIT_DIR enables off, 0x400 WD2 stopped after the timer, 0x800 AIC mask-all; the held domains' pages and the AMCC planes mapped (images 56, 57 had not mapped 0x28e080000 and 0x29e280000)", "result": "G58: back on the alarm, online 0-9, records read", "outcome": "pass" },
     { "n": "59", "what": "Image 58 + aura-ctl 0x1000 WD1 off before the S2R timer, 0x2000 resume right after the timer", "result": "W2: Linux could not be resumed after the timer; R9: the 86 s timer reset with WD1 off", "outcome": "fail" },
-    { "n": "60", "what": "Image 59 + aura-ctl 0x4000: a stage code in PMU legacy scratch key 4 (0x6004) over SPMI at each step of the sleep tail and on the RVBAR wake", "result": "Built; not yet run", "outcome": "info" }
+    { "n": "60", "what": "Image 59 + aura-ctl 0x4000: a stage code in PMU legacy scratch key 4 (0x6004) over SPMI at each step of the sleep tail and on the RVBAR wake", "result": "R10: faulted on the first breadcrumb (SPMI page not in the EFI runtime map); WD1 reset at 146 s", "outcome": "fail" },
+    { "n": "60b", "what": "Image 60 with the SPMI controller's page in the EFI runtime MMIO list (and room for 64 ranges)", "result": "Built; R10 re-run next", "outcome": "info" }
   ],
   "macos_sleep": [
     { "step": "SMC `MSxb` writes from every CPU", "linux": "Housekeeping, not needed yet" },

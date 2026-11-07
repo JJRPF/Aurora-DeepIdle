@@ -245,8 +245,11 @@ There are two goals:
   (aura-ctl `0x4000`) has Aura write a stage code to an unused PMU scratch
   byte (`0x6004`) at each step of the sleep tail, so the next boot shows how
   far the boot core got.
-* **Next (owner present):** a normal reboot with `0x6004` set, to check that
-  it survives and iBoot ignores it; then run R10 (R9 + the stage codes).
+* **2026-11-06 23:3x: `0x6004` survives a reboot and iBoot ignores it.** Run
+  R10 (R9 + the stage codes) was void: image 60 had left the PMU's bus
+  controller out of the memory map Aura runs under, so the first code
+  faulted and Aura's watchdog reset the Mac at 146 s. Image 60b fixes it.
+* **Next (owner present):** R10 again on image 60b.
 * **From 2026-11-06 the owner lets slpa runs that repeat or vary a
   self-recovering setup go unattended** (one at a time, dead-man switch
   on, a push before each); a new kind of step still gets one attended run.

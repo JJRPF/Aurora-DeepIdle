@@ -59,7 +59,7 @@ index 5f0a8f69..78662953 100644
          printf("  CPU part: 0x%x rev: 0x%x\n", part, rev);
  
 diff --git i/src/kboot.c w/src/kboot.c
-index d594ea6e..5eab996d 100644
+index d594ea6e..5fbfa168 100644
 --- i/src/kboot.c
 +++ w/src/kboot.c
 @@ -735,6 +735,7 @@ static int dt_set_psci(void)
@@ -77,9 +77,9 @@ index d594ea6e..5eab996d 100644
 -    u64 ranges[2 * 16];
 -    int n = smp_psci_mmio_ranges(ranges, 16);
 -    fdt64_t mmio[2 * 16];
-+    u64 ranges[2 * 48];
-+    int n = smp_psci_mmio_ranges(ranges, 48);
-+    fdt64_t mmio[2 * 48];
++    u64 ranges[2 * 64];
++    int n = smp_psci_mmio_ranges(ranges, 64);
++    fdt64_t mmio[2 * 64];
      for (int i = 0; i < 2 * n; i++)
          mmio[i] = cpu_to_fdt64(ranges[i]);
      if (fdt_setprop(dt, node, "aura,psci-runtime-mmio", mmio, 2 * n * sizeof(fdt64_t)))
@@ -181,7 +181,7 @@ index c0c95255..812cce9a 100644
  
  #endif
 diff --git i/src/psci.c w/src/psci.c
-index 444d71e5..61b3d1d1 100644
+index 444d71e5..a37ac5c3 100644
 --- i/src/psci.c
 +++ w/src/psci.c
 @@ -1,14 +1,19 @@
@@ -206,7 +206,7 @@ index 444d71e5..61b3d1d1 100644
   */
  
  static unsigned long psci_affinity_info(unsigned long target_affinity,
-@@ -20,9 +25,695 @@ static unsigned long psci_affinity_info(unsigned long target_affinity,
+@@ -20,9 +25,701 @@ static unsigned long psci_affinity_info(unsigned long target_affinity,
      return smp_psci_affinity_info(target_affinity);
  }
  
@@ -641,6 +641,12 @@ index 444d71e5..61b3d1d1 100644
 +    dc_civac_range((void *)&qs_crumbs, sizeof(qs_crumbs));
 +}
 +
++/* image 60b: the SPMI controller's page must be in Linux's EFI runtime map (smp_psci_mmio_ranges); 60 left it out */
++u64 psci_crumb_base(void)
++{
++    return qs_crumbs.base;
++}
++
 +static void qs_crumb(u8 v)
 +{
 +    u64 b = qs_crumbs.base, t0, t;
@@ -902,7 +908,7 @@ index 444d71e5..61b3d1d1 100644
      switch (fid) {
          case PSCI_0_2_FN_PSCI_VERSION:
              return PSCI_VERSION_1_0;
-@@ -34,6 +725,8 @@ unsigned long psci_efi_handler(unsigned long fid, unsigned long arg0, unsigned l
+@@ -34,6 +731,8 @@ unsigned long psci_efi_handler(unsigned long fid, unsigned long arg0, unsigned l
              return smp_psci_cpu_off();
          case PSCI_0_2_FN64_CPU_ON:
              return smp_psci_cpu_on(arg0, arg1, arg2);
@@ -911,7 +917,7 @@ index 444d71e5..61b3d1d1 100644
          case PSCI_0_2_FN64_AFFINITY_INFO:
              return psci_affinity_info(arg0, arg1);
          default:
-@@ -53,5 +746,6 @@ const struct psci_efi_table psci_efi_table = {
+@@ -53,5 +752,6 @@ const struct psci_efi_table psci_efi_table = {
              [PSCI_FN(PSCI_0_2_FN_CPU_OFF)] = PSCI_RET_SUCCESS,
              [PSCI_FN(PSCI_0_2_FN64_CPU_ON)] = PSCI_RET_SUCCESS,
              [PSCI_FN(PSCI_0_2_FN64_AFFINITY_INFO)] = PSCI_RET_SUCCESS,
@@ -919,7 +925,7 @@ index 444d71e5..61b3d1d1 100644
          },
  };
 diff --git i/src/psci.h w/src/psci.h
-index 92d225ab..cc4c38ac 100644
+index 92d225ab..f3780160 100644
 --- i/src/psci.h
 +++ w/src/psci.h
 @@ -31,6 +31,7 @@ enum psci_fn_id {
@@ -930,7 +936,7 @@ index 92d225ab..cc4c38ac 100644
  };
  
  enum psci_ret {
-@@ -63,6 +64,29 @@ struct psci_efi_table {
+@@ -63,6 +64,30 @@ struct psci_efi_table {
  
  extern const struct psci_efi_table psci_efi_table;
  
@@ -950,6 +956,7 @@ index 92d225ab..cc4c38ac 100644
 +/* image 59 */
 +#define PSCI_S2R_WD1OFF   BIT(12) /* WD1 (Aura's suspend dog) disarmed just before the timer, as macOS has every AON dog off */
 +#define PSCI_S2R_RESUMENOW BIT(13) /* resume the kernel right after the timer (no wait, no cores off): Linux logs the dogs */
++u64 psci_crumb_base(void);
 +#define PSCI_S2R_CRUMB    BIT(14) /* image 60: stage codes in the PMU's legacy scratch key 4 (0x6004), which survives a SoC reset */
 +void psci_ctl_init(void);
 +
@@ -961,7 +968,7 @@ index 92d225ab..cc4c38ac 100644
                                 unsigned long arg2);
  
 diff --git i/src/smp.c w/src/smp.c
-index 4c866a6c..ac20c165 100644
+index 4c866a6c..cc0aa4b3 100644
 --- i/src/smp.c
 +++ w/src/smp.c
 @@ -1,9 +1,11 @@
@@ -1071,7 +1078,7 @@ index 4c866a6c..ac20c165 100644
      }
      sysop("dmb sy");
      me->flag++;
-@@ -1162,8 +1214,38 @@ int smp_psci_mmio_ranges(u64 *ranges, int max)
+@@ -1162,8 +1214,41 @@ int smp_psci_mmio_ranges(u64 *ranges, int max)
          smp_psci_add_range(ranges, max, &n, cpu_start_base + cpu_info[i].die * PMGR_DIE_OFFSET,
                             0x100);
      }
@@ -1104,6 +1111,9 @@ index 4c866a6c..ac20c165 100644
 +            for (int p = 0; p < planes; p++)
 +                smp_psci_add_range(ranges, max, &n, mcc[i] + p * stride + 0x21000, 0x10);
 +    }
++    /* image 60b: the PMU's SPMI controller for PSCI_S2R_CRUMB (image 60 faulted on its first read: run R10) */
++    if (psci_crumb_base())
++        smp_psci_add_range(ranges, max, &n, psci_crumb_base(), 0x10);
 +    if (aic) {
 +        /* the AIC's event page sits at +0xc000 (AIC2); the system-suspend wake poll reads it */
 +        u64 aic_size = aic->version == 2 ? 0xd000 : SZ_16K;
