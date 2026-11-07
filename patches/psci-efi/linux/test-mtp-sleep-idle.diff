@@ -1,0 +1,52 @@
+diff --git i/drivers/soc/apple/rtkit-helper.c w/drivers/soc/apple/rtkit-helper.c
+index 5f03bed772f2..6fbefcb68085 100644
+--- i/drivers/soc/apple/rtkit-helper.c
++++ w/drivers/soc/apple/rtkit-helper.c
+@@ -10,7 +10,9 @@
+ #include <linux/ioport.h>
+ #include <linux/of.h>
+ #include <linux/of_platform.h>
++#include <linux/moduleparam.h>
+ #include <linux/platform_device.h>
++#include <linux/pm.h>
+ #include <linux/soc/apple/rtkit.h>
+ #include <linux/string.h>
+ 
+@@ -193,6 +195,29 @@ static void apple_rtkit_helper_remove(struct platform_device *pdev)
+ 	writel_relaxed(0, helper->asc_base + APPLE_ASC_CPU_CONTROL);
+ }
+ 
++/*
++ * TEST (GH-8): when set, a system suspend tells the coprocessor to sleep
++ * (RTKit AP and IOP power IDLE 0x201, as macOS's RTBuddy does for every IOP)
++ * in the .suspend phase, before any suspend_late (where macsmc sends slpa).
++ * Nothing wakes it again: for runs that end in a reset or reboot only.
++ */
++static bool test_sleep_idle;
++module_param(test_sleep_idle, bool, 0644);
++MODULE_PARM_DESC(test_sleep_idle, "TEST: put the coprocessor into IDLE for a system suspend");
++
++static int apple_rtkit_helper_suspend(struct device *dev)
++{
++	struct apple_rtkit_helper *helper = dev_get_drvdata(dev);
++
++	if (READ_ONCE(test_sleep_idle) && apple_rtkit_is_running(helper->rtk))
++		dev_info(dev, "TEST: firmware IDLE for system sleep: %d\n",
++			 apple_rtkit_idle(helper->rtk));
++	return 0;
++}
++
++static DEFINE_SIMPLE_DEV_PM_OPS(apple_rtkit_helper_pm_ops,
++				apple_rtkit_helper_suspend, NULL);
++
+ static const struct of_device_id apple_rtkit_helper_of_match[] = {
+ 	{ .compatible = "apple,rtk-helper-asc4" },
+ 	{},
+@@ -203,6 +228,7 @@ static struct platform_driver apple_rtkit_helper_driver = {
+ 	.driver = {
+ 		.name = "rtkit-helper",
+ 		.of_match_table = apple_rtkit_helper_of_match,
++		.pm = pm_sleep_ptr(&apple_rtkit_helper_pm_ops),
+ 	},
+ 	.probe = apple_rtkit_helper_probe,
+ 	.remove = apple_rtkit_helper_remove,
