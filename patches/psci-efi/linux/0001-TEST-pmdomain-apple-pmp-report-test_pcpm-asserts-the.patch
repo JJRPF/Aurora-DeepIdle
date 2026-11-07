@@ -1,0 +1,154 @@
+From d0694778a0e7cbf92e72b22ff70f09b5b095855b Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Fri, 6 Nov 2026 21:33:05 -0500
+Subject: [PATCH] TEST: pmdomain: apple: pmp-report: test_pcpm asserts the CPU
+ complexes' requests for a deep suspend; macsmc withdraws them after the PMP's
+ IDLE
+
+macOS keeps PCPM0/PCPM1 (0x100/0x200) requested at the PMP while awake and
+clears them after slpa and SetAPPower, before the cores sleep (trace step
+6). Linux never requests them. pmp_report.test_pcpm (bit = entry id)
+asserts them at PM_SUSPEND_PREPARE for a deep suspend; macsmc's
+suspend_late withdraws them right after the PMP's SetAPPower/SetIOPPower
+IDLE (with macsmc.pmp_sleep), and PM_POST_SUSPEND withdraws any left.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/mfd/macsmc.c                |  5 ++
+ drivers/pmdomain/apple/pmp-report.c | 78 +++++++++++++++++++++++++++++
+ 2 files changed, 83 insertions(+)
+
+diff --git a/drivers/mfd/macsmc.c b/drivers/mfd/macsmc.c
+index f6fb81e9fc17..687788e3309c 100644
+--- a/drivers/mfd/macsmc.c
++++ b/drivers/mfd/macsmc.c
+@@ -554,6 +554,7 @@ static bool pmp_sleep;
+ module_param(pmp_sleep, bool, 0644);
+ MODULE_PARM_DESC(pmp_sleep, "PMP SetAPPower/SetIOPPower IDLE after the SMC's SetAPPower IDLE in system suspend");
+ static bool pmp_slept;
++int apple_pmp_report_test_pcpm_release(void);
+ 
+ static int apple_smc_suspend_late(struct device *dev)
+ {
+@@ -568,6 +569,10 @@ static int apple_smc_suspend_late(struct device *dev)
+ 		ret = apple_pmp_sleep(true);
+ 		pmp_slept = !ret;
+ 		dev_info(dev, "sleep: PMP SetAPPower/SetIOPPower IDLE: %d\n", ret);
++		/* TEST: macOS's trace step 6, the CPU complexes' requests withdrawn last */
++		ret = apple_pmp_report_test_pcpm_release();
++		if (ret)
++			dev_info(dev, "sleep: TEST pcpm release: %d\n", ret);
+ 	}
+ 	return 0;
+ }
+diff --git a/drivers/pmdomain/apple/pmp-report.c b/drivers/pmdomain/apple/pmp-report.c
+index 9f631a1a10b5..455774391be7 100644
+--- a/drivers/pmdomain/apple/pmp-report.c
++++ b/drivers/pmdomain/apple/pmp-report.c
+@@ -27,6 +27,7 @@
+ #include <linux/slab.h>
+ #include <linux/soc/apple/pmp-report.h>
+ #include <linux/string.h>
++#include <linux/suspend.h>
+ #include <linux/unaligned.h>
+ #include <linux/uuid.h>
+ #include <linux/workqueue.h>
+@@ -1681,6 +1682,81 @@ int apple_pmp_report_sleep_release(bool release)
+ }
+ EXPORT_SYMBOL_GPL(apple_pmp_report_sleep_release);
+ 
++/*
++ * TEST (S2R): macOS keeps the CPU complexes requested at the PMP while awake
++ * (PCPM0 0x100, PCPM1 0x200 in the request word) and clears them after slpa
++ * and SetAPPower, just before the cores sleep (trace step 6). Linux never
++ * requests them. With this mask (bit = report entry id), a deep suspend
++ * asserts them at PM_SUSPEND_PREPARE and the SMC driver withdraws them after
++ * the PMP's SetAPPower IDLE; PM_POST_SUSPEND withdraws whatever is left.
++ */
++static unsigned int test_pcpm;
++module_param(test_pcpm, uint, 0644);
++MODULE_PARM_DESC(test_pcpm, "TEST: report entries (bit = id) asserted for a deep suspend and withdrawn after slpa");
++static unsigned int test_pcpm_set;
++
++static int apple_pmp_report_test_pcpm_write(unsigned int mask, bool enable)
++{
++	struct apple_pmp_report *rep;
++	int ret = -ENODEV, err;
++	unsigned int id;
++
++	rcu_read_lock();
++	list_for_each_entry_rcu(rep, &apple_pmp_reports, list) {
++		ret = 0;
++		for (id = 0; id < 32; id++) {
++			if (!(mask & BIT(id)))
++				continue;
++			err = apple_pmp_report_set_state(rep, id, enable, false);
++			if (err && !ret)
++				ret = err;
++		}
++		pr_info("pmp-report: TEST pcpm %#x %s: %d, request %#llx ack %#llx\n", mask,
++			enable ? "asserted" : "withdrawn", ret,
++			readq(rep->base + rep->offsets->tgt_read),
++			readq(rep->base + rep->offsets->actual));
++		break;
++	}
++	rcu_read_unlock();
++	return ret;
++}
++
++int apple_pmp_report_test_pcpm_release(void);
++int apple_pmp_report_test_pcpm_release(void)
++{
++	unsigned int mask = test_pcpm_set;
++
++	if (!mask)
++		return 0;
++	test_pcpm_set = 0;
++	return apple_pmp_report_test_pcpm_write(mask, false);
++}
++EXPORT_SYMBOL_GPL(apple_pmp_report_test_pcpm_release);
++
++static int apple_pmp_report_pm_notify(struct notifier_block *nb, unsigned long action, void *data)
++{
++	unsigned int mask = READ_ONCE(test_pcpm);
++
++	switch (action) {
++	case PM_SUSPEND_PREPARE:
++		if (!mask || pm_suspend_default_s2idle())
++			break;
++		if (!apple_pmp_report_test_pcpm_write(mask, true))
++			test_pcpm_set = mask;
++		else
++			apple_pmp_report_test_pcpm_write(mask, false);
++		break;
++	case PM_POST_SUSPEND:
++		apple_pmp_report_test_pcpm_release();
++		break;
++	}
++	return NOTIFY_DONE;
++}
++
++static struct notifier_block apple_pmp_report_pm_nb = {
++	.notifier_call = apple_pmp_report_pm_notify,
++};
++
+ MODULE_DEVICE_TABLE(of, apple_pmp_report_of_match);
+ MODULE_DEVICE_TABLE(of, apple_pmp_report_entry_of_match);
+ 
+@@ -1689,11 +1765,13 @@ static int __init apple_pmp_report_init(void)
+ 	apple_pmp_report_debugfs = debugfs_create_dir("apple-pmp-report", NULL);
+ 	platform_driver_register(&apple_pmp_report_entry_driver);
+ 	platform_driver_register(&apple_pmp_report_driver);
++	register_pm_notifier(&apple_pmp_report_pm_nb);
+ 	return 0;
+ }
+ 
+ static void __exit apple_pmp_report_exit(void)
+ {
++	unregister_pm_notifier(&apple_pmp_report_pm_nb);
+ 	debugfs_remove_recursive(apple_pmp_report_debugfs);
+ 	platform_driver_unregister(&apple_pmp_report_entry_driver);
+ 	platform_driver_unregister(&apple_pmp_report_driver);
+-- 
+2.55.0
+

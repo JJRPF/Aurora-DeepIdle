@@ -139,6 +139,12 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
             done < /var/lib/deepidle/wakeup-off
             touch /run/psci-wakeoff
         fi
+        # /var/lib/deepidle/pcpm: PMP request bits (PCPM0/1 = 0x300) asserted for a deep suspend, withdrawn after the PMP's IDLE
+        PC_P=/sys/module/pmp_report/parameters/test_pcpm
+        if [ -e $PC_P ]; then
+            echo $(cat /var/lib/deepidle/pcpm 2>/dev/null || echo 0) > $PC_P
+            log "pcpm: $(cat $PC_P)"
+        fi
         # /var/lib/deepidle/dcp-off: the DCPs shut their firmware down for a deep suspend (never restarted; use reboot-after)
         DO_P=/sys/module/appledrm/parameters/test_sleep_off
         if [ -e $DO_P ]; then
