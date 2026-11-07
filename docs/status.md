@@ -298,8 +298,13 @@ There are two goals:
   confirms our reading of macOS. A few are at addresses that mean
   something else on this chip, so they are left out. The one new step
   is switching off each CPU cluster's automatic frequency control
-  (APSC). Image 61 adds it (run R20 = R17 plus that step). It is
-  built, not installed, and waits for the owner.
+  (APSC). Image 61 adds it (run R20 = R17 plus that step). **R20
+  result:** the Mac hung instead of resetting and the owner had to hold
+  power. With APSC off, most of the parked CPUs never woke to go to
+  sleep, and the safety timer no longer reset the chip. So this step is
+  not safe to run unattended. macOS does it only after its CPUs are
+  asleep; a reordered version may be tried later with the owner present.
+  Next is R18: the Secure Enclave's sleep message (approved).
 * **From 2026-11-06 the owner lets slpa runs that repeat or vary a
   self-recovering setup go unattended** (one at a time, dead-man switch
   on, a push before each); a new kind of step still gets one attended run.

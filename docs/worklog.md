@@ -3144,3 +3144,23 @@ Static only (DTs in linux-psci-efi-72, m1n1/Aura `cpufreq.c`, J414s ADT); no har
 - The installed psci-efi kernel stays `1a1105ae670401b0` (`install.sh` copies the staged kernel only when none is installed).
 - **Run R20 armed** = R17 + `0x20000` (aura-ctl `0x3db1f`), image 61 (`boot.bin.psci-test61` `4b272bdd49094b8a`). Before it: flags clean, `/boot` mounted, default boot.bin `76f850895fed53d1`, no next_entry, btrfs 0, headless on, watcher running, scratch zero except 0x6017. The owner is attended.
 - Next (SEP approved): R18 = R17 + SEP SLEEP type 2. Install the `apple-sep.ko` test module (check its vermagic against the installed kernel first), then one attended run.
+
+## 2026-11-07 09:24 run R20 (image 61, cluster APSC off): the first run the timer did not reset; it hung until the owner held power (28 min); most secondaries never slept; R18 (SEP) prepared
+- **What happened:** `PM: suspend entry` 08:28:05 (Pi kmsg); the Pi saw the Mac down at 08:28:09. No 86 s reset: the Mac stayed down, black screen, the headless keybind did nothing, and the owner held power. Up at 08:56:29. No dead-man push (the disk was fine). **The first hand reset of the R series**; the owner reported it themselves and said to continue.
+- **PMU scratch after the reset:** `00300050167e0712 0000000001000000 01001f1fffeefe01 0000000010101000` (R17: `00300050167e07ff 00000000ff000000 ffff1f100380f801 0000000010105000`):
+  - code `0x16`: the quiet path still ran to its last access before the commit, and the CPU_OFF mask is `077e` as before;
+  - **never slept `feee`** (R17 `f880`): of the nine secondaries only Aura cpus 4 and 8 (the first core of each P cluster) reached their final deep sleep. E cores 1–3, P0 5–6 and P1 9–10 never did;
+  - `0x6007` = `0x12`: the first of them is cpu1, CPU_OFF. Its release IPI went to MPIDR `0x0001`, it entered the park loop once and its park-loop WFI never returned (`0x600c` 1, `0x600d` 0, and a second IPI did not wake it, `0x600e` 0);
+  - `0x6014` = `ff`: the 500 ms wait for the P complexes timed out. PCPM0 reads `0x1f` (on), ECPM `0x1f`. The soc-cluster targets are all 0 (`0x601c`–`0x601e` = `10 10 10`).
+- **Reading:**
+  - The DVFS step runs before the release IPIs (after the AMCC step). With APSC disabled, the cores parked in deep WFI do not come back on the IPI, so they never reach their S2R sleep and PCPM0 stays on. macOS disables APSC only after its secondaries have already put themselves to sleep.
+  - **The timer's reset never came.** R13 had a core that never slept and still reset at 86 s, so awake cores alone do not stop the reset. Between crumb `0x16` and the timer there is only the WD1 disarm. So the likely cause is the APSC disable itself: the timer's reset path seems to need the clusters' DVFS machinery. Unproven, since `psci_dbg[18]` (the timer write count) is in DRAM and was lost.
+  - **aura-ctl bit `0x20000` is not self-recovering.** It must never run unattended, and only with the owner ready to hold power.
+- **Possible R20b** (not built, owner present only): disable APSC after the snapshot, i.e. after the secondaries have slept, right before crumb `0x16`. It may still block the timer's reset, so it waits until R18 is read.
+- **Cleanup:** flags removed, `~/.local/state/deepidle/resume` gone, scratch `0x6004`–`0x6007`, `0x600c`, `0x6010`–`0x6016`, `0x601b`–`0x601e` zeroed (`0x6017` left), default `boot.bin` `76f850895fed53d1`, no `next_entry`, `/boot` mounted, btrfs stats 0, headless on, Pi watcher running.
+- **R18 prepared** (the owner approved SEP tests):
+  - The stock `apple-sep.ko` (`2c0350bce545c75d`) was backed up to `/var/lib/deepidle/mods-pre-sepsleep/`.
+  - The test module (`test_sleep_msg`, debug stripped, `69d85dd42dcdb888`) is installed in `/lib/modules/7.2.11-psci-efi+`, followed by `depmod`.
+  - Checks: the vermagic matches; there is no MODVERSIONS or module signing; and its only import beyond the stock module's is `param_ops_int`, which is in the kernel.
+  - The initramfs carries only `blacklist apple_sep`. The rootfs loads the driver later (it was bound in R20's dmesg at 14.9 s), so the parameter is set by `run.sh` before the suspend.
+  - `install.sh` is back on image 60h (`4bdc26ae2b5a1c55`), so R18 = R17 + SEP SLEEP type 2 and nothing else.
