@@ -2641,3 +2641,18 @@ The owner is at the Mac for attended runs and asked to test the leads from DJ's 
   - **Plane 0 enables: `0xb7bffdfd` / `0x00003f00`, both bits enabled.** This is DJ's condition (with no platform error handler, an enabled pending AMCC error wakes the SoC within 20 ms of the commit), present here even without a display power-off.
 - Not fitting yet: if the commit started WD2 from its 90 s alarm, the reset would come about 90 s after the timer, not 60. W1 checks directly: it stops WD2 100 ms after the timer and records it.
 - Next, per the chain: **W1** (T0 + records + WD2 stop, `0x501`), then **R8**.
+
+## 2026-11-06 22:38 run W1: stopping WD2 after the timer moved the reset from about 85 s to about 116 s, but the alarm still did not bring Linux back
+
+- Run W1 (image 58, normal path, DS 32, the PMP release, genpd dump, aura-ctl `0x501`: the S2R timer, records, WD2 ctl = 0 100 ms after the timer): `echo mem` 22:34:44.6; the next kernel started at 22:36:41 (`uptime -s`, NTP-synced). **About 116 s.** No dead-man push (Linux never came back), no hand reset, btrfs counters 0. The Pi watcher saw the Mac go down at 22:34:49 and come back up at 22:37:14. Flags removed; default boot.bin `76f850895fed53d1`, `next_entry` unset; headless on.
+- Compare:
+  - T0 (the timer alone, same path): about 85 s, i.e. the reset about 60 s after the timer write.
+  - WD1 (Aura's 120 s dog): about 145 s.
+  - 116 s is neither. **Stopping WD2 changed the reset time**, so WD2 is involved in the 60 s reset. But something else still resets the SoC about 90 s after the timer write. The 30 s alarm did not resume Linux in either run.
+- The records (`psci_dbg2`) are lost with the reset, so this run cannot say what WD2 held after the commit.
+- Candidates for the second reset:
+  - WD2 restarted by the S2R engine after our stop;
+  - WD0;
+  - a reset 60 s after the alarm's wake attempt (30 s + 60 s ≈ 90 s after the timer).
+- **Next diagnostic (image 59, unattended, normal path):** Aura resumes the kernel right after the timer write and WD2 stop, without waiting for the alarm. Linux then logs the WDT block (WD0..2) and the timer word every second, synced to disk, until the reset. That shows directly which watchdog runs out.
+- Per the chain, R8 now (the owner is at the Mac): every sleep step with slpa, plus the AMCC enables cleared and the AIC masked. Its reading stands: about 86 s = the entry still did not complete.
