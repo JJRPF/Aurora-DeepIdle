@@ -1,4 +1,4 @@
-# Where the work stands (2026-11-06, 23:05, after run W2)
+# Where the work stands (2026-11-06, 23:11, after run R9)
 
 This is the summary of the whole effort: what was measured, what was built,
 what works, what does not, and what comes next. Each section points to the
@@ -235,9 +235,9 @@ There are two goals:
   timer; Linux never came back, and the Mac reset at the usual 86 s. So
   the watchdogs cannot be logged from Linux after the timer: the timer
   is the point of no return, as in macOS, where it is the last write.
-* **Next:** run R9 (owner attended): R8 with Aura's own watchdog (WD1)
-  off before the timer, as macOS and the M1 trace enter with every AON
-  watchdog off.
+* **2026-11-06 23:08: run R9 (owner attended): R8 with Aura's own
+  watchdog (WD1) off before the timer: the 86 s reset again.** Aura's
+  watchdog was not what kept the sleep entry from completing.
 * **From 2026-11-06 the owner lets slpa runs that repeat or vary a
   self-recovering setup go unattended** (one at a time, dead-man switch
   on, a push before each); a new kind of step still gets one attended run.

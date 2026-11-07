@@ -2716,3 +2716,18 @@ Boot after W2 (image 59, `246054fceb614142`, aura-ctl `0x2101`: records, the S2R
 - **What W1 and the reset times still say:** without anything stopped, ~86 s after echo mem (about 60 s after the timer). WD2 stopped: ~116 s. That is not WD1's 120 s from the PSCI call, which comes out at about 144 s. So a source other than WD1 and WD2 remains.
 - Clean afterwards: flags removed, `/boot` mounted, default `boot.bin` `76f850895fed53d1`, no next_entry, btrfs counters 0.
 - **Next (chain):** R9, owner attended: R8 + `0x1000` (WD1 off before the timer). WD2 is not stopped in R9, so the timer's own reset still recovers the Mac if the entry does not complete.
+
+## 2026-11-06 23:11 run R9 (owner attended): WD1 off before the timer: the 86 s reset again
+
+Boot after R9 (image 59, `246054fceb614142`, aura-ctl `0x1b3f` = R8 + `0x1000`). No dead-man push. No hand reset: the reset came at 86 s, well inside the 10 minutes the owner was asked to wait.
+
+- **Settings, from the Pi kmsg:** slpa (emergency ro remount), USB wakeups off, `sleep keep: afr`, `pcpm: 768` (`0x300`), `dcp off: Y`, `usb teardown: Y`, `pmp release for sleep: Y; requests 0xf000 ack 0xf000`, `aura ctl ... 0x1b3f`, then `echo mem` at 23:08:24 and the AOP's `SetAPPower 0x201`.
+- **Timing:** ping down at 23:08:28; the next kernel (the default) started at 23:09:50: **86 s after echo mem**, the timer's reset as in R6, R8 and W2.
+- **So Aura's armed WD1 did not keep the entry from completing.** Every AON watchdog except WD2 (which the commit loads) is now off at the commit, as in macOS and the M1 trace.
+- **Tried so far against the 86 s reset, on top of every macOS step found:**
+  - device domains off (R6);
+  - PCPM0/1 (R7);
+  - AMCC errors cleared and the AIC masked (R8);
+  - WD1 off (R9).
+  None changes it.
+- Clean afterwards: flags removed, `/boot` mounted, default `boot.bin` `76f850895fed53d1`, no next_entry, btrfs counters 0. The chain ends here (`NEXT=""`).
