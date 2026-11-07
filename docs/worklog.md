@@ -3035,3 +3035,4 @@ The owner pointed to his post: 0.05 W averaged over a 3-hour sleep on the M1 Air
 - **MTP is left out for now.** `CONFIG_APPLE_RTKIT_HELPER=y` is built in, so changing it needs a new test kernel image, not just a module.
 - **Harness:** `/var/lib/deepidle/sio-idle` (run.sh log `sio idle: Y`). `attended.sh` has **R19** = R17 + `SI=1`, and `sio-idle` joins the flags removed after a run.
 - **R19 needs no special OK.** It touches no state shared with macOS, and the SIO is reset with the SoC. It is still a new kind of step, so it gets one attended run with the owner notified first.
+- 07:41 R19 armed (attended.sh R19: aura-ctl 0x1db1f, sio-idle; apple-sio.ko installed, old one in /var/lib/deepidle/mods-pre-sioidle/). The owner was told first.
