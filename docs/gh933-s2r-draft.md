@@ -23,3 +23,15 @@ Update, 2026-11-06 (GH-8 runs since; still NOT posted, for the owner to approve 
 - The SoC's own S2R entry still does not complete with every macOS sleep step we know of, the PMP's included (the
   PMGR's S2R timer resets the SoC about 86 s in). Nothing points at the PMP; the open difference is the devices Linux
   keeps powered at sleep (the display coprocessors, the USB-C controllers).
+
+Update, 2026-11-06 evening (still NOT posted):
+
+- The devices are not what the S2R entry waits for: with test switches that stop the USB-C controllers and shut the
+  display coprocessors' firmware down for the sleep, genpd powers every device-held domain off (83 of 200 on at the
+  last moment, the rest the DT's always-on ones), and the full macOS sequence still ends in the timer's reset at 86 s.
+- The PMP also takes CPU-complex requests from the AP (PCPM0/1, `0xf300` acked) and their release; macOS releases
+  them after `slpa`. Whether that release is the missing step is the next (attended) test.
+- One PMP-adjacent finding: when the display chain goes off, its fabric parent `afr` goes off too, and the GPU's
+  `gfx` domain (also under `afr`) then fails to power up after the wake (`Failed to reach power state 0xf`). Keeping
+  `afr` on through the sleep avoids it. Not a PMP issue as far as we can tell, but it touches the display/GPU power
+  tree this PR enables.
