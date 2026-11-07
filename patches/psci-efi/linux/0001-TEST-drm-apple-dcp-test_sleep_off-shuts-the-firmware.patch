@@ -1,0 +1,80 @@
+From babd5eada9c562647b5603ca96624138e979a2d4 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Fri, 6 Nov 2026 21:16:56 -0500
+Subject: [PATCH] TEST: drm: apple: dcp: test_sleep_off shuts the firmware down
+ for a deep suspend
+
+With appledrm.test_sleep_off=1 a deep (mem) suspend shuts the DCP's RTKit
+firmware down and clears CPU_CONTROL instead of setting the wake path, so
+genpd may power the display domains off. Nothing restarts it: the DCP is
+marked crashed and unusable until reboot. Only for measuring what the S2R
+entry does with the display domains off.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/gpu/drm/apple/dcp.c | 35 +++++++++++++++++++++++++++++++++++
+ 1 file changed, 35 insertions(+)
+
+diff --git a/drivers/gpu/drm/apple/dcp.c b/drivers/gpu/drm/apple/dcp.c
+index d2fe9c95a2e8..65dd67a369be 100644
+--- a/drivers/gpu/drm/apple/dcp.c
++++ b/drivers/gpu/drm/apple/dcp.c
+@@ -26,6 +26,7 @@
+ #include <linux/of_platform.h>
+ #include <linux/property.h>
+ #include <linux/slab.h>
++#include <linux/suspend.h>
+ #include <linux/soc/apple/rtkit.h>
+ #include <linux/soc/apple/pmp-report.h>
+ #include <linux/string.h>
+@@ -4939,6 +4940,38 @@ static void dcp_hdmi_rails_set(struct apple_dcp *dcp, int on)
+ 	dcp->hdmi_rails_off = !on;
+ }
+ 
++/*
++ * TEST: for a deep suspend, stop the coprocessor's firmware instead of keeping
++ * its power domains on through the wake path, so genpd can power them off.
++ * Nothing restarts it: the DCP is dead after the wake and the test reboots.
++ * This only shows whether the display domains go off and what the S2R entry
++ * does without them.
++ */
++static bool test_sleep_off;
++module_param(test_sleep_off, bool, 0644);
++MODULE_PARM_DESC(test_sleep_off,
++		 "TEST: shut the DCP firmware down for a deep suspend, never restarted");
++
++static bool dcp_test_sleep_off(struct apple_dcp *dcp)
++{
++	int ret;
++
++	if (!READ_ONCE(test_sleep_off) || pm_suspend_target_state != PM_SUSPEND_MEM ||
++	    IS_ERR_OR_NULL(dcp->rtk) || READ_ONCE(dcp->crashed))
++		return false;
++	ret = apple_rtkit_shutdown(dcp->rtk);
++	if (ret) {
++		dev_warn(dcp->dev, "TEST: firmware shutdown for deep suspend failed: %d\n", ret);
++		return false;
++	}
++	if (!IS_ERR_OR_NULL(dcp->coproc_reg))
++		writel(0, dcp->coproc_reg + APPLE_DCP_COPROC_CPU_CONTROL);
++	WRITE_ONCE(dcp->crashed, true);
++	WRITE_ONCE(dcp->ext_dead, true);
++	dev_info(dcp->dev, "TEST: firmware shut down for deep suspend, down until reboot\n");
++	return true;
++}
++
+ static int dcp_platform_suspend(struct device *dev)
+ {
+ 	struct apple_dcp *dcp = dev_get_drvdata(dev);
+@@ -5009,6 +5042,8 @@ static int dcp_platform_suspend(struct device *dev)
+ 	 * domains to stay on. We need this as we do not support full
+ 	 * shutdown properly yet.
+ 	 */
++	if (dcp_test_sleep_off(dcp))
++		return 0;
+ 	device_set_wakeup_path(dev);
+ 	/* Last: the steps above still talk to the coprocessor. */
+ 	dcp_hold_for_sleep(dcp);
+-- 
+2.55.0
+

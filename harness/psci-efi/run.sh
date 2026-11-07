@@ -139,6 +139,12 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
             done < /var/lib/deepidle/wakeup-off
             touch /run/psci-wakeoff
         fi
+        # /var/lib/deepidle/dcp-off: the DCPs shut their firmware down for a deep suspend (never restarted; use reboot-after)
+        DO_P=/sys/module/appledrm/parameters/test_sleep_off
+        if [ -e $DO_P ]; then
+            if [ -s /var/lib/deepidle/dcp-off ]; then echo 1 > $DO_P; else echo 0 > $DO_P; fi
+            log "dcp off: $(cat $DO_P)"
+        fi
         # /var/lib/deepidle/usb-teardown: dwc3-apple stops a live USB-C core before a deep suspend and restarts it after
         UT_P=/sys/module/dwc3_apple/parameters/test_deep_teardown
         if [ -e $UT_P ]; then
