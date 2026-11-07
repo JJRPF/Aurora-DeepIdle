@@ -2816,3 +2816,7 @@ Boot after R9 (image 59, `246054fceb614142`, aura-ctl `0x1b3f` = R8 + `0x1000`).
   - First, write `0xa5` to `0x6004` and reboot normally, to see that it survives and iBoot ignores it.
   - Then run R10: R9 + `0x4000` (aura-ctl `0x5f7f`, R9's steps + the crumbs).
   - Its code at the next boot says where the boot core was when the timer reset came. `18` would mean it reached the deep WFI and stayed there, and `1a` that it woke from it.
+
+## 2026-11-06 23:31 scratch check S1 (owner present): `0x6004` = `0xa5`, then a normal reboot
+- Before: `0x6000`–`0x601f` = `00300050a5000000…0001000000000000` (`0xa5` just written; `0x6017` = `01` as before). Default `boot.bin` `76f850895fed53d1`, nothing armed, `/boot` rw.
+- On the next boot: read `0x6004` (survived?), check that the boot was normal (iBoot ignored it), then clear it to 0.
