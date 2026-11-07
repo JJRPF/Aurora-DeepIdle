@@ -2571,3 +2571,34 @@ Run J (slpa + PMP IDLE + AOP handshake + the whole quiesceHW incl. the soc-clust
 - **The timer as evidence:** every full-sequence run (I, J, L, N, R, R6) included the PMGR S2R timer (aura-ctl bit 0), which resets the SoC about 60 s after it is written whether the SoC is awake or not (T0, 85 s). So "86 s" says only that the timer fired; an S2R entry that completed but whose wake path iBoot never armed for our raw image (an open unknown) would also end in a reset. The PMU's `boot-error-stage` does not help: it is sticky and records the stage (`0x50` from `macsmc-reboot`'s sleep step) at the last reset of any kind (table over 11-06's boots: it turns 50 after each reset while the stage was 0x50 and back to 30 only after a reset without it).
 - The timer is also the safety net: without it, a SoC that really went down with no armed wake path could stay off until the power key. So the no-timer variant needs the owner at the Mac, like run M.
 - **Run R7N** (attended): R7 with aura-ctl 62, i.e. no timer, owner presses the power key 3 min after the push. WD1 (~145 s) = the SoC never slept; a resume with S2R counters, or a cold boot before the key = the entry completed. Both R7 and R7N wait for the owner (no reply at 2026-11-06 21:46).
+
+## 2026-11-06 22:13 references: DJ and Naeem Malik reached real S2R under their hypervisors (Neo, M1); what applies to the M2 Pro
+
+The owner pointed at two posts: DJ ("Goes to 0.109W on Neo") and Naeem Malik ("M1 Air under m1n1: all cores power down, memory stays intact, the RTC alarm fires, and the chip comes back"). Both run macOS as a guest under a hypervisor and let it do the sleep. Neither has done it from Linux yet. Their write-ups, both public and from 2026-11-06:
+
+- **DJ** (Diljit Singh, GitHub `DjDeveloperr`), T8140 / J700: `aurora-silicon/aura` branch `feat/sptm-hv`. The "Suspend to RAM" section of `docs/sptm-nv2-virt.md` (commit `a2cfc9e9`) has "What it found for a Linux port"; the code is in `src/sptm_virt_s2r.c` (`ef337312`).
+- **Naeem Malik** (GitHub `malik-na`), t8103 / J313: `malik-na/m1-power-lab` branch `omarchy-live-power`, `docs/evidence/2026-11-06-mac27-hv/README.md` (tries 23-43) and `tools/hv-trace-kit/`. Linux-side groundwork is on `malik-na/linux-aurora` branches `m1power/*`: spin-table CPU offline, the PMU RTC wake, the M1 PMP v1 driver, and `1618cc6d56af`, which fixes the `dwc3_apple_remove` NULL oops on a port that never saw a cable.
+
+What they found that bears on our open questions (their SoCs, not checked on T6020):
+
+- **The entry, macOS's order.**
+  - T8140: the secondaries self-disable (a bit per core); **WD2 is armed for 5 s**; the CPU complexes are armed off; the power gates, CLLT and clock muxes are parked; the **commit** (the S2R-timer write); the PMU RTC alarm over SPMI; "go hib"; then each core's deep WFI (`S3_5_C15_C6_2` bits 63 and 0).
+  - t8103 is the same shape: the commit is at `0x23d2c4000`, the clkgen muxes are parked before it, ACC_OVRD is set to deep sleep and CYC_OVRD to `0x3000001` on every core.
+- **The 5 s reset means the entry did not complete.**
+  - WD2 (the "reconfig watchdog") is loaded by the AON engine at the commit. The hardware stops it only once the entry completes.
+  - Naeem's tries 26-31 reset at about 5 s because the last core hung before its WFI: it touched the dwc3 after the clock muxes were parked.
+  - DJ: printing anything after the first core disables itself delayed the boot core past WD2.
+  - **Our resets come about 60 s after the S2R timer, not 5 s**, so the T6020 either differs or never arms WD2 this way. Worth reading WD2's CTRL/alarm at the commit in a future Aura step.
+- **The wake lands at the locked boot-CPU RVBAR.** On the M1 this works for a raw m1n1 boot object: Naeem's trampoline in the installed image ran after the RTC alarm, 'Z' in PMU scratch `0x9f0a`.
+  - That answers our open "does iBoot arm the wake path for a raw image" question for t8103.
+  - His proof that the SoC slept rather than reset: a breadcrumb in PMU scratch written from the RVBAR entry, and m1n1's base address unchanged. After a full reset, iBoot reloads m1n1 at a new base.
+- **Our own wake sources can wake the SoC halfway** if left powered. The debug USB port (ATC0) has to be powered off at the commit; uart0 and the CDC link are SoC-domain devices. This matches our wakeup-off / usb-teardown runs.
+- **AMCC errors (DJ):** with no platform error handler (Linux's position), a memory-controller error that is enabled and pending at the commit wakes the SoC within 20 ms.
+  - Fix: before the commit, clear error-enable word 0 bit 25 (DSID_AGE_OUT) and word 1 bit 8 (UNEXP_RT_HIT_DIR) on every plane.
+  - **Display power-off raises DSID_AGE_OUT**, and our dcp-off runs do exactly that. New candidate step for the R-series.
+- **Power once asleep (Naeem):** a completed entry still drew about 2 W until the PMP saw the E-cluster idle (cluster idle reports in the `0x23b738004` word). With them it is at or below about 0.3-0.4 W.
+  - Relevant to our PCPM requests: the PMP has to see the clusters idle, not just receive the AP's IDLE.
+- **The wake path (DJ):** 83 writes on one core in about 18 ms. Both clusters and the power gates come on, 22 domains go to their targets with AUTO_ENABLE, and WD2 is stopped last. DCP, DCPEXT, ANS, SIO, PMP and GFX restart their firmware (RTKit HELLO).
+  - So the DCP restart after sleep (deferred at 21:46) is required for a real S2R, and the ANS has to come back through a fresh firmware start.
+
+No runs changed. R7 and R7N still wait for the owner; the AMCC clear and a WD2 read at the commit are candidates to add before them.
