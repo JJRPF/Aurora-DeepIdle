@@ -59,7 +59,7 @@ index 5f0a8f69..78662953 100644
          printf("  CPU part: 0x%x rev: 0x%x\n", part, rev);
  
 diff --git i/src/kboot.c w/src/kboot.c
-index d594ea6e..877f52ae 100644
+index d594ea6e..5eab996d 100644
 --- i/src/kboot.c
 +++ w/src/kboot.c
 @@ -735,6 +735,7 @@ static int dt_set_psci(void)
@@ -70,6 +70,19 @@ index d594ea6e..877f52ae 100644
      if (fdt_setprop_u64(dt, node, "aura,psci-table", (u64)&psci_efi_table))
          bail("FDT: couldn't set aura,psci-table\n");
  
+@@ -744,9 +745,9 @@ static int dt_set_psci(void)
+     if (fdt_setprop(dt, node, "aura,psci-runtime-code", code, sizeof(code)))
+         bail("FDT: couldn't set aura,psci-runtime-code\n");
+ 
+-    u64 ranges[2 * 16];
+-    int n = smp_psci_mmio_ranges(ranges, 16);
+-    fdt64_t mmio[2 * 16];
++    u64 ranges[2 * 48];
++    int n = smp_psci_mmio_ranges(ranges, 48);
++    fdt64_t mmio[2 * 48];
+     for (int i = 0; i < 2 * n; i++)
+         mmio[i] = cpu_to_fdt64(ranges[i]);
+     if (fdt_setprop(dt, node, "aura,psci-runtime-mmio", mmio, 2 * n * sizeof(fdt64_t)))
 @@ -3906,6 +3907,29 @@ static bool skip_pmp_prop(const char *prop_name)
      return false;
  }
@@ -131,19 +144,57 @@ index d594ea6e..877f52ae 100644
      dt = memalign(DT_ALIGN, dt_bufsize);
  
      if (fdt_open_into(fdt, dt, dt_bufsize) < 0)
+diff --git i/src/mcc.c w/src/mcc.c
+index f7d0a962..c94cb41d 100644
+--- i/src/mcc.c
++++ w/src/mcc.c
+@@ -347,6 +347,19 @@ int mcc_init_t8103(int node, int *path, bool t8112)
+     return 0;
+ }
+ 
++int mcc_plane_bases(u64 *bases, int max, u64 *stride, int *planes)
++{
++    int n = 0;
++
++    if (!mcc_initialized || !mcc_count)
++        return 0;
++    for (int i = 0; i < mcc_count && n < max; i++)
++        bases[n++] = mcc_regs[i].plane_base;
++    *stride = mcc_regs[0].plane_stride;
++    *planes = mcc_regs[0].plane_count;
++    return n;
++}
++
+ int mcc_init_t6000(int node, int *path, bool t602x)
+ {
+     u32 reg_len;
+diff --git i/src/mcc.h w/src/mcc.h
+index c0c95255..812cce9a 100644
+--- i/src/mcc.h
++++ w/src/mcc.h
+@@ -16,5 +16,7 @@ extern struct mcc_carveout mcc_carveouts[];
+ int mcc_init(void);
+ int mcc_unmap_carveouts(void);
+ int mcc_enable_cache(void);
++/* image 58 (PSCI S2R): each instance's plane base, the plane stride and count; returns the instance count */
++int mcc_plane_bases(u64 *bases, int max, u64 *stride, int *planes);
+ 
+ #endif
 diff --git i/src/psci.c w/src/psci.c
-index 444d71e5..8563105d 100644
+index 444d71e5..61b3d1d1 100644
 --- i/src/psci.c
 +++ w/src/psci.c
-@@ -1,14 +1,17 @@
+@@ -1,14 +1,19 @@
  /* SPDX-License-Identifier: MIT */
  
 +#include "memory.h"
 +#include "aic.h"
  #include "psci.h"
++#include "mcc.h"
 +#include "wdt.h"
  #include "smp.h"
  #include "types.h"
++#include "adt.h"
  
  /*
   * CPU_ON, CPU_OFF and AFFINITY_INFO for the secondaries; the CPU work is in
@@ -155,7 +206,7 @@ index 444d71e5..8563105d 100644
   */
  
  static unsigned long psci_affinity_info(unsigned long target_affinity,
-@@ -20,9 +23,377 @@ static unsigned long psci_affinity_info(unsigned long target_affinity,
+@@ -20,9 +25,695 @@ static unsigned long psci_affinity_info(unsigned long target_affinity,
      return smp_psci_affinity_info(target_affinity);
  }
  
@@ -210,12 +261,135 @@ index 444d71e5..8563105d 100644
 +#define QS_SIO_CPU      0x2902801e0ULL
 +#define QS_CLKGEN       0x28e000000ULL
 +#define QS_PLLOFF       0x28e224000ULL
++/*
++ * Image 54: quiesceHW step 4, enableCluster(c, false, c > 3, die) for soc-clusters 1..5 (ADT pmgr `soc-clusters`:
++ * EACC, PACC0, PACC1, ANE0, AVEMSR, DISPLAY). Each cluster's word is at pmgr reg 4 (0x28e000000) + the ADT's
++ * `cluster-ctl-offset` (0x88000) + 4 * its id (the entry's first byte); enableCluster writes (v & ~0xf) | 0 and,
++ * for c > 3, waits for bit 4 to clear. Linux reads 0xf for EACC and 0x2f for the other five. Not done: for AVEMSR
++ * macOS also makes one more PMGR call first (vtable +0xa08 with the entry's byte 11, 0x0d).
++ *   PSCI_S2R_CLUSTERS the five clusters' targets to 0, after the domains and before the clocks
++ */
++#define QS_CLUSTER      0x28e088000ULL
++/*
++ * Image 56 (GH-8 worklog 2026-11-06 'run S3'): the PMGR domains Linux's genpd still has on at syscore suspend and
++ * that are not always-on: the three display chains (the DCP driver keeps its device on a wake path, so cpu0, fe and
++ * sys stay up) and the USB-C ports' atcN_usb (dwc3 syscore or wakeup). macOS has its devices off by then.
++ *   PSCI_S2R_HELD     each written with target 0 (AUTO_ENABLE, reset, disable and the flag bits cleared, as
++ *                     Linux's apple_pmgr_ps_set), children first, then its actual state polled to 0; before the
++ *                     quiesceHW domains, since ps_afr is dispext0_sys's parent. psci_dbg[23] bits 32-43 = poll
++ *                     timeouts, one per entry. The old words are written back on any resume, parents first.
++ */
++#define QS_PS_CLEAR     (BIT(31) | BIT(28) | BIT(12) | BIT(11) | BIT(10) | BIT(9) | BIT(8) | 0xf)
++static const u64 qs_held[12] = {
++    0x28e0802d8ULL, 0x28e0802c0ULL, 0x28e080258ULL, /* dispext0_cpu0, _fe, _sys */
++    0x28e0802b8ULL, 0x28e0802b0ULL, 0x28e080248ULL, /* dispext1_cpu0, _fe, _sys */
++    0x2902801d8ULL, 0x2902801d0ULL, 0x2902801b0ULL, /* disp0_cpu0, _fe, _sys */
++    0x29e2800c8ULL, 0x29e2800d0ULL, 0x29e2800d8ULL, /* atc0_usb, atc1_usb, atc2_usb */
++};
++static const u8 qs_cluster_id[5] = {1, 2, 3, 6, 4};
 +static const u32 qs_clkgen_off[5] = {0x38160, 0x38168, 0x38164, 0x38158, 0x3816c};
++/* Wake lines (AIC2 event numbers): 724 nub-spmi0 (PMU alarm), 865 smc mailbox recv-not-empty (key/lid events) */
++static const unsigned wake_irq[2] = {724, 865};
++#define MPMGR_AON_S2R_TIMER 0x29e5c4000ULL      /* MPMGR_AON (PMGR reg 38, T6020) + 0x4000 */
++
 +static volatile struct {
-+    u32 saved; /* bit 0 domains, bit 1 clocks */
++    u32 saved; /* bit 0 domains, bit 1 clocks, bit 2 clusters, bit 3 held */
 +    u32 afr, sio, sio_cpu, pll;
 +    u32 clk[5];
++    u32 cluster[5];
++    u32 held[12];
++    u32 held_mask;
++    u32 amcc_en[8][4][2]; /* image 58: bit 4, PSCI_S2R_AMCC: each plane's error enable words 0 and 1 */
++    u32 amcc_n, amcc_planes;
++    u32 aic_mask[128];     /* image 58: bit 5, PSCI_S2R_AICMASK: the AIC mask words before the mask-all */
++    u32 aic_words;
 +} qs_save __attribute__((aligned(64)));
++
++/*
++ * Image 58 (GH-8 worklog 2026-11-06 'image 58'): leads from DJ's T8140 (aurora-silicon/aura feat/sptm-hv,
++ * docs/sptm-nv2-virt.md) and Naeem Malik's t8103 (malik-na/m1-power-lab, docs/evidence/2026-11-06-mac27-hv) S2R.
++ *   PSCI_S2R_REC      psci_dbg2: the AON watchdogs WD0..2 (count, alarm, ctl) and the S2R timer word at entry, just
++ *                     before the timer, right after it and 100 ms later; each AMCC instance's error status (OR of its
++ *                     planes) at entry and just before the timer, and its plane 0 enables at entry
++ *   PSCI_S2R_AMCC     before the timer, clear DSID_AGE_OUT (word 0 bit 26) and UNEXP_RT_HIT_DIR (word 1 bit 8) in
++ *                     every plane's error enables (T6020, 13.5 AppleT6020PlatformErrorHandler::_amccEnableErrors:
++ *                     enable word i at plane + 0x21000 + 8 * i, status at + 4; T8140 has them at 0x25000, bit 25).
++ *                     DJ: with no platform error handler, a pending enabled AMCC error wakes the SoC within 20 ms of
++ *                     the commit, and a display power-off raises DSID_AGE_OUT
++ *   PSCI_S2R_STOPWD2  100 ms after the timer, WD2 ctl = 0. On t8103 and T8140 the commit loads WD2 (macOS: 5 s, reset
++ *                     enabled) and only a completed entry stops it; our timer resets the SoC about 60 s after it
++ *   PSCI_S2R_AICMASK  after the timer, every AIC line masked, as macOS's AIC quiesce right after its S2R timer; only
++ *                     with PSCI_S2R_CORESOFF (Aura's own wait needs its two wake lines)
++ */
++#define WDT_N            3
++#define AMCC_EN(b, p, w)  ((b) + (p) * qs_amcc_stride + 0x21000 + 8 * (w))
++#define AMCC_STS(b, p, w) (AMCC_EN(b, p, w) + 4)
++#define AMCC_DSID_AGE_OUT     BIT(26)
++#define AMCC_UNEXP_RT_HIT_DIR BIT(8)
++volatile u64 psci_dbg2[48] __attribute__((used));
++static u64 qs_amcc_base[8], qs_amcc_stride;
++static int qs_amcc_n, qs_amcc_planes;
++
++/* psci_dbg2[at..at+5]: per watchdog (alarm << 32 | count), (timer word << 32 | ctl); the timer word only with WD0 */
++static void qs_rec_wdt(unsigned at)
++{
++    u64 wdt = wdt_psci_base();
++
++    if (!wdt)
++        return;
++    for (unsigned i = 0; i < WDT_N; i++) {
++        u64 b = wdt + 0x10 * i;
++        psci_dbg2[at + 2 * i] = ((u64)read32(b + 4) << 32) | read32(b);
++        psci_dbg2[at + 2 * i + 1] = read32(b + 0xc) | (i ? 0 : (u64)read32(MPMGR_AON_S2R_TIMER) << 32);
++    }
++}
++
++/* psci_dbg2[at + i]: instance i's error status, OR over its planes, word 0 low and word 1 high */
++static void qs_rec_amcc(unsigned at)
++{
++    for (int i = 0; i < qs_amcc_n && i < 4; i++) {
++        u32 s0 = 0, s1 = 0;
++        for (int p = 0; p < qs_amcc_planes; p++) {
++            s0 |= read32(AMCC_STS(qs_amcc_base[i], p, 0));
++            s1 |= read32(AMCC_STS(qs_amcc_base[i], p, 1));
++        }
++        psci_dbg2[at + i] = ((u64)s1 << 32) | s0;
++    }
++}
++
++static void psci_quiesce_amcc(void)
++{
++    qs_save.amcc_n = qs_amcc_n;
++    qs_save.amcc_planes = qs_amcc_planes;
++    for (int i = 0; i < qs_amcc_n; i++)
++        for (int p = 0; p < qs_amcc_planes; p++)
++            for (int w = 0; w < 2; w++)
++                qs_save.amcc_en[i][p][w] = read32(AMCC_EN(qs_amcc_base[i], p, w));
++    qs_save.saved |= 16;
++    dc_civac_range((void *)&qs_save, sizeof(qs_save));
++    for (int i = 0; i < qs_amcc_n; i++)
++        for (int p = 0; p < qs_amcc_planes; p++) {
++            write32(AMCC_EN(qs_amcc_base[i], p, 0), qs_save.amcc_en[i][p][0] & ~AMCC_DSID_AGE_OUT);
++            write32(AMCC_EN(qs_amcc_base[i], p, 1), qs_save.amcc_en[i][p][1] & ~AMCC_UNEXP_RT_HIT_DIR);
++        }
++    psci_dbg2[42] = ((u64)read32(AMCC_EN(qs_amcc_base[0], 0, 1)) << 32) | read32(AMCC_EN(qs_amcc_base[0], 0, 0));
++}
++
++static void psci_quiesce_aic(void)
++{
++    u32 words = (aic->nr_irq + 31) / 32;
++
++    if (words > 128)
++        words = 128;
++    qs_save.aic_words = words;
++    for (u32 w = 0; w < words; w++)
++        qs_save.aic_mask[w] = read32(aic->base + aic->regs.mask_set + 4 * w);
++    qs_save.saved |= 32;
++    dc_civac_range((void *)&qs_save, sizeof(qs_save));
++    for (u32 w = 0; w < words; w++)
++        write32(aic->base + aic->regs.mask_set + 4 * w, 0xffffffff);
++    sysop("dsb sy");
++}
 +
 +/* poll (read32(a) & mask) == val for up to us microseconds; 0 when it matched */
 +static int qs_poll(u64 a, u32 mask, u32 val, u32 us)
@@ -226,6 +400,27 @@ index 444d71e5..8563105d 100644
 +        udelay(1);
 +    }
 +    return 1;
++}
++
++/* image 57: psci_ctl[2] bits 0-11 pick which qs_held entries bit 6 turns off (0 = all), to find one that hangs */
++static u32 qs_held_mask;
++
++static void psci_quiesce_held(void)
++{
++    u64 fail = 0;
++
++    for (unsigned i = 0; i < 12; i++)
++        qs_save.held[i] = read32(qs_held[i]);
++    qs_save.held_mask = qs_held_mask;
++    qs_save.saved |= 8;
++    dc_civac_range((void *)&qs_save, sizeof(qs_save));
++    for (unsigned i = 0; i < 12; i++) {
++        if (!(qs_held_mask & BIT(i)))
++            continue;
++        write32(qs_held[i], qs_save.held[i] & ~QS_PS_CLEAR);
++        fail |= (u64)qs_poll(qs_held[i], 0xf0, 0, 10000) << (32 + i);
++    }
++    psci_dbg[23] |= fail;
 +}
 +
 +static void psci_quiesce_domains(void)
@@ -274,6 +469,25 @@ index 444d71e5..8563105d 100644
 +}
 +
 +/* undo both, in reverse, on the way back to the kernel */
++static void psci_quiesce_clusters(void)
++{
++    u32 fail = 0;
++
++    for (unsigned i = 0; i < 5; i++)
++        qs_save.cluster[i] = read32(QS_CLUSTER + 4 * qs_cluster_id[i]);
++    qs_save.saved |= 4;
++    dc_civac_range((void *)&qs_save, sizeof(qs_save));
++    for (unsigned i = 0; i < 5; i++) {
++        u64 a = QS_CLUSTER + 4 * qs_cluster_id[i];
++        write32(a, qs_save.cluster[i] & ~0xf);
++        if (i + 1 > 3)
++            fail |= qs_poll(a, BIT(4), 0, 10000) << (24 + i);
++    }
++    for (unsigned i = 0; i < 5; i++)
++        psci_dbg[6 + i] = ((u64)qs_save.cluster[i] << 32) | read32(QS_CLUSTER + 4 * qs_cluster_id[i]);
++    psci_dbg[23] |= fail;
++}
++
 +static void psci_quiesce_undo(void)
 +{
 +    dc_ivac_range((void *)&qs_save, sizeof(qs_save));
@@ -282,10 +496,35 @@ index 444d71e5..8563105d 100644
 +        for (int i = 4; i >= 0; i--)
 +            write32(QS_CLKGEN + qs_clkgen_off[i], qs_save.clk[i]);
 +    }
++    if (qs_save.saved & 4) {
++        for (unsigned i = 0; i < 5; i++)
++            write32(QS_CLUSTER + 4 * qs_cluster_id[i], qs_save.cluster[i]);
++    }
 +    if (qs_save.saved & 1) {
 +        write32(QS_SIO_CPU, qs_save.sio_cpu);
 +        write32(QS_SIO, qs_save.sio);
 +        write32(QS_AFR, qs_save.afr);
++    }
++    if (qs_save.saved & 32) {
++        /* unmask what was unmasked, except Aura's two wake lines, which Linux keeps masked */
++        for (u32 w = 0; w < qs_save.aic_words; w++) {
++            u32 keep = 0;
++            for (unsigned i = 0; i < 2; i++)
++                if ((wake_irq[i] >> 5) == w)
++                    keep |= BIT(wake_irq[i] & 31);
++            write32(aic->base + aic->regs.mask_clr + 4 * w, ~qs_save.aic_mask[w] & ~keep);
++        }
++    }
++    if (qs_save.saved & 16) {
++        for (u32 i = 0; i < qs_save.amcc_n; i++)
++            for (u32 p = 0; p < qs_save.amcc_planes; p++)
++                for (u32 w = 0; w < 2; w++)
++                    write32(AMCC_EN(qs_amcc_base[i], p, w), qs_save.amcc_en[i][p][w]);
++    }
++    if (qs_save.saved & 8) {
++        for (int i = 11; i >= 0; i--)
++            if (qs_save.held_mask & BIT(i))
++                write32(qs_held[i], qs_save.held[i] & ~(BIT(11) | BIT(9) | BIT(8)));
 +    }
 +    qs_save.saved = 0;
 +    dc_civac_range((void *)&qs_save, sizeof(qs_save));
@@ -293,7 +532,8 @@ index 444d71e5..8563105d 100644
 +
 +volatile u64 psci_ctl[8] __attribute__((aligned(64), used));
 +#define PSCI_CTL_MAGIC_HI 0x5332524354524c00ULL /* "S2RCTRL", low byte added at run time */
-+#define MPMGR_AON_S2R_TIMER 0x29e5c4000ULL      /* MPMGR_AON (PMGR reg 38, T6020) + 0x4000 */
++
++static void qs_crumb_init(void);
 +
 +void psci_ctl_init(void)
 +{
@@ -303,10 +543,13 @@ index 444d71e5..8563105d 100644
 +        psci_ctl[i] = 0;
 +    psci_ctl[0] = PSCI_CTL_MAGIC_HI | lo;
 +    dc_civac_range((void *)psci_ctl, sizeof(psci_ctl));
++    /* image 58: the AMCC planes, found now while the ADT is still around */
++    qs_amcc_n = mcc_plane_bases(qs_amcc_base, 8, &qs_amcc_stride, &qs_amcc_planes);
++    if (qs_amcc_planes > 4)
++        qs_amcc_planes = 4;
++    qs_crumb_init();
 +}
 +
-+/* Wake lines (AIC2 event numbers): 724 nub-spmi0 (PMU alarm), 865 smc mailbox recv-not-empty (key/lid events) */
-+static const unsigned wake_irq[2] = {724, 865};
 +
 +/*
 + * Set on the kernel's first PSCI call: from then on Linux owns the hardware, so CPU resets through RVBAR
@@ -359,6 +602,68 @@ index 444d71e5..8563105d 100644
 +    msr(SYS_IMP_APL_CYC_OVRD, cyc_ovrd);
 +}
 +
++/*
++ * Image 60: breadcrumbs. The S2R timer's reset loses everything Aura keeps in DRAM, and Linux cannot run after the
++ * timer (run W2), so how far the boot core gets is left in the PMU, which a SoC reset does not touch: legacy scratch
++ * key 4 (0x6004), unused by 13.5's AppleDialogSPMIPMU (keys 0-3, 8-11, 0xf, 0x18-0x1a, 0x1f). One SPMI extended
++ * long write to the PMU (slave 0xb on nub-spmi0), no printing, bounded waits; Linux reads and clears it at boot. The
++ * controller's registers are kept in memory (cleaned) so the RVBAR path, with the MMU and caches off, can write too.
++ */
++#define QS_PMU_SPMI_ADDR 0xb
++#define QS_PMU_CRUMB_REG 0x6004
++static struct {
++    u64 base;
++    u32 st, cmd, rsp, rx_empty, tx_empty;
++    u32 on;
++} qs_crumbs __attribute__((aligned(64)));
++
++static void qs_crumb_init(void)
++{
++    int path[8];
++    u64 base = 0;
++    s32 gen = -1;
++    int off = adt_path_offset_trace(adt, "/arm-io/nub-spmi0", path);
++
++    qs_crumbs.base = 0;
++    if (off >= 0 && adt_get_reg(adt, path, "reg", 0, &base, NULL) >= 0) {
++        if (ADT_GETPROP(adt, off, "gen", &gen) < 0)
++            gen = -1;
++        if (gen >= 4) {
++            qs_crumbs.st = 0x200, qs_crumbs.cmd = 0x210, qs_crumbs.rsp = 0x220;
++            qs_crumbs.rx_empty = BIT(30), qs_crumbs.tx_empty = BIT(14);
++        } else {
++            qs_crumbs.st = 0x00, qs_crumbs.cmd = 0x04, qs_crumbs.rsp = 0x08;
++            qs_crumbs.rx_empty = BIT(24), qs_crumbs.tx_empty = BIT(8);
++        }
++        qs_crumbs.base = base;
++    }
++    qs_crumbs.on = 0;
++    dc_civac_range((void *)&qs_crumbs, sizeof(qs_crumbs));
++}
++
++static void qs_crumb(u8 v)
++{
++    u64 b = qs_crumbs.base, t0, t;
++
++    if (!qs_crumbs.on || !b)
++        return;
++    if (!(read32(b + qs_crumbs.st) & qs_crumbs.tx_empty))
++        return;
++    for (int i = 0; i < 16 && !(read32(b + qs_crumbs.st) & qs_crumbs.rx_empty); i++)
++        read32(b + qs_crumbs.rsp);
++    /* extended register write long, 1 byte (opcode 0x30 | len - 1), the register address in the upper half */
++    write32(b + qs_crumbs.cmd, ((u32)QS_PMU_CRUMB_REG << 16) | BIT(15) | (QS_PMU_SPMI_ADDR << 8) | 0x30);
++    write32(b + qs_crumbs.cmd, v);
++    asm volatile("isb\n mrs %0, cntpct_el0" : "=r"(t0));
++    do {
++        if (!(read32(b + qs_crumbs.st) & qs_crumbs.rx_empty)) {
++            read32(b + qs_crumbs.rsp);
++            return;
++        }
++        asm volatile("isb\n mrs %0, cntpct_el0" : "=r"(t));
++    } while (t - t0 < 24000); /* about 1 ms at 24 MHz */
++}
++
 +static void __attribute__((noreturn)) psci_resume_kernel(int line, int via_rvbar)
 +{
 +    u64 now;
@@ -382,6 +687,7 @@ index 444d71e5..8563105d 100644
 +    psci_dbg[0] = 0xA0AA0001;
 +    dc_civac_range((void *)&psci_resume, sizeof(psci_resume));
 +    dc_civac_range((void *)psci_dbg, sizeof(psci_dbg));
++    qs_crumb(via_rvbar ? 0x22 : 0x1e);
 +    psci_enter(psci_resume.entry, psci_resume.context);
 +}
 +
@@ -408,6 +714,7 @@ index 444d71e5..8563105d 100644
 +     * (stage 2) are unlike every other dog (120 s) and the SMC's own reset, so a reset time names its stage.
 +     */
 +    wdt_psci_arm(RVBAR_WDT_S);
++    qs_crumb(0x21);
 +    dc_ivac_range((void *)psci_dbg, sizeof(psci_dbg));
 +    psci_dbg[12]++;
 +    /*
@@ -434,7 +741,20 @@ index 444d71e5..8563105d 100644
 +    psci_dbg[2] = daif;
 +    psci_dbg[14] = mrs(SYS_IMP_APL_CYC_OVRD);
 +    dc_ivac_range((void *)psci_ctl, sizeof(psci_ctl));
-+    u64 steps = psci_ctl[1] & (PSCI_S2R_TIMER | PSCI_S2R_CORESOFF | PSCI_S2R_DOMAINS | PSCI_S2R_CLOCKS);
++    u64 steps = psci_ctl[1] & (PSCI_S2R_TIMER | PSCI_S2R_CORESOFF | PSCI_S2R_DOMAINS | PSCI_S2R_CLOCKS | PSCI_S2R_CLUSTERS | PSCI_S2R_STOPREQ | PSCI_S2R_HELD | PSCI_S2R_REC | PSCI_S2R_AMCC | PSCI_S2R_STOPWD2 | PSCI_S2R_AICMASK | PSCI_S2R_WD1OFF | PSCI_S2R_RESUMENOW | PSCI_S2R_CRUMB);
++    for (unsigned i = 0; i < 48; i++)
++        psci_dbg2[i] = 0;
++    psci_dbg2[1] = steps | ((u64)qs_amcc_n << 32) | ((u64)qs_amcc_planes << 40);
++    if (steps & PSCI_S2R_REC) {
++        qs_rec_wdt(2);
++        qs_rec_amcc(26);
++        for (int i = 0; i < qs_amcc_n && i < 4; i++)
++            psci_dbg2[34 + i] = ((u64)read32(AMCC_EN(qs_amcc_base[i], 0, 1)) << 32) | read32(AMCC_EN(qs_amcc_base[i], 0, 0));
++    }
++    qs_crumbs.on = !!(steps & PSCI_S2R_CRUMB);
++    dc_civac_range((void *)&qs_crumbs, sizeof(qs_crumbs));
++    qs_crumb(0x11);
++    qs_held_mask = (psci_ctl[2] & 0xfff) ? (psci_ctl[2] & 0xfff) : 0xfff;
 +    psci_dbg[17] = 0x5300000000ULL | (psci_ctl[1] & 0xffffffff); /* the control word this suspend read */
 +
 +    if (!aic || aic->version != 2) {
@@ -478,20 +798,68 @@ index 444d71e5..8563105d 100644
 +    dc_civac_range((void *)&psci_resume, sizeof(psci_resume));
 +
 +    /* the S2R steps, in macOS's order: quiesceHW's domains and clocks, its S2R timer last, then every core */
++    if (steps & PSCI_S2R_HELD)
++        psci_quiesce_held();
 +    if (steps & PSCI_S2R_DOMAINS)
 +        psci_quiesce_domains();
++    if (steps & PSCI_S2R_CLUSTERS)
++        psci_quiesce_clusters();
 +    if (steps & PSCI_S2R_CLOCKS)
 +        psci_quiesce_clocks();
++    if (steps & PSCI_S2R_AMCC)
++        psci_quiesce_amcc();
++    if (steps & PSCI_S2R_REC) {
++        qs_rec_wdt(8);
++        qs_rec_amcc(30);
++    }
++    /*
++     * Image 59: macOS enters with every AON watchdog's ctl at 0 (t8103 and T8140 traces; 13.5's AppleARMWatchdogTimer
++     * sleep action leaves WD1 alone and clears WD0 and reg 3's low byte, both already 0 here). Aura's WD1 has been armed
++     * (120 s) through every entry so far. The timer's own reset stays as the safety net.
++     */
++    qs_crumb(0x12);
++    if ((steps & PSCI_S2R_WD1OFF) && (steps & PSCI_S2R_TIMER)) {
++        wdt_psci_disarm();
++        psci_dbg2[45] = 0x5100000000ULL | 1;
++    }
 +    if (steps & PSCI_S2R_TIMER) {
 +        write32(MPMGR_AON_S2R_TIMER, 1);
 +        sysop("dsb sy");
 +        psci_dbg[18] = 1;
++        qs_crumb(0x13);
++        if (steps & PSCI_S2R_REC)
++            qs_rec_wdt(14);
++        if (steps & PSCI_S2R_REC || steps & PSCI_S2R_STOPWD2) {
++            udelay(100000);
++            qs_rec_wdt(20);
++        }
++        if (steps & PSCI_S2R_STOPWD2) {
++            u64 wdt = wdt_psci_base();
++            if (wdt) {
++                write32(wdt + 0x2c, 0);
++                sysop("dsb sy");
++                psci_dbg2[44] = 0x5700000000ULL | read32(wdt + 0x2c);
++            }
++        }
++        qs_crumb(0x14);
++        if ((steps & PSCI_S2R_AICMASK) && (steps & PSCI_S2R_CORESOFF))
++            psci_quiesce_aic();
++        qs_crumb(0x15);
++    }
++    psci_dbg2[0] = 0xA0AA0002;
++    dc_civac_range((void *)psci_dbg2, sizeof(psci_dbg2));
++    /* image 59: straight back to the kernel after the timer (no cores off): Linux logs the watchdogs until the reset */
++    if ((steps & PSCI_S2R_RESUMENOW) && (steps & PSCI_S2R_TIMER) && !(steps & PSCI_S2R_CORESOFF)) {
++        asm volatile("msr daifset, #0xf\n isb" ::: "memory");
++        psci_resume_kernel(-1, 0);
 +    }
 +    if (steps & PSCI_S2R_CORESOFF) {
 +        psci_dbg[0] = 0xA0AA0001;
 +        dc_civac_range((void *)psci_dbg, sizeof(psci_dbg));
-+        smp_psci_release_parked(); /* the secondaries go first, as macOS's stall release */
++        qs_crumb(0x17);
++        smp_psci_release_parked(steps & PSCI_S2R_STOPREQ); /* the secondaries go first, as macOS's stall release */
 +        udelay(2000);
++        qs_crumb(0x18);
 +        dcsw_op_all(DCSW_OP_DCCISW);
 +        sysop("dsb sy");
 +        cpu_sleep(true); /* back only through RVBAR: psci_suspend_rvbar() */
@@ -503,6 +871,7 @@ index 444d71e5..8563105d 100644
 +    msr(SYS_CNTHP_CVAL_EL2, hb_next);
 +    msr(SYS_CNTHP_CTL_EL2, CNTx_CTL_ENABLE);
 +    sysop("isb");
++    qs_crumb(0x1a);
 +    for (;;) {
 +        psci_sleep_core();
 +        psci_dbg[12]++;
@@ -533,7 +902,7 @@ index 444d71e5..8563105d 100644
      switch (fid) {
          case PSCI_0_2_FN_PSCI_VERSION:
              return PSCI_VERSION_1_0;
-@@ -34,6 +405,8 @@ unsigned long psci_efi_handler(unsigned long fid, unsigned long arg0, unsigned l
+@@ -34,6 +725,8 @@ unsigned long psci_efi_handler(unsigned long fid, unsigned long arg0, unsigned l
              return smp_psci_cpu_off();
          case PSCI_0_2_FN64_CPU_ON:
              return smp_psci_cpu_on(arg0, arg1, arg2);
@@ -542,7 +911,7 @@ index 444d71e5..8563105d 100644
          case PSCI_0_2_FN64_AFFINITY_INFO:
              return psci_affinity_info(arg0, arg1);
          default:
-@@ -53,5 +426,6 @@ const struct psci_efi_table psci_efi_table = {
+@@ -53,5 +746,6 @@ const struct psci_efi_table psci_efi_table = {
              [PSCI_FN(PSCI_0_2_FN_CPU_OFF)] = PSCI_RET_SUCCESS,
              [PSCI_FN(PSCI_0_2_FN64_CPU_ON)] = PSCI_RET_SUCCESS,
              [PSCI_FN(PSCI_0_2_FN64_AFFINITY_INFO)] = PSCI_RET_SUCCESS,
@@ -550,7 +919,7 @@ index 444d71e5..8563105d 100644
          },
  };
 diff --git i/src/psci.h w/src/psci.h
-index 92d225ab..60e82fdc 100644
+index 92d225ab..cc4c38ac 100644
 --- i/src/psci.h
 +++ w/src/psci.h
 @@ -31,6 +31,7 @@ enum psci_fn_id {
@@ -561,7 +930,7 @@ index 92d225ab..60e82fdc 100644
  };
  
  enum psci_ret {
-@@ -63,6 +64,16 @@ struct psci_efi_table {
+@@ -63,6 +64,29 @@ struct psci_efi_table {
  
  extern const struct psci_efi_table psci_efi_table;
  
@@ -569,6 +938,19 @@ index 92d225ab..60e82fdc 100644
 +#define PSCI_S2R_CORESOFF BIT(1)
 +#define PSCI_S2R_DOMAINS  BIT(2)
 +#define PSCI_S2R_CLOCKS   BIT(3)
++#define PSCI_S2R_CLUSTERS BIT(4)
++/* image 55: each secondary's PMGR stop request (CPUSTART + 0, as smp_stop_cpu() and macOS) before it sleeps */
++#define PSCI_S2R_STOPREQ  BIT(5)
++#define PSCI_S2R_HELD     BIT(6) /* image 56: the PMGR domains Linux keeps on at sleep, off before quiesceHW */
++/* image 58: leads from DJ's T8140 and Naeem Malik's t8103 S2R under a hypervisor (psci.c) */
++#define PSCI_S2R_REC      BIT(8)  /* record the AON watchdogs, the timer word and the AMCC errors in psci_dbg2 */
++#define PSCI_S2R_AMCC     BIT(9)  /* clear the AMCC DSID_AGE_OUT and UNEXP_RT_HIT_DIR error enables before the timer */
++#define PSCI_S2R_STOPWD2  BIT(10) /* stop WD2 100 ms after the timer: is the reset 60 s after it WD2? */
++#define PSCI_S2R_AICMASK  BIT(11) /* mask every AIC line after the timer (only with PSCI_S2R_CORESOFF) */
++/* image 59 */
++#define PSCI_S2R_WD1OFF   BIT(12) /* WD1 (Aura's suspend dog) disarmed just before the timer, as macOS has every AON dog off */
++#define PSCI_S2R_RESUMENOW BIT(13) /* resume the kernel right after the timer (no wait, no cores off): Linux logs the dogs */
++#define PSCI_S2R_CRUMB    BIT(14) /* image 60: stage codes in the PMU's legacy scratch key 4 (0x6004), which survives a SoC reset */
 +void psci_ctl_init(void);
 +
 +bool psci_suspend_resuming(void);
@@ -579,10 +961,14 @@ index 92d225ab..60e82fdc 100644
                                 unsigned long arg2);
  
 diff --git i/src/smp.c w/src/smp.c
-index 4c866a6c..d895125c 100644
+index 4c866a6c..ac20c165 100644
 --- i/src/smp.c
 +++ w/src/smp.c
-@@ -4,6 +4,7 @@
+@@ -1,9 +1,11 @@
+ /* SPDX-License-Identifier: MIT AND GPL-2.0-only */
+ 
+ #include "smp.h"
++#include "mcc.h"
  #include "psci.h"
  #include "adt.h"
  #include "aic.h"
@@ -590,7 +976,7 @@ index 4c866a6c..d895125c 100644
  #include "aic_regs.h"
  #include "cpu_regs.h"
  #include "memory.h"
-@@ -219,7 +220,7 @@ void smp_secondary_entry(void)
+@@ -219,7 +221,7 @@ void smp_secondary_entry(void)
      else
          msr(TPIDR_EL1, index);
  
@@ -599,7 +985,7 @@ index 4c866a6c..d895125c 100644
          printf("  Index: %d (table: %p)\n\n", index, me);
  
      me->mpidr = mpidr;
-@@ -1064,7 +1065,7 @@ int smp_psci_cpu_on(u64 mpidr, u64 entry, u64 context)
+@@ -1064,7 +1066,7 @@ int smp_psci_cpu_on(u64 mpidr, u64 entry, u64 context)
   * us stays reachable), HCR_EL2 back to its reset value (the kernel ran as a VHE host), then
   * x0 = context, branch to the entry.
   */
@@ -608,7 +994,7 @@ index 4c866a6c..d895125c 100644
  asm(".text\n.globl psci_enter\npsci_enter:\n"
      "mrs x2, sctlr_el2\n"
      "bic x2, x2, #(1 << 0)\n"
-@@ -1083,6 +1084,35 @@ asm(".text\n.globl psci_enter\npsci_enter:\n"
+@@ -1083,6 +1085,39 @@ asm(".text\n.globl psci_enter\npsci_enter:\n"
      "mov x0, x1\n"
      "br x3\n");
  
@@ -620,7 +1006,7 @@ index 4c866a6c..d895125c 100644
 + */
 +static volatile u64 psci_s2r_go __attribute__((aligned(64)));
 +
-+void smp_psci_release_parked(void)
++void smp_psci_release_parked(bool stopreq)
 +{
 +    psci_s2r_go = 1;
 +    dc_civac_range((void *)&psci_s2r_go, sizeof(psci_s2r_go));
@@ -629,8 +1015,12 @@ index 4c866a6c..d895125c 100644
 +        if (i == boot_cpu_idx || !cpu_info[i].valid)
 +            continue;
 +        dc_civac_range(&psci_cpu_state[i], 1);
-+        if (psci_cpu_state[i] == PSCI_CPU_OFF)
-+            smp_send_ipi(i);
++        if (psci_cpu_state[i] != PSCI_CPU_OFF)
++            continue;
++        /* macOS's trace: CPUSTART + 0 written for each secondary (1-6, 8-10) before the cores sleep */
++        if (stopreq)
++            write32(cpu_start_base + cpu_info[i].die * PMGR_DIE_OFFSET + 0x0, cpu_start_bit(i, &cpu_info[i]));
++        smp_send_ipi(i);
 +    }
 +    sysop("sev");
 +}
@@ -644,7 +1034,7 @@ index 4c866a6c..d895125c 100644
  /* The parked state of a CPU_OFF'd core: deep WFI on the Aura stack until it is handed an entry. */
  void psci_park_c(u64 index) __attribute__((noreturn, used));
  void psci_park_c(u64 index)
-@@ -1090,15 +1120,32 @@ void psci_park_c(u64 index)
+@@ -1090,15 +1125,32 @@ void psci_park_c(u64 index)
      struct spin_table *me = &spin_table[index];
      u64 target;
  
@@ -681,7 +1071,7 @@ index 4c866a6c..d895125c 100644
      }
      sysop("dmb sy");
      me->flag++;
-@@ -1162,8 +1209,25 @@ int smp_psci_mmio_ranges(u64 *ranges, int max)
+@@ -1162,8 +1214,38 @@ int smp_psci_mmio_ranges(u64 *ranges, int max)
          smp_psci_add_range(ranges, max, &n, cpu_start_base + cpu_info[i].die * PMGR_DIE_OFFSET,
                             0x100);
      }
@@ -689,7 +1079,7 @@ index 4c866a6c..d895125c 100644
 -        smp_psci_add_range(ranges, max, &n, aic->base, SZ_16K);
 +    u64 wdt = wdt_psci_base();
 +    if (wdt)
-+        smp_psci_add_range(ranges, max, &n, wdt, 0x20);
++        smp_psci_add_range(ranges, max, &n, wdt, 0x30); /* image 58: WD2 (+0x20..0x2c) too */
 +    /* MPMGR_AON's S2R timer (PSCI_S2R_TIMER, psci.c) */
 +    if (chip_id == T6020)
 +        smp_psci_add_range(ranges, max, &n, 0x29e5c4000, 4);
@@ -700,6 +1090,19 @@ index 4c866a6c..d895125c 100644
 +        smp_psci_add_range(ranges, max, &n, 0x2902801c0, 0x24);
 +        smp_psci_add_range(ranges, max, &n, 0x28e038158, 0x18);
 +        smp_psci_add_range(ranges, max, &n, 0x28e224000, 4);
++        smp_psci_add_range(ranges, max, &n, 0x28e088000, 0x1c); /* image 54: the soc-cluster words */
++        /*
++         * image 58: image 56's held domains on the two pages that were never mapped (dispext0/1 at 0x28e080248..2d8,
++         * atc0/1/2_usb at 0x29e2800c8..d8; disp0 shares ps_sio's page), so runs Y1, Y1T, Y2T faulted there
++         */
++        smp_psci_add_range(ranges, max, &n, 0x28e080248, 0x94);
++        smp_psci_add_range(ranges, max, &n, 0x29e2800c8, 0x14);
++        /* image 58: each AMCC plane's error enable/status words (plane + 0x21000..0x2100f) */
++        u64 mcc[8], stride;
++        int planes, nm = mcc_plane_bases(mcc, 8, &stride, &planes);
++        for (int i = 0; i < nm; i++)
++            for (int p = 0; p < planes; p++)
++                smp_psci_add_range(ranges, max, &n, mcc[i] + p * stride + 0x21000, 0x10);
 +    }
 +    if (aic) {
 +        /* the AIC's event page sits at +0xc000 (AIC2); the system-suspend wake poll reads it */
@@ -710,14 +1113,14 @@ index 4c866a6c..d895125c 100644
      return n;
  }
 diff --git i/src/smp.h w/src/smp.h
-index 9f9840e5..cf3d9c83 100644
+index 9f9840e5..979d2c2d 100644
 --- i/src/smp.h
 +++ w/src/smp.h
 @@ -36,6 +36,8 @@ uint64_t smp_get_mpidr(int cpu);
  u64 smp_get_release_addr(int cpu);
  void smp_set_wfe_mode(bool new_mode);
  void smp_send_ipi(int cpu);
-+void smp_psci_release_parked(void);
++void smp_psci_release_parked(bool stopreq);
 +void smp_psci_s2r_clear(void);
  
  static inline int smp_id(void)

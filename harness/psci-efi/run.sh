@@ -25,6 +25,9 @@ log "online: $(cat /sys/devices/system/cpu/online); nproc $(nproc)"
 # The PMU's record of the last power-off and boot (spmi_nvmem cells): how did the previous boot end?
 NV=$(ls -d /sys/bus/nvmem/devices/spmi_nvmem*/cells | head -1)   # spmi_nvmem2 on the default kernel, 0 on the test kernel
 log "pmu: $(for c in boot-stage@6001,0 boot-error-count@6002,0 boot-error-stage@6003,0 panic-count@6002,4 shutdown-flag@600f,3 fault-shadow@867b,0; do printf '%s=%s ' ${c%%@*} $(xxd -p $NV/$c 2>/dev/null | tr -d '\n'); done)"
+# image 60: Aura's breadcrumb in legacy scratch key 4 (0x6004) and the other keys macOS leaves unused (4-7, 0xc-0xe, 0x10-0x17, 0x1b-0x1e)
+PMUNV=/sys/bus/nvmem/devices/spmi_nvmem2/nvmem
+log "pmu scratch: $(dd if=$PMUNV bs=1 skip=$((0x6000)) count=32 2>/dev/null | xxd -p | tr -d '\n') (0x6000-0x601f; key 4 = Aura's last stage: 11 entry, 12 records, 13 timer written, 14 WD2 stopped, 15 AIC masked, 17 cores off, 18 parked released, 1a heartbeat, 1e resume, 21 RVBAR wake, 22 RVBAR resume)"
 dmesg > $OUT/dmesg.txt; chmod 644 $OUT/dmesg.txt
 grep -iE "psci|smp: |cpu[0-9]+: (failed|boot)|failed to come online|efi:" $OUT/dmesg.txt | tee -a $OUT/key-lines.txt | head -40
 sync
@@ -197,7 +200,7 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
             AB=$(xxd -p /proc/device-tree/chosen/aura,psci-runtime-code | cut -c1-16)
             # offset = ELF symbol - 0x10000 (the DT gives the runtime code, image base + 0x10000); image 56: psci_dbg at
             # 0x147430 in the ELF. Older images read zeros here (the offset went stale); their scan line below has the words.
-            DBGOFF=0x1472c8; case "$(cat /run/psci-efi-booted-sha 2>/dev/null)" in 20f6d711f9f7add5) DBGOFF=0x137430 ;; ae5f5e93323269a6) DBGOFF=0x137470 ;; 29448f1a7cab4ddd) DBGOFF=0x137940 ;; 246054fceb614142) DBGOFF=0x137940 ;; esac
+            DBGOFF=0x1472c8; case "$(cat /run/psci-efi-booted-sha 2>/dev/null)" in 20f6d711f9f7add5) DBGOFF=0x137430 ;; ae5f5e93323269a6) DBGOFF=0x137470 ;; 29448f1a7cab4ddd) DBGOFF=0x137940 ;; 246054fceb614142) DBGOFF=0x137940 ;; 4ba57db10e3fc58b) DBGOFF=0x137980 ;; esac
             log "aura dbg (words, low/high pairs): $(/usr/local/lib/deepidle/mmio-read $((0x$AB + DBGOFF)) 16 | awk '{printf "%s ", $2}')"
             log "aura dbg scan: $(/usr/local/lib/deepidle/scan-magic 0xA0AA0001 64 | head -3 | tr '\n' ';')"
             # image 58 (aura-ctl 0x100): psci_dbg2 after its magic: [1] steps | AMCC instances << 32 | planes << 40; per

@@ -238,11 +238,15 @@ There are two goals:
 * **2026-11-06 23:08: run R9 (owner attended): R8 with Aura's own
   watchdog (WD1) off before the timer: the 86 s reset again.** Aura's
   watchdog was not what kept the sleep entry from completing.
-* **Next:** every lead from DJ's and Naeem's work is now tried or ruled
-  out on this chip. What is missing is a way to see what happens after
-  the sleep timer: find always-on PMU scratch registers that survive a
-  reset, so Aura can leave breadcrumbs (as Naeem did on the M1) that
-  Linux reads on the next boot.
+* **2026-11-06 23:21: a mark the PMU keeps across the reset, and image 60.**
+  The PMU's boot-error-stage reads `0x50` (macOS's "AP asleep") after every
+  timer reset of a run that sent macOS's AP-sleep messages, so the SMC side
+  thinks the AP is asleep: what is missing is on the SoC side. Image 60
+  (aura-ctl `0x4000`) has Aura write a stage code to an unused PMU scratch
+  byte (`0x6004`) at each step of the sleep tail, so the next boot shows how
+  far the boot core got.
+* **Next (owner present):** a normal reboot with `0x6004` set, to check that
+  it survives and iBoot ignores it; then run R10 (R9 + the stage codes).
 * **From 2026-11-06 the owner lets slpa runs that repeat or vary a
   self-recovering setup go unattended** (one at a time, dead-man switch
   on, a push before each); a new kind of step still gets one attended run.

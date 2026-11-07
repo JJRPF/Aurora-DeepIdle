@@ -2790,3 +2790,29 @@ Boot after R9 (image 59, `246054fceb614142`, aura-ctl `0x1b3f` = R8 + `0x1000`).
   - First, one attended check from Linux: write `0x6004` = `0xa5`, reboot normally, read it back (does it survive, does iBoot ignore it), then clear it.
   - Then image 60: Aura writes a stage code to `0x6004` over SPMI at each step of the sleep tail (before and after the timer, after WD2, after the AIC mask, before the last core's deep WFI, and on the RVBAR wake), and `run.sh` reads and clears it at boot.
   - That says how far the boot core got before the reset, and whether a wake came back through RVBAR.
+
+## 2026-11-06 23:21 image 60: Aura leaves stage codes in the PMU's scratch key 4; built, not yet run
+- **Scratch check from Linux (no reboot):** `0x6004` read 0, took `0xa5` and read it back through `spmi_nvmem2`, then went back to 0. It is plain writable scratch. Whether it survives a reset and whether iBoot reads it is still the attended part.
+- **Image 60** (Aura `7958e947d95759d4`, `boot.bin.psci-test60` `4ba57db10e3fc58b`, diff `patches/psci-efi/aura/wip-image60.diff`; `psci_dbg` at `+0x137980`; `install.sh` uses it):
+  - New aura-ctl bit `0x4000`, off by default: Aura writes a one-byte stage code to PMU `0x6004`.
+  - The write is one SPMI "extended register write long" to slave `0xb` on `nub-spmi0` (`0x29e114000`). It uses the same command word as Linux's `spmi-apple`. This ADT has no `gen`, so the registers are at `0x0`, `0x4` and `0x8`, as in Linux.
+  - `psci_ctl_init` finds the controller from the ADT and keeps it in a cache-cleaned block, so the RVBAR path, with the MMU off, can write too.
+  - Each write has no printing and bounded waits, about 1 ms at most. If the TX FIFO is busy, the write is skipped.
+  - **Codes:**
+    - `11` entry (the steps read);
+    - `12` before the timer step;
+    - `13` timer written;
+    - `14` 100 ms later, after WD2 is stopped;
+    - `15` after the AIC mask;
+    - `17` before the secondaries are released;
+    - `18` before the cache flush and the boot core's deep WFI;
+    - `1a` the heartbeat loop (the deep WFI returned);
+    - `1e` a normal resume into the kernel;
+    - `21` an RVBAR wake;
+    - `22` the RVBAR resume into the kernel.
+- `run.sh` logs `0x6000`–`0x601f` on every boot. Nothing clears `0x6004` yet. A run's code tells only if it changed from the one before.
+- `aura-ctl` takes up to `0x7fff`.
+- **Next (owner present, a new kind of step):**
+  - First, write `0xa5` to `0x6004` and reboot normally, to see that it survives and iBoot ignores it.
+  - Then run R10: R9 + `0x4000` (aura-ctl `0x5f7f`, R9's steps + the crumbs).
+  - Its code at the next boot says where the boot core was when the timer reset came. `18` would mean it reached the deep WFI and stayed there, and `1a` that it woke from it.
