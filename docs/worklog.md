@@ -3087,3 +3087,22 @@ The owner pointed to his post: 0.05 W averaged over a 3-hour sleep on the M1 Air
 - **What we have never done** on J414s: the error-handler masks, the cluster CPM/DVFS writes, `pmgr[38]`/`pmgr[46]`/`pmgr[56]`, the PCIe RC/port power-down, the pre-`slpw` request word and the DVFS bit. On T6020 `0x28e3d…` is the PMP's mailbox block, so the request word may belong to a different unit here.
 - **Next:** map T6000's ADT `pmgr` reg indexes and error-handler nodes to T6020's (`DeviceTree.j414sap.bin`, static). Then build the post-`slpa` writes into Aura before the timer, as a new attended step.
 - Replied on #9 (as asked by the owner): our J414s state, what the tables add, two cautions for their s2idle runs (ANS dead after `slpa`; the 86 s timer reset as a signature), and a question on which unit owns `0x28e3d8328`/`0x28e3d0860`.
+
+## 2026-11-07 08:02 maralcbr's post-slpa writes mapped to J414s (static, first pass)
+Sources: `pmgr-regs.txt` (J414s ADT `pmgr` reg list) and the J414s ADT `error-handler` node (`compatible = [error-handler,t6020]`). No hardware touched.
+
+| T6000 (trace) | T6020 / J414s | Confidence |
+|---|---|---|
+| `error-handler[1]` 0x28e000000 (+0x70000, +0x3815c..0x38170) | error-handler reg[1] 0x28e000000: **same address** | address yes, function not checked |
+| `error-handler[2]` 0x28e080000 (+0x2d000, +0x78000..0x7d000, +0x48000..0x48600, +0x18000..0x18020, +0x1e8) | error-handler reg[2] 0x28e080000: **same address** (it overlaps PMGR reg 0, the PS block) | address yes |
+| `error-handler[7..10]` 0x282000000, 0x304000000, 0x383000000, 0x402000000 (+0xa00) | reg[8..11] 0x280000000, 0x300000000, 0x380000000, 0x400000000 (T6020 has one extra entry at reg[0], 0x394c40000) | index shift likely; offsets within differ (T6000 bases are not 32 MB aligned): **check before use** |
+| cluster blocks `pmgr[8/10]` 0x210e20000 / 0x210e40000, `[15/17]` 0x211e2/4, `[24/26]` 0x212e2/4 | pmgr reg 8/10, 17/19, 26/28: **same addresses** (T6020 has nine regs per cluster, T6000 seven) | address yes |
+| `pmgr[38]+0x800` 0x28e20c800 | pmgr reg 40 0x28e20c000: **same address** | address yes |
+| `pmgr[46]` 0x28e224000 | pmgr reg 46 0x28e224000: **same address and index** | yes |
+| request word 0x28e3d8328, SOC-DEV-DVFS+4 0x28e3d0860 | inside pmgr reg 45 0x28e3c0000 (size 0x20000): **same addresses**. Our PMP mailbox registers (0x28e3d12a0/12c0) are in the same block. | address yes |
+| `pmgr[36]+0x4000` 0x2925c4000 (timer), WD0 0x2922b000c | pmgr reg 38 0x29e5c0000 (our timer 0x29e5c4000); AON shifts 0x292… → 0x29e…, so WD0 = 0x29e2b000c (already off in our runs) | yes |
+| `pmgr[2]` 0x28e580000 (+0x58000, +0x60000, +0x64000, +0x188), `pmgr[56]` 0x58c008014/0x58c0082bc, apcie[2] 0x580080000 | not mapped: T6020's reg 2 is 0x290280000 (SOC-East), and PCIe moved | **open** |
+
+- **Most of the trace's targets are at the same physical addresses on T6020.** These are the cluster CPM/DVFS blocks, `0x28e224000`, `0x28e20c800`, the two error-handler blocks in `0x28e0…`, and the request/DVFS pair in `0x28e3c0000`. What each register does there is still to be checked (read-only on the normal kernel, within ADT-declared ranges, after confirming their clock gates are on).
+- **Next:** read the same-address registers live (values only), compare with the trace's written values, then build a new Aura image with the same-address writes in trace order before the timer (new aura-ctl bit), as one attended run.
+- **Also pending:** a test Image with `apple_rtkit_helper.test_sleep_idle` (MTP IDLE) is built (`f573144a4452768c`, `depmod -e` clean against all installed modules) but **not installed**. The trace makes it a lower priority.
