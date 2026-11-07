@@ -139,6 +139,12 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
             done < /var/lib/deepidle/wakeup-off
             touch /run/psci-wakeoff
         fi
+        # /var/lib/deepidle/sleep-keep: PMGR domain names (comma separated) kept on through the system sleep
+        SK_P=/sys/module/pmgr_pwrstate/parameters/test_sleep_keep
+        if [ -e $SK_P ]; then
+            if [ -s /var/lib/deepidle/sleep-keep ]; then cat /var/lib/deepidle/sleep-keep > $SK_P; else echo > $SK_P; fi
+            log "sleep keep: $(cat $SK_P)"
+        fi
         # /var/lib/deepidle/pcpm: PMP request bits (PCPM0/1 = 0x300) asserted for a deep suspend, withdrawn after the PMP's IDLE
         PC_P=/sys/module/pmp_report/parameters/test_pcpm
         if [ -e $PC_P ]; then

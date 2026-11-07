@@ -1,0 +1,71 @@
+From 94ef564667307b75cf2e492863980a604ffbbaac Mon Sep 17 00:00:00 2001
+From: Justin Pfister <119864532+JJRPF@users.noreply.github.com>
+Date: Fri, 6 Nov 2026 21:39:05 -0500
+Subject: [PATCH] TEST: pmdomain: apple: pmgr-pwrstate: test_sleep_keep keeps
+ named domains on through system sleep
+
+A comma-separated list of PMGR domain names whose power-off is refused
+(-EBUSY) while system sleep is in progress, so genpd leaves them on.
+For checking whether the GPU's gfx domain fails to power up after a sleep
+because its parent afr went off (it used to stay on through dispext0_sys).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/pmdomain/apple/pmgr-pwrstate.c | 27 ++++++++++++++++++++++++++
+ 1 file changed, 27 insertions(+)
+
+diff --git a/drivers/pmdomain/apple/pmgr-pwrstate.c b/drivers/pmdomain/apple/pmgr-pwrstate.c
+index 808f45a2b660..1090529dcdad 100644
+--- a/drivers/pmdomain/apple/pmgr-pwrstate.c
++++ b/drivers/pmdomain/apple/pmgr-pwrstate.c
+@@ -16,6 +16,7 @@
+ #include <linux/mfd/syscon.h>
+ #include <linux/reset-controller.h>
+ #include <linux/module.h>
++#include <linux/string.h>
+ 
+ #define APPLE_PMGR_RESET        BIT(31)
+ #define APPLE_PMGR_AUTO_ENABLE  BIT(28)
+@@ -176,6 +177,28 @@ static int apple_pmgr_ps_power_on(struct generic_pm_domain *genpd)
+ 	return ret;
+ }
+ 
++/*
++ * TEST (S2R): domains, by name, that stay on through system sleep although
++ * genpd would power them off (e.g. afr, the GPU's parent, which the display
++ * chain used to keep on). Comma separated; checked at each power-off.
++ */
++static char *test_sleep_keep;
++module_param(test_sleep_keep, charp, 0644);
++MODULE_PARM_DESC(test_sleep_keep, "TEST: domain names kept on through system sleep, comma separated");
++
++static bool apple_pmgr_ps_test_keep(struct apple_pmgr_ps *ps)
++{
++	const char *list = READ_ONCE(test_sleep_keep), *p;
++	size_t len = strlen(ps->genpd.name);
++
++	if (!ps->system_sleep || !list)
++		return false;
++	for (p = list; (p = strstr(p, ps->genpd.name)); p += len)
++		if ((p == list || p[-1] == ',') && (p[len] == ',' || p[len] == '\0' || p[len] == '\n'))
++			return true;
++	return false;
++}
++
+ static int apple_pmgr_ps_power_off(struct generic_pm_domain *genpd)
+ {
+ 	struct apple_pmgr_ps *ps = genpd_to_apple_pmgr_ps(genpd);
+@@ -183,6 +206,10 @@ static int apple_pmgr_ps_power_off(struct generic_pm_domain *genpd)
+ 
+ 	if (ps->firmware_owned)
+ 		return 0;
++	if (apple_pmgr_ps_test_keep(ps)) {
++		dev_info(ps->dev, "TEST: %s kept on through system sleep\n", genpd->name);
++		return -EBUSY;
++	}
+ 
+ 	ret = apple_pmgr_ps_set(genpd, APPLE_PMGR_PS_PWRGATE, false);
+ 	if (ret)
+-- 
+2.55.0
+
