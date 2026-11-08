@@ -3211,3 +3211,13 @@ Static only (DTs in linux-psci-efi-72, m1n1/Aura `cpufreq.c`, J414s ADT); no har
   - `aura-ctl.c` accepts bits 0–18.
 - **Run R21** = R17 + `0x40000` (aura-ctl `0x5db1f`, image 62). A new kind of write, so one attended run, owner present (R20's hang shows a post-commit hang is possible).
 - **Order proposed to the owner:** R18B (SEP hand-off, Linux module) and R21 (fabric, Aura). Either first; both are one variable each on top of R17.
+
+## 2026-11-08 07:54 R18B first try stopped before suspend: the SEP probe failed again, and the cause of that flake is found and fixed (two loader units race)
+- 07:50 R18B armed (owner present; the owner's reply also allows unattended repeats of configurations that already self-recovered). Module `5be0d264b91d8757` installed stripped (`fab84a8853571004`) in the psci-efi tree, R18's `69d85dd4` replaced.
+- 07:51 test kernel up, but `apple_sep` failed to bind (`-16`), so neither the SLEEP nor the psoff step could run: it would only have repeated R17. I killed `psci-efi-run.sh` during its first 45 s wait, before it touched anything (root still rw, no suspend).
+- **The flake's cause:**
+  - The kernel log shows two module inits. The first (15.107 s) attaches and finishes probe. It is torn down at 15.126 s (trusted key source unregistered), and the second init's probe refuses: "already booted or registered on this boot by an earlier load (marker property present)", `-EBUSY`.
+  - Two units load the driver: `apple-sep.service` (package aurora-touchid, `modprobe apple-sep`, 15.090–15.124 s) and the local `aurora-sep.service` → `/usr/local/sbin/aurora-sep-load` (2026-09-26, started 15.101 s). That script does `modprobe -r apple_sep` whenever `/dev/sep-bio` doesn't exist yet. That unloads the packaged load mid-attach, and the reload hits the one-shot marker.
+  - The last 12 boots: every `-EBUSY` boot (0, -1, -6, -11) has 2 inits and `aurora-sep.service` failed; every good boot has 1 init and it finished. It is a race, not the SEP.
+- **Fix** (local system file, backup `/var/lib/deepidle/aurora-sep-load.orig`): `aurora-sep-load` now loads the driver only when `/sys/module/apple_sep` doesn't exist, and otherwise just waits for `/dev/sep-bio`. The packaged load already gives "writes ENABLED" and the APFS-resolved .gl extent (this boot's first init), so its default parameters are enough.
+- Next: re-arm R18B. That boot also checks the fix: 1 init, `aurora-sep.service` finished.
