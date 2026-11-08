@@ -309,6 +309,10 @@ There are two goals:
   the chip's power manager switch the enclave off after that message;
   on this Mac it is never allowed to. R18B adds that step; it is built
   and waits for the owner to be at the Mac.
+* **The same gap on three internal data lanes (fabric).** macOS's power
+  manager is allowed to switch them off when idle at sleep entry; on this
+  Mac Linux never allows it. Image 62 (run R21) changes that one setting
+  to macOS's value. Built, waits for the owner to be at the Mac.
 * **From 2026-11-06 the owner lets slpa runs that repeat or vary a
   self-recovering setup go unattended** (one at a time, dead-man switch
   on, a push before each); a new kind of step still gets one attended run.

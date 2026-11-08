@@ -3181,3 +3181,33 @@ Static only (DTs in linux-psci-efi-72, m1n1/Aura `cpufreq.c`, J414s ADT); no har
 - **Harness:** `run.sh` writes `/var/lib/deepidle/sep-psoff` into the parameter (log `sep psoff: Y`) and logs `bound: Y/N`. `attended.sh` **R18B** = R18 + `SPO=1`, and `sep-psoff` joins the flags removed after a run.
 - **Not armed:** it is a new kind of write, so it gets one attended run, and since R20 a hang is possible. It waits for the owner to be at the Mac (asked at 23:27).
 - Clean: flags removed, scratch zeroed (except `0x6017`), default `boot.bin` `76f850895fed53d1`, no `next_entry`, `/boot` mounted, btrfs 0, headless on, Pi watcher running. The installed test `apple-sep.ko` is still R18's `69d85dd42dcdb888` (the stock one is in `mods-pre-sepsleep/`).
+
+## 2026-11-07 23:31 Static: macOS's sleep-entry PMGR dump vs J414s: three fabric lanes are never allowed to auto-gate; image 62 (aura-ctl 0x40000) and run R21 built, not armed
+- **Source:** maralcbr's `lab_ps_off` table, "PMGR power states Linux leaves on but macOS has off at sleep entry (j314s, hv dump), with macOS's value" (32 domains, T6000). I mapped each to J414s by its DT label (`t602x-pmgr.dtsi`; bases pmgr `0x28e080000`, pmgr_south `0x28e680000`, pmgr_east `0x290280000`, pmgr_mini `0x29e280000`) and read the current values read-only on the normal kernel. Table: `data/psmap.txt`.
+- **Device domains** (ATC*, DISP*, DISPEXT*, UART, MSG): on now, but Linux's genpd turns them off by the commit (the R11–R17 genpd dumps, S6/S8). They are not the gap.
+- **The always-on, auto-PM ones:**
+
+  | Domain | J414s word | macOS at sleep | J414s now |
+  |---|---|---|---|
+  | AFNC1_LW2 | `0x28e080210` | `0x1000030f` | `0x1f0000ff` |
+  | AFNC2_LW1 | `0x290280178` | `0x1000030f` | `0x1f0000ff` |
+  | APCIE_GP_SYS | `0x290280418` | `0x1000030f` | `0x1f0000ff` |
+  | SEP | `0x290280c00` | `0x1000030f` | `0x1f0000ff` (R18B) |
+  | AFNC3_LW0 | `0x290280190` | `0x1000030f` | `0x1000030f` (already) |
+  | NUB_SPMI1 | `0x29e280068` | `0x1400024f` | `0x1400024f` (already) |
+  | PMP | `0x28e0802c8` | `0x0f0f0300` (off) | `0x1f0f03ff` (ours runs the PMP sleep) |
+  | PMS_SRAM | `0x28e0802d0` | `0x0f000300` (off) | `0x1f0003ff` |
+
+- **Reading:**
+  - Bits 27:24 are PS_AUTO, the state the PMGR may drop an auto-PM domain to (`pmgr-pwrstate.c` `APPLE_PMGR_PS_AUTO`). Linux never writes them; it only toggles AUTO_ENABLE. So these lanes keep the boot value f and are never gated.
+  - macOS has PS_AUTO 0 on all of them at sleep entry, and maralcbr's replay even forces three of the fabric lanes to target 0 (`lab_force_fabric_off`: "the PCIe/fabric domains macOS has gated").
+  - AFNC3_LW0 already at macOS's value shows the value is legitimate on T6020 too.
+  - **If the S2R engine waits for the fabric to gate, this is the kind of thing that would hold every commit.** It is also a plain idle-power gap while awake (worth a GH-10 note).
+- **Image 62** (Aura `8efa42c682324b38`, `boot.bin.psci-test62` `049be76f9245b347`, diff `patches/psci-efi/aura/wip-image62.diff`; `psci_dbg` now `+0x1379a8`; `install.sh` has it commented, still on 60h):
+  - New aura-ctl bit **`0x40000` `PSCI_S2R_FABRIC`**: after the domains step, the three fabric words are saved and written with macOS's `0x1000030f` (auto-PM with floor 0, target f). It is not a forced off: the PMGR gates a lane only while it is idle.
+  - Restored (without the W1C bits) on any resume.
+  - At the crumb snapshot, when every core slept, `0x600d` = their state (bits 0–2 gated, bits 4–6 below f).
+  - All three addresses sit on pages already in the PSCI map, so the 64-entry table gains nothing.
+  - `aura-ctl.c` accepts bits 0–18.
+- **Run R21** = R17 + `0x40000` (aura-ctl `0x5db1f`, image 62). A new kind of write, so one attended run, owner present (R20's hang shows a post-commit hang is possible).
+- **Order proposed to the owner:** R18B (SEP hand-off, Linux module) and R21 (fabric, Aura). Either first; both are one variable each on top of R17.
