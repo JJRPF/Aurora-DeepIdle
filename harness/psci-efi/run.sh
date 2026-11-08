@@ -165,7 +165,13 @@ if [ $STEP = suspend ] || [ $STEP = suspendall ]; then
         SE_P=/sys/module/apple_sep/parameters/test_sleep_msg
         if [ -e $SE_P ]; then
             if [ -s /var/lib/deepidle/sep-sleep ]; then cat /var/lib/deepidle/sep-sleep > $SE_P; else echo 0 > $SE_P; fi
-            log "sep sleep: $(cat $SE_P)"
+            log "sep sleep: $(cat $SE_P); bound: $([ -e /sys/bus/platform/drivers/apple_sep/396400000.sep ] && echo Y || echo N)"
+            # /var/lib/deepidle/sep-psoff: after the SLEEP, OUTBOX_CTRL enable cleared and ps_sep = 0x1000030f (macOS 15.6.1)
+            SO_P=/sys/module/apple_sep/parameters/test_sleep_psoff
+            if [ -e $SO_P ]; then
+                if [ -s /var/lib/deepidle/sep-psoff ]; then echo Y > $SO_P; else echo N > $SO_P; fi
+                log "sep psoff: $(cat $SO_P)"
+            fi
         elif [ -s /var/lib/deepidle/sep-sleep ]; then
             log "sep sleep: requested but apple_sep has no test_sleep_msg"
         fi

@@ -304,7 +304,11 @@ There are two goals:
   sleep, and the safety timer no longer reset the chip. So this step is
   not safe to run unattended. macOS does it only after its CPUs are
   asleep; a reordered version may be tried later with the owner present.
-  Next is R18: the Secure Enclave's sleep message (approved).
+  **R18** sent the Secure Enclave macOS's sleep message: it answered,
+  but the chip still reset at 86 s, exactly as in R17. macOS also lets
+  the chip's power manager switch the enclave off after that message;
+  on this Mac it is never allowed to. R18B adds that step; it is built
+  and waits for the owner to be at the Mac.
 * **From 2026-11-06 the owner lets slpa runs that repeat or vary a
   self-recovering setup go unattended** (one at a time, dead-man switch
   on, a push before each); a new kind of step still gets one attended run.

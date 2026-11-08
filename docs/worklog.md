@@ -3164,3 +3164,20 @@ Static only (DTs in linux-psci-efi-72, m1n1/Aura `cpufreq.c`, J414s ADT); no har
   - Checks: the vermagic matches; there is no MODVERSIONS or module signing; and its only import beyond the stock module's is `param_ops_int`, which is in the kernel.
   - The initramfs carries only `blacklist apple_sep`. The rootfs loads the driver later (it was bound in R20's dmesg at 14.9 s), so the parameter is set by `run.sh` before the suspend.
   - `install.sh` is back on image 60h (`4bdc26ae2b5a1c55`), so R18 = R17 + SEP SLEEP type 2 and nothing else.
+
+## 2026-11-07 23:27 run R18 (R17 + SEP SLEEP): the enclave replied, still the 86 s reset; macOS's next SEP step (ps_sep handed to the PMGR) built as R18B, not armed
+- **What happened** (recorded late: the session stopped on the plan's usage limit after the 09:29 boot):
+  - `sep sleep: 2`; `apple_sep: TEST SLEEP type 2: reply tag 0x11 data 0x0` at 66.79 s, i.e. the enclave answered.
+  - `echo mem` and `PM: suspend entry` at 09:27:54 (Pi kmsg). The kmsg stream ends right after `Freezing user space processes`.
+  - The Pi saw the Mac down at 09:27:58 and up at 09:29:55; uptime from 09:29:20. **About 86 s: the timer's reset.**
+  - No dead-man push, no hand reset.
+- **PMU scratch after the reset:** `00300050167e07ff 00000000ff000000 ffff1f100380f801 0000000010105000`, **byte for byte R17's** (code `0x16`, never slept `f880`, CPU_OFF `077e`, wait 6 ms, EACC/PACC0/PACC1 targets 0, `boot-error-stage` `0x50`).
+- **So the SEP SLEEP message alone was not what the entry waited for.**
+- **The SEP probe on this normal boot failed** (`trusted` key type registered and unregistered 2 ms later, then the retry refused with `-16`, marker property present). That is not R18's doing: the same pattern was in the normal-boot dirs from 11-06 23:38 and 23:45 and the boots at 11-07 06:38, 07:08 and 07:22, before any SEP test. It is an intermittent probe flake, so Touch ID is unavailable on this boot. It matters for R18B: `run.sh` now logs whether `apple_sep` is bound before the suspend.
+- **What macOS does next** (maralcbr's 15.6.1 J314s replay, `lab_sep_sleep`, refetched): after the SLEEP ack it clears OUTBOX_CTRL ENABLE (mailbox `+0x114` bit 0) and writes **`0x1000030f`** to the SEP's PMGR word (T6000 `0x28e580c00`).
+  - That value is AUTO_ENABLE (bit 28), PS_AUTO 0 (27:24), the W1C bits 9:8 and target f. It does not force the domain off; it lets the PMGR gate the SEP once the enclave is idle.
+  - J414s now (read-only, normal kernel): `ps_sep` (`pmgr_east` `0x290280000` + `0xc00` = `0x290280c00`) = **`0x1f0000ff`**, i.e. AUTO_ENABLE with **PS_AUTO f**, so the PMGR is never allowed to gate it. The mailbox control words are `0x396408110` = `0x00024401` and `0x396408114` = `0x00815d01`.
+- **Test module change** (`apple-sep.ko` `5be0d264b91d8757`, built, not installed; diff in `patches/psci-efi/linux/test-sep-sleep-msg.diff`): `pm_shim.c` adds `apple_sep.test_sleep_psoff` (bool, default off). At PM_SUSPEND_PREPARE, after the Rust SLEEP, it clears `0x396408114` bit 0, writes `0x1000030f` to `0x290280c00` and logs `TEST PSOFF` with ps_sep at +10..100 ms. These are J414s addresses only; nothing turns it back on, so it is for reset-ending runs only.
+- **Harness:** `run.sh` writes `/var/lib/deepidle/sep-psoff` into the parameter (log `sep psoff: Y`) and logs `bound: Y/N`. `attended.sh` **R18B** = R18 + `SPO=1`, and `sep-psoff` joins the flags removed after a run.
+- **Not armed:** it is a new kind of write, so it gets one attended run, and since R20 a hang is possible. It waits for the owner to be at the Mac (asked at 23:27).
+- Clean: flags removed, scratch zeroed (except `0x6017`), default `boot.bin` `76f850895fed53d1`, no `next_entry`, `/boot` mounted, btrfs 0, headless on, Pi watcher running. The installed test `apple-sep.ko` is still R18's `69d85dd42dcdb888` (the stock one is in `mods-pre-sepsleep/`).

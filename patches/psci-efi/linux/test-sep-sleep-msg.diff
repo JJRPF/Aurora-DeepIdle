@@ -29,10 +29,16 @@ index 3701f08c1848..5f04662d69d9 100644
  
  pub(crate) fn register(sep: Arc<SepData>) -> Result<()> {
 diff --git i/drivers/soc/apple/pm_shim.c w/drivers/soc/apple/pm_shim.c
-index 884ecbb354a0..a7b6b291940a 100644
+index 884ecbb354a0..1a37575c13a8 100644
 --- i/drivers/soc/apple/pm_shim.c
 +++ w/drivers/soc/apple/pm_shim.c
-@@ -10,12 +10,27 @@
+@@ -6,16 +6,74 @@
+  * across sleep.
+  */
+ #include <linux/compiler.h>
++#include <linux/delay.h>
++#include <linux/io.h>
+ #include <linux/device.h>
  #include <linux/notifier.h>
  #include <linux/of.h>
  #include <linux/pm_domain.h>
@@ -57,9 +63,61 @@ index 884ecbb354a0..a7b6b291940a 100644
 +	return READ_ONCE(test_sleep_msg);
 +}
 +
++/*
++ * TEST (GH-8): with test_sleep_msg also set, after the SLEEP do what macOS 15.6.1
++ * does next (maralcbr's J314s trace): clear the mailbox OUTBOX_CTRL enable bit and
++ * hand ps_sep to the PMGR with PS_AUTO 0 (0x1000030f), so it can gate the enclave.
++ * J414s (T6020) addresses only; nothing turns it back on, so reset-ending runs only.
++ */
++static bool test_sleep_psoff;
++module_param(test_sleep_psoff, bool, 0644);
++MODULE_PARM_DESC(test_sleep_psoff, "TEST: after the SLEEP, clear OUTBOX_CTRL enable and set ps_sep to 0x1000030f (J414s)");
++
++#define TEST_SEP_MBOX	0x396408000ULL
++#define TEST_PS_SEP	0x290280c00ULL
++
++static void sep_pm_test_psoff(void)
++{
++	void __iomem *mb = ioremap_np(TEST_SEP_MBOX, 0x1000);
++	void __iomem *ps = ioremap_np(TEST_PS_SEP & PAGE_MASK, PAGE_SIZE);
++	void __iomem *r;
++	u32 ctl, before;
++	int t;
++
++	if (!mb || !ps)
++		goto out;
++	r = ps + (TEST_PS_SEP & ~PAGE_MASK);
++	ctl = readl(mb + 0x114);
++	writel(ctl & ~BIT(0), mb + 0x114);
++	before = readl(r);
++	writel(0x1000030f, r);
++	pr_info("apple_sep: TEST PSOFF: outbox ctrl %08x -> %08x, ps_sep %08x -> %08x\n",
++		ctl, readl(mb + 0x114), before, readl(r));
++	for (t = 10; t <= 100; t += 10) {
++		mdelay(10);
++		pr_info("apple_sep: TEST PSOFF: +%d ms ps_sep %08x\n", t, readl(r));
++	}
++out:
++	if (mb)
++		iounmap(mb);
++	if (ps)
++		iounmap(ps);
++}
++
  static int sep_pm_notify(struct notifier_block *nb, unsigned long action,
  			 void *data)
  {
+@@ -26,6 +84,10 @@ static int sep_pm_notify(struct notifier_block *nb, unsigned long action,
+ 
+ 	switch (action) {
+ 	case PM_SUSPEND_PREPARE:
++		event(true);
++		if (READ_ONCE(test_sleep_msg) > 0 && READ_ONCE(test_sleep_psoff))
++			sep_pm_test_psoff();
++		return NOTIFY_OK;
+ 	case PM_HIBERNATION_PREPARE:
+ 	case PM_RESTORE_PREPARE:
+ 		event(true);
 diff --git i/drivers/soc/apple/proto.rs w/drivers/soc/apple/proto.rs
 index 8fc7278550d9..b85e38df3ba4 100644
 --- i/drivers/soc/apple/proto.rs
