@@ -5,7 +5,9 @@
  * 0x100 records (psci_dbg2), 0x200 AMCC error enables off, 0x400 stop WD2 after the timer, 0x800 AIC mask-all; image 59: 0x1000 WD1 off before the timer, 0x2000 resume right after it. 0 = image 51's suspend.
  * usage: aura-ctl            print the address and the word
  *        aura-ctl <value>    write it, read it back
- *        aura-ctl <value> <mask>  also write the next word, psci_ctl[2]: image 57's held-domain mask (bits 0-11, 0 = all) */
+ *        aura-ctl <value> <mask>  also write the next word, psci_ctl[2]: image 57's held-domain mask (bits 0-11, 0 = all)
+ *        aura-ctl <value> <mask> <cap>  also psci_ctl[3]: heartbeats (60 s each) after which a suspend with no wake line
+ *                                       resumes by itself (0 = Aura's default 5, 0xffff = never; Aura 876622bf on) */
 #include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -47,7 +49,8 @@ int main(int argc, char **argv)
 		if (v & ~0x7ffffULL) { fprintf(stderr, "aura-ctl: only bits 0 to 18 are defined: 1 timer, 2 cores off, 4 domains, 8 clocks, 16 clusters (54), 32 stop requests (55), 64 held domains (56), 0x80 test marker, 0x100 records, 0x200 AMCC errors off, 0x400 stop WD2, 0x800 AIC mask-all (58), 0x1000 WD1 off before the timer, 0x2000 resume right after it (59), 0x4000 PMU breadcrumbs in scratch 0x6004 (60), 0x8000 quiet commit: release before the timer, nothing after it (60g), 0x10000 EACC (the boot cluster) target 0 too (60h), 0x20000 cluster APSC off before the timer (61), 0x40000 fabric auto-PM floor 0 (62)\n"); return 2; }
 		*w = v;
 		w[1] = argc > 2 ? strtoull(argv[2], NULL, 0) & 0xfff : 0;
+		w[2] = argc > 3 ? strtoull(argv[3], NULL, 0) & 0xffff : 0;
 	}
-	printf("aura ctl at 0x%llx: 0x%llx mask 0x%llx\n", (unsigned long long)hit, (unsigned long long)*w, (unsigned long long)w[1]);
+	printf("aura ctl at 0x%llx: 0x%llx mask 0x%llx cap %llu\n", (unsigned long long)hit, (unsigned long long)*w, (unsigned long long)w[1], (unsigned long long)w[2]);
 	return 0;
 }

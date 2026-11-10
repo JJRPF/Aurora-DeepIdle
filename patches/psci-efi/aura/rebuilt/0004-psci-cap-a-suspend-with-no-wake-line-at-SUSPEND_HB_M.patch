@@ -1,0 +1,49 @@
+From 876622bf9efde8151703dbdf8fb7a36f60bb3b8b Mon Sep 17 00:00:00 2001
+From: Justin Pfister <git@jjrpf.com>
+Date: Tue, 10 Nov 2026 15:30:09 -0500
+Subject: [PATCH] psci: cap a suspend with no wake line at SUSPEND_HB_MAX
+ heartbeats (psci_ctl[3])
+
+---
+ src/psci.c | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/src/psci.c b/src/psci.c
+index 7f1ad7f5..6b401ea6 100644
+--- a/src/psci.c
++++ b/src/psci.c
+@@ -43,6 +43,12 @@ static unsigned long psci_affinity_info(unsigned long target_affinity,
+  * running, nothing re-arms it and the Mac resets as before.
+  */
+ #define SUSPEND_HB_S   60
++/*
++ * Sleep cap (2026-11-10): with no wake line the heartbeat fed the dog for ever (run C2 slept 4 h 20 min until a
++ * key was pressed). After this many heartbeats Aura resumes the kernel by itself, wake line -1. psci_ctl[3] bits
++ * 0-15 give another count for one boot (0 = this default, 0xffff = no cap).
++ */
++#define SUSPEND_HB_MAX 5
+ #define RVBAR_WDT_S    10  /* boot CPU back through RVBAR, until it hands over to the kernel's resume */
+ #define RESUME_WDT_S   150 /* resuming the kernel after an RVBAR entry (WD1 tops out near 178 s) */
+ #define SYS_CNTHP_CVAL_EL2 sys_reg(3, 4, 14, 2, 2)
+@@ -911,6 +917,9 @@ static unsigned long psci_system_suspend(unsigned long entry, unsigned long cont
+     msr(SYS_CNTHP_CTL_EL2, CNTx_CTL_ENABLE);
+     sysop("isb");
+     qs_crumb(0x1a);
++    u64 hb_max = psci_ctl[3] & 0xffff, hb_n = 0;
++    if (!hb_max)
++        hb_max = SUSPEND_HB_MAX;
+     for (;;) {
+         psci_sleep_core();
+         psci_dbg[12]++;
+@@ -918,6 +927,8 @@ static unsigned long psci_system_suspend(unsigned long entry, unsigned long cont
+             break;
+         asm volatile("isb\n mrs %0, cntpct_el0" : "=r"(now));
+         if (now >= hb_next) {
++            if (hb_max != 0xffff && ++hb_n >= hb_max)
++                break; /* the cap: resume with line -1 */
+             wdt_psci_arm(SUSPEND_WDT_S);
+             psci_dbg[16]++;
+             hb_next = now + psci_resume.frq * SUSPEND_HB_S;
+-- 
+2.56.0
+

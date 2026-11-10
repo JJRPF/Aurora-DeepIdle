@@ -1,0 +1,44 @@
+From bf173c955a605ca9b2028b487aea8d61dd49f99e Mon Sep 17 00:00:00 2001
+From: Justin Pfister <git@jjrpf.com>
+Date: Tue, 10 Nov 2026 15:30:10 -0500
+Subject: [PATCH] rtc: macsmc: T602x: clear the control byte's fired latch (bit
+ 1) on every write
+
+While bit 1 of the control byte (0x1401) is set, a later alarm clears the
+enable bit at its second but sets no event and raises no interrupt.
+---
+ drivers/rtc/rtc-macsmc.c | 11 +++++++----
+ 1 file changed, 7 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/rtc/rtc-macsmc.c b/drivers/rtc/rtc-macsmc.c
+index 3c612e7859b4..b4d4fecaf761 100644
+--- a/drivers/rtc/rtc-macsmc.c
++++ b/drivers/rtc/rtc-macsmc.c
+@@ -208,8 +208,10 @@ static int macsmc_rtc_offset_secs(struct macsmc_rtc *rtc, s64 *secs)
+ 
+ /*
+  * The control byte as the alarm code sees it. With a separate event cell
+- * (T602x) the event bit is taken from there, and of the control byte only the
+- * enable bit is ever changed.
++ * (T602x) the event bit is taken from there. The control byte's own bit 1 is
++ * then a "fired" latch the PMU sets with the event: while it is set a later
++ * alarm clears the enable bit at its second but raises no event and no
++ * interrupt, so every write clears it.
+  */
+ static int macsmc_rtc_read_ctrl(struct macsmc_rtc *rtc, u8 *ctrl)
+ {
+@@ -243,8 +245,9 @@ static int macsmc_rtc_write_ctrl(struct macsmc_rtc *rtc, u8 ctrl)
+ 	ret = macsmc_rtc_read_u8(rtc->alarm_ctrl, &cur);
+ 	if (ret)
+ 		return ret;
+-	return macsmc_rtc_write_u8(rtc->alarm_ctrl, (cur & ~RTC_CTRL_ALARM_EN) |
+-				   (ctrl & RTC_CTRL_ALARM_EN));
++	cur &= ~(RTC_CTRL_ALARM_EN | RTC_CTRL_ALARM_EVENT);
++	return macsmc_rtc_write_u8(rtc->alarm_ctrl,
++				   cur | (ctrl & RTC_CTRL_ALARM_EN));
+ }
+ 
+ /*
+-- 
+2.56.0
+
