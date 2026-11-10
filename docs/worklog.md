@@ -3351,3 +3351,8 @@ Owner (2026-11-09 night): no copies of the old trees exist outside this repo; pu
 - Built: `~/Work/psci-test/boot-selector.bin` (`44eef99b068d02af`, loader `22cbe6fe` + stock payloads) and `boot-test.bin` (`5508187c0493747d`: Aura image 62 rebuilt, `t6020-j414s-psci-pmp.dtb` with the alarm cells as DTB #31, patched U-Boot).
 - **Run K2 armed** (`jobs/k2-alarm`, stock `boot.bin`, unattended): does the ported alarm fire awake (`+12 s`, interrupt counts before and after)?
 - Next: S1 (attended): install the loader, plain reboot, expect a normal boot. Then C1 (`jobs/c1-chain`, unattended): first boot of the rebuilt chain.
+
+## 2026-11-10 06:55 GH-5 run K2: no result for the alarm (my test was wrong); back on main in 75 s
+- Armed 06:51:57, report 06:52:33, back 06:53:12, `oneshot_taken=yes`, flag left `00`, stage 2 `bc79acc4-dirty`.
+- `wakealarm no`. That says nothing about the port: the alarm cells and the SPMI interrupt are in the device tree, and the device tree comes from `boot.bin`, which was the stock one. The new `rtc-macsmc` probed and set the clock as before, so the driver change does no harm without the cells. The alarm gets its first real test in C1, on the test chain.
+- (The notice before the run was not sent: `agent-notify send` needs `-m`.)
