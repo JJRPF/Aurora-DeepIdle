@@ -3405,3 +3405,8 @@ Owner: ready for the attended run; do not stop to wait for one again, work on ot
 - **Fix** (`patches/psci-efi/linux/0038-*`): on T602x every write of the control byte clears bit 1. Module rebuilt and put in the test root (`5abfbef391e8ca1f`).
 - **Aura sleep cap** (`patches/psci-efi/aura/rebuilt/0004-*`, Aura `v0.1.0-12-g876622bf`): after 5 heartbeats (5 min) with no wake line, Aura resumes the kernel by itself with wake line -1. `psci_ctl[3]` sets another count for one boot (`aura-ctl <value> <mask> <cap>`; `0xffff` = no cap). This closes the hole that let C2 sleep 4 h 20 min. `boot-test.bin` rebuilt and staged: `d0ee55407f0362ee`.
 - **Job K5** (`jobs/k5-alarm-suspend`): two awake alarms must raise two interrupts, or the job stops with no suspend. Then one deep suspend with no alarm and the cap at 1 heartbeat (expected back after about 60 s), then three deep suspends with a 15 s alarm. A line is pushed before every suspend. Deadline 1500 s.
+
+## 2026-11-10 15:40 GH-5 run K5: stopped itself, the fixed module was not the one loaded (my build slip)
+- Back in 81 s. Aura `v0.1.0-12-g876622bf` boots. Awake alarms: 0 of 2 interrupts, control byte still `0x43` when armed, so the job stopped before any suspend, as designed.
+- Cause: `rtc-macsmc` is loaded from the UKI's initramfs (the `asahi` hook adds it), and I rebuilt only the root image. The UKI still held the old module.
+- UKI rebuilt with the fixed module: `f77e8512a5034b5b`. K5 runs again unchanged.
