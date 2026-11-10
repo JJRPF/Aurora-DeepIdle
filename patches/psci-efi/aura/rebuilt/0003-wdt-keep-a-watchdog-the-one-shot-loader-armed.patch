@@ -1,0 +1,34 @@
+From 41a93ebac3139738836edb4f68a9066ede291442 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <git@jjrpf.com>
+Date: Tue, 10 Nov 2026 06:45:23 -0500
+Subject: [PATCH 3/3] wdt: keep a watchdog the one-shot loader armed
+
+---
+ src/wdt.c | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/src/wdt.c b/src/wdt.c
+index 8a7321b2..12d79499 100644
+--- a/src/wdt.c
++++ b/src/wdt.c
+@@ -27,6 +27,17 @@ void wdt_disable(void)
+     }
+ 
+     printf("Primary WDT register @ 0x%lx\n", wdt_base);
++    if (read32(wdt_base + WDT_CTL) & 4) {
++        /*
++         * Armed by the one-shot loader that chainloaded this test image (Aurora-DeepIdle GH-5): leave it
++         * running, with a fresh 120 s, so a hang here, in U-Boot or in the boot loader ends in a reset.
++         * The kernel's watchdog driver takes a running watchdog over.
++         */
++        write32(wdt_base + WDT_COUNT, 0);
++        write32(wdt_base + WDT_ALARM, 120 * 24000000u);
++        printf("Primary WDT was armed: kept, 120 s\n");
++        return;
++    }
+     write32(wdt_base + WDT_CTL, 0);
+     printf("Primary WDT disabled\n");
+ 
+-- 
+2.56.0
+

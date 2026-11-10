@@ -1,7 +1,8 @@
 #!/bin/bash
 # GH-5: arms ONE DeepTest boot (Limine one-shot) and reboots into it. Main stays the default entry, so
 # the reboot at the end of the job, a crash, a watchdog or a hand reset all land back on main.
-#   sudo bash arm.sh [--no-reboot] [--job <dir>] [--label <text>] [--allow-prompt] [--failtest missing|hang]
+#   sudo bash arm.sh [--no-reboot] [--job <dir>] [--label <text>] [--allow-prompt] [--failtest missing|hang] [--chain]
+# --chain        also boot the staged test boot.bin (bootbin.sh): Aura, device tree and U-Boot of the test chain
 # --failtest      prove a failure path: the initramfs treats the image as missing, or hangs (watchdog)
 # --job <dir>     job directory copied to the drive (job.sh, deadline, topic, keep); none = the hello job
 # --allow-prompt  arm even though main would stop at the LUKS passphrase prompt on the way back
@@ -11,9 +12,9 @@ H=$(cd "$(dirname "$0")" && pwd)
 W=${W:-/home/jjr/Work/deepidle-usbtest}; S=/var/lib/deepidle/usbtest
 ESPUKI=/boot/efi/EFI/Linux/deeptest.efi; CONF=/boot/efi/limine.conf
 VAR=/sys/firmware/efi/efivars/LoaderEntryOneShot-4a67b082-0a4c-41cf-b6c7-440b29bb8c4f
-REBOOT=1; JOB=; LABEL=hello; PROMPT_OK=0; FAILTEST=
+REBOOT=1; JOB=; LABEL=hello; PROMPT_OK=0; FAILTEST=; CHAIN=0
 while [ $# -gt 0 ]; do case "$1" in
-    --no-reboot) REBOOT=0 ;; --job) JOB=$2; shift ;; --label) LABEL=$2; shift ;; --allow-prompt) PROMPT_OK=1 ;; --failtest) FAILTEST=$2; shift ;;
+    --no-reboot) REBOOT=0 ;; --job) JOB=$2; shift ;; --label) LABEL=$2; shift ;; --allow-prompt) PROMPT_OK=1 ;; --failtest) FAILTEST=$2; shift ;; --chain) CHAIN=1 ;;
     *) echo "unknown option $1"; exit 1 ;; esac; shift; done
 LABEL=${LABEL// /_}
 die() { echo "arm: $*" >&2; exit 1; }
@@ -39,10 +40,12 @@ grep -q '^default_entry: 2$' $CONF || die "default_entry is not 2: check $CONF"
 # 5. nothing pending
 [ ! -e $VAR ] || die "a one-shot request is already set"
 # 6. arm
+[ $CHAIN = 0 ] || bash "$H/bootbin.sh" status | grep -q 'one-shot loader' || die "--chain: boot.bin is not the one-shot loader (bootbin.sh install)"
 echo "armed=$(date -Is) epoch=$(date +%s) label=$LABEL job=${JOB:-none} image=$(cut -c1-16 "$W/root.sfs.sha256") uki=$(sha256sum $ESPUKI | cut -c1-16)" > $S/armed
 bootctl set-oneshot DeepTest
 [ "$(tail -c +5 $VAR | tr -d '\0')" = DeepTest ] || { rm -f $S/armed; die "the one-shot variable did not take"; }
+if [ $CHAIN = 1 ]; then bash "$H/bootbin.sh" flag set || { bash "$H/disarm.sh"; die "could not set the boot.bin flag"; }; echo chain=1 >> $S/armed; fi
 sync
-echo "arm: DeepTest armed ($LABEL)"
+echo "arm: DeepTest armed ($LABEL)$([ $CHAIN = 1 ] && echo ', test boot.bin')"
 [ $REBOOT = 1 ] || { echo "arm: not rebooting (--no-reboot); the next reboot goes to DeepTest"; exit 0; }
 systemctl reboot

@@ -1,0 +1,251 @@
+From 972dd5f56e58c596c7b82da742f1707abf98103e Mon Sep 17 00:00:00 2001
+From: Justin Pfister <git@jjrpf.com>
+Date: Mon, 9 Nov 2026 23:27:53 -0500
+Subject: [PATCH 1/3] psci: reconstructed base of the test images (RVBAR core
+ index, CPU_OFF parks in Aura, psci_enter, reset_dbg)
+
+Rebuilt from the context of patches/psci-efi/aura/wip-*.diff in Aurora-DeepIdle and the worklog of
+2026-10-25: the original local commits were lost with the old install. Not byte-identical.
+---
+ src/smp.c     | 126 ++++++++++++++++++++++++--------------------------
+ src/start.S   |   8 ++++
+ src/startup.c |   8 ++++
+ 3 files changed, 77 insertions(+), 65 deletions(-)
+
+diff --git a/src/smp.c b/src/smp.c
+index 45567938..627f3c34 100644
+--- a/src/smp.c
++++ b/src/smp.c
+@@ -28,7 +28,7 @@
+ #define SMP_SHARED __attribute__((section(".data.smp_shared")))
+ 
+ #define RVBAR_LOCK BIT(0)
+-#define RVBAR_ADDR GENMASK(47, 12)
++#define RVBAR_ADDR GENMASK(43, 12)
+ 
+ struct spin_table {
+     u64 mpidr;
+@@ -211,6 +211,9 @@ void smp_secondary_entry(void)
+ 
+     struct spin_table *me = &spin_table[index];
+ 
++    extern volatile u8 reset_dbg[8];
++    reset_dbg[4] = 0xa5;
++
+     if (in_el2())
+         msr(TPIDR_EL2, index);
+     else
+@@ -1029,52 +1032,6 @@ static int smp_psci_dispatch(int index, u64 entry, u64 context)
+     return PSCI_RET_SUCCESS;
+ }
+ 
+-/* Restart a CPU that CPU_OFF powered down; it comes back in the park loop. */
+-static int smp_psci_restart(int index)
+-{
+-    const struct cpu_info *cpu = &cpu_info[index];
+-    u64 start_base = cpu_start_base + cpu->die * PMGR_DIE_OFFSET;
+-
+-    memset(&spin_table[index], 0, sizeof(struct spin_table));
+-    target_cpu = index;
+-    /*
+-     * The reset handler takes its stack from these (smp_start_cpu() sets them before every
+-     * start and puts the dummy stack back after). RVBAR is not touched: it is not in the
+-     * handler's mapped MMIO, and a CPU_OFF'd core keeps it (read back 2026-10-25).
+-     */
+-    if (has_el3()) {
+-        _reset_stack = secondary_stacks_el3[index] + SECONDARY_STACK_SIZE;
+-        _reset_stack_el1 = secondary_stacks[index] + SECONDARY_STACK_SIZE;
+-    } else {
+-        _reset_stack = secondary_stacks[index] + SECONDARY_STACK_SIZE;
+-    }
+-    dc_civac_range(&spin_table[index], sizeof(struct spin_table));
+-    dc_civac_range(&target_cpu, sizeof(target_cpu));
+-    dc_civac_range(&_reset_stack, sizeof(_reset_stack));
+-    dc_civac_range(&_reset_stack_el1, sizeof(_reset_stack_el1));
+-    sysop("dsb sy");
+-
+-    write32(start_base + 0x4, cpu_start_bit(index, cpu));
+-    write32(start_base + 0x8 + 4 * cpu->cluster, 1 << cpu->core);
+-
+-    int ret = -1;
+-    for (int i = 0; i < 100; i++) {
+-        dc_civac_range(&spin_table[index], sizeof(struct spin_table));
+-        if (spin_table[index].flag) {
+-            ret = 0;
+-            break;
+-        }
+-        udelay(1000);
+-    }
+-
+-    _reset_stack = dummy_stack + DUMMY_STACK_SIZE;
+-    _reset_stack_el1 = dummy_stack_el1 + DUMMY_STACK_SIZE;
+-    dc_civac_range(&_reset_stack, sizeof(_reset_stack));
+-    dc_civac_range(&_reset_stack_el1, sizeof(_reset_stack_el1));
+-    sysop("dsb sy");
+-    return ret;
+-}
+-
+ int smp_psci_cpu_on(u64 mpidr, u64 entry, u64 context)
+ {
+     int index = smp_psci_index(mpidr);
+@@ -1088,20 +1045,61 @@ int smp_psci_cpu_on(u64 mpidr, u64 entry, u64 context)
+ 
+     dc_civac_range(&psci_cpu_state[index], 1);
+     switch (psci_cpu_state[index]) {
+-        case PSCI_CPU_PARKED:
+-            return smp_psci_dispatch(index, entry, context);
+         case PSCI_CPU_ON:
+             return PSCI_RET_ALREADY_ON;
++        case PSCI_CPU_PARKED:
+         case PSCI_CPU_OFF:
+         default:
+-            /* OFF is set a few instructions before the power-down: give it time. */
+-            udelay(1000);
+-            if (smp_psci_restart(index))
+-                return PSCI_RET_INTERNAL_FAILURE;
++            /* An OFF core is parked in psci_park_c(), which takes the entry like the boot-time park loop. */
+             return smp_psci_dispatch(index, entry, context);
+     }
+ }
+ 
++/*
++ * Leave Aura for a kernel entry point (secondary_entry, cpu_resume) as PSCI firmware would: MMU and
++ * caches off at EL2 (the caller runs under a 1:1 map, so the code under
++ * us stays reachable), HCR_EL2 back to its reset value (the kernel ran as a VHE host), then
++ * x0 = context, branch to the entry.
++ */
++void psci_enter(u64 entry, u64 context) __attribute__((noreturn));
++asm(".text\n.globl psci_enter\npsci_enter:\n"
++    "mrs x2, sctlr_el2\n"
++    "bic x2, x2, #(1 << 0)\n"
++    "bic x2, x2, #(1 << 2)\n"
++    "bic x2, x2, #(1 << 12)\n"
++    "msr sctlr_el2, x2\n"
++    "isb\n"
++    "mov x2, #(1 << 31)\n"
++    "orr x2, x2, #(1 << 34)\n"
++    "msr hcr_el2, x2\n"
++    "isb\n"
++    "mov x3, x0\n"
++    "mov x0, x1\n"
++    "br x3\n");
++
++/* The parked state of a CPU_OFF'd core: deep WFI on the Aura stack until it is handed an entry. */
++void psci_park_c(u64 index) __attribute__((noreturn, used));
++void psci_park_c(u64 index)
++{
++    struct spin_table *me = &spin_table[index];
++    u64 target;
++
++    if (cpu_features->apple_sysregs_unlocked)
++        reg_mask(SYS_IMP_APL_CYC_OVRD, CYC_OVRD_WFI_MODE_MASK,
++                 CYC_OVRD_WFI_MODE(3) | CYC_OVRD_DISABLE_WFI_RET);
++    while (1) {
++        /* Plain load: the mapping is inner-shareable write-back, the other CPU's civac-ed store is visible. */
++        if ((target = *(volatile u64 *)&me->target))
++            break;
++        sysop("isb");
++        sysop("wfi");
++    }
++    sysop("dmb sy");
++    me->flag++;
++    sysop("dmb sy");
++    psci_enter(target, me->args[0]);
++}
++
+ int smp_psci_cpu_off(void)
+ {
+     int index = smp_psci_index(mrs(MPIDR_EL1));
+@@ -1109,24 +1107,22 @@ int smp_psci_cpu_off(void)
+     if (index < 0 || index == boot_cpu_idx)
+         return PSCI_RET_DENIED;
+ 
+-    const struct cpu_info *cpu = &cpu_info[index];
+-    u64 start_base = cpu_start_base + cpu->die * PMGR_DIE_OFFSET;
+-
+     /*
+-     * As smp_stop_cpu(): request the stop, then power the core down. Not cpu_sleep(true): its
+-     * ACC_OVRD writes (PWR_DN_SRM, POWER_DOWN_CPM, DEEP_SLEEP) are per cluster, shared with the
+-     * cores that keep running Linux, and meant for the last core of a bootloader handoff. The first
+-     * CPU_OFF with it took the whole SoC down (boot test 2026-10-25). cpu_sleep(false) only sets
+-     * the per-core CYC_OVRD (deep WFI, no retention), which is what macOS's per-core idle uses.
++     * Not the PMGR stop request: a core stopped that way did not come back from any start
++     * strobe, IPI or timer (images 5 to 10, 2026-10-25), and a deep-WFI core resumes after the
++     * WFI instead of restarting at RVBAR. So the core parks in Aura: clean its L1, move to its
++     * Aura stack, and wait in psci_park_c() for the next CPU_ON.
+      */
+-    write32(start_base + 0x0, cpu_start_bit(index, cpu));
+-
++    /* The entry this core was started with is still in the table (the kernel never returns). */
++    spin_table[index].target = 0;
++    dc_civac_range(&spin_table[index], sizeof(struct spin_table));
+     psci_cpu_state[index] = PSCI_CPU_OFF;
+     dc_civac_range(&psci_cpu_state[index], 1);
+-    /* This core's L1 goes away with its power: write the kernel's dirty lines back. */
+     dcsw_op_level1(DCSW_OP_DCCISW);
+     sysop("dsb sy");
+-    cpu_sleep(false);
++    u64 sp = (u64)secondary_stacks[index] + SECONDARY_STACK_SIZE;
++    asm volatile("mov sp, %0\n mov x0, %1\n b psci_park_c" ::"r"(sp), "r"((u64)index) : "x0");
++    __builtin_unreachable();
+ }
+ 
+ /*
+diff --git a/src/start.S b/src/start.S
+index c5ab6f5d..cb5f7dd9 100644
+--- a/src/start.S
++++ b/src/start.S
+@@ -149,6 +149,10 @@ exc_unk:
+ .globl cpu_reset
+ .type cpu_reset, @function
+ cpu_reset:
++    adrp x1, reset_dbg
++    add x1, x1, :lo12:reset_dbg
++    mov w2, #0xa1
++    strb w2, [x1]
+     mov w0, 'O'
+     bl debug_putc
+ 
+@@ -212,6 +216,10 @@ cpu_reset:
+     ldr x1, [x1]
+ 3:
+     mov sp, x1
++    adrp x2, reset_dbg
++    add x2, x2, :lo12:reset_dbg
++    mov w3, #0xa2
++    strb w3, [x2, #1]
+ 
+     ldr x2, [sp, #-8]
+ 
+diff --git a/src/startup.c b/src/startup.c
+index 07fc2580..e5fe1cce 100644
+--- a/src/startup.c
++++ b/src/startup.c
+@@ -225,9 +225,16 @@ void _start_c(void *boot_args, void *base)
+     m1n1_main();
+ }
+ 
++/*
++ * Breadcrumbs of the last RVBAR entry (0xa1 asm entry, 0xa2 stack chosen, 0xa3 _cpu_reset_c,
++ * 0xa4 after init_cpu, 0xa5 smp_secondary_entry), readable from the kernel through /dev/mem.
++ */
++volatile u8 reset_dbg[8] __attribute__((aligned(64), section(".data")));
++
+ /* Secondary SMP core boot */
+ void _cpu_reset_c(void *stack)
+ {
++    reset_dbg[2] = 0xa3;
+     if (chip_id == T8152 && !is_boot_cpu()) {
+         if (smp_secondary_prepare() < 0)
+             while (1)
+@@ -248,6 +255,7 @@ void _cpu_reset_c(void *stack)
+         printf("  MPIDR: 0x%lx\n", mrs(MPIDR_EL1));
+     }
+     init_cpu();
++    reset_dbg[3] = 0xa4;
+     if (!quiet)
+         printf("  Running in EL%lu\n\n", mrs(CurrentEL) >> 2);
+ 
+-- 
+2.56.0
+

@@ -1,0 +1,1645 @@
+From 44695f614d787c51d79f9adf54a757629a37cd54 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <git@jjrpf.com>
+Date: Tue, 10 Nov 2026 06:45:14 -0500
+Subject: [PATCH 2/3] image 62: wip-image62.diff from Aurora-DeepIdle applied
+ on the reconstructed base
+
+---
+ src/aic.c      |  19 +
+ src/aic.h      |   2 +
+ src/chickens.c |   3 +-
+ src/kboot.c    |  47 ++-
+ src/mcc.c      |  13 +
+ src/mcc.h      |   2 +
+ src/psci.c     | 922 ++++++++++++++++++++++++++++++++++++++++++++++++-
+ src/psci.h     |  43 +++
+ src/smp.c      | 188 +++++++++-
+ src/smp.h      |  10 +
+ src/start.S    |  21 ++
+ src/startup.c  |   5 +-
+ src/wdt.c      |  40 +++
+ src/wdt.h      |   5 +
+ 14 files changed, 1305 insertions(+), 15 deletions(-)
+
+diff --git a/src/aic.c b/src/aic.c
+index e7f02d49..83706465 100644
+--- a/src/aic.c
++++ b/src/aic.c
+@@ -210,3 +210,22 @@ uint32_t aic_ack(void)
+ {
+     return read32(aic->base + aic->regs.event);
+ }
++
++/* Unmask the interrupt an event word (as read by aic_ack) names, so a still-asserted line is delivered again */
++void aic_unmask_event(uint32_t ev)
++{
++    u32 die = (ev >> 24) & 0xff;
++    u32 irq = ev & 0xffff;
++    write32(aic->base + aic->regs.mask_clr + die * aic->intmaskclear_stride + MASK_REG(irq), MASK_BIT(irq));
++}
++
++/*
++ * Read (and so acknowledge) the AP event register. AIC2 keeps it in its own 16K page after the 0xc000 bytes of
++ * core registers (the DT's second "event" reg), not at AIC_EVENT as on AIC1. Not for AIC3, which returns 0.
++ */
++uint32_t aic_poll_event(void)
++{
++    if (!aic || aic->version != 2)
++        return 0;
++    return read32(aic->base + 0xc000);
++}
+diff --git a/src/aic.h b/src/aic.h
+index fb377041..f417c7b8 100644
+--- a/src/aic.h
++++ b/src/aic.h
+@@ -41,5 +41,7 @@ void aic_init(void);
+ void aic_set_sw(int irq, bool active);
+ void aic_write(u32 reg, u32 val);
+ uint32_t aic_ack(void);
++void aic_unmask_event(uint32_t ev);
++uint32_t aic_poll_event(void);
+ 
+ #endif
+diff --git a/src/chickens.c b/src/chickens.c
+index 5f0a8f69..78662953 100644
+--- a/src/chickens.c
++++ b/src/chickens.c
+@@ -1,6 +1,7 @@
+ /* SPDX-License-Identifier: MIT AND GPL-2.0-only */
+ 
+ #include "chickens.h"
++#include "psci.h"
+ #include "cpu_regs.h"
+ #include "midr.h"
+ #include "uart.h"
+@@ -196,7 +197,7 @@ void init_cpu(void)
+     int part = FIELD_GET(MIDR_PART, midr);
+     int rev = (FIELD_GET(MIDR_REV_HIGH, midr) << 4) | FIELD_GET(MIDR_REV_LOW, midr);
+ 
+-    bool quiet = (chip_id == T8142 || chip_id == T8152) && !is_boot_cpu();
++    bool quiet = ((chip_id == T8142 || chip_id == T8152) && !is_boot_cpu()) || psci_runtime_quiet();
+     if (!quiet)
+         printf("  CPU part: 0x%x rev: 0x%x\n", part, rev);
+ 
+diff --git a/src/kboot.c b/src/kboot.c
+index d594ea6e..5fbfa168 100644
+--- a/src/kboot.c
++++ b/src/kboot.c
+@@ -735,6 +735,7 @@ static int dt_set_psci(void)
+     if (node < 0)
+         bail("FDT: /chosen node not found in devtree\n");
+ 
++    psci_ctl_init();
+     if (fdt_setprop_u64(dt, node, "aura,psci-table", (u64)&psci_efi_table))
+         bail("FDT: couldn't set aura,psci-table\n");
+ 
+@@ -744,9 +745,9 @@ static int dt_set_psci(void)
+     if (fdt_setprop(dt, node, "aura,psci-runtime-code", code, sizeof(code)))
+         bail("FDT: couldn't set aura,psci-runtime-code\n");
+ 
+-    u64 ranges[2 * 16];
+-    int n = smp_psci_mmio_ranges(ranges, 16);
+-    fdt64_t mmio[2 * 16];
++    u64 ranges[2 * 64];
++    int n = smp_psci_mmio_ranges(ranges, 64);
++    fdt64_t mmio[2 * 64];
+     for (int i = 0; i < 2 * n; i++)
+         mmio[i] = cpu_to_fdt64(ranges[i]);
+     if (fdt_setprop(dt, node, "aura,psci-runtime-mmio", mmio, 2 * n * sizeof(fdt64_t)))
+@@ -3906,6 +3907,29 @@ static bool skip_pmp_prop(const char *prop_name)
+     return false;
+ }
+ 
++/*
++ * Bytes dt_set_pmp() adds to the device tree: one "apple,tunable-<name>" property per PMP tunable,
++ * each with its FDT property header, its value padded to four bytes and its name in the strings.
++ * A T6020 has 81 of them, about 16K, which the 96K of headroom does not hold once the rest of
++ * kboot_prepare_dt() has used it.
++ */
++static u32 pmp_tunables_size(void)
++{
++    int pmp_iop_anode = adt_path_offset(adt, "/arm-io/pmp/iop-pmp-nub");
++    u32 need = 0;
++
++    if (pmp_iop_anode < 0)
++        return 0;
++    ADT_FOREACH_PROPERTY(adt, pmp_iop_anode, prop)
++    {
++        if (skip_pmp_prop(prop->name))
++            continue;
++        need += sizeof(struct fdt_property) + ALIGN_UP(prop->size & 0x7fffffff, 4) +
++                strlen("apple,tunable-") + strlen(prop->name) + 1;
++    }
++    return need;
++}
++
+ static int dt_set_pmp(void)
+ {
+     int pmp_node = fdt_path_offset(dt, "pmp");
+@@ -3927,6 +3951,20 @@ static int dt_set_pmp(void)
+         bail("ADT: failed to get dram vendor id\n");
+     ADT_GETPROP(adt, pmp_iop_anode, "dram-capacity", &dram_capacity);
+ 
++    /*
++     * Copy the tunables only if they fit with room left for what runs after this: a copy that
++     * stops half way leaves a PMP node with some of its tunables, and a bail() here ends the boot.
++     * Without the copy the node keeps its status from the device tree (disabled), so the Mac boots
++     * without the PMP and says why.
++     */
++    u32 need = pmp_tunables_size();
++    u32 free_space = fdt_totalsize(dt) - fdt_off_dt_strings(dt) - fdt_size_dt_strings(dt);
++    if (need + SZ_16K > free_space) {
++        printf("FDT: pmp left disabled: its tunables need %u bytes, %u free (raise the headroom)\n",
++               need, free_space);
++        return 0;
++    }
++
+     if (fdt_setprop_u32(dt, pmp_node, "apple,board-id", board_id))
+         bail("FDT: failed to set board id\n");
+     if (fdt_setprop_u32(dt, pmp_node, "apple,dram-vendor-id", dram_vendor_id))
+@@ -4697,6 +4735,9 @@ int kboot_prepare_dt(void *fdt)
+     assert(dt_bufsize);
+ 
+     dt_bufsize += 6 * SZ_16K; // Add 96K of buffer for modifications
++    // A device tree with a pmp alias takes the PMP tunables (about 16K on a T6020)
++    if (fdt_path_offset(fdt, "pmp") >= 0)
++        dt_bufsize += ALIGN_UP(pmp_tunables_size(), SZ_16K) + SZ_16K;
+     dt = memalign(DT_ALIGN, dt_bufsize);
+ 
+     if (fdt_open_into(fdt, dt, dt_bufsize) < 0)
+diff --git a/src/mcc.c b/src/mcc.c
+index f7d0a962..c94cb41d 100644
+--- a/src/mcc.c
++++ b/src/mcc.c
+@@ -347,6 +347,19 @@ int mcc_init_t8103(int node, int *path, bool t8112)
+     return 0;
+ }
+ 
++int mcc_plane_bases(u64 *bases, int max, u64 *stride, int *planes)
++{
++    int n = 0;
++
++    if (!mcc_initialized || !mcc_count)
++        return 0;
++    for (int i = 0; i < mcc_count && n < max; i++)
++        bases[n++] = mcc_regs[i].plane_base;
++    *stride = mcc_regs[0].plane_stride;
++    *planes = mcc_regs[0].plane_count;
++    return n;
++}
++
+ int mcc_init_t6000(int node, int *path, bool t602x)
+ {
+     u32 reg_len;
+diff --git a/src/mcc.h b/src/mcc.h
+index c0c95255..812cce9a 100644
+--- a/src/mcc.h
++++ b/src/mcc.h
+@@ -16,5 +16,7 @@ extern struct mcc_carveout mcc_carveouts[];
+ int mcc_init(void);
+ int mcc_unmap_carveouts(void);
+ int mcc_enable_cache(void);
++/* image 58 (PSCI S2R): each instance's plane base, the plane stride and count; returns the instance count */
++int mcc_plane_bases(u64 *bases, int max, u64 *stride, int *planes);
+ 
+ #endif
+diff --git a/src/psci.c b/src/psci.c
+index 444d71e5..7f1ad7f5 100644
+--- a/src/psci.c
++++ b/src/psci.c
+@@ -1,14 +1,19 @@
+ /* SPDX-License-Identifier: MIT */
+ 
++#include "memory.h"
++#include "aic.h"
+ #include "psci.h"
++#include "mcc.h"
++#include "wdt.h"
+ #include "smp.h"
+ #include "types.h"
++#include "adt.h"
+ 
+ /*
+  * CPU_ON, CPU_OFF and AFFINITY_INFO for the secondaries; the CPU work is in
+  * smp.c (smp_psci_*), next to the spin table and the PMGR CPU start/stop it
+- * reuses. CPU_SUSPEND and SYSTEM_SUSPEND are not offered yet: cpuidle stays
+- * with the kernel's Apple driver, and system suspend is the next phase.
++ * reuses. CPU_SUSPEND is not offered: cpuidle stays with the kernel's Apple
++ * driver. SYSTEM_SUSPEND is a wait-and-resume stub for now (Phase 2a).
+  */
+ 
+ static unsigned long psci_affinity_info(unsigned long target_affinity,
+@@ -20,9 +25,919 @@ static unsigned long psci_affinity_info(unsigned long target_affinity,
+     return smp_psci_affinity_info(target_affinity);
+ }
+ 
++/*
++ * SYSTEM_SUSPEND with the SoC kept on (S2R plan, Phase 2): the kernel has quiesced everything and masked
++ * interrupts. The boot CPU powers down in WFI without state retention (CYC_OVRD WFI_MODE 3 + DISABLE_WFI_RET,
++ * as a parked secondary does) and the AIC wakes it on a wake line; it then comes back through its RVBAR into
++ * _cpu_reset_c(), which calls psci_suspend_rvbar() below instead of m1n1_main(), and that resumes the kernel at
++ * its entry point, MMU and caches off, as a PSCI resume. If the core keeps its state after all, the WFI just
++ * returns and the same wake handling runs here.
++ */
++#define SUSPEND_MIN_MS 500 /* ignore wake lines for this long after entry */
++#define SUSPEND_WDT_S  120 /* hardware reset if no wake line ever brings the CPU back */
++#define RESUME_MAGIC   0x5253554d45ULL /* "RSUME" */
++/*
++ * Heartbeat (image 49): the watchdog cannot be armed for more than about 178 s (32-bit count at 24 MHz), so a
++ * longer sleep needs it re-armed. The EL2 physical timer (Linux runs on the EL2 virtual timer) wakes the core
++ * every SUSPEND_HB_S; a wake that is not a wake line re-arms the dog and the timer and sleeps again. If Aura stops
++ * running, nothing re-arms it and the Mac resets as before.
++ */
++#define SUSPEND_HB_S   60
++#define RVBAR_WDT_S    10  /* boot CPU back through RVBAR, until it hands over to the kernel's resume */
++#define RESUME_WDT_S   150 /* resuming the kernel after an RVBAR entry (WD1 tops out near 178 s) */
++#define SYS_CNTHP_CVAL_EL2 sys_reg(3, 4, 14, 2, 2)
++
++/* Debug words Linux reads back (found by scan-magic): see run.sh for the layout */
++volatile u64 psci_dbg[24] __attribute__((used));
++
++/*
++ * S2R steps (image 52, 2026-11-05), set by Linux before a suspend: psci_ctl[0] holds a magic written at boot (built
++ * at run time, so no copy of the image carries it), psci_ctl[1] the steps, written through /dev/mem by
++ * harness/mmio/aura-ctl.c. 0 is image 51's suspend. Read once at SYSTEM_SUSPEND entry.
++ *   PSCI_S2R_TIMER    macOS's last PMGR quiesce step (AppleT6020PMGR::startS2RTimer, 13.5): write 1 to
++ *                     MPMGR_AON + 0x4000, just before the boot core sleeps
++ *   PSCI_S2R_CORESOFF macOS's ml_arm_sleep: release the parked secondaries into the global deep sleep
++ *                     (cpu_sleep(true): ACC_OVRD deep sleep, no WFI retention), then the boot core the same way.
++ *                     A core that sleeps like this comes back only through RVBAR, when the PMGR restarts it.
++ */
++/*
++ * Image 53: the rest of AppleT6020PMGR::quiesceHW (13.5), done before the timer (all die 0; T6020 has one die):
++ *   PSCI_S2R_DOMAINS  ps_afr (pmgr_gfx + 0x100) written 0 (fully off) when MINI 0x4d010 bits 18-19 are not both
++ *                     set, then its actual state polled to 0; ps_sio and ps_sio_cpu (pmgr_east + 0x1c0, + 0x1e0)
++ *                     lose AUTO_ENABLE (bit 28), then actual == target polled
++ *   PSCI_S2R_CLOCKS   ClkGen-SOC 0x38160, 0x38168, 0x38164, 0x38158, 0x3816c: bits 24-27 cleared, bit 31 set, bit
++ *                     30 polled to 0; then setPLLOffMode(0x37, 0, 3) on 0x28e224000: bits 3-5 = mode 3, set bit 1,
++ *                     clear bit 0, bit 31 polled to 0
++ * Each register's old value is kept and written back on any resume (the RVBAR path included).
++ */
++#define QS_MINI_4D010   0x29e2cd010ULL
++#define QS_AFR          0x404e80100ULL
++#define QS_SIO          0x2902801c0ULL
++#define QS_SIO_CPU      0x2902801e0ULL
++#define QS_CLKGEN       0x28e000000ULL
++#define QS_PLLOFF       0x28e224000ULL
++/*
++ * Image 54: quiesceHW step 4, enableCluster(c, false, c > 3, die) for soc-clusters 1..5 (ADT pmgr `soc-clusters`:
++ * EACC, PACC0, PACC1, ANE0, AVEMSR, DISPLAY). Each cluster's word is at pmgr reg 4 (0x28e000000) + the ADT's
++ * `cluster-ctl-offset` (0x88000) + 4 * its id (the entry's first byte); enableCluster writes (v & ~0xf) | 0 and,
++ * for c > 3, waits for bit 4 to clear. Linux reads 0xf for EACC and 0x2f for the other five. Not done: for AVEMSR
++ * macOS also makes one more PMGR call first (vtable +0xa08 with the entry's byte 11, 0x0d).
++ *   PSCI_S2R_CLUSTERS the five clusters' targets to 0, after the domains and before the clocks
++ */
++#define QS_CLUSTER      0x28e088000ULL
++#define QS_DVFS_PSTATE  0x20020 /* image 61: CLUSTER_PSTATE, from each cluster's base below */
++#define QS_DVFS_APSC_DIS BIT(23)
++#define QS_DVFS_APSC_BUSY BIT(7)
++static const u64 qs_dvfs_base[3] = {0x210e00000ULL, 0x211e00000ULL, 0x212e00000ULL}; /* ECPU0, PCPU0, PCPU1 (T6020) */
++/*
++ * Image 56 (GH-8 worklog 2026-11-06 'run S3'): the PMGR domains Linux's genpd still has on at syscore suspend and
++ * that are not always-on: the three display chains (the DCP driver keeps its device on a wake path, so cpu0, fe and
++ * sys stay up) and the USB-C ports' atcN_usb (dwc3 syscore or wakeup). macOS has its devices off by then.
++ *   PSCI_S2R_HELD     each written with target 0 (AUTO_ENABLE, reset, disable and the flag bits cleared, as
++ *                     Linux's apple_pmgr_ps_set), children first, then its actual state polled to 0; before the
++ *                     quiesceHW domains, since ps_afr is dispext0_sys's parent. psci_dbg[23] bits 32-43 = poll
++ *                     timeouts, one per entry. The old words are written back on any resume, parents first.
++ */
++#define QS_PS_CLEAR     (BIT(31) | BIT(28) | BIT(12) | BIT(11) | BIT(10) | BIT(9) | BIT(8) | 0xf)
++static const u64 qs_held[12] = {
++    0x28e0802d8ULL, 0x28e0802c0ULL, 0x28e080258ULL, /* dispext0_cpu0, _fe, _sys */
++    0x28e0802b8ULL, 0x28e0802b0ULL, 0x28e080248ULL, /* dispext1_cpu0, _fe, _sys */
++    0x2902801d8ULL, 0x2902801d0ULL, 0x2902801b0ULL, /* disp0_cpu0, _fe, _sys */
++    0x29e2800c8ULL, 0x29e2800d0ULL, 0x29e2800d8ULL, /* atc0_usb, atc1_usb, atc2_usb */
++};
++static const u8 qs_cluster_id[5] = {1, 2, 3, 6, 4};
++static const u32 qs_clkgen_off[5] = {0x38160, 0x38168, 0x38164, 0x38158, 0x3816c};
++/* Wake lines (AIC2 event numbers): 724 nub-spmi0 (PMU alarm), 865 smc mailbox recv-not-empty (key/lid events) */
++static const unsigned wake_irq[2] = {724, 865};
++#define MPMGR_AON_S2R_TIMER 0x29e5c4000ULL      /* MPMGR_AON (PMGR reg 38, T6020) + 0x4000 */
++
++static volatile struct {
++    u32 saved; /* bit 0 domains, bit 1 clocks, bit 2 clusters, bit 3 held, 4 AMCC, 5 AIC, 6 EACC */
++    u32 afr, sio, sio_cpu, pll;
++    u32 clk[5];
++    u32 cluster[5];
++    u32 eacc;              /* image 60h: bit 6, PSCI_S2R_EACC: EACC's cluster word (0x28e088000) before its target went to 0 */
++    u32 held[12];
++    u32 held_mask;
++    u32 amcc_en[8][4][2]; /* image 58: bit 4, PSCI_S2R_AMCC: each plane's error enable words 0 and 1 */
++    u32 amcc_n, amcc_planes;
++    u32 aic_mask[128];     /* image 58: bit 5, PSCI_S2R_AICMASK: the AIC mask words before the mask-all */
++    u32 aic_words;
++    u64 dvfs[3];           /* image 61: bit 7, PSCI_S2R_DVFS: each cluster's CLUSTER_PSTATE before APSC_DIS */
++    u32 fabric[3];         /* image 62: bit 8, PSCI_S2R_FABRIC: the three fabric PS words before macOS's value */
++} qs_save __attribute__((aligned(64)));
++
++/*
++ * Image 58 (GH-8 worklog 2026-11-06 'image 58'): leads from DJ's T8140 (aurora-silicon/aura feat/sptm-hv,
++ * docs/sptm-nv2-virt.md) and Naeem Malik's t8103 (malik-na/m1-power-lab, docs/evidence/2026-11-06-mac27-hv) S2R.
++ *   PSCI_S2R_REC      psci_dbg2: the AON watchdogs WD0..2 (count, alarm, ctl) and the S2R timer word at entry, just
++ *                     before the timer, right after it and 100 ms later; each AMCC instance's error status (OR of its
++ *                     planes) at entry and just before the timer, and its plane 0 enables at entry
++ *   PSCI_S2R_AMCC     before the timer, clear DSID_AGE_OUT (word 0 bit 26) and UNEXP_RT_HIT_DIR (word 1 bit 8) in
++ *                     every plane's error enables (T6020, 13.5 AppleT6020PlatformErrorHandler::_amccEnableErrors:
++ *                     enable word i at plane + 0x21000 + 8 * i, status at + 4; T8140 has them at 0x25000, bit 25).
++ *                     DJ: with no platform error handler, a pending enabled AMCC error wakes the SoC within 20 ms of
++ *                     the commit, and a display power-off raises DSID_AGE_OUT
++ *   PSCI_S2R_STOPWD2  100 ms after the timer, WD2 ctl = 0. On t8103 and T8140 the commit loads WD2 (macOS: 5 s, reset
++ *                     enabled) and only a completed entry stops it; our timer resets the SoC about 60 s after it
++ *   PSCI_S2R_AICMASK  after the timer, every AIC line masked, as macOS's AIC quiesce right after its S2R timer; only
++ *                     with PSCI_S2R_CORESOFF (Aura's own wait needs its two wake lines)
++ */
++#define WDT_N            3
++#define AMCC_EN(b, p, w)  ((b) + (p) * qs_amcc_stride + 0x21000 + 8 * (w))
++#define AMCC_STS(b, p, w) (AMCC_EN(b, p, w) + 4)
++#define AMCC_DSID_AGE_OUT     BIT(26)
++#define AMCC_UNEXP_RT_HIT_DIR BIT(8)
++volatile u64 psci_dbg2[52] __attribute__((used)); /* image 61: 48 -> 52 (words 48..50, PSCI_S2R_DVFS) */
++static u64 qs_amcc_base[8], qs_amcc_stride;
++static int qs_amcc_n, qs_amcc_planes;
++
++/* psci_dbg2[at..at+5]: per watchdog (alarm << 32 | count), (timer word << 32 | ctl); the timer word only with WD0 */
++static void qs_rec_wdt(unsigned at)
++{
++    u64 wdt = wdt_psci_base();
++
++    if (!wdt)
++        return;
++    for (unsigned i = 0; i < WDT_N; i++) {
++        u64 b = wdt + 0x10 * i;
++        psci_dbg2[at + 2 * i] = ((u64)read32(b + 4) << 32) | read32(b);
++        psci_dbg2[at + 2 * i + 1] = read32(b + 0xc) | (i ? 0 : (u64)read32(MPMGR_AON_S2R_TIMER) << 32);
++    }
++}
++
++/* psci_dbg2[at + i]: instance i's error status, OR over its planes, word 0 low and word 1 high */
++static void qs_rec_amcc(unsigned at)
++{
++    for (int i = 0; i < qs_amcc_n && i < 4; i++) {
++        u32 s0 = 0, s1 = 0;
++        for (int p = 0; p < qs_amcc_planes; p++) {
++            s0 |= read32(AMCC_STS(qs_amcc_base[i], p, 0));
++            s1 |= read32(AMCC_STS(qs_amcc_base[i], p, 1));
++        }
++        psci_dbg2[at + i] = ((u64)s1 << 32) | s0;
++    }
++}
++
++static void psci_quiesce_amcc(void)
++{
++    qs_save.amcc_n = qs_amcc_n;
++    qs_save.amcc_planes = qs_amcc_planes;
++    for (int i = 0; i < qs_amcc_n; i++)
++        for (int p = 0; p < qs_amcc_planes; p++)
++            for (int w = 0; w < 2; w++)
++                qs_save.amcc_en[i][p][w] = read32(AMCC_EN(qs_amcc_base[i], p, w));
++    qs_save.saved |= 16;
++    dc_civac_range((void *)&qs_save, sizeof(qs_save));
++    for (int i = 0; i < qs_amcc_n; i++)
++        for (int p = 0; p < qs_amcc_planes; p++) {
++            write32(AMCC_EN(qs_amcc_base[i], p, 0), qs_save.amcc_en[i][p][0] & ~AMCC_DSID_AGE_OUT);
++            write32(AMCC_EN(qs_amcc_base[i], p, 1), qs_save.amcc_en[i][p][1] & ~AMCC_UNEXP_RT_HIT_DIR);
++        }
++    psci_dbg2[42] = ((u64)read32(AMCC_EN(qs_amcc_base[0], 0, 1)) << 32) | read32(AMCC_EN(qs_amcc_base[0], 0, 0));
++}
++
++static void psci_quiesce_aic(void)
++{
++    u32 words = (aic->nr_irq + 31) / 32;
++
++    if (words > 128)
++        words = 128;
++    qs_save.aic_words = words;
++    for (u32 w = 0; w < words; w++)
++        qs_save.aic_mask[w] = read32(aic->base + aic->regs.mask_set + 4 * w);
++    qs_save.saved |= 32;
++    dc_civac_range((void *)&qs_save, sizeof(qs_save));
++    for (u32 w = 0; w < words; w++)
++        write32(aic->base + aic->regs.mask_set + 4 * w, 0xffffffff);
++    sysop("dsb sy");
++}
++
++/* poll (read32(a) & mask) == val for up to us microseconds; 0 when it matched */
++static int qs_poll(u64 a, u32 mask, u32 val, u32 us)
++{
++    for (u32 i = 0; i < us; i++) {
++        if ((read32(a) & mask) == val)
++            return 0;
++        udelay(1);
++    }
++    return 1;
++}
++
++/* image 57: psci_ctl[2] bits 0-11 pick which qs_held entries bit 6 turns off (0 = all), to find one that hangs */
++static u32 qs_held_mask;
++
++static void psci_quiesce_held(void)
++{
++    u64 fail = 0;
++
++    for (unsigned i = 0; i < 12; i++)
++        qs_save.held[i] = read32(qs_held[i]);
++    qs_save.held_mask = qs_held_mask;
++    qs_save.saved |= 8;
++    dc_civac_range((void *)&qs_save, sizeof(qs_save));
++    for (unsigned i = 0; i < 12; i++) {
++        if (!(qs_held_mask & BIT(i)))
++            continue;
++        write32(qs_held[i], qs_save.held[i] & ~QS_PS_CLEAR);
++        fail |= (u64)qs_poll(qs_held[i], 0xf0, 0, 10000) << (32 + i);
++    }
++    psci_dbg[23] |= fail;
++}
++
++static void psci_quiesce_domains(void)
++{
++    u32 fail = 0;
++
++    qs_save.afr = read32(QS_AFR);
++    qs_save.sio = read32(QS_SIO);
++    qs_save.sio_cpu = read32(QS_SIO_CPU);
++    qs_save.saved |= 1;
++    dc_civac_range((void *)&qs_save, sizeof(qs_save));
++    if ((~read32(QS_MINI_4D010) & 0xc0000) != 0) {
++        write32(QS_AFR, 0);
++        fail |= qs_poll(QS_AFR, 0xf0, 0, 10000);
++    }
++    write32(QS_SIO, qs_save.sio & ~BIT(28));
++    fail |= qs_poll(QS_SIO, 0xf0, (qs_save.sio & 0xf) << 4, 10000) << 1;
++    write32(QS_SIO_CPU, qs_save.sio_cpu & ~BIT(28));
++    fail |= qs_poll(QS_SIO_CPU, 0xf0, (qs_save.sio_cpu & 0xf) << 4, 10000) << 2;
++    psci_dbg[19] = ((u64)qs_save.afr << 32) | read32(QS_AFR);
++    psci_dbg[20] = ((u64)qs_save.sio << 32) | read32(QS_SIO);
++    psci_dbg[21] = ((u64)qs_save.sio_cpu << 32) | read32(QS_SIO_CPU);
++    psci_dbg[23] |= fail;
++}
++
++static void psci_quiesce_clocks(void)
++{
++    u32 fail = 0, v;
++
++    for (unsigned i = 0; i < 5; i++)
++        qs_save.clk[i] = read32(QS_CLKGEN + qs_clkgen_off[i]);
++    qs_save.pll = read32(QS_PLLOFF);
++    qs_save.saved |= 2;
++    dc_civac_range((void *)&qs_save, sizeof(qs_save));
++    for (unsigned i = 0; i < 5; i++) {
++        write32(QS_CLKGEN + qs_clkgen_off[i], (qs_save.clk[i] & 0x70ffffff) | 0x80000000);
++        fail |= qs_poll(QS_CLKGEN + qs_clkgen_off[i], BIT(30), 0, 10000) << (8 + i);
++    }
++    v = read32(QS_PLLOFF);
++    write32(QS_PLLOFF, (v & ~0x38) | (3 << 3));
++    write32(QS_PLLOFF, read32(QS_PLLOFF) | 2);
++    write32(QS_PLLOFF, read32(QS_PLLOFF) & ~1);
++    fail |= qs_poll(QS_PLLOFF, BIT(31), 0, 10000) << 16;
++    psci_dbg[22] = ((u64)qs_save.pll << 32) | read32(QS_PLLOFF);
++    psci_dbg[23] |= fail;
++}
++
++/* undo both, in reverse, on the way back to the kernel */
++static void psci_quiesce_clusters(void)
++{
++    u32 fail = 0;
++
++    for (unsigned i = 0; i < 5; i++)
++        qs_save.cluster[i] = read32(QS_CLUSTER + 4 * qs_cluster_id[i]);
++    qs_save.saved |= 4;
++    dc_civac_range((void *)&qs_save, sizeof(qs_save));
++    for (unsigned i = 0; i < 5; i++) {
++        u64 a = QS_CLUSTER + 4 * qs_cluster_id[i];
++        write32(a, qs_save.cluster[i] & ~0xf);
++        if (i + 1 > 3)
++            fail |= qs_poll(a, BIT(4), 0, 10000) << (24 + i);
++    }
++    for (unsigned i = 0; i < 5; i++)
++        psci_dbg[6 + i] = ((u64)qs_save.cluster[i] << 32) | read32(QS_CLUSTER + 4 * qs_cluster_id[i]);
++    psci_dbg[23] |= fail;
++}
++
++static void psci_quiesce_eacc(void)
++{
++    qs_save.eacc = read32(QS_CLUSTER);
++    qs_save.saved |= 64;
++    dc_civac_range((void *)&qs_save, sizeof(qs_save));
++    write32(QS_CLUSTER, qs_save.eacc & ~0xf);
++}
++
++/* image 62: AFNC1_LW2, AFNC2_LW1, APCIE_GP_SYS (t602x-pmgr.dtsi), macOS's value at sleep entry */
++static const u64 qs_fabric[3] = {0x28e080210ULL, 0x290280178ULL, 0x290280418ULL};
++#define QS_FABRIC_VAL 0x1000030f
++
++static void psci_quiesce_fabric(void)
++{
++    for (unsigned i = 0; i < 3; i++)
++        qs_save.fabric[i] = read32(qs_fabric[i]);
++    qs_save.saved |= 256;
++    dc_civac_range((void *)&qs_save, sizeof(qs_save));
++    for (unsigned i = 0; i < 3; i++)
++        write32(qs_fabric[i], QS_FABRIC_VAL);
++    psci_dbg2[51] = ((u64)qs_save.fabric[0] << 32) | read32(qs_fabric[0]);
++}
++
++/* image 62: bits 0-2 = that fabric word's actual state reads 0 (gated), bits 4-6 = below f; for the crumb snapshot */
++static u8 qs_fabric_state(void)
++{
++    u8 b = 0;
++
++    for (unsigned i = 0; i < 3; i++) {
++        u32 a = (read32(qs_fabric[i]) >> 4) & 0xf;
++        if (a == 0)
++            b |= BIT(i);
++        if (a != 0xf)
++            b |= BIT(4 + i);
++    }
++    return b;
++}
++
++static void psci_quiesce_dvfs(void)
++{
++    u32 fail = 0;
++
++    for (unsigned i = 0; i < 3; i++)
++        qs_save.dvfs[i] = read64(qs_dvfs_base[i] + QS_DVFS_PSTATE);
++    qs_save.saved |= 128;
++    dc_civac_range((void *)&qs_save, sizeof(qs_save));
++    for (unsigned i = 0; i < 3; i++) {
++        u64 a = qs_dvfs_base[i] + QS_DVFS_PSTATE;
++        write64(a, read64(a) | QS_DVFS_APSC_DIS);
++        fail |= qs_poll(a, QS_DVFS_APSC_BUSY, 0, 10000) << (28 + i);
++    }
++    /* psci_dbg2 words 48..50: the low half before (high 32 bits) and after (low 32 bits) */
++    for (unsigned i = 0; i < 3; i++)
++        psci_dbg2[48 + i] = (qs_save.dvfs[i] << 32) | (u32)read64(qs_dvfs_base[i] + QS_DVFS_PSTATE);
++    psci_dbg[23] |= fail;
++}
++
++static void psci_quiesce_undo(void)
++{
++    dc_ivac_range((void *)&qs_save, sizeof(qs_save));
++    if (qs_save.saved & 256) {
++        for (unsigned i = 0; i < 3; i++)
++            write32(qs_fabric[i], qs_save.fabric[i] & ~0x300);
++    }
++    if (qs_save.saved & 128) {
++        for (unsigned i = 0; i < 3; i++) {
++            u64 a = qs_dvfs_base[i] + QS_DVFS_PSTATE;
++            write64(a, (read64(a) & ~QS_DVFS_APSC_DIS) | (qs_save.dvfs[i] & QS_DVFS_APSC_DIS));
++            qs_poll(a, QS_DVFS_APSC_BUSY, 0, 10000);
++        }
++    }
++    if (qs_save.saved & 2) {
++        write32(QS_PLLOFF, qs_save.pll);
++        for (int i = 4; i >= 0; i--)
++            write32(QS_CLKGEN + qs_clkgen_off[i], qs_save.clk[i]);
++    }
++    if (qs_save.saved & 64)
++        write32(QS_CLUSTER, qs_save.eacc);
++    if (qs_save.saved & 4) {
++        for (unsigned i = 0; i < 5; i++)
++            write32(QS_CLUSTER + 4 * qs_cluster_id[i], qs_save.cluster[i]);
++    }
++    if (qs_save.saved & 1) {
++        write32(QS_SIO_CPU, qs_save.sio_cpu);
++        write32(QS_SIO, qs_save.sio);
++        write32(QS_AFR, qs_save.afr);
++    }
++    if (qs_save.saved & 32) {
++        /* unmask what was unmasked, except Aura's two wake lines, which Linux keeps masked */
++        for (u32 w = 0; w < qs_save.aic_words; w++) {
++            u32 keep = 0;
++            for (unsigned i = 0; i < 2; i++)
++                if ((wake_irq[i] >> 5) == w)
++                    keep |= BIT(wake_irq[i] & 31);
++            write32(aic->base + aic->regs.mask_clr + 4 * w, ~qs_save.aic_mask[w] & ~keep);
++        }
++    }
++    if (qs_save.saved & 16) {
++        for (u32 i = 0; i < qs_save.amcc_n; i++)
++            for (u32 p = 0; p < qs_save.amcc_planes; p++)
++                for (u32 w = 0; w < 2; w++)
++                    write32(AMCC_EN(qs_amcc_base[i], p, w), qs_save.amcc_en[i][p][w]);
++    }
++    if (qs_save.saved & 8) {
++        for (int i = 11; i >= 0; i--)
++            if (qs_save.held_mask & BIT(i))
++                write32(qs_held[i], qs_save.held[i] & ~(BIT(11) | BIT(9) | BIT(8)));
++    }
++    qs_save.saved = 0;
++    dc_civac_range((void *)&qs_save, sizeof(qs_save));
++}
++
++volatile u64 psci_ctl[8] __attribute__((aligned(64), used));
++#define PSCI_CTL_MAGIC_HI 0x5332524354524c00ULL /* "S2RCTRL", low byte added at run time */
++
++static void qs_crumb_init(void);
++
++void psci_ctl_init(void)
++{
++    volatile u64 lo = 0x21;
++
++    for (unsigned i = 0; i < 8; i++)
++        psci_ctl[i] = 0;
++    psci_ctl[0] = PSCI_CTL_MAGIC_HI | lo;
++    dc_civac_range((void *)psci_ctl, sizeof(psci_ctl));
++    /* image 58: the AMCC planes, found now while the ADT is still around */
++    qs_amcc_n = mcc_plane_bases(qs_amcc_base, 8, &qs_amcc_stride, &qs_amcc_planes);
++    if (qs_amcc_planes > 4)
++        qs_amcc_planes = 4;
++    qs_crumb_init();
++}
++
++
++/*
++ * Set on the kernel's first PSCI call: from then on Linux owns the hardware, so CPU resets through RVBAR
++ * (CPU_ON restarts, the boot CPU's SYSTEM_SUSPEND wake) must not print: the UART may be powered down, and its
++ * TX-empty wait would then spin forever.
++ */
++/* a cache line of its own: psci_runtime_quiet() invalidates it */
++volatile struct {
++    bool on;
++    u8 pad[63];
++} psci_runtime_line __attribute__((aligned(64)));
++#define psci_runtime (psci_runtime_line.on)
++
++/* What the RVBAR re-entry needs, cleaned to the PoC: it runs with the MMU and caches off */
++volatile struct {
++    u64 magic, entry, context, start, frq;
++    u32 basew[2];
++} psci_resume __attribute__((aligned(64), used));
++
++static u64 wake_hw_word(unsigned i)
++{
++    return aic->base + aic->regs.mask_clr + 4 * (aic->max_irq >> 5) + 4 * (wake_irq[i] >> 5);
++}
++
++/* The wake line that newly asserted since entry, or -1 */
++static int psci_wake_line(void)
++{
++    for (unsigned i = 0; i < 2; i++) {
++        u32 w = read32(wake_hw_word(i)) & BIT(wake_irq[i] & 31);
++        if (w & ~psci_resume.basew[i])
++            return wake_irq[i];
++    }
++    return -1;
++}
++
++static void psci_sleep_core(void)
++{
++    /*
++     * Deep WFI with state retention (WFI_MODE 3, retention left on). Images 32 to 36 also set DISABLE_WFI_RET:
++     * the core then never came back (not even to the first instruction at RVBAR), so the AIC wake does not
++     * restart a core powered down without retention. The RVBAR resume path stays as a backstop.
++     */
++    /* image 42: deep_wfi() with the CYC_OVRD write synchronized (isb) before the WFI */
++    u64 cyc_ovrd = mrs(SYS_IMP_APL_CYC_OVRD);
++
++    msr(SYS_IMP_APL_CYC_OVRD, cyc_ovrd | CYC_OVRD_WFI_MODE(3));
++    sysop("isb");
++    extern void _deep_wfi_helper(void);
++    _deep_wfi_helper();
++    msr(SYS_IMP_APL_CYC_OVRD, cyc_ovrd);
++}
++
++/*
++ * Image 60: breadcrumbs. The S2R timer's reset loses everything Aura keeps in DRAM, and Linux cannot run after the
++ * timer (run W2), so how far the boot core gets is left in the PMU, which a SoC reset does not touch: legacy scratch
++ * key 4 (0x6004), unused by 13.5's AppleDialogSPMIPMU (keys 0-3, 8-11, 0xf, 0x18-0x1a, 0x1f). One SPMI extended
++ * long write to the PMU (slave 0xb on nub-spmi0), no printing, bounded waits; Linux reads and clears it at boot. The
++ * controller's registers are kept in memory (cleaned) so the RVBAR path, with the MMU and caches off, can write too.
++ */
++#define QS_PMU_SPMI_ADDR 0xb
++#define QS_PMU_CRUMB_REG 0x6004
++static struct {
++    u64 base;
++    u32 st, cmd, rsp, rx_empty, tx_empty;
++    u32 on;
++} qs_crumbs __attribute__((aligned(64)));
++
++static void qs_crumb_init(void)
++{
++    int path[8];
++    u64 base = 0;
++    s32 gen = -1;
++    int off = adt_path_offset_trace(adt, "/arm-io/nub-spmi0", path);
++
++    qs_crumbs.base = 0;
++    if (off >= 0 && adt_get_reg(adt, path, "reg", 0, &base, NULL) >= 0) {
++        if (ADT_GETPROP(adt, off, "gen", &gen) < 0)
++            gen = -1;
++        if (gen >= 4) {
++            qs_crumbs.st = 0x200, qs_crumbs.cmd = 0x210, qs_crumbs.rsp = 0x220;
++            qs_crumbs.rx_empty = BIT(30), qs_crumbs.tx_empty = BIT(14);
++        } else {
++            qs_crumbs.st = 0x00, qs_crumbs.cmd = 0x04, qs_crumbs.rsp = 0x08;
++            qs_crumbs.rx_empty = BIT(24), qs_crumbs.tx_empty = BIT(8);
++        }
++        qs_crumbs.base = base;
++    }
++    qs_crumbs.on = 0;
++    dc_civac_range((void *)&qs_crumbs, sizeof(qs_crumbs));
++}
++
++/* image 60b: the SPMI controller's page must be in Linux's EFI runtime map (smp_psci_mmio_ranges); 60 left it out */
++u64 psci_crumb_base(void)
++{
++    return qs_crumbs.base;
++}
++
++static void qs_crumb_write(u16 reg, const u8 *v, int len)
++{
++    u64 b = qs_crumbs.base, t0, t;
++    u32 data = 0;
++
++    if (!qs_crumbs.on || !b || len < 1 || len > 4)
++        return;
++    /* image 60e: wait up to about 5 ms for the TX FIFO instead of dropping the write (R12 lost its 0x600c write) */
++    asm volatile("isb\n mrs %0, cntpct_el0" : "=r"(t0));
++    while (!(read32(b + qs_crumbs.st) & qs_crumbs.tx_empty)) {
++        asm volatile("isb\n mrs %0, cntpct_el0" : "=r"(t));
++        if (t - t0 >= 120000)
++            return;
++    }
++    for (int i = 0; i < 16 && !(read32(b + qs_crumbs.st) & qs_crumbs.rx_empty); i++)
++        read32(b + qs_crumbs.rsp);
++    /* extended register write long (opcode 0x30 | len - 1), the register address in the upper half */
++    write32(b + qs_crumbs.cmd, ((u32)reg << 16) | BIT(15) | (QS_PMU_SPMI_ADDR << 8) | 0x30 | (len - 1));
++    for (int i = 0; i < len; i++)
++        data |= (u32)v[i] << (8 * i);
++    write32(b + qs_crumbs.cmd, data);
++    asm volatile("isb\n mrs %0, cntpct_el0" : "=r"(t0));
++    do {
++        if (!(read32(b + qs_crumbs.st) & qs_crumbs.rx_empty)) {
++            read32(b + qs_crumbs.rsp);
++            return;
++        }
++        asm volatile("isb\n mrs %0, cntpct_el0" : "=r"(t));
++    } while (t - t0 < 120000); /* about 5 ms at 24 MHz */
++}
++
++static void qs_crumb(u8 v)
++{
++    qs_crumb_write(QS_PMU_CRUMB_REG, &v, 1);
++}
++
++/*
++ * Image 60c: what the CPU side looks like 2 ms after the secondaries were released, just before the boot core's
++ * flush and deep WFI (code 18). Free scratch keys 0x10-0x13 and 0x1b-0x1e (0x17 is left alone: it reads 1, iBoot's?):
++ *   0x10 PMP request word bits 8-15, 0x11 its ack (macOS ends at 0: PCPM0/1 and the display bits released)
++ *   0x12 0x13 the ECPM and PCPM0 power words bits 4-11 (0x28e080060, 68), 0x1b PCPM1's (0x70)
++ *   0x1c 0x1d 0x1e the EACC, PACC0, PACC1 soc-cluster controls (0x28e088000, 4, 8) bits 0-7
++ */
++#define QS_PMP_REQ 0x28e3c2000ULL
++#define QS_CPM_PS  0x28e080060ULL
++static void qs_crumb_snapshot(void)
++{
++    u8 a[4], c[4], w[4];
++    u64 t0, t;
++    u32 zero = 0, again = 0, maxl = 0;
++
++    if (!qs_crumbs.on)
++        return;
++    /* image 60d: wait up to 500 ms for both P complexes to read off; 0x6014 = the wait in 2 ms units, 0xff = timeout */
++    asm volatile("isb\n mrs %0, cntpct_el0" : "=r"(t0));
++    do {
++        asm volatile("isb\n mrs %0, cntpct_el0" : "=r"(t));
++        /* image 60e: only the actual-state nibble (bits 4-7); R12 timed out on bit 8 (was-power-gated) with PCPM0 off */
++        if (!(read32(QS_CPM_PS + 8) & 0xf0) && !(read32(QS_CPM_PS + 0x10) & 0xf0))
++            break;
++    } while (t - t0 < 12000000);
++    a[0] = read32(QS_PMP_REQ) >> 8;
++    a[1] = read32(QS_PMP_REQ + 0x80) >> 8;
++    a[2] = read32(QS_CPM_PS) >> 4;
++    a[3] = read32(QS_CPM_PS + 8) >> 4;
++    c[0] = read32(QS_CPM_PS + 0x10) >> 4;
++    c[1] = read32(QS_CLUSTER);
++    c[2] = read32(QS_CLUSTER + 4);
++    c[3] = read32(QS_CLUSTER + 8);
++    /* image 60d: each secondary's cpu_sleep count (by Aura's CPU index; 0 = never got there, >1 = woke again) */
++    for (int i = 1; i < 16 && i < MAX_CPUS; i++) {
++        u32 n = smp_psci_s2r_loops(i);
++        if (!n)
++            zero |= BIT(i);
++        if (n > 1)
++            again |= BIT(i);
++        if (n > maxl)
++            maxl = n;
++    }
++    w[0] = (t - t0 >= 12000000) ? 0xff : (u8)((t - t0) / 48000);
++    w[1] = zero & 0xff;
++    w[2] = zero >> 8;
++    w[3] = maxl > 255 ? 255 : maxl;
++    qs_crumb_write(0x6010, a, 4);
++    qs_crumb_write(0x601b, c, 4);
++    qs_crumb_write(0x6014, w, 3);
++    w[0] = again & 0xff;
++    w[1] = again >> 8;
++    w[2] = w[3];
++    qs_crumb_write(0x600c, w, 3);
++    /*
++     * image 60e: 0x6005/0x6006 = the cores Aura held as CPU_OFF at the release (bit = index); 0x6007 = the lowest
++     * valid secondary that never slept (bits 4-7) and its PSCI state (bits 0-3: 0 parked, 1 on, 2 off), ff if none
++     */
++    u32 offm = smp_psci_off_mask(), first = 0xff;
++    int fi = -1;
++    for (int i = 1; i < 16 && i < MAX_CPUS; i++)
++        if ((zero & BIT(i)) && smp_psci_cpu_valid(i)) {
++            first = (i << 4) | (smp_psci_cpu_state(i) & 0xf);
++            fi = i;
++            break;
++        }
++    w[0] = offm & 0xff;
++    w[1] = (offm >> 8) & 0xff;
++    w[2] = first;
++    qs_crumb_write(0x6005, w, 3);
++    /*
++     * image 60f, for that core (R13: cpu3, CPU_OFF and sent the IPI, never slept): 0x6010/0x6011 the spin-table
++     * MPIDR the release IPI used (bits 0-15); 0x600c its park entries since boot, 0x600d its park-loop WFI returns
++     * since the clear (both capped at 255), 0x600e its S2R sleep count 2 ms after a second IPI built from the reset
++     * table's MPIDR. All ff if every core slept. R13's PMP request/ack were 0, as in R11 and R12.
++     */
++    u8 m[2] = {0xff, 0xff}, q[3] = {0xff, 0xff, 0xff};
++    /* image 62: with no never-slept core, 0x600d = qs_fabric_state() at the snapshot (only when bit 18 ran) */
++    if (fi <= 0 && (qs_save.saved & 256))
++        q[1] = qs_fabric_state();
++    if (fi > 0) {
++        u64 mp = smp_psci_ipi_mpidr(fi);
++        u32 pe = smp_psci_s2r_word(fi, 1), wr = smp_psci_s2r_word(fi, 2);
++        m[0] = mp & 0xff;
++        m[1] = (mp >> 8) & 0xff;
++        q[0] = pe > 255 ? 255 : pe;
++        q[1] = wr > 255 ? 255 : wr;
++        smp_psci_reipi(fi);
++        udelay(2000);
++        u32 n = smp_psci_s2r_loops(fi);
++        q[2] = n > 255 ? 255 : n;
++    }
++    qs_crumb_write(0x6010, m, 2);
++    qs_crumb_write(0x600c, q, 3);
++}
++
++static void __attribute__((noreturn)) psci_resume_kernel(int line, int via_rvbar)
++{
++    u64 now;
++
++    for (unsigned i = 0; i < 2; i++)
++        write32(aic->base + aic->regs.mask_set + 4 * (wake_irq[i] >> 5), BIT(wake_irq[i] & 31));
++    asm volatile("isb\n mrs %0, cntpct_el0" : "=r"(now));
++    if (!via_rvbar)
++        wdt_psci_disarm();
++    psci_resume.magic = 0;
++    smp_psci_s2r_clear();
++    psci_quiesce_undo();
++    if (via_rvbar)
++        wdt_psci_arm(RESUME_WDT_S); /* stage 2: reset unless the kernel's resume takes over its watchdog */
++    psci_dbg[3] = 1;
++    psci_dbg[4] = line;
++    psci_dbg[5] = now - psci_resume.start;
++    /* 2: the core lost its state and came back through RVBAR; 3: the same with no wake line (S2R) */
++    psci_dbg[13] = via_rvbar ? (line < 0 ? 3 : 2) : 1;
++    psci_dbg[15] = mrs(SYS_IMP_APL_CYC_OVRD);
++    psci_dbg[0] = 0xA0AA0001;
++    dc_civac_range((void *)&psci_resume, sizeof(psci_resume));
++    dc_civac_range((void *)psci_dbg, sizeof(psci_dbg));
++    qs_crumb(via_rvbar ? 0x22 : 0x1e);
++    psci_enter(psci_resume.entry, psci_resume.context);
++}
++
++bool psci_runtime_quiet(void)
++{
++    dc_ivac_range((void *)&psci_runtime, sizeof(psci_runtime));
++    return psci_runtime;
++}
++
++bool psci_suspend_resuming(void)
++{
++    dc_ivac_range((void *)&psci_resume, sizeof(psci_resume));
++    return psci_resume.magic == RESUME_MAGIC;
++}
++
++/* RVBAR re-entry of the boot CPU from psci_system_suspend(), after init_cpu() and exception_initialize() */
++void __attribute__((noreturn)) psci_suspend_rvbar(void)
++{
++    int line;
++
++    asm volatile("msr daifset, #0xf\n isb" ::: "memory");
++    /*
++     * stage 1: reset 10 s from here. The time to the reset tells how far the RVBAR path got: 10 s and 150 s
++     * (stage 2) are unlike every other dog (120 s) and the SMC's own reset, so a reset time names its stage.
++     */
++    wdt_psci_arm(RVBAR_WDT_S);
++    qs_crumb(0x21);
++    dc_ivac_range((void *)psci_dbg, sizeof(psci_dbg));
++    psci_dbg[12]++;
++    /*
++     * A boot CPU back through RVBAR with the resume magic set had its power cut: by the SoC's S2R (the
++     * reconfig engine restarts it on a wake source) or a core power-down. After S2R the AIC has lost its
++     * state, so no wake line shows; resume the kernel anyway (line -1, psci_dbg[13] 3) and let its AIC
++     * restore and drivers take over. Stage 2 (RESUME_WDT_S) resets the Mac if the kernel's resume hangs.
++     */
++    line = psci_wake_line();
++    psci_resume_kernel(line, 1);
++}
++
++static unsigned long psci_system_suspend(unsigned long entry, unsigned long context)
++{
++    u64 now, hcr, daif;
++    int line;
++
++    wdt_psci_arm(SUSPEND_WDT_S);
++    asm volatile("mrs %0, hcr_el2" : "=r"(hcr));
++    asm volatile("mrs %0, daif" : "=r"(daif));
++    for (unsigned i = 0; i < 24; i++)
++        psci_dbg[i] = 0;
++    psci_dbg[1] = hcr;
++    psci_dbg[2] = daif;
++    psci_dbg[14] = mrs(SYS_IMP_APL_CYC_OVRD);
++    dc_ivac_range((void *)psci_ctl, sizeof(psci_ctl));
++    u64 steps = psci_ctl[1] & (PSCI_S2R_TIMER | PSCI_S2R_CORESOFF | PSCI_S2R_DOMAINS | PSCI_S2R_CLOCKS | PSCI_S2R_CLUSTERS | PSCI_S2R_STOPREQ | PSCI_S2R_HELD | PSCI_S2R_REC | PSCI_S2R_AMCC | PSCI_S2R_STOPWD2 | PSCI_S2R_AICMASK | PSCI_S2R_WD1OFF | PSCI_S2R_RESUMENOW | PSCI_S2R_CRUMB | PSCI_S2R_QUIET | PSCI_S2R_EACC | PSCI_S2R_DVFS | PSCI_S2R_FABRIC);
++    for (unsigned i = 0; i < 48; i++)
++        psci_dbg2[i] = 0;
++    psci_dbg2[1] = steps | ((u64)qs_amcc_n << 32) | ((u64)qs_amcc_planes << 40);
++    if (steps & PSCI_S2R_REC) {
++        qs_rec_wdt(2);
++        qs_rec_amcc(26);
++        for (int i = 0; i < qs_amcc_n && i < 4; i++)
++            psci_dbg2[34 + i] = ((u64)read32(AMCC_EN(qs_amcc_base[i], 0, 1)) << 32) | read32(AMCC_EN(qs_amcc_base[i], 0, 0));
++    }
++    qs_crumbs.on = !!(steps & PSCI_S2R_CRUMB);
++    dc_civac_range((void *)&qs_crumbs, sizeof(qs_crumbs));
++    qs_crumb(0x11);
++    qs_held_mask = (psci_ctl[2] & 0xfff) ? (psci_ctl[2] & 0xfff) : 0xfff;
++    psci_dbg[17] = 0x5300000000ULL | (psci_ctl[1] & 0xffffffff); /* the control word this suspend read */
++
++    if (!aic || aic->version != 2) {
++        psci_dbg[3] = 2;
++        wdt_psci_disarm();
++        psci_dbg[0] = 0xA0AA0001;
++        dc_civac_range((void *)psci_dbg, sizeof(psci_dbg));
++        psci_enter(entry, context);
++    }
++
++    psci_resume.entry = entry;
++    psci_resume.context = context;
++    asm volatile("mrs %0, cntfrq_el0" : "=r"(psci_resume.frq));
++    asm volatile("isb\n mrs %0, cntpct_el0" : "=r"(psci_resume.start));
++    /* Ignore wake sources for the first SUSPEND_MIN_MS (Linux is still finishing its own suspend work) */
++    do {
++        asm volatile("isb\n mrs %0, cntpct_el0" : "=r"(now));
++    } while (now - psci_resume.start < psci_resume.frq / 1000 * SUSPEND_MIN_MS);
++
++    for (unsigned i = 0; i < 2; i++)
++        psci_resume.basew[i] = read32(wake_hw_word(i)) & BIT(wake_irq[i] & 31);
++    psci_dbg[11] = 0x100000000UL | psci_resume.basew[0] | ((u64)psci_resume.basew[1] << 16);
++    psci_resume.magic = RESUME_MAGIC;
++
++    /*
++     * All of DAIF masked (WFI still wakes on a pending interrupt, and Linux's vectors never run); the wake lines
++     * unmasked at the AIC for the wait and masked again afterwards as Linux's syscore suspend left them. A line
++     * already asserted would end every WFI at once, so it stays masked.
++     */
++    asm volatile("msr daifset, #0xf\n isb" ::: "memory");
++    for (unsigned i = 0; i < 2; i++)
++        if (!psci_resume.basew[i])
++            write32(aic->base + aic->regs.mask_clr + 4 * (wake_irq[i] >> 5), BIT(wake_irq[i] & 31));
++    /*
++     * The RVBAR path runs with the MMU and caches off and so reads DRAM directly: every global it touches
++     * (boot_cpu_mpidr for is_boot_cpu(), the watchdog and AIC bases, cpu_features, the reset stacks, this
++     * state) must be in memory, and nothing of the image may stay cached to shadow what it writes there.
++     * Clean and invalidate the whole resident image, code to end of BSS.
++     */
++    /* image 39: the whole-image clean (images 35 to 38) is left out: 37 and 38 hung with it, 31 passed without */
++    dc_civac_range((void *)&psci_resume, sizeof(psci_resume));
++
++    /* the S2R steps, in macOS's order: quiesceHW's domains and clocks, its S2R timer last, then every core */
++    if (steps & PSCI_S2R_HELD)
++        psci_quiesce_held();
++    if (steps & PSCI_S2R_DOMAINS)
++        psci_quiesce_domains();
++    if (steps & PSCI_S2R_FABRIC)
++        psci_quiesce_fabric();
++    if (steps & PSCI_S2R_CLUSTERS)
++        psci_quiesce_clusters();
++    if (steps & PSCI_S2R_EACC)
++        psci_quiesce_eacc();
++    if (steps & PSCI_S2R_CLOCKS)
++        psci_quiesce_clocks();
++    if (steps & PSCI_S2R_AMCC)
++        psci_quiesce_amcc();
++    if (steps & PSCI_S2R_DVFS)
++        psci_quiesce_dvfs();
++    if (steps & PSCI_S2R_REC) {
++        qs_rec_wdt(8);
++        qs_rec_amcc(30);
++    }
++    /*
++     * Image 59: macOS enters with every AON watchdog's ctl at 0 (t8103 and T8140 traces; 13.5's AppleARMWatchdogTimer
++     * sleep action leaves WD1 alone and clears WD0 and reg 3's low byte, both already 0 here). Aura's WD1 has been armed
++     * (120 s) through every entry so far. The timer's own reset stays as the safety net.
++     */
++    qs_crumb(0x12);
++    bool quiet = (steps & PSCI_S2R_QUIET) && (steps & PSCI_S2R_TIMER) && (steps & PSCI_S2R_CORESOFF);
++    if (quiet) {
++        /* image 60g: everything that touches hardware happens before the commit */
++        if (steps & PSCI_S2R_AICMASK)
++            psci_quiesce_aic();
++        qs_crumb(0x17);
++        smp_psci_release_parked(steps & PSCI_S2R_STOPREQ);
++        udelay(2000);
++        qs_crumb_snapshot();
++        qs_crumb(0x16); /* the last access before the commit */
++    }
++    if ((steps & PSCI_S2R_WD1OFF) && (steps & PSCI_S2R_TIMER)) {
++        wdt_psci_disarm();
++        psci_dbg2[45] = 0x5100000000ULL | 1;
++    }
++    if (quiet) {
++        write32(MPMGR_AON_S2R_TIMER, 1);
++        sysop("dsb sy");
++        write32(MPMGR_AON_S2R_TIMER, 1);
++        sysop("dsb sy");
++        write32(MPMGR_AON_S2R_TIMER, 1);
++        sysop("dsb sy");
++        psci_dbg[18] = 3;
++        psci_dbg[0] = 0xA0AA0003;
++        dcsw_op_all(DCSW_OP_DCCISW);
++        sysop("dsb sy");
++        cpu_sleep(true); /* back only through RVBAR: psci_suspend_rvbar() */
++    }
++    if (!quiet && (steps & PSCI_S2R_TIMER)) {
++        write32(MPMGR_AON_S2R_TIMER, 1);
++        sysop("dsb sy");
++        psci_dbg[18] = 1;
++        qs_crumb(0x13);
++        if (steps & PSCI_S2R_REC)
++            qs_rec_wdt(14);
++        if (steps & PSCI_S2R_REC || steps & PSCI_S2R_STOPWD2) {
++            udelay(100000);
++            qs_rec_wdt(20);
++        }
++        if (steps & PSCI_S2R_STOPWD2) {
++            u64 wdt = wdt_psci_base();
++            if (wdt) {
++                write32(wdt + 0x2c, 0);
++                sysop("dsb sy");
++                psci_dbg2[44] = 0x5700000000ULL | read32(wdt + 0x2c);
++            }
++        }
++        qs_crumb(0x14);
++        if ((steps & PSCI_S2R_AICMASK) && (steps & PSCI_S2R_CORESOFF))
++            psci_quiesce_aic();
++        qs_crumb(0x15);
++    }
++    psci_dbg2[0] = 0xA0AA0002;
++    dc_civac_range((void *)psci_dbg2, sizeof(psci_dbg2));
++    /* image 59: straight back to the kernel after the timer (no cores off): Linux logs the watchdogs until the reset */
++    if ((steps & PSCI_S2R_RESUMENOW) && (steps & PSCI_S2R_TIMER) && !(steps & PSCI_S2R_CORESOFF)) {
++        asm volatile("msr daifset, #0xf\n isb" ::: "memory");
++        psci_resume_kernel(-1, 0);
++    }
++    if (!quiet && (steps & PSCI_S2R_CORESOFF)) {
++        psci_dbg[0] = 0xA0AA0001;
++        dc_civac_range((void *)psci_dbg, sizeof(psci_dbg));
++        qs_crumb(0x17);
++        smp_psci_release_parked(steps & PSCI_S2R_STOPREQ); /* the secondaries go first, as macOS's stall release */
++        udelay(2000);
++        qs_crumb_snapshot();
++        qs_crumb(0x18);
++        dcsw_op_all(DCSW_OP_DCCISW);
++        sysop("dsb sy");
++        qs_crumb(0x19);
++        cpu_sleep(true); /* back only through RVBAR: psci_suspend_rvbar() */
++    }
++
++    u64 hb_ctl = mrs(SYS_CNTHP_CTL_EL2), hb_cval = mrs(SYS_CNTHP_CVAL_EL2), hb_next;
++    asm volatile("isb\n mrs %0, cntpct_el0" : "=r"(now));
++    hb_next = now + psci_resume.frq * SUSPEND_HB_S;
++    msr(SYS_CNTHP_CVAL_EL2, hb_next);
++    msr(SYS_CNTHP_CTL_EL2, CNTx_CTL_ENABLE);
++    sysop("isb");
++    qs_crumb(0x1a);
++    for (;;) {
++        psci_sleep_core();
++        psci_dbg[12]++;
++        if ((line = psci_wake_line()) >= 0)
++            break;
++        asm volatile("isb\n mrs %0, cntpct_el0" : "=r"(now));
++        if (now >= hb_next) {
++            wdt_psci_arm(SUSPEND_WDT_S);
++            psci_dbg[16]++;
++            hb_next = now + psci_resume.frq * SUSPEND_HB_S;
++            msr(SYS_CNTHP_CVAL_EL2, hb_next);
++            sysop("isb");
++        }
++    }
++    msr(SYS_CNTHP_CTL_EL2, hb_ctl);
++    msr(SYS_CNTHP_CVAL_EL2, hb_cval);
++    sysop("isb");
++    psci_resume_kernel(line, 0);
++}
++
+ unsigned long psci_efi_handler(unsigned long fid, unsigned long arg0, unsigned long arg1,
+                                unsigned long arg2)
+ {
++    if (!psci_runtime) {
++        psci_runtime = true;
++        dc_civac_range((void *)&psci_runtime, sizeof(psci_runtime));
++    }
+     switch (fid) {
+         case PSCI_0_2_FN_PSCI_VERSION:
+             return PSCI_VERSION_1_0;
+@@ -34,6 +949,8 @@ unsigned long psci_efi_handler(unsigned long fid, unsigned long arg0, unsigned l
+             return smp_psci_cpu_off();
+         case PSCI_0_2_FN64_CPU_ON:
+             return smp_psci_cpu_on(arg0, arg1, arg2);
++        case PSCI_1_0_FN64_SYSTEM_SUSPEND:
++            return psci_system_suspend(arg0, arg1);
+         case PSCI_0_2_FN64_AFFINITY_INFO:
+             return psci_affinity_info(arg0, arg1);
+         default:
+@@ -53,5 +970,6 @@ const struct psci_efi_table psci_efi_table = {
+             [PSCI_FN(PSCI_0_2_FN_CPU_OFF)] = PSCI_RET_SUCCESS,
+             [PSCI_FN(PSCI_0_2_FN64_CPU_ON)] = PSCI_RET_SUCCESS,
+             [PSCI_FN(PSCI_0_2_FN64_AFFINITY_INFO)] = PSCI_RET_SUCCESS,
++            [PSCI_FN(PSCI_1_0_FN64_SYSTEM_SUSPEND)] = PSCI_RET_SUCCESS,
+         },
+ };
+diff --git a/src/psci.h b/src/psci.h
+index 92d225ab..36d6c669 100644
+--- a/src/psci.h
++++ b/src/psci.h
+@@ -31,6 +31,7 @@ enum psci_fn_id {
+     PSCI_0_2_FN64_CPU_ON = 0xc4000003,
+     PSCI_0_2_FN64_AFFINITY_INFO = 0xc4000004,
+     PSCI_1_0_FN_PSCI_FEATURES = 0x8400000a,
++    PSCI_1_0_FN64_SYSTEM_SUSPEND = 0xc400000e,
+ };
+ 
+ enum psci_ret {
+@@ -63,6 +64,48 @@ struct psci_efi_table {
+ 
+ extern const struct psci_efi_table psci_efi_table;
+ 
++#define PSCI_S2R_TIMER    BIT(0)
++#define PSCI_S2R_CORESOFF BIT(1)
++#define PSCI_S2R_DOMAINS  BIT(2)
++#define PSCI_S2R_CLOCKS   BIT(3)
++#define PSCI_S2R_CLUSTERS BIT(4)
++/* image 55: each secondary's PMGR stop request (CPUSTART + 0, as smp_stop_cpu() and macOS) before it sleeps */
++#define PSCI_S2R_STOPREQ  BIT(5)
++#define PSCI_S2R_HELD     BIT(6) /* image 56: the PMGR domains Linux keeps on at sleep, off before quiesceHW */
++/* image 58: leads from DJ's T8140 and Naeem Malik's t8103 S2R under a hypervisor (psci.c) */
++#define PSCI_S2R_REC      BIT(8)  /* record the AON watchdogs, the timer word and the AMCC errors in psci_dbg2 */
++#define PSCI_S2R_AMCC     BIT(9)  /* clear the AMCC DSID_AGE_OUT and UNEXP_RT_HIT_DIR error enables before the timer */
++#define PSCI_S2R_STOPWD2  BIT(10) /* stop WD2 100 ms after the timer: is the reset 60 s after it WD2? */
++#define PSCI_S2R_AICMASK  BIT(11) /* mask every AIC line after the timer (only with PSCI_S2R_CORESOFF) */
++/* image 59 */
++#define PSCI_S2R_WD1OFF   BIT(12) /* WD1 (Aura's suspend dog) disarmed just before the timer, as macOS has every AON dog off */
++#define PSCI_S2R_RESUMENOW BIT(13) /* resume the kernel right after the timer (no wait, no cores off): Linux logs the dogs */
++u64 psci_crumb_base(void);
++#define PSCI_S2R_CRUMB    BIT(14) /* image 60: stage codes in the PMU's legacy scratch key 4 (0x6004), which survives a SoC reset */
++/* image 60g: Naeem's M1 order: AIC mask, secondaries released and snapshot before the commit; the commit written three
++ * times (macOS); after it no MMIO or SPMI access at all, only the boot core's flush and deep WFI (needs TIMER and CORESOFF) */
++#define PSCI_S2R_QUIET    BIT(15)
++/* image 60h: AppleT6020PMGR::quiesceHW's enableCluster(c, false, c > 3) starts at logical cluster 1, which is EACC (the ADT
++ * soc-clusters entry's byte 3 is the logical number: EACC 1, PACC0 2, PACC1 3, ANE0 6, DISPLAY 8, AVEMSR 9; byte 0 is the
++ * word's index). Image 54 read byte 0 and left EACC, the boot cluster, out. With this bit EACC's target goes to 0 too, with
++ * no poll (as macOS: c = 1 is not waited on), after the other clusters; the M1 entry also writes both CPU complexes to 0 */
++#define PSCI_S2R_EACC     BIT(16)
++/* image 61: macOS's cluster DVFS teardown (maralcbr's T6000 sleep trace, GH-8 issue #9: CLUSTER_PSTATE = 0x40000500101, i.e.
++ * M1_APSC_DIS): before the timer, set M2_APSC_DIS (bit 23) in each CPU cluster's CLUSTER_PSTATE (base + 0x20020) and wait
++ * for APSC_BUSY (bit 7) to clear. The J414s ADT has cpu-apsc = 1 (Aura enables APSC at boot) and no ppt/llc/amx-thrtl or
++ * fixed-freq-pll-relock, so the trace's other cluster writes (bit 63 clear) are already the boot state */
++#define PSCI_S2R_DVFS     BIT(17)
++/* image 62: macOS's fabric auto-PM floor (maralcbr's 15.6.1 hv dump, lab_ps_off: AFNC1_LW2, AFNC2_LW1, APCIE_GP_SYS =
++ * 0x1000030f at sleep entry). J414s leaves them at 0x1f0000ff: AUTO_ENABLE with PS_AUTO f, so the PMGR never gates them
++ * (Linux's pmgr-pwrstate never writes PS_AUTO). After the domains step, write macOS's 0x1000030f (AUTO_ENABLE, PS_AUTO 0,
++ * target f): the PMGR may gate each lane while it is idle and wakes it on access. Restored on any resume */
++#define PSCI_S2R_FABRIC   BIT(18)
++void psci_ctl_init(void);
++
++bool psci_suspend_resuming(void);
++bool psci_runtime_quiet(void);
++void psci_suspend_rvbar(void) __attribute__((noreturn));
++
+ unsigned long psci_efi_handler(unsigned long fid, unsigned long arg0, unsigned long arg1,
+                                unsigned long arg2);
+ 
+diff --git a/src/smp.c b/src/smp.c
+index 627f3c34..95cd60d2 100644
+--- a/src/smp.c
++++ b/src/smp.c
+@@ -1,9 +1,11 @@
+ /* SPDX-License-Identifier: MIT AND GPL-2.0-only */
+ 
+ #include "smp.h"
++#include "mcc.h"
+ #include "psci.h"
+ #include "adt.h"
+ #include "aic.h"
++#include "wdt.h"
+ #include "aic_regs.h"
+ #include "cpu_regs.h"
+ #include "memory.h"
+@@ -219,7 +221,7 @@ void smp_secondary_entry(void)
+     else
+         msr(TPIDR_EL1, index);
+ 
+-    if (chip_id != T8142 && chip_id != T8152)
++    if (chip_id != T8142 && chip_id != T8152 && !psci_runtime_quiet())
+         printf("  Index: %d (table: %p)\n\n", index, me);
+ 
+     me->mpidr = mpidr;
+@@ -1061,7 +1063,7 @@ int smp_psci_cpu_on(u64 mpidr, u64 entry, u64 context)
+  * us stays reachable), HCR_EL2 back to its reset value (the kernel ran as a VHE host), then
+  * x0 = context, branch to the entry.
+  */
+-void psci_enter(u64 entry, u64 context) __attribute__((noreturn));
++
+ asm(".text\n.globl psci_enter\npsci_enter:\n"
+     "mrs x2, sctlr_el2\n"
+     "bic x2, x2, #(1 << 0)\n"
+@@ -1077,6 +1079,99 @@ asm(".text\n.globl psci_enter\npsci_enter:\n"
+     "mov x0, x1\n"
+     "br x3\n");
+ 
++/*
++ * Set by the boot CPU's SYSTEM_SUSPEND with PSCI_S2R_CORESOFF: the parked cores leave the retention WFI for the
++ * global deep sleep, as macOS's secondaries do when CPU0 clears arm64_stall_sleep. Their ACC_OVRD deep sleep bit
++ * hangs any core of the cluster that later idles in a plain WFI (xnu cpu.c), so this happens only once every
++ * core is parked and the boot core is about to sleep the same way.
++ */
++static volatile u64 psci_s2r_go __attribute__((aligned(64)));
++/* image 60d: how often each released secondary went into cpu_sleep(true); one cache line each */
++static volatile u32 psci_s2r_loops[MAX_CPUS][16] __attribute__((aligned(64)));
++
++u32 smp_psci_s2r_loops(int i)
++{
++    dc_ivac_range((void *)psci_s2r_loops[i], 64);
++    return psci_s2r_loops[i][0];
++}
++
++
++static u32 psci_s2r_offmask;
++
++u32 smp_psci_off_mask(void)
++{
++    return psci_s2r_offmask;
++}
++
++int smp_psci_cpu_valid(int i)
++{
++    return i >= 0 && i < MAX_CPUS && cpu_info[i].valid;
++}
++
++/* image 60f: [i][1] park entries since boot (not cleared), [i][2] WFI returns in the park loop since the S2R clear */
++u32 smp_psci_s2r_word(int i, int w)
++{
++    dc_ivac_range((void *)psci_s2r_loops[i], 64);
++    return psci_s2r_loops[i][w];
++}
++
++u64 smp_psci_ipi_mpidr(int i)
++{
++    dc_civac_range(&spin_table[i], sizeof(spin_table[i]));
++    return spin_table[i].mpidr;
++}
++
++/* image 60f: the release IPI again, built from the reset table's MPIDR (cluster bit 16) instead of the spin table's */
++void smp_psci_reipi(int i)
++{
++    dc_civac_range(&smp_reset_stacks[i], sizeof(smp_reset_stacks[i]));
++    u64 mpidr = smp_reset_stacks[i].mpidr;
++    if (cpu_features->fast_ipi)
++        msr(SYS_IMP_APL_IPI_RR_GLOBAL_EL1, (mpidr & 0xff) | ((mpidr & 0xff00) << 8));
++    else
++        smp_send_ipi(i);
++    sysop("isb");
++    sysop("sev");
++}
++
++int smp_psci_cpu_state(int i)
++{
++    dc_civac_range(&psci_cpu_state[i], 1);
++    return psci_cpu_state[i];
++}
++
++void smp_psci_release_parked(bool stopreq)
++{
++    psci_s2r_offmask = 0;
++    psci_s2r_go = 1;
++    dc_civac_range((void *)&psci_s2r_go, sizeof(psci_s2r_go));
++    sysop("dsb sy");
++    for (int i = 0; i < MAX_CPUS; i++) {
++        if (i == boot_cpu_idx || !cpu_info[i].valid)
++            continue;
++        dc_civac_range(&psci_cpu_state[i], 1);
++        if (psci_cpu_state[i] != PSCI_CPU_OFF)
++            continue;
++        psci_s2r_offmask |= BIT(i);
++        /* macOS's trace: CPUSTART + 0 written for each secondary (1-6, 8-10) before the cores sleep */
++        if (stopreq)
++            write32(cpu_start_base + cpu_info[i].die * PMGR_DIE_OFFSET + 0x0, cpu_start_bit(i, &cpu_info[i]));
++        smp_send_ipi(i);
++    }
++    sysop("sev");
++}
++
++void smp_psci_s2r_clear(void)
++{
++    for (int i = 0; i < MAX_CPUS; i++) {
++        psci_s2r_loops[i][0] = 0;
++        psci_s2r_loops[i][2] = 0;
++        dc_civac_range((void *)psci_s2r_loops[i], 64);
++    }
++    psci_s2r_go = 0;
++    dc_civac_range((void *)&psci_s2r_go, sizeof(psci_s2r_go));
++}
++
+ /* The parked state of a CPU_OFF'd core: deep WFI on the Aura stack until it is handed an entry. */
+ void psci_park_c(u64 index) __attribute__((noreturn, used));
+ void psci_park_c(u64 index)
+@@ -1084,15 +1179,48 @@ void psci_park_c(u64 index)
+     struct spin_table *me = &spin_table[index];
+     u64 target;
+ 
+-    if (cpu_features->apple_sysregs_unlocked)
+-        reg_mask(SYS_IMP_APL_CYC_OVRD, CYC_OVRD_WFI_MODE_MASK,
+-                 CYC_OVRD_WFI_MODE(3) | CYC_OVRD_DISABLE_WFI_RET);
++    psci_s2r_loops[index][1]++;
++    dc_civac_range((void *)psci_s2r_loops[index], 64);
++
++    /*
++     * Deep WFI with state retention, as the boot CPU's SYSTEM_SUSPEND wait (2026-11-04 images 41/42). This set
++     * DISABLE_WFI_RET before: a core powered down without retention is not woken back into this loop (images
++     * 32 to 36), and on 2026-10-25 one such core restarted through RVBAR into the kernel by itself.
++     */
++    extern void _deep_wfi_helper(void);
++    u64 cyc_ovrd = cpu_features->apple_sysregs_unlocked ? mrs(SYS_IMP_APL_CYC_OVRD) : 0;
++    if (cpu_features->apple_sysregs_unlocked) {
++        reg_mask(SYS_IMP_APL_CYC_OVRD, CYC_OVRD_WFI_MODE_MASK | CYC_OVRD_DISABLE_WFI_RET, CYC_OVRD_WFI_MODE(3));
++        sysop("isb");
++    }
+     while (1) {
+         /* Plain load: the mapping is inner-shareable write-back, the other CPU's civac-ed store is visible. */
+         if ((target = *(volatile u64 *)&me->target))
+             break;
++        if (*(volatile u64 *)&psci_s2r_go) {
++            /*
++             * image 60d: the release IPI stays pending in IPI_SR (nothing here acked it, unlike the boot-time
++             * secondary loop), and a pending fast IPI ends each WFI at once, so the core spun instead of powering
++             * down (run R11: PCPM0 still on 2 ms after the release)
++             */
++            if (cpu_features->fast_ipi) {
++                msr(SYS_IMP_APL_IPI_SR_EL1, IPI_SR_PENDING);
++                sysop("isb");
++            }
++            psci_s2r_loops[index][0]++;
++            dc_civac_range((void *)psci_s2r_loops[index], 64);
++            dcsw_op_all(DCSW_OP_DCCISW);
++            sysop("dsb sy");
++            cpu_sleep(true);
++        }
++        _deep_wfi_helper();
++        psci_s2r_loops[index][2]++;
++        dc_civac_range((void *)psci_s2r_loops[index], 64);
++    }
++    /* the kernel must not inherit WFI_MODE 3: give the core back the CYC_OVRD it had when it called CPU_OFF */
++    if (cpu_features->apple_sysregs_unlocked) {
++        msr(SYS_IMP_APL_CYC_OVRD, cyc_ovrd);
+         sysop("isb");
+-        sysop("wfi");
+     }
+     sysop("dmb sy");
+     me->flag++;
+@@ -1155,8 +1283,52 @@ int smp_psci_mmio_ranges(u64 *ranges, int max)
+         smp_psci_add_range(ranges, max, &n, cpu_start_base + cpu_info[i].die * PMGR_DIE_OFFSET,
+                            0x100);
+     }
+-    if (!cpu_features->fast_ipi && aic)
+-        smp_psci_add_range(ranges, max, &n, aic->base, SZ_16K);
++    u64 wdt = wdt_psci_base();
++    if (wdt)
++        smp_psci_add_range(ranges, max, &n, wdt, 0x30); /* image 58: WD2 (+0x20..0x2c) too */
++    /* MPMGR_AON's S2R timer (PSCI_S2R_TIMER, psci.c) */
++    if (chip_id == T6020)
++        smp_psci_add_range(ranges, max, &n, 0x29e5c4000, 4);
++    /* image 53's quiesceHW steps (psci.c): MINI 0x4d010, ps_afr, ps_sio(_cpu), ClkGen-SOC, PLL-off */
++    if (chip_id == T6020) {
++        smp_psci_add_range(ranges, max, &n, 0x29e2cd010, 4);
++        smp_psci_add_range(ranges, max, &n, 0x404e80100, 4);
++        smp_psci_add_range(ranges, max, &n, 0x2902801c0, 0x24);
++        smp_psci_add_range(ranges, max, &n, 0x28e038158, 0x18);
++        smp_psci_add_range(ranges, max, &n, 0x28e224000, 4);
++        smp_psci_add_range(ranges, max, &n, 0x28e088000, 0x1c); /* image 54: the soc-cluster words */
++        /* image 61: each CPU cluster's CLUSTER_PSTATE (PSCI_S2R_DVFS) */
++        smp_psci_add_range(ranges, max, &n, 0x210e20020, 8);
++        smp_psci_add_range(ranges, max, &n, 0x211e20020, 8);
++        smp_psci_add_range(ranges, max, &n, 0x212e20020, 8);
++        /* image 62: the fabric PS words (PSCI_S2R_FABRIC) */
++        smp_psci_add_range(ranges, max, &n, 0x28e080210, 4);
++        smp_psci_add_range(ranges, max, &n, 0x290280178, 4);
++        smp_psci_add_range(ranges, max, &n, 0x290280418, 4);
++        /*
++         * image 58: image 56's held domains on the two pages that were never mapped (dispext0/1 at 0x28e080248..2d8,
++         * atc0/1/2_usb at 0x29e2800c8..d8; disp0 shares ps_sio's page), so runs Y1, Y1T, Y2T faulted there
++         */
++        smp_psci_add_range(ranges, max, &n, 0x28e080248, 0x94);
++        smp_psci_add_range(ranges, max, &n, 0x29e2800c8, 0x14);
++        /* image 58: each AMCC plane's error enable/status words (plane + 0x21000..0x2100f) */
++        u64 mcc[8], stride;
++        int planes, nm = mcc_plane_bases(mcc, 8, &stride, &planes);
++        for (int i = 0; i < nm; i++)
++            for (int p = 0; p < planes; p++)
++                smp_psci_add_range(ranges, max, &n, mcc[i] + p * stride + 0x21000, 0x10);
++    }
++    /* image 60b: the PMU's SPMI controller for PSCI_S2R_CRUMB (image 60 faulted on its first read: run R10) */
++    if (psci_crumb_base())
++        smp_psci_add_range(ranges, max, &n, psci_crumb_base(), 0x10);
++    /* image 60c: the PMP's request/ack words for the PSCI_S2R_CRUMB snapshot (the CPM power words share a mapped page) */
++    if (psci_crumb_base() && chip_id == T6020)
++        smp_psci_add_range(ranges, max, &n, 0x28e3c2000, 0x84);
++    if (aic) {
++        /* the AIC's event page sits at +0xc000 (AIC2); the system-suspend wake poll reads it */
++        u64 aic_size = aic->version == 2 ? 0xd000 : SZ_16K;
++        smp_psci_add_range(ranges, max, &n, aic->base, aic_size);
++    }
+ 
+     return n;
+ }
+diff --git a/src/smp.h b/src/smp.h
+index 9f9840e5..b8a9600b 100644
+--- a/src/smp.h
++++ b/src/smp.h
+@@ -36,6 +36,8 @@ uint64_t smp_get_mpidr(int cpu);
+ u64 smp_get_release_addr(int cpu);
+ void smp_set_wfe_mode(bool new_mode);
+ void smp_send_ipi(int cpu);
++void smp_psci_release_parked(bool stopreq);
++void smp_psci_s2r_clear(void);
+ 
+ static inline int smp_id(void)
+ {
+@@ -50,8 +52,16 @@ static inline int smp_id(void)
+ /* PSCI-via-EFI CPU operations (psci.c); return PSCI codes, CPU_OFF only on failure. */
+ int smp_psci_cpu_on(u64 mpidr, u64 entry, u64 context);
+ int smp_psci_cpu_off(void);
++void psci_enter(u64 entry, u64 context) __attribute__((noreturn));
+ int smp_psci_affinity_info(u64 mpidr);
+ int smp_psci_mmio_ranges(u64 *ranges, int max);
++u32 smp_psci_s2r_loops(int i);
++u32 smp_psci_off_mask(void);
++int smp_psci_cpu_valid(int i);
++int smp_psci_cpu_state(int i);
++u32 smp_psci_s2r_word(int i, int w);
++u64 smp_psci_ipi_mpidr(int i);
++void smp_psci_reipi(int i);
+ 
+ extern int boot_cpu_idx;
+ #endif
+diff --git a/src/start.S b/src/start.S
+index cb5f7dd9..a51b5ee9 100644
+--- a/src/start.S
++++ b/src/start.S
+@@ -149,6 +149,21 @@ exc_unk:
+ .globl cpu_reset
+ .type cpu_reset, @function
+ cpu_reset:
++    /* Diagnostic (S2R Phase 2): if this is the boot CPU coming back from PSCI SYSTEM_SUSPEND (psci_resume.magic set),
++     * re-arm the T6020 watchdog WD1 at 15 s first thing, MMU off, so the time to the reset shows we got here. */
++    adrp x1, psci_resume
++    ldr x2, [x1, :lo12:psci_resume]
++    ldr x3, =0x5253554d45
++    cmp x2, x3
++    b.ne 9f
++    ldr x1, =0x29e2c4000
++    str wzr, [x1, #0x1c]
++    str wzr, [x1, #0x10]
++    ldr w2, =360000000
++    str w2, [x1, #0x14]
++    mov w2, #4
++    str w2, [x1, #0x1c]
++9:
+     adrp x1, reset_dbg
+     add x1, x1, :lo12:reset_dbg
+     mov w2, #0xa1
+@@ -263,6 +278,11 @@ el3_eret_to_el1:
+ .type debug_putc, @function
+ debug_putc:
+ #ifdef EARLY_UART_BASE
++    /* Once the kernel has made its first PSCI call (psci_runtime), Linux owns the hardware and the UART
++     * may be powered down: its TX-empty wait would spin forever on a CPU's RVBAR re-entry. Stay silent. */
++    adrp x1, psci_runtime_line
++    ldrb w1, [x1, :lo12:psci_runtime_line]
++    cbnz w1, 2f
+     ldr x1, =EARLY_UART_BASE
+ 
+ 1:
+@@ -270,6 +290,7 @@ debug_putc:
+     tst w2, #2
+     beq 1b
+     str w0, [x1, UTXH]
++2:
+ #endif
+     ret
+ 
+diff --git a/src/startup.c b/src/startup.c
+index e5fe1cce..70401b4c 100644
+--- a/src/startup.c
++++ b/src/startup.c
+@@ -12,6 +12,7 @@
+ #include "string.h"
+ #include "types.h"
+ #include "uart.h"
++#include "psci.h"
+ #include "utils.h"
+ #include "xnuboot.h"
+ 
+@@ -244,7 +245,7 @@ void _cpu_reset_c(void *stack)
+         smp_secondary_entry();
+         return;
+     }
+-    bool quiet = chip_id == T8142 && !is_boot_cpu();
++    bool quiet = (chip_id == T8142 && !is_boot_cpu()) || psci_runtime_quiet();
+     if (!quiet) {
+         if (!is_boot_cpu())
+             uart_puts("RVBAR entry on secondary CPU");
+@@ -268,6 +269,8 @@ void _cpu_reset_c(void *stack)
+ 
+     if (!is_boot_cpu())
+         smp_secondary_entry();
++    else if (psci_suspend_resuming())
++        psci_suspend_rvbar(); /* the boot CPU powered down in PSCI SYSTEM_SUSPEND */
+     else
+         m1n1_main();
+ }
+diff --git a/src/wdt.c b/src/wdt.c
+index a509a577..8a7321b2 100644
+--- a/src/wdt.c
++++ b/src/wdt.c
+@@ -82,3 +82,43 @@ int wdt_arm_seconds(unsigned seconds)
+     wdt_base = primary;
+     return 0;
+ }
++
++/*
++ * Safety net for firmware calls that may never return (PSCI SYSTEM_SUSPEND experiments): the reset watchdog
++ * (WD1, as in wdt_reboot) armed for a number of seconds, and disarmed again on the way back. The base is looked
++ * up once at init so the handler need not touch the ADT later.
++ */
++static u64 wdt_psci;
++
++u64 wdt_psci_base(void)
++{
++    int path[8];
++    u64 base, size;
++
++    if (wdt_psci)
++        return wdt_psci;
++    int node = adt_path_offset_trace(adt, "/arm-io/wdt", path);
++    if (node < 0 || adt_get_reg(adt, path, "reg", 0, &base, &size) || (base & 3) || size < 0x20)
++        return 0;
++    wdt_psci = base;
++    return base;
++}
++
++void wdt_psci_arm(unsigned seconds)
++{
++    if (!wdt_psci)
++        return;
++    write32(wdt_psci + WDT_CTL, 0);
++    write32(wdt_psci + WDT_COUNT, 0);
++    write32(wdt_psci + WDT_ALARM, seconds * 24000000u);
++    write32(wdt_psci + WDT_CTL, 4);
++    sysop("dsb sy");
++}
++
++void wdt_psci_disarm(void)
++{
++    if (!wdt_psci)
++        return;
++    write32(wdt_psci + WDT_CTL, 0);
++    sysop("dsb sy");
++}
+diff --git a/src/wdt.h b/src/wdt.h
+index dc4f9f0c..494d4647 100644
+--- a/src/wdt.h
++++ b/src/wdt.h
+@@ -3,8 +3,13 @@
+ #ifndef __WDT_H__
+ #define __WDT_H__
+ 
++#include "types.h"
++
+ void wdt_disable(void);
+ void wdt_reboot(void);
+ int wdt_arm_seconds(unsigned seconds);
++u64 wdt_psci_base(void);
++void wdt_psci_arm(unsigned seconds);
++void wdt_psci_disarm(void);
+ 
+ #endif
+-- 
+2.56.0
+
