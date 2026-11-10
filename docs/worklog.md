@@ -3448,7 +3448,7 @@ Owner asked for this before the next run. Read-only: 25 branches fetched into `~
 - **Other pieces worth taking later.** `43cf63fb4781` (alarm as a wake IRQ instead of `IRQF_NO_SUSPEND`), `c81000fb2880` and `99696ed7aaf7` (SPMI acks read back, unused pending sources cleared), `567a28f1d9a4` (shorter macsmc waits; may relate to our `Failed to send command` lines), `fix/brcmfmac-resume-association` (our -52 lines).
 - **Plan change.** Before R18B and R21, one cheap read-only job: at the commit point, record the actual state of the T6020 counterparts of the axi2af domains (names from the ADT and `t602x-pmgr.dtsi`). If any is on, that is the first thing to lower. Mapping the T6040 addresses to T6020 is the work; no address above is valid on our SoC.
 
-## 2026-11-10 16:15 GH-5 image 63: Aura lowers the USB-C complexes (aura-ctl `0x80000`); job A1 armed
+## 2026-11-10 15:51 GH-5 image 63: Aura lowers the USB-C complexes (aura-ctl `0x80000`); job A1 armed
 - **Why.** Our own data already answers the "which fabric-bridge domains are on at the commit" question from the 15:50 entry. Run S8's genpd dump lists `atc0-3_common`, `atc0-3_pcie` and `apcie_gp_sys` on at syscore suspend (the DT marks them always-on). `data/psmap.txt`: macOS has ATCn_COMMON and ATCn_PCIE at target 0 at sleep entry. So every commit from R6 to R18 ran with them on. On T6040 that made the timer reset the SoC.
 - **Image 63** (Aura `v0.1.0-13-ga1215d2f`, patch `patches/psci-efi/aura/rebuilt/0005-…`, `boot-test.bin` `771d5491dacae658`, staged; the previous one is kept as `boot-test.bin.62cap`):
   - New step `PSCI_S2R_ATC` (bit 19): `atc0-3_pcie` (`0x28e080278/288/298/2a8`), then `atc0-3_common` (`0x28e080228/230/238/240`): AUTO_ENABLE and target cleared, actual state polled to 0 (10 ms each; timeouts in `psci_dbg[23]` bits 44-51). It runs before the fabric step.
@@ -3461,3 +3461,13 @@ Owner asked for this before the next run. Read-only: 25 branches fetched into `~
   3. Deep suspend with `0xc0000` (ATC + image 62's fabric step, which never ran).
 - Expected away time 4 to 6 min. A hang before the deep WFI ends at the 120 s watchdog; a sleep the alarm does not end, at Aura's 5 min cap.
 - If A1 passes, the next run is R17 with both steps (`0xddb1f`) on the new chain. That needs the R17 Linux switches in the test kernel first (the DCP shut-down switch is not ported yet).
+
+## 2026-11-10 15:56 GH-5 run A1: the ATC step takes and the resume survives it; both sleeps ended after 3 s on the SMC line; the fabric write changes nothing; job A2 armed
+(The two entries above carry guessed times; they were written at about 15:47 and 15:51. My notification for A1 also said 16:20; it started at 15:51.)
+- Away 103 s, back on main by itself. Stage 2 `a1215d2f`. Both suspends `rc=0`, all 10 CPUs online, USB still lists 6 devices afterwards.
+- **ATC step (`0x80000`):** Aura read the control word, no poll timeout (`psci_dbg[23]` 0): all eight words reached actual state 0 within 10 ms each, with `atc1_usb` and `atc2_usb` (children) still on in genpd's list. After the resume the words read `0x3ff` (on).
+- **Both sleeps lasted 3.3 and 3.2 s, not 20.** Aura's wake record: line 865 (the SMC mailbox), 0.52 s after entry, which is just past Aura's 500 ms hold-off. No alarm interrupt. K5c's three sleeps ran to their alarm, so something in A1 makes the SMC talk: the ATC step, or the USB-C wakeup-off and dwc3 teardown. A1 changed both at once, my mistake.
+- **Fabric step (`0x40000`) does nothing.** `psci_dbg2[51]`: `AFNC1_LW2` read `0x1f0000ff` before and `0x1f0000ff` right after Aura wrote `0x1000030f`. Bits 27:24 did not change. So they are not a plain writable field, and run R21 as built would have been a no-op. How macOS gets `0x1000030f` there is open.
+- genpd's list at suspend, of the domains in question: `atc1_usb atc2_usb apcie_gp apcie_gpshr_sys` and the always-on `atcN_usb_aon atcN_pcie atcN_common apcie_gp_sys apcie_phy_sw afnc1_lw2 afnc2_lw1`.
+- The job's attachment held only the last 25 log lines, so the "before" values are lost. A2 pushes its own summary.
+- **Job A2** (`harness/usbtest/jobs/a2-atc-wake`, normal path, unattended): four suspends, 20 s alarm, one variable each: base; ATC step; USB wakeup off + teardown; both. Per suspend: duration, Aura's wake line and time, alarm interrupts. About 3 to 4 min away.
