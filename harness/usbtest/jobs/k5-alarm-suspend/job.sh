@@ -11,7 +11,7 @@ cnt() { grep macsmc-rtc /proc/interrupts | awk '{s=0; for(i=2;i<=11;i++) s+=$i; 
 pmu() { echo "ctrl=$(reg 0x1401) ev=$(reg 0x14c0 2) irqs=$(cnt)"; }
 PUSH_TRIES=8
 log "K5 kernel $(uname -r); stage2 $(tr -d '\0' < $C/asahi,m1n1-stage2-version); mem_sleep $(cat /sys/power/mem_sleep); $(pmu)"
-[ -e $R/wakealarm ] || { log "no wakealarm, stopping"; return 0; }
+[ -e $R/wakealarm ] || { log "no wakealarm, stopping. dmesg: $(dmesg | grep -iE 'rtc|BTF|macsmc' | tail -8 | cut -c1-140 | tr '\n' '|')"; return 0; }
 c0=$(cnt)
 for n in 1 2; do
     echo 0 > $R/wakealarm 2>/dev/null; echo +6 > $R/wakealarm

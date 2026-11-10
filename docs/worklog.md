@@ -3410,3 +3410,8 @@ Owner: ready for the attended run; do not stop to wait for one again, work on ot
 - Back in 81 s. Aura `v0.1.0-12-g876622bf` boots. Awake alarms: 0 of 2 interrupts, control byte still `0x43` when armed, so the job stopped before any suspend, as designed.
 - Cause: `rtc-macsmc` is loaded from the UKI's initramfs (the `asahi` hook adds it), and I rebuilt only the root image. The UKI still held the old module.
 - UKI rebuilt with the fixed module: `f77e8512a5034b5b`. K5 runs again unchanged.
+
+## 2026-11-10 15:45 GH-5 run K5b: the rebuilt module did not load (no RTC at all); second build slip
+- Back in 138 s. No `wakealarm`, and the clock read 2026-10-18: `rtc-macsmc` never probed. Job stopped before any suspend.
+- Cause (not seen in a log, inferred): `make modules` relinked `vmlinux`, so the new module's BTF belongs to a kernel that is not the `Image` in the UKI (built 2026-11-09), and this config refuses a module whose BTF does not match (`MODULE_ALLOW_BTF_MISMATCH` off). I also installed it unstripped.
+- Fix: the module with debug info and BTF sections removed (15 KB), in the root image (`31b1274f84c857eb`) and the UKI (`b245ddb078d28c75`). K5 now prints the RTC lines of dmesg if there is no `wakealarm`.
