@@ -3327,3 +3327,11 @@ Static only (DTs in linux-psci-efi-72, m1n1/Aura `cpufreq.c`, J414s ADT); no har
 - `make LLVM=1` finished with exit 0 (clang 23.1.4, rust 1.99.1). Modules installed stripped in `/usr/lib/modules/7.2.11-psci-efi+` (142 MB, `.keep`), and the `keep-pinned` drop-in for `linux-modules-cleanup.service` is back so a reboot does not move the tree away.
 - Root image now carries both module trees (350 MB, `7b7213ee6a3addb2`); UKI of the test kernel `66d347d65fe10557`.
 - **Run K1** (`jobs/k1-testkernel`): the test kernel on the stock `boot.bin` (no PSCI node, spin-table, as the old `step1a`). It reports CPUs, the PSCI/EFI lines, which `TEST:` parameters exist, the RTC and the error lines. A kernel that hangs before the initramfs has no watchdog behind it, so the owner was told when to hold the power key.
+
+## 2026-11-09 22:55 GH-5 run K1: the rebuilt PSCI test kernel boots (74 s away, no hands)
+(Clock note: the 23:05 and 23:15 entries above were written at about 22:45 and 22:52.)
+- Armed 22:53:13, job report 22:53:48, back on main 22:54:27; `oneshot_taken=yes`.
+- `Linux version 7.2.11-psci-efi+ … clang version 23.1.4`, `online 0-9`, 31678 MB, `mem_sleep [s2idle]` (stock `boot.bin`, no PSCI node, as expected).
+- The `TEST:` switches are there: `macsmc_reboot` `deep_steps`, `s2idle_steps`, `wake_extra`; `macsmc` `ap_idle_in_suspend`, `pmp_sleep`; `pmp_report` `test_pcpm`, `test_release_aon`, `test_release_ids`; `pm_genpd` `test_dump`; `dwc3_apple` `test_deep_teardown`; `nvme_apple` `iorvbar_phys`. Not listed, to check: the AOP, SART and `pmgr-pwrstate` (`test_sleep_keep`) switches, which may sit under other module names or be built in.
+- `wakealarm no`: the PMU alarm is still to port. 4 error lines: the watchdog's "did not stop" (my initramfs start, expected) and the ANE firmware missing from the lean image (harmless).
+- So the kernel side is back except the alarm and `dcp test_sleep_off`. Aura and U-Boot are what is missing for `deep`.
