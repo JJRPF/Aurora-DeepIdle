@@ -1,0 +1,17 @@
+#!/bin/sh
+# One-shot GRUB entry: boots the psci-efi test kernel with its root on the USB test drive
+# (labels DEEPTEST_BOOT / DEEPTEST_ROOT). Never the default: the runner arms it with
+# grub-editenv next_entry, so any reset falls back to the main Omarchy entry.
+# usb-root-ro (initramfs hook, usbtest/ram-overlay) mounts DEEPTEST_ROOT read-only and puts a
+# tmpfs overlay on top; the NVMe is never opened.
+cat <<'MENU'
+menuentry 'Deep idle USB test root (RAM overlay)' --class omarchy --class gnu-linux --id deepidle-usb-test {
+    load_video
+    set gfxpayload=keep
+    insmod part_gpt
+    insmod ext2
+    search --no-floppy --label --set=root DEEPTEST_BOOT
+    linux /vmlinuz-psci-efi-test root=LABEL=DEEPTEST_ROOT ro usbtest.overlay=1 loglevel=6 panic=10 net.ifnames=0
+    initrd /initramfs-psci-efi-test.img
+}
+MENU
