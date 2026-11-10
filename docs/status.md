@@ -1,4 +1,4 @@
-# Where the work stands (2026-11-06, 23:11, after run R9)
+# Where the work stands (2026-11-10, 16:25, after run A2)
 
 This is the summary of the whole effort: what was measured, what was built,
 what works, what does not, and what comes next. Each section points to the
@@ -56,6 +56,28 @@ There are two goals:
   in Aura's watchdog reset (F). So the S2R entry starts but does not
   complete; the rest of macOS's PMGR quiesce (clock gates, PLL-off, GPU) is
   next.
+* **2026-11-07: runs R10 to R20 all end in the same reset, 85 to 86 s after
+  the commit.** At the commit every core is in its final deep sleep, both P
+  complexes are off, every soc-cluster target is 0, the AIC is masked and
+  the SMC has macOS's sleep messages. The PMGR's S2R engine still does not
+  finish.
+* **2026-11-09 and 10: tests no longer touch the main install.** A test
+  boot ("DeepTest") runs from a RAM root with its own kernel image, does
+  one job, reports by push and returns to main by itself. `m1n1/boot.bin`
+  is a one-shot loader, so a bad test image cannot stick. The test kernel,
+  Aura, U-Boot and the device tree were rebuilt from the patches in this
+  repo (runs K1, S1, C1). Deep suspend passes 3 of 3 on the rebuilt chain
+  (C2). The PMU alarm now interrupts and wakes it every time (K5c: the PMU
+  keeps a "fired" latch that has to be cleared), and Aura ends a sleep
+  itself after 5 min if nothing wakes it.
+* **2026-11-10: a lead from aurora-silicon's M4 Pro work.** Their S2R
+  (three complete resumes on T6040) follows a macOS rule: every
+  fabric-bridge power domain must be off at the commit, or the timer resets
+  the SoC, which is our symptom. Our own dumps show the USB-C complexes
+  (`atc0-3_common`, `atc0-3_pcie`) and `apcie_gp_sys` on at every commit so
+  far. Aura image 63 lowers the eight USB-C words before the commit. On the
+  normal path that works and resumes (runs A1, A2: 4 of 4 sleeps to the
+  alarm). Run R17A, the commit with this step, is next.
 * **Estimate: about 45% of the way to working S2R** (risk-weighted guess,
   wide error bar; 33% earlier on 2026-11-04, before Phase 2 closed). Per
   phase: remote hands 100 (replaced by software), CPU_ON and CPU_OFF 85,
