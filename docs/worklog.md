@@ -3301,3 +3301,7 @@ Static only (DTs in linux-psci-efi-72, m1n1/Aura `cpufreq.c`, J414s ADT); no har
   - **P2** `fail-missing`: expect no report, main back in about 1.5 min, `reports_from_test_boot=0`.
   - **P3** `fail-hang`: expect no report and a watchdog reset. If the dog does not fire, the Mac hangs in the initramfs and the owner has to hold the power key, so P3 is announced to the owner first.
 - After the chain: build the PSCI test kernel (`~/Work/src/linux-aurora`, branch `psci-efi-test-72`, 3 patches still to port), then Aura and U-Boot.
+
+## 2026-11-09 22:30 GH-5 run P1 (hello on the new image, early watchdog): passed, 74 s
+- Armed 22:28:02, report 22:28:37, back on main 22:29:16; `oneshot_taken=yes`. `wdt: watchdog0 …, systemd 1min`: the dog started in the initramfs did not reset a good boot, and systemd holds it at 60 s. No disk mounted. The `wifi:` field is still empty though the push arrived over Wi-Fi (my query; cosmetic).
+- Next: P2 (`--failtest missing`), armed now.
