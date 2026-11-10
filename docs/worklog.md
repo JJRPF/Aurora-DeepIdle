@@ -3258,3 +3258,11 @@ Static only (DTs in linux-psci-efi-72, m1n1/Aura `cpufreq.c`, J414s ADT); no har
   3. SDDM has no autologin, so the session only resumes after a login.
 - **Also:** today's system update (Limine 12.9.6 in `BOOTAA64.EFI`, kernel 7.2.11-15) has not been booted; the running boot is Limine 12.9.3 and 7.2.11-14. The first reboot tests that as well.
 - **Not started:** the PSCI test kernel, the Aura images and U-Boot (gone with the old install; to rebuild from `patches/psci-efi/`), and porting `run.sh`/`deadman.sh` into DeepTest jobs.
+
+## 2026-11-09 23:10 GH-5: drive back, image on it; ready for the first attended DeepTest boot; test kernel branch rebuilt to 3 patches short
+- **Drive:** the owner replugged it (23:00). Both filesystems clean; the stale v1 kernel and initramfs removed from `DEEPTEST_BOOT` (now the results partition); `write-usb.sh` put `root.sfs` on `DEEPTEST_ROOT` and read it back (`008623c56da1ccc9`, 24 s).
+- **Dry run:** `arm.sh --no-reboot --allow-prompt` passed every check and set `LoaderEntryOneShot` = `DeepTest`; I removed the variable and the armed flag again. Nothing rebooted.
+- **First attended boot (waits for the owner):** `sudo bash harness/usbtest/arm.sh --allow-prompt`. Expected: Limine takes the one-shot, the RAM root comes up on the stock 7.2.11-15 kernel, pushes "DeepTest RAM root booted" to ntfy, reboots after 15 s, and main asks for the passphrase. It proves the one-shot survives U-Boot, the RAM root, Wi-Fi from the test root and the fall-back to main.
+- **Test kernel branch** (`~/Work/src/linux-aurora`, `psci-efi-test-72` on today's `integration/aurora` `49a8c150d6be`, 7.2.11): the GH-1 series 44 of 44, `aic-syscore-save-restore` and `deepidle3-smc-s2idle-handshake` (the `deep_steps` patches build on its `s2idle_steps`), Sven Peter's RFC 1 to 5 from lore (6 is the t8103 DTS), then 33 of the 36 files in `patches/psci-efi/linux`.
+  - Not applying: the two `rtc-macsmc` alarm patches (upstream now has its own `rtc: macsmc: Add the PMU alarm`, `0d8a55c70a26`, with nvmem cells; to check whether it covers T602x's three registers) and `TEST: drm/apple/dcp: test_sleep_off` (context moved in `dcp.c`).
+  - Not built yet.
