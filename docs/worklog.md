@@ -3423,3 +3423,27 @@ Owner: ready for the attended run; do not stop to wait for one again, work on ot
 - Alarm: three deep suspends with a 15 s alarm: 15.6, 15.7, 15.7 s, one alarm interrupt each, `rc=0`, CPUs 0-9 online each time.
 - Seen, not looked at yet: 30 error lines in dmesg, among them `macsmc 2a2400000.smc: Failed to send command` around each resume and brcmfmac errors (-52) after it.
 - The unattended deep suspend baseline (old Phase 2 gate) is back on the rebuilt chain, with a bounded sleep. Next: port the S2R runs (R18B, R21) as jobs on this base.
+
+## 2026-11-10 15:50 GH-5 read: aurora-silicon/linux `feat/s2r` (T8140) and the M4 Pro sleep PR, against Aura image 62
+Owner asked for this before the next run. Read-only: 25 branches fetched into `~/Work/src/linux-aurora` as remote `as`, plus PR 1477 as `as/pr1477`. Nothing built from them.
+
+- **What exists there.**
+  - `feat/s2r` (linux PR 1445, DJ, one commit, 200 files): suspend-to-RAM on T8140 (A18 Pro, J700), kernel at EL2, no PSCI. Core is `drivers/soc/apple/sleep.c` (3563 lines). Real sleeps and returns on hardware.
+  - linux PR 1477 (`j616s/el2-sleep`, stacked on 1445): M4 Pro (T6040), `drivers/soc/apple/t6040-sleep.c` (6440 lines, 77 module parameters, work in progress). Three complete S2R resumes reported. This is the closest SoC to ours with a working entry.
+  - aura PR 117 and 148: the return path. Aura publishes a mailbox (`AURAS2R1`, resume address) only where RVBAR is locked (M4 on). T6020 does not lock RVBAR, so that part does not apply: our PSCI and RVBAR path stays.
+  - `j514s/sleep-20261022` (M3 Pro): s2idle and display work only, no S2R entry.
+- **Confirmed by their code, already ours.**
+  - The PMU control byte's bit 1 "fired" latch: `0dd76c9db67a` (2026-11-09) clears it on every control write, armed value `0x41` not `0x43`. Same bug and same fix as our patch 0038 (run K4, K5c).
+  - The commit is the write of 1 to MPMGR_AON + 0x4000 on T6040 too (`0x508904000`), with PMU boot stage `0x50`, WD0 off, clusters to 0, clock muxes parked before it and the AIC masked after it. Aura does all of these.
+  - "go hib" is the alarm being re-programmed; they also mark its need as unproven.
+- **New for us: steps T6040 needed that Aura image 62 does not do.** Ordered by how well they fit our symptom (the timer is taken, the SoC resets instead of sleeping).
+  1. **The axi2af gate.** macOS's `quiesceHW` panics unless every "axi2af" fabric-bridge domain reads actual state 0. On T6040 a commit with some still on **reset the SoC about a second after the timer** (their runs el2.37/38). Their list: atc0-3_common, disp_sys, dispext0-3_sys, **ans**, avd_sys, venc0/1_sys, jpg, **apcie_sys_gp**. Aura lowers the display chains and atcN_usb only. It never checks ans, the PCIe domains or atcN_common. So ANS and PCIe are probably on at our commit.
+  2. **ANS and PCIe taken down inside the commit.** They stop ANS in its driver, then lower its two PCIe lanes and shared PHY, stop the GP ports (Wi-Fi, SD), then lower apcie_sys_gp and apcie_gp, each with its bridge's `+0x104`/`+0x108` bit 0 cleared first. On wake the same bits are set again or the bridge drops traffic.
+  3. **Keep-alive bits:** bit 0 of 32 words (stride `0x44`) in each of two PMGR windows, cleared before the timer (`_enableKeepAlive`).
+  4. **SPMI notify enable** `0x2000001` written on both SPMI controllers with the boot stage.
+  5. **SMC AP watchdog deadline** word zeroed right after WD2 is set (we noted macOS doing it, Aura does not).
+  6. Smaller ones: the thermal monitors (TVM) disabled and polled idle, ACC PLL relock off, the PMC AP DCS floor vote dropped, the AOP and MTP islands off, PTD requests withdrawn.
+  - T6040's entry is short. They found macOS writes **none** of T8140's DCS ladder, MCC lane stop, PMC voters, CLLT or DVFM park there. T6020 is the same family as T6040 here (our 13.5 `quiesceHW` reading has no such steps either), so those T8140 steps are not candidates.
+- **Useful diagnostics they built.** A crumb with the 15-bit mask of axi2af domains still on at the commit; the S2R-lo entry counter (ours: the PMGR `SLP_S2R` counter); the wake mask and status words read after a failed sleep; `pm_async=0` for every test so an SError is not blamed on the wrong device.
+- **Other pieces worth taking later.** `43cf63fb4781` (alarm as a wake IRQ instead of `IRQF_NO_SUSPEND`), `c81000fb2880` and `99696ed7aaf7` (SPMI acks read back, unused pending sources cleared), `567a28f1d9a4` (shorter macsmc waits; may relate to our `Failed to send command` lines), `fix/brcmfmac-resume-association` (our -52 lines).
+- **Plan change.** Before R18B and R21, one cheap read-only job: at the commit point, record the actual state of the T6020 counterparts of the axi2af domains (names from the ADT and `t602x-pmgr.dtsi`). If any is on, that is the first thing to lower. Mapping the T6040 addresses to T6020 is the work; no address above is valid on our SoC.
