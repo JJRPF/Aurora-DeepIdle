@@ -3447,3 +3447,17 @@ Owner asked for this before the next run. Read-only: 25 branches fetched into `~
 - **Useful diagnostics they built.** A crumb with the 15-bit mask of axi2af domains still on at the commit; the S2R-lo entry counter (ours: the PMGR `SLP_S2R` counter); the wake mask and status words read after a failed sleep; `pm_async=0` for every test so an SError is not blamed on the wrong device.
 - **Other pieces worth taking later.** `43cf63fb4781` (alarm as a wake IRQ instead of `IRQF_NO_SUSPEND`), `c81000fb2880` and `99696ed7aaf7` (SPMI acks read back, unused pending sources cleared), `567a28f1d9a4` (shorter macsmc waits; may relate to our `Failed to send command` lines), `fix/brcmfmac-resume-association` (our -52 lines).
 - **Plan change.** Before R18B and R21, one cheap read-only job: at the commit point, record the actual state of the T6020 counterparts of the axi2af domains (names from the ADT and `t602x-pmgr.dtsi`). If any is on, that is the first thing to lower. Mapping the T6040 addresses to T6020 is the work; no address above is valid on our SoC.
+
+## 2026-11-10 16:15 GH-5 image 63: Aura lowers the USB-C complexes (aura-ctl `0x80000`); job A1 armed
+- **Why.** Our own data already answers the "which fabric-bridge domains are on at the commit" question from the 15:50 entry. Run S8's genpd dump lists `atc0-3_common`, `atc0-3_pcie` and `apcie_gp_sys` on at syscore suspend (the DT marks them always-on). `data/psmap.txt`: macOS has ATCn_COMMON and ATCn_PCIE at target 0 at sleep entry. So every commit from R6 to R18 ran with them on. On T6040 that made the timer reset the SoC.
+- **Image 63** (Aura `v0.1.0-13-ga1215d2f`, patch `patches/psci-efi/aura/rebuilt/0005-…`, `boot-test.bin` `771d5491dacae658`, staged; the previous one is kept as `boot-test.bin.62cap`):
+  - New step `PSCI_S2R_ATC` (bit 19): `atc0-3_pcie` (`0x28e080278/288/298/2a8`), then `atc0-3_common` (`0x28e080228/230/238/240`): AUTO_ENABLE and target cleared, actual state polled to 0 (10 ms each; timeouts in `psci_dbg[23]` bits 44-51). It runs before the fabric step.
+  - Written back on any resume, parents first.
+  - At the crumb snapshot PMU scratch `0x600e` = which of the eight are still on.
+  - `aura-ctl` accepts bit 19.
+- **Job A1** (`harness/usbtest/jobs/a1-atc-off`, unattended, **normal path: no `slpa`, no S2R timer**, so the SoC stays on and nothing can be left half asleep):
+  1. USB-C wakeup off and the dwc3 cores stopped (as S5 to R17), so `atcN_usb` are off first.
+  2. Deep suspend with `0x80000` alone, 20 s alarm. Logged: the eight words before and after, Aura's debug words, genpd's list.
+  3. Deep suspend with `0xc0000` (ATC + image 62's fabric step, which never ran).
+- Expected away time 4 to 6 min. A hang before the deep WFI ends at the 120 s watchdog; a sleep the alarm does not end, at Aura's 5 min cap.
+- If A1 passes, the next run is R17 with both steps (`0xddb1f`) on the new chain. That needs the R17 Linux switches in the test kernel first (the DCP shut-down switch is not ported yet).
