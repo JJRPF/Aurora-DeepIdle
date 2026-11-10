@@ -15,7 +15,7 @@ install -Dm644 "$H/initcpio/install/usbtest" /etc/initcpio/install/usbtest
 install -Dm644 "$H/initcpio/hooks/usbtest" /etc/initcpio/hooks/usbtest
 T=$(mktemp -d)
 cat > "$T/mkinitcpio.conf" <<EOF
-MODULES=(dwc3-apple dwc3 phy-apple-atc tps6598x typec uas usb-storage xhci-plat-hcd apple-dart)
+MODULES=(nvme-apple apple-sart apple-dart dwc3-apple dwc3 phy-apple-atc tps6598x typec uas usb-storage xhci-plat-hcd)
 BINARIES=()
 FILES=()
 HOOKS=(base udev asahi modconf block usbtest)
@@ -23,7 +23,7 @@ COMPRESSION="zstd"
 EOF
 mkinitcpio -c "$T/mkinitcpio.conf" -k "$KREL" -g "$T/initramfs.img" 2>&1 | grep -iE "error|usbtest|successful" || true
 [ -s "$T/initramfs.img" ] || { echo "initramfs build failed"; exit 1; }
-CMD="root=LABEL=DEEPTEST_ROOT usbtest=1 rootdelay=20 loglevel=6 panic=10 net.ifnames=0 zswap.enabled=0 user4k=on $EXTRA"
+CMD="root=LABEL=OMARCHY_BOOT usbtest=1 rootdelay=20 loglevel=6 panic=10 net.ifnames=0 zswap.enabled=0 user4k=on $EXTRA"
 mkdir -p "$(dirname "$OUT")"
 ukify build --linux "$KIMG" --initrd "$T/initramfs.img" --cmdline "$CMD" --uname "$KREL" --output "$OUT" 2>&1 | tail -1
 rm -rf "$T"

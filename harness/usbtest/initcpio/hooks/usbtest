@@ -1,10 +1,10 @@
 #!/usr/bin/ash
-# GH-5 DeepTest boot: the root is a squashfs image copied from the USB test drive into RAM, under a
-# tmpfs overlay. After the copy the drive is unmounted, so it may drop off the bus or be powered down.
+# GH-5 DeepTest boot: the root is a squashfs image copied from main's /boot partition (or a USB drive) into RAM, under a
+# tmpfs overlay. The partition is mounted read-only without journal replay and unmounted after the copy.
 # No other disk is opened. Any failure here reboots, and since Limine has consumed the one-shot
 # request, the reboot lands on the default (main) entry.
 #   usbtest=1                      turn this on
-#   usbtest_src=LABEL=DEEPTEST_ROOT  partition that carries the image (ext4)
+#   usbtest_src=LABEL=OMARCHY_BOOT   partition that carries the image (ext4)
 #   usbtest_img=/deeptest/root.sfs   image path on it; <img>.sha256 is checked if present;
 #                                    the directory <dirname img>/job is copied to /run/usbtest/job
 usbtest_say() { msg ":: usbtest: $*"; echo "usbtest: $*" > /dev/kmsg; }
@@ -17,7 +17,7 @@ usbtest_fail() {
 }
 usbtest_mount_handler() {
     local newroot="$1" src img dev="" n=0 sz want got jobdir
-    src="$(getarg usbtest_src)"; [ -n "$src" ] || src="LABEL=DEEPTEST_ROOT"
+    src="$(getarg usbtest_src)"; [ -n "$src" ] || src="LABEL=OMARCHY_BOOT"
     img="$(getarg usbtest_img)"; [ -n "$img" ] || img="/deeptest/root.sfs"
     modprobe -a -q loop squashfs overlay ext4 2>/dev/null
     while [ $n -lt 45 ]; do

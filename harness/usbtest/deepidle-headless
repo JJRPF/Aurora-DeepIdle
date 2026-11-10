@@ -1,0 +1,15 @@
+#!/bin/bash
+# GH-5: after every boot, while ~/.local/state/deepidle/headless-on-boot exists, turn the owner's
+# headless mode on (screen and keyboard light off, stay awake), so test reboots stay dark and the
+# Mac does not sleep. Omarchy post-boot hook. Exit: SUPER+SHIFT+H or `omarchy-headless-mode off`.
+# The headless flag survives a reboot but its inhibitor does not, so stale state is cleared first.
+export PATH=$HOME/.local/bin:/usr/share/omarchy/bin:/usr/local/bin:/usr/bin:$PATH
+CTL=$HOME/.local/state/deepidle
+[ -e "$CTL/headless-on-boot" ] || exit 0
+for i in $(seq 30); do hyprctl monitors >/dev/null 2>&1 && break; sleep 1; done
+P="${XDG_RUNTIME_DIR:-/tmp}/omarchy-headless/inhibitor.pid"
+if ! { [ -f "$P" ] && kill -0 "$(cat "$P")" 2>/dev/null; }; then
+    rm -f "$HOME/.local/state/omarchy/indicators/headless"
+fi
+omarchy-headless-mode on >/dev/null 2>&1
+echo "$(date '+%F %T') boot $(uname -r): headless on, $(omarchy-headless-mode status 2>/dev/null | cut -c1-60)" >> "$CTL/headless-boot.log"

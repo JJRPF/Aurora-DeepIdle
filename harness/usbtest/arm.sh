@@ -22,9 +22,9 @@ if ! bash "$H/luks-autounlock.sh" status | grep -q 'key in the installed UKI: [1
     [ $PROMPT_OK = 1 ] || die "main has no auto-unlock key in its UKI: it would wait at the passphrase prompt (use --allow-prompt when someone is at the Mac)"
     echo "arm: note: main will ask for the LUKS passphrase on the way back"
 fi
-# 2. the drive: image present and intact, job in place
+# 2. the image in /boot: present and intact, job in place
 [ -s "$W/root.sfs" ] && [ -s "$W/deeptest.efi" ] || die "build the image and the UKI first (build-root.sh, build-uki.sh)"
-if [ -n "$JOB" ]; then [ -f "$JOB/job.sh" ] || die "no job.sh in $JOB"; chmod +x "$JOB/job.sh"; bash "$H/write-usb.sh" job "$JOB"; else bash "$H/write-usb.sh" nojob; fi
+if [ -n "$JOB" ]; then [ -f "$JOB/job.sh" ] || die "no job.sh in $JOB"; chmod +x "$JOB/job.sh"; bash "$H/write-image.sh" job "$JOB"; else bash "$H/write-image.sh" nojob; fi
 # 3. the UKI on the ESP and its Limine entry
 ok_entry() { [ -e $ESPUKI ] && [ "$(sha256sum $ESPUKI | cut -c1-64)" = "$(sha256sum "$W/deeptest.efi" | cut -c1-64)" ] \
     && grep -q '^/DeepTest$' $CONF && grep -q "deeptest.efi#$(b2sum $ESPUKI | cut -d' ' -f1)" $CONF; }
