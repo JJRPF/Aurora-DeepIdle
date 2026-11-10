@@ -24,11 +24,12 @@
         "Every test image boots once; an early unit puts the default `boot.bin` back and checks its sha",
         "Wi-Fi guard reboots a boot that never connects, with a 3-strike limit",
         "The Raspberry Pi 5 streams the kernel log off the machine during risky runs",
-        "A dead-man switch (`deadman.sh`) reads the NVMe directly after each wake; if the disk is gone it pushes the kernel lines to the owner and resets the Mac. 3 of 3 OK in a real suspend"
+        "A dead-man switch (`deadman.sh`) reads the NVMe directly after each wake; if the disk is gone it pushes the kernel lines to the owner and resets the Mac. 3 of 3 OK in a real suspend",
+        "2026-11-09: a separate RAM-only test root (“DeepTest”): a Limine one-shot entry boots a 314 MB image copied from `/boot` into RAM, with no disk mounted; main unlocks, logs in and reopens the agent session by itself. First boot: 73 s away and back, no hands"
       ],
       "next": [
-        "A sleep that never wakes in full S2R still needs the owner at the power key",
-        "After `slpa` a warm reset may not bring NVMe back; that needs a full power off"
+        "The DeepTest failure paths (image missing, a hang) still to be proven",
+        "A hang before any watchdog (iBoot, early m1n1) still needs the owner at the power key"
       ],
       "gate": "Unattended runs recover from a hang without hands."
     },
@@ -363,7 +364,8 @@
     { "title": "The SEP SLEEP message is acknowledged but not what the entry waits for (R18)", "body": "Run R18 (2026-11-07 09:27, R17 + apple_sep.test_sleep_msg=2): the enclave replied (tag 0x11, data 0), and the run ended in the same 86 s timer reset with PMU scratch identical to R17's. macOS 15.6.1 then clears the SEP mailbox OUTBOX_CTRL enable and writes 0x1000030f to the SEP's PMGR word (PS_AUTO 0, so the PMGR may gate the enclave); J414s ps_sep reads 0x1f0000ff (PS_AUTO f, never gated). R18B adds that step; built, waits for the owner to be present." },
     { "title": "Three fabric lanes (and the SEP) are never allowed to auto-gate on J414s; macOS sets their floor to 0", "body": "From maralcbr's T6000 sleep-entry PMGR dump mapped by DT label: AFNC1_LW2, AFNC2_LW1, APCIE_GP_SYS and SEP read 0x1f0000ff on J414s (AUTO_ENABLE, PS_AUTO f), macOS has 0x1000030f (PS_AUTO 0) at sleep entry; AFNC3_LW0 already matches. Linux's pmgr-pwrstate never writes PS_AUTO. Image 62 (run R21) and R18B test it." },
     { "title": "Every sleep step found so far, in one sleep, still ends in the 86 s reset", "body": "The runs of 2026-11-05 to 07: `slpa`, the PMP and AOP handshakes, the SIO IDLE, the whole PMGR quiesce, the held domains off, the AMCC clear, every core and both P complexes powered down, a quiet commit. The PMU scratch after the reset is byte for byte the same from R17 to R19. The S2R entry still waits for something not yet found." },
-    { "title": "The SEP probe flake was a loader race", "body": "Two units loaded `apple_sep`, and `aurora-sep-load` unloaded the packaged load mid-attach, so the second probe hit the one-shot marker (`-EBUSY`, key type registered then unregistered 2 ms later). Fixed on 2026-11-08: the script now only loads when the module is absent. It had cost R18B its first try." }
+    { "title": "The SEP probe flake was a loader race", "body": "Two units loaded `apple_sep`, and `aurora-sep-load` unloaded the packaged load mid-attach, so the second probe hit the one-shot marker (`-EBUSY`, key type registered then unregistered 2 ms later). Fixed on 2026-11-08: the script now only loads when the module is absent. It had cost R18B its first try." },
+    { "title": "Limine’s one-shot entry survives a reboot under U-Boot", "body": "`bootctl set-oneshot DeepTest` (the Boot Loader Interface’s `LoaderEntryOneShot`) booted the test entry once and the next boot was the default again (2026-11-09, 1 of 1). That replaces GRUB’s `next_entry` on the new Limine install." }
   ],
   "rules": [
     "Never remove and rescan PCI devices: it kills Wi-Fi until a reboot.",
@@ -382,8 +384,7 @@
     "Why an inline `dsb sy; isb; wfi` in `SYSTEM_SUSPEND` never woke when `deep_wfi()` does.",
     "Whether the PMP accepts IDLE after `slpa` once it is sent once (run C again), and whether it needs its display requests released first",
     "What the ANS waits for after `slpa`: it answers HELLO but never acks IOP power-on (likely the storage power the SMC only restores in a real S2R wake)",
-    "Whether iBoot arms the wake path (reconfig engine, boot CPU RVBAR) for a raw image on T6020 as it does for a kernelcache (answered yes on the M1 by Naeem Malik, not checked here).",
-    "Whether a test root on a USB drive, booted once through GRUB, lets every crash recover to the main install with no one at the Mac (an early iBoot or m1n1 hang still needs the power key)."
+    "Whether iBoot arms the wake path (reconfig engine, boot CPU RVBAR) for a raw image on T6020 as it does for a kernelcache (answered yes on the M1 by Naeem Malik, not checked here)."
   ],
   "upstream": [
     { "name": "aurora-silicon/m1n1#63", "what": "DT headroom for the PMP tunables" },

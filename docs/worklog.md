@@ -3280,3 +3280,15 @@ Static only (DTs in linux-psci-efi-72, m1n1/Aura `cpufreq.c`, J414s ADT); no har
 - **Changed:** hook default source, `build-uki.sh` (cmdline, `nvme-apple` and `apple-sart` in the initramfs; UKI `c307f24c5845a968`), `write-image.sh` replaces `write-usb.sh`, `disarm.sh` added, the Limine entry reinstalled (one `/DeepTest` block, hashes match).
 - **Headless on boot:** post-boot hook `deepidle-headless` runs `omarchy-headless-mode on` after every boot while `~/.local/state/deepidle/headless-on-boot` exists (set).
 - **Dry run:** `arm.sh --no-reboot` passed with no `--allow-prompt` (auto-unlock key in the UKI), then `disarm.sh`. Nothing rebooted.
+
+## 2026-11-09 22:26 GH-5: first DeepTest boot passed, and the Mac came back to main by itself (owner attended)
+(The clock times in the three entries above are an hour ahead; this one is from the logs.)
+- **Run `first-boot`** (hello job, stock 7.2.11-15 kernel, stock `boot.bin`, UKI `c307f24c5845a968`, image `008623c56da1ccc9`): armed 22:24:39, report from the RAM root 22:25:14, back on main 22:25:52. **73 s away, no hands.**
+- **What it proves:**
+  - Limine took the one-shot (`oneshot_taken=yes`), so `LoaderEntryOneShot` survives a reboot under U-Boot, and it was consumed: the next boot was main's default entry.
+  - The RAM root works: `root: overlay … lowerdir=/run/usbtest/lower`, `nvme opened: 0 mounts`, all 10 CPUs, 31677 MB. The image came from `/boot` (`LABEL=OMARCHY_BOOT`) and the partition was released.
+  - Wi-Fi works from the test root (the report arrived over ntfy).
+  - Main unlocks its LUKS root from the key in the UKI, SDDM logs in, the headless hook turned the screen off (22:25:57) and the resume hook reopened this session (22:25:57). `usbtest-return.service` recorded the result in `/var/lib/deepidle/usbtest/results/20261109-222552/`.
+  - Today's update (Limine 12.9.6, kernel 7.2.11-15) boots.
+- **Small things:** the report's `wdt:` and `wifi:` fields were empty because of how I read them (`watchdog0` has no `identity` file; the address query ran with the wrong scope), not because they were missing. `mem_sleep` is `[s2idle]` only, as expected without the PSCI kernel and Aura.
+- **Not yet proven:** the failure paths (image missing, hang in the test root, hang in the initramfs).
