@@ -25,11 +25,11 @@
         "Wi-Fi guard reboots a boot that never connects, with a 3-strike limit",
         "The Raspberry Pi 5 streams the kernel log off the machine during risky runs",
         "A dead-man switch (`deadman.sh`) reads the NVMe directly after each wake; if the disk is gone it pushes the kernel lines to the owner and resets the Mac. 3 of 3 OK in a real suspend",
-        "2026-11-09: a separate RAM-only test root (“DeepTest”): a Limine one-shot entry boots a 314 MB image copied from `/boot` into RAM, with no disk mounted; main unlocks, logs in and reopens the agent session by itself. First boot: 73 s away and back, no hands"
+        "2026-11-09: a separate RAM-only test root (“DeepTest”): a Limine one-shot entry boots a 314 MB image copied from `/boot` into RAM, with no disk mounted; main unlocks, logs in and reopens the agent session by itself. First boot: 73 s away and back, no hands",
+        "DeepTest recovery proven, 1 of 1 each (2026-11-09): a good boot (73 s and 74 s away), the image missing (49 s), a hang in the initramfs ended by the watchdog (76 s). Every run came back to main with no hands"
       ],
       "next": [
-        "The DeepTest failure paths (image missing, a hang) still to be proven",
-        "A hang before any watchdog (iBoot, early m1n1) still needs the owner at the power key"
+        "A hang before the kernel starts (iBoot, m1n1, U-Boot, Limine) still needs the owner at the power key; a test `boot.bin` is not one-shot the way the test UKI is"
       ],
       "gate": "Unattended runs recover from a hang without hands."
     },

@@ -3310,3 +3310,9 @@ Static only (DTs in linux-psci-efi-72, m1n1/Aura `cpufreq.c`, J414s ADT); no har
 - Armed 22:29:59, back on main 22:30:48; `oneshot_taken=yes`, `reports_from_test_boot=0` as expected. The hook said the image was missing, waited 10 s, `reboot -f`, and Limine booted the default entry. `usbtest-return.sh` removed the `failtest` file.
 - (The session then stopped on the plan's usage limit; resumed by the owner.)
 - Next: P3 (`--failtest hang`), the watchdog path. The apple watchdog's default timeout is not readable here (no sysfs attributes), so the time to the reset is the measurement.
+
+## 2026-11-09 22:43 GH-5 run P3 (`--failtest hang`): the watchdog started in the initramfs reset the hung test boot; back on main in 76 s
+- Armed 22:40:45, back on main 22:42:01; `oneshot_taken=yes`, no report from the test boot, no hands. With about 20 s of reboot before the hang and about 20 s of boot after the reset, the dog fired roughly 30 to 40 s into the hang.
+- **The DeepTest recovery paths are all proven, 1 of 1 each:** a good boot (first-boot, P1: 73 s, 74 s), image missing (P2: 49 s), a hang before userspace (P3: 76 s). Each ended on main with the disk unlocked, the session logged in, headless on and the agent session reopened.
+- **Still not covered:** a hang before the kernel starts (iBoot, m1n1, U-Boot, Limine). A test `boot.bin` (Aura) is the next thing that can hang there, and unlike the UKI it is not one-shot: it stays on the ESP until Linux puts the stock one back.
+- Next: build the PSCI test kernel, then Aura and U-Boot.
