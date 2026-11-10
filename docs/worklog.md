@@ -3389,3 +3389,12 @@ Owner: ready for the attended run; do not stop to wait for one again, work on ot
 - So the deep suspend itself held for 4 h 23 min and woke on a wake line (good news for the chain), and the alarm port does not work as built (unknown why: K3).
 - Two faults of mine: (1) C2 trusted an alarm that had never been seen to fire; (2) nothing bounds a suspend that no wake line ends. Also the job's log is only sent at the end, so a hang leaves no report.
 - Fixes in progress: job K3 (alarm awake on the test chain, no suspend, with the PMU registers dumped); Aura: a cap on the sleep (resume by itself after a few heartbeats); jobs push a line before each risky step.
+
+## 2026-11-10 15:20 GH-5 run C2: deep suspend and resume work 3 of 3 on the rebuilt chain; the alarm woke the first cycle only, the second slept 4 h 20 min
+- Armed 10:44:16, back 15:07:53 (`away=15817s`), no report received. The owner found the screen off, pressed keys and the power button, photographed the console, then held power. From the photo (`PXL_20261110_200659232.jpg`):
+  - cycle 1: `rc=0, 13.0 s, online 0-9`, `PM: suspend entry (deep)` → `PM: suspend exit`. **The PMU alarm (+12 s) woke the Mac: the T602x alarm port works, and the baseline deep suspend works on the rebuilt chain.**
+  - cycle 2: `rc=0, 15580.8 s` (4 h 20 min). The alarm set for +12 s did not wake it; the owner's key press did. All CPUs back, console alive.
+  - cycle 3: `rc=0, 114.9 s`, again ended by the owner. `job ended rc=0` at 15:06:46; the power-hold came seconds later, before the report was pushed and the job's own reboot.
+- So: suspend/resume 3 of 3, including one of 4 h 20 min; alarm wake 1 of 3. The second alarm is the bug (candidates: the event latch or the AIC line is left asserted or masked after the first wake, so Aura sees no new edge on line 724).
+- Why it could sleep for hours: Aura's heartbeat (image 49) wakes every 60 s and re-arms the 120 s watchdog as long as no wake line shows, and the job's deadline timer is frozen in suspend. Nothing bounded a suspend that no wake line ends. That was a hole in my harness, and I ran C2 unattended on an alarm seen to fire zero times; 4 h 20 min of the day went to it.
+- Fixes: job K3 (three alarms in a row, awake, on the test chain, PMU registers and interrupt counts logged; no suspend). Aura: cap the sleep (resume by itself after a few heartbeats). Jobs push a line before each risky step so a hang still leaves a report.
