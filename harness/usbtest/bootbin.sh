@@ -12,7 +12,9 @@
 # update-m1n1 (kernel or bootloader package updates) rewrites boot.bin with the stock image: run install again.
 set -eu
 [ "$(id -u)" = 0 ] || { echo "run with sudo"; exit 1; }
-E=/boot/efi/m1n1; S=/var/lib/deepidle/bootbin; NV=/sys/bus/nvmem/devices/spmi_nvmem2/nvmem; REG=$((0x6010))
+# The PMU nvmem device is found by its SPMI address (0-0b): its number (spmi_nvmem1, 2) changes from boot to boot.
+# The PMU nvmem device is found by its SPMI address (0-0b): its number (spmi_nvmem1, 2) changes from boot to boot.
+E=/boot/efi/m1n1; S=/var/lib/deepidle/bootbin; NV=$(ls /sys/bus/spmi/devices/0-0b/spmi_nvmem*/nvmem 2>/dev/null | head -1); REG=$((0x6010))
 mkdir -p $S
 sha() { sha256sum "$1" | cut -c1-64; }
 die() { echo "bootbin: $*" >&2; exit 1; }

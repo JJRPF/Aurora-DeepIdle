@@ -13,7 +13,7 @@ rm -f /boot/deeptest/failtest
 TOOK=yes
 if [ -e $VAR ]; then TOOK=no; chattr -i $VAR 2>/dev/null; rm -f $VAR; fi
 # the boot.bin flag: the loader clears it when it takes the test image; still set = the loader never saw it
-NV=/sys/bus/nvmem/devices/spmi_nvmem2/nvmem; FLAG=$(dd if=$NV bs=1 skip=$((0x6010)) count=1 2>/dev/null | xxd -p)
+NV=$(ls /sys/bus/spmi/devices/0-0b/spmi_nvmem*/nvmem 2>/dev/null | head -1); FLAG=$(dd if=$NV bs=1 skip=$((0x6010)) count=1 2>/dev/null | xxd -p)
 [ "$FLAG" = 00 ] || printf '\x00' | dd of=$NV bs=1 seek=$((0x6010)) count=1 conv=notrunc 2>/dev/null
 { cat $S/armed; echo "returned=$(date -Is) away=$(( $(date +%s) - epoch ))s oneshot_taken=$TOOK bootbin_flag_left=$FLAG kernel=$(uname -r) stage2=$(tr -d '\0' < /proc/device-tree/chosen/asahi,m1n1-stage2-version 2>/dev/null)"; } > $R/summary
 TOPIC=$(sudo -u jjr python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~jjr/.config/agent-notify/config.json")))["ntfy_topic"])' 2>/dev/null || echo agent-notify)
