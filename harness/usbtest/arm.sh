@@ -1,7 +1,8 @@
 #!/bin/bash
 # GH-5: arms ONE DeepTest boot (Limine one-shot) and reboots into it. Main stays the default entry, so
 # the reboot at the end of the job, a crash, a watchdog or a hand reset all land back on main.
-#   sudo bash arm.sh [--no-reboot] [--job <dir>] [--label <text>] [--allow-prompt]
+#   sudo bash arm.sh [--no-reboot] [--job <dir>] [--label <text>] [--allow-prompt] [--failtest missing|hang]
+# --failtest      prove a failure path: the initramfs treats the image as missing, or hangs (watchdog)
 # --job <dir>     job directory copied to the drive (job.sh, deadline, topic, keep); none = the hello job
 # --allow-prompt  arm even though main would stop at the LUKS passphrase prompt on the way back
 set -eu
@@ -10,9 +11,9 @@ H=$(cd "$(dirname "$0")" && pwd)
 W=${W:-/home/jjr/Work/deepidle-usbtest}; S=/var/lib/deepidle/usbtest
 ESPUKI=/boot/efi/EFI/Linux/deeptest.efi; CONF=/boot/efi/limine.conf
 VAR=/sys/firmware/efi/efivars/LoaderEntryOneShot-4a67b082-0a4c-41cf-b6c7-440b29bb8c4f
-REBOOT=1; JOB=; LABEL=hello; PROMPT_OK=0
+REBOOT=1; JOB=; LABEL=hello; PROMPT_OK=0; FAILTEST=
 while [ $# -gt 0 ]; do case "$1" in
-    --no-reboot) REBOOT=0 ;; --job) JOB=$2; shift ;; --label) LABEL=$2; shift ;; --allow-prompt) PROMPT_OK=1 ;;
+    --no-reboot) REBOOT=0 ;; --job) JOB=$2; shift ;; --label) LABEL=$2; shift ;; --allow-prompt) PROMPT_OK=1 ;; --failtest) FAILTEST=$2; shift ;;
     *) echo "unknown option $1"; exit 1 ;; esac; shift; done
 LABEL=${LABEL// /_}
 die() { echo "arm: $*" >&2; exit 1; }
@@ -25,6 +26,8 @@ fi
 # 2. the image in /boot: present and intact, job in place
 [ -s "$W/root.sfs" ] && [ -s "$W/deeptest.efi" ] || die "build the image and the UKI first (build-root.sh, build-uki.sh)"
 if [ -n "$JOB" ]; then [ -f "$JOB/job.sh" ] || die "no job.sh in $JOB"; chmod +x "$JOB/job.sh"; bash "$H/write-image.sh" job "$JOB"; else bash "$H/write-image.sh" nojob; fi
+rm -f /boot/deeptest/failtest
+case "$FAILTEST" in "") ;; missing|hang) echo "$FAILTEST" > /boot/deeptest/failtest; sync ;; *) die "--failtest missing|hang" ;; esac
 # 3. the UKI on the ESP and its Limine entry
 ok_entry() { [ -e $ESPUKI ] && [ "$(sha256sum $ESPUKI | cut -c1-64)" = "$(sha256sum "$W/deeptest.efi" | cut -c1-64)" ] \
     && grep -q '^/DeepTest$' $CONF && grep -q "deeptest.efi#$(b2sum $ESPUKI | cut -d' ' -f1)" $CONF; }

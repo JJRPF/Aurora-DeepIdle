@@ -9,6 +9,7 @@ VAR=/sys/firmware/efi/efivars/LoaderEntryOneShot-4a67b082-0a4c-41cf-b6c7-440b29b
 [ -e $S/armed ] || exit 0
 . <(tr ' ' '\n' < $S/armed | grep -E '^(epoch|label)=' )
 N=$(date +%Y%m%d-%H%M%S); R=$S/results/$N; mkdir -p $R
+rm -f /boot/deeptest/failtest
 TOOK=yes
 if [ -e $VAR ]; then TOOK=no; chattr -i $VAR 2>/dev/null; rm -f $VAR; fi
 { cat $S/armed; echo "returned=$(date -Is) away=$(( $(date +%s) - epoch ))s oneshot_taken=$TOOK kernel=$(uname -r)"; } > $R/summary

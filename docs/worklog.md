@@ -3292,3 +3292,12 @@ Static only (DTs in linux-psci-efi-72, m1n1/Aura `cpufreq.c`, J414s ADT); no har
   - Today's update (Limine 12.9.6, kernel 7.2.11-15) boots.
 - **Small things:** the report's `wdt:` and `wifi:` fields were empty because of how I read them (`watchdog0` has no `identity` file; the address query ran with the wrong scope), not because they were missing. `mem_sleep` is `[s2idle]` only, as expected without the PSCI kernel and Aura.
 - **Not yet proven:** the failure paths (image missing, hang in the test root, hang in the initramfs).
+
+## 2026-11-09 22:40 GH-5: watchdog from the initramfs, failure-path switches; chain P1, P2, P3 armed one by one
+- **Hook:** `run_hook` now starts the SoC watchdog (`echo 1 > /dev/watchdog0`, no magic close) before anything else, so a hang in the initramfs resets the Mac; systemd's 60 s `RuntimeWatchdogSec` takes it over. `arm.sh --failtest missing|hang` writes `/boot/deeptest/failtest`, which the hook reads after mounting the source: `missing` runs the hook's own failure path (reboot after 10 s), `hang` sleeps forever for the watchdog. `usbtest-return.sh` and `disarm.sh` remove the file.
+- **Report fields fixed** (`wdt`, `wifi`). Image `4395491f1b6adc7a`, UKI `3eebbbcf44e0e3ec`.
+- **Chain (each is armed by the resumed session after the one before is recorded):**
+  - **P1** `hello2`: the hello job on the new image and UKI. Checks that the early watchdog does not reset a good boot.
+  - **P2** `fail-missing`: expect no report, main back in about 1.5 min, `reports_from_test_boot=0`.
+  - **P3** `fail-hang`: expect no report and a watchdog reset. If the dog does not fire, the Mac hangs in the initramfs and the owner has to hold the power key, so P3 is announced to the owner first.
+- After the chain: build the PSCI test kernel (`~/Work/src/linux-aurora`, branch `psci-efi-test-72`, 3 patches still to port), then Aura and U-Boot.

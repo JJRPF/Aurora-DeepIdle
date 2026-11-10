@@ -29,6 +29,12 @@ usbtest_mount_handler() {
     blockdev --setro "$dev" 2>/dev/null
     mkdir -p /run/usbtest/src /run/usbtest/img /run/usbtest/lower /run/usbtest/rw /run/usbtest/job
     mount -t ext4 -o ro,noload "$dev" /run/usbtest/src || usbtest_fail "cannot mount $dev"
+    # failure-path tests, armed from main with arm.sh --failtest (the return service removes the file):
+    # "missing" pretends the image is not there; "hang" stops here, for the watchdog to end.
+    case "$(cat "/run/usbtest/src${img%/*}/failtest" 2>/dev/null)" in
+        missing) umount /run/usbtest/src; usbtest_fail "test: image treated as missing" ;;
+        hang) umount /run/usbtest/src; usbtest_say "test: hanging in the initramfs"; while :; do sleep 3600; done ;;
+    esac
     [ -f "/run/usbtest/src$img" ] || usbtest_fail "no $img on $dev"
     sz=$(stat -c %s "/run/usbtest/src$img")
     mount -t tmpfs -o "size=$((sz / 1024 + 65536))k,mode=755" tmpfs /run/usbtest/img || usbtest_fail "tmpfs for the image"
@@ -54,6 +60,11 @@ usbtest_mount_handler() {
 run_hook() {
     if [ "$(getarg usbtest)" = "1" ]; then
         mount_handler="usbtest_mount_handler"
+        # Start the SoC watchdog now (a write and a close without the magic 'V' leaves it running),
+        # so a hang in here or before systemd takes the dog over resets the Mac. usbtest_wdt=0 skips it.
+        if [ "$(getarg usbtest_wdt)" != "0" ] && [ -c /dev/watchdog0 ]; then
+            echo 1 > /dev/watchdog0 2>/dev/null && usbtest_say "watchdog started ($(cat /sys/class/watchdog/watchdog0/timeout 2>/dev/null) s)"
+        fi
     fi
     return 0
 }

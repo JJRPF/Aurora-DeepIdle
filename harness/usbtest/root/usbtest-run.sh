@@ -21,8 +21,8 @@ facts() {
     echo "root: $(findmnt -no FSTYPE,OPTIONS / | cut -c1-80)"
     echo "disk mounts: $(findmnt -rno SOURCE,TARGET -t ext4,btrfs,vfat,apfs | tr '\n' ' ' | sed 's/^$/none/')"
     echo "nvme opened: $(grep -c nvme /proc/mounts) mounts; usb drive present: $([ -e /dev/disk/by-label/DEEPTEST_ROOT ] && echo yes || echo no)"
-    echo "mem_sleep: $(cat /sys/power/mem_sleep 2>/dev/null); wdt: $(cat /sys/class/watchdog/watchdog0/identity 2>/dev/null) $(cat /sys/class/watchdog/watchdog0/state 2>/dev/null)"
-    echo "wifi: $(ip -4 -o addr show scope global 2>/dev/null | awk '{print $2, $4}' | tr '\n' ' ')"
+    echo "mem_sleep: $(cat /sys/power/mem_sleep 2>/dev/null); wdt: $(ls /sys/class/watchdog 2>/dev/null | tr '\n' ' ')$(cat /sys/class/watchdog/watchdog0/state 2>/dev/null) $(cat /sys/class/watchdog/watchdog0/timeout 2>/dev/null)s, systemd $(systemctl show -p RuntimeWatchdogUSec --value 2>/dev/null)"
+    echo "wifi: $(ip -4 -o addr 2>/dev/null | awk '$2!="lo"{print $2, $4}' | tr '\n' ' ')"
     echo "cmdline: $(cut -c1-160 /proc/cmdline)"
 }
 log "start; $(facts | head -1)"
