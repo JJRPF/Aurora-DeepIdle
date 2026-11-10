@@ -3471,3 +3471,18 @@ Owner asked for this before the next run. Read-only: 25 branches fetched into `~
 - genpd's list at suspend, of the domains in question: `atc1_usb atc2_usb apcie_gp apcie_gpshr_sys` and the always-on `atcN_usb_aon atcN_pcie atcN_common apcie_gp_sys apcie_phy_sw afnc1_lw2 afnc2_lw1`.
 - The job's attachment held only the last 25 log lines, so the "before" values are lost. A2 pushes its own summary.
 - **Job A2** (`harness/usbtest/jobs/a2-atc-wake`, normal path, unattended): four suspends, 20 s alarm, one variable each: base; ATC step; USB wakeup off + teardown; both. Per suspend: duration, Aura's wake line and time, alarm interrupts. About 3 to 4 min away.
+
+## 2026-11-10 16:10 GH-5 run A2: the alarm wakes all four sleeps; neither the ATC step nor the USB teardown makes the SMC wake early
+- Away 183 s, back on main by itself. Image 63, four deep suspends on the normal path, 20 s alarm each:
+
+| Suspend | aura-ctl | USB-C wakeup off + teardown | Result | Time | Aura's wake line | In Aura | Alarm irqs | Poll timeouts |
+|---|---|---|---|---|---|---|---|---|
+| 1 base | 0 | no | rc=0 | 9.0 s | 724 (PMU alarm) | 6.3 s | +1 | 0 |
+| 2 atc | `0x80000` | no | rc=0 | 21.1 s | 724 | 18.2 s | +1 | 0 |
+| 3 usb | 0 | yes | rc=0 | 20.7 s | 724 | 18.0 s | +1 | 0 |
+| 4 usb+atc | `0x80000` | yes | rc=0 | 21.1 s | 724 | 18.2 s | +1 | 0 |
+
+- Suspend 1 is short because the job sets the alarm before its push, and the first push took about 11 s. It still ended on the alarm.
+- **So A1's 3 s sleeps (line 865, the SMC mailbox, at 0.52 s) do not come from the ATC step or the USB teardown.** Suspend 4 is A1's first suspend and ran to the alarm. What A1 had and A2 did not: `pm_genpd.test_dump=Y`, and more log lines before the suspend. Not explained. It does not block the commit runs (there the S2R timer ends the wait, not a wake line), but a wake line that fires 0.5 s in would end a real sleep, so it stays on the list.
+- The ATC words read `0x3ff` after every resume; USB lists 6 devices at the end.
+- **Next: run R17A** = R17's Linux side on the new chain + Aura's ATC step (`0x9db1f`). `appledrm.test_sleep_off` was the one R17 switch missing in the rebuilt test kernel; ported (same 35 lines as `patches/psci-efi/linux/0001-TEST-drm-apple-dcp-test_sleep_off-…`), module building.
