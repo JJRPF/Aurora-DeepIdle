@@ -3415,3 +3415,11 @@ Owner: ready for the attended run; do not stop to wait for one again, work on ot
 - Back in 138 s. No `wakealarm`, and the clock read 2026-10-18: `rtc-macsmc` never probed. Job stopped before any suspend.
 - Cause (not seen in a log, inferred): `make modules` relinked `vmlinux`, so the new module's BTF belongs to a kernel that is not the `Image` in the UKI (built 2026-11-09), and this config refuses a module whose BTF does not match (`MODULE_ALLOW_BTF_MISMATCH` off). I also installed it unstripped.
 - Fix: the module with debug info and BTF sections removed (15 KB), in the root image (`31b1274f84c857eb`) and the UKI (`b245ddb078d28c75`). K5 now prints the RTC lines of dmesg if there is no `wakealarm`.
+
+## 2026-11-10 15:45 GH-5 run K5c: PASS. The alarm interrupts, wakes 3 of 3 deep suspends, and Aura's cap ends a sleep with no wake source
+- Away 214 s, back on main by itself. Aura `v0.1.0-12-g876622bf`, kernel `7.2.11-psci-efi+`, stripped fixed `rtc-macsmc`.
+- Awake: 2 alarms, 2 interrupts (control byte now reads `0x01` after an alarm: the latch is cleared).
+- Cap test: deep suspend with no alarm, cap 1 heartbeat: `rc=0`, back after 63.3 s, all 10 CPUs online.
+- Alarm: three deep suspends with a 15 s alarm: 15.6, 15.7, 15.7 s, one alarm interrupt each, `rc=0`, CPUs 0-9 online each time.
+- Seen, not looked at yet: 30 error lines in dmesg, among them `macsmc 2a2400000.smc: Failed to send command` around each resume and brcmfmac errors (-52) after it.
+- The unattended deep suspend baseline (old Phase 2 gate) is back on the rebuilt chain, with a bounded sleep. Next: port the S2R runs (R18B, R21) as jobs on this base.
