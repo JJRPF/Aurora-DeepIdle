@@ -8,7 +8,7 @@ set -eu
 [ "$(id -u)" = 0 ] || { echo "run with sudo"; exit 1; }
 ESP=/boot/efi; CONF=$ESP/limine.conf; BAK=/var/lib/deepidle/limine-backup
 mkdir -p "$BAK"
-strip() { sed -i '/^# --- DeepTest begin/,/^# --- DeepTest end/d' "$CONF"; }
+strip() { python3 "$(dirname "$0")/limine-strip.py" "$CONF"; }
 [ -e "$BAK/limine.conf.orig" ] || { cp -a "$CONF" "$BAK/limine.conf.orig"; cp -a $ESP/EFI/limine/limine_aa64.efi "$BAK/limine_aa64.efi.orig"; }
 if [ "${1:-}" = remove ]; then
     strip; rm -f $ESP/EFI/Linux/deeptest.efi; limine-enroll-config; echo removed; exit 0
