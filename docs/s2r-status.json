@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "updated": "2026-11-07",
+  "updated": "2026-11-09",
   "overall": 45,
   "overall_note": "Risk-weighted guess with a wide error bar. The page prefers the live figure in `docs/status.md` when it can read one.",
   "machine": "14-inch MacBook Pro, M2 Pro (`T6020`, `apple,j414s`), Aurora Silicon Linux",
@@ -124,7 +124,7 @@
       "short": "The SoC powers down, DRAM in self-refresh",
       "state": "active",
       "pct": 10,
-      "summary": "Aura’s `SYSTEM_SUSPEND` gains the SoC steps in macOS’s order. Five `slpa` runs (11-04 and 11-05) came back on the alarm with the storage controller dead and the SoC AWAKE throughout. Image 52 then added macOS’s PMGR S2R timer and its all-core deep sleep: the timer is the first PMGR write the SoC acts on, resetting the Mac about 60 s later unless the S2R entry completes, and it does not complete even with every core powered down (runs D to F). The rest of macOS’s PMGR quiesce (clock gates, PLL-off, GPU) is next.",
+      "summary": "Aura’s `SYSTEM_SUSPEND` now does every macOS sleep step found so far, in macOS’s order: `slpa`, the PMP and AOP sleep handshakes, the whole PMGR quiesce, the held domains off, every core powered down, then the S2R timer. Every such run (2026-11-05 to 07) ends in the same reset about 86 s after `echo mem`, so the entry still does not complete. R20 (cluster APSC off) was the first run with no timer reset, but it hung. Current leads: the SEP sleep hand-off (R18B) and the fabric lanes’ auto-gating (R21), both built and waiting for a test setup that needs no one at the Mac.",
       "done": [
         "The PMGR, SMC and PMP sleep actions read from the macOS 13.5 kernelcache",
         "Test kernel flag `macsmc_reboot.deep_steps`: `slpw` in prepare, `slpa` in suspend_late, `waka` on wake",
@@ -149,11 +149,19 @@
         "PMP display requests released for sleep (2026-11-05 18:16): test kernel switch; the PMP acks the withdraw (`0xf000` → `0x1000`) and the assert on resume, 2 of 2 normal suspends, 0 device errors",
         "Owner-attended runs C, G, H (2026-11-05 21:20 to 21:35): C, the PMP accepts its IDLE after `slpa` (no crash), the SoC stays AWAKE; G and H, all of `quiesceHW` but the cluster power-off before the S2R timer, both reset about 85 s after `echo mem` like D and E: the entry still does not complete",
         "Owner-attended run I (2026-11-05 21:41): the PMP’s IDLE and the whole PMGR quiesce before the S2R timer in one sleep: the same reset at about 85 s",
-        "The AOP's sleep handshake, as macOS 13.5 (`AppleSPU` queue stop and start, RTBuddy's `SetAPPower` 0x201 before `slpa`), in the test kernel; 4 of 4 suspend cycles clean without `slpa` (2026-11-06 00:00)"
+        "The AOP's sleep handshake, as macOS 13.5 (`AppleSPU` queue stop and start, RTBuddy's `SetAPPower` 0x201 before `slpa`), in the test kernel; 4 of 4 suspend cycles clean without `slpa` (2026-11-06 00:00)",
+        "Image 56 to 60h (2026-11-06 and 07): the held domains, WD1/WD2 handling, an SPMI breadcrumb in PMU scratch, the quiet commit and the EACC target. The reset stays at 86 s whatever the order; every core and both P complexes are asleep at the commit (R16, R17)",
+        "AMCC errors (DSID_AGE_OUT, UNEXP_RT_HIT_DIR) found pending on all four instances and cleared before the timer (image 58); no change (R8)",
+        "SIO IDLE (R19 and S9, 2026-11-07): the SIO acks IDLE, so it is not what the entry waits for",
+        "R18 (2026-11-07): the SEP answered SLEEP type 2 (reply tag 0x11), still the 86 s reset",
+        "R20 (image 61, cluster APSC off): the first run with no timer reset, then a 28 min hang until the owner held power",
+        "Flake found and fixed (2026-11-08): `aurora-sep-load` unloaded the packaged `apple_sep` mid-attach, so the SEP probe failed with -16 on some boots"
       ],
       "next": [
-        "Owner-attended run J: run I plus the AOP handshake",
-        "Static: the cluster power-off step of `quiesceHW` and the PMU's SPMI quiesce"
+        "R18B: macOS’s SEP hand-off (`ps_sep` to the PMGR) on top of R17",
+        "R21: the fabric lanes set to macOS’s `0x1000030f` (image 62)",
+        "A separate small test install on a USB drive, booted once through GRUB `next_entry` with a RAM root, so crash runs need no one at the Mac (GH-5)",
+        "Anything DJ and Naeem Malik did that is still untried on T6020, starting with maralcbr’s post-`slpa` writes"
       ],
       "gate": "20 of 20 cycles; lid, key, keyboard and alarm wakes; about 0.3 W on battery."
     },
@@ -236,6 +244,11 @@
     { "n": "51-slpa-B", "what": "As 51-slpa-A, plus the PMU boot stage 0x50 across the suspend (`deep_steps=14`)", "result": "The same: resumed on the alarm, `ANS did not boot`, dead-man reset; boot stage 0x50 changed nothing", "outcome": "fail" },
     { "n": "51-slpa-C", "what": "As 51-slpa-B, plus macOS’s PMP IDLE steps after `slpa` (`pmp_sleep`)", "result": "The PMP firmware crashed on IDLE (-62); resumed on the alarm, `ANS did not boot`, dead-man reset; SART kept; PMGR `AWAKE` 65 s, `SLP_S2R` 0", "outcome": "fail" },
     { "n": "52", "what": "Control word from Linux: PMGR S2R timer (1) and macOS’s all-core deep sleep (2); 0 is image 51", "result": "Regression 2 of 2. With `slpa`: timer → reset at about 85 s (D, D2, E); cores only → WD1 at 145 s (F)", "outcome": "info" },
+    { "n": "53", "what": "Image 52 + the rest of `quiesceHW`: `ps_afr` fully off, `ps_sio`/`ps_sio_cpu` AUTO_ENABLE off (aura-ctl 4), ClkGen-SOC writes and the PLL-off mode (8)", "result": "Regression 2 of 2. Runs G, H, I (attended, 2026-11-05 evening): the same reset about 85 s after `echo mem`; the entry does not complete", "outcome": "info" },
+    { "n": "54", "what": "Image 53 + aura-ctl 16: the five soc-cluster power words’ targets to 0 before the clocks (`quiesceHW`’s cluster power-off)", "result": "Regression 4 of 4, CPUs 0-9. Run J (attended, 2026-11-06 15:23, every macOS step found so far): the 86 s reset", "outcome": "info" },
+    { "n": "55", "what": "Image 54 + aura-ctl 32: each parked secondary’s stop request written before its IPI (macOS’s trace step 6)", "result": "Regression clean (G55). Run R: the 86 s reset again", "outcome": "info" },
+    { "n": "56", "what": "Image 55 + aura-ctl 64: the 12 PMGR domains Linux keeps on at sleep (display chains, USB-C ATCs) turned off before `quiesceHW`", "result": "G56 clean on the normal path; Run Y (the writes alone): WD1 at about 145 s", "outcome": "fail" },
+    { "n": "57", "what": "Image 56 with a mask choosing which held domains bit 6 turns off, to bisect Y by group", "result": "Y1 (USB-C) and Y2T (external displays) stalled too; later traced to pages missing from the EFI runtime map (fixed in image 58), not the hardware", "outcome": "info" },
     { "n": "58", "what": "Image 57 + aura-ctl 0x100 records (psci_dbg2: WD0..2, timer word, AMCC status/enables), 0x200 AMCC DSID_AGE_OUT/UNEXP_RT_HIT_DIR enables off, 0x400 WD2 stopped after the timer, 0x800 AIC mask-all; the held domains' pages and the AMCC planes mapped (images 56, 57 had not mapped 0x28e080000 and 0x29e280000)", "result": "G58: back on the alarm, online 0-9, records read", "outcome": "pass" },
     { "n": "59", "what": "Image 58 + aura-ctl 0x1000 WD1 off before the S2R timer, 0x2000 resume right after the timer", "result": "W2: Linux could not be resumed after the timer; R9: the 86 s timer reset with WD1 off", "outcome": "fail" },
     { "n": "60", "what": "Image 59 + aura-ctl 0x4000: a stage code in PMU legacy scratch key 4 (0x6004) over SPMI at each step of the sleep tail and on the RVBAR wake", "result": "R10: faulted on the first breadcrumb (SPMI page not in the EFI runtime map); WD1 reset at 146 s", "outcome": "fail" },
@@ -246,8 +259,8 @@
     { "n": "60f", "what": "Image 60e + for the first never-slept core: the IPI's MPIDR (0x6010/11), its park entries and park-loop WFI returns (0x600c/0d), its sleep count after a second IPI from the reset table's MPIDR (0x600e)", "result": "R14: cpu3 got the IPI at its own MPIDR, entered its park loop once and never left that WFI, not even for a second IPI. R15 (same image, no CPUSTART stop request): every core reached its S2R sleep; timer reset at 86 s", "outcome": "info" },
     { "n": "60g", "what": "Image 60f + aura-ctl 0x8000 quiet commit: AIC mask, secondaries released and snapshot before the S2R timer write, the timer written three times, nothing after it but the flush and deep WFI (Naeem's M1 order)", "result": "R16: code 0x16 (last access before the commit), every core in its final deep sleep, both P complexes off, nothing touched after the commit; still the 86 s timer reset", "outcome": "info" },
     { "n": "60h", "what": "Image 60g + aura-ctl 0x10000: EACC (the boot cluster, quiesceHW's logical cluster 1) target 0 after the other clusters, no poll, as macOS and the M1's CPU-complex write", "result": "R17: the EACC target went to 0 (snapshot 0x10), every core asleep, nothing after the commit; still the 86 s timer reset", "outcome": "info" },
-    { "n": "61", "what": "Image 60h + aura-ctl 0x20000 (PSCI_S2R_DVFS): M2_APSC_DIS (bit 23) in each CPU cluster's CLUSTER_PSTATE before the timer, the one cluster DVFS write in macOS's sleep trace (maralcbr, T6000) that J414s doesn't already have at boot", "result": "Run R20 (2026-11-07 08:28): no timer reset; hung 28 min until the owner held power. Most secondaries never slept (never-slept feee: only the first core of each P cluster slept), PCPM0 stayed on. APSC off before the release IPIs stops the parked cores waking, and apparently the timer's reset too. Not self-recovering: owner-present only" },
-    { "n": "62", "what": "Image 61 + aura-ctl 0x40000 (PSCI_S2R_FABRIC): AFNC1_LW2, AFNC2_LW1 and APCIE_GP_SYS PS words set to macOS's sleep-entry 0x1000030f (auto-PM floor 0; J414s leaves PS_AUTO f, so the PMGR never gates them)", "result": "Built (Aura 8efa42c682324b38, boot.bin.psci-test62 049be76f9245b347), not installed; run R21 waits for the owner" }
+    { "n": "61", "what": "Image 60h + aura-ctl 0x20000 (PSCI_S2R_DVFS): M2_APSC_DIS (bit 23) in each CPU cluster's CLUSTER_PSTATE before the timer, the one cluster DVFS write in macOS's sleep trace (maralcbr, T6000) that J414s doesn't already have at boot", "result": "Run R20 (2026-11-07 08:28): no timer reset; hung 28 min until the owner held power. Most secondaries never slept (never-slept feee: only the first core of each P cluster slept), PCPM0 stayed on. APSC off before the release IPIs stops the parked cores waking, and apparently the timer's reset too. Not self-recovering: owner-present only", "outcome": "fail" },
+    { "n": "62", "what": "Image 61 + aura-ctl 0x40000 (PSCI_S2R_FABRIC): AFNC1_LW2, AFNC2_LW1 and APCIE_GP_SYS PS words set to macOS's sleep-entry 0x1000030f (auto-PM floor 0; J414s leaves PS_AUTO f, so the PMGR never gates them)", "result": "Built (Aura 8efa42c682324b38, boot.bin.psci-test62 049be76f9245b347), not installed; run R21 waits for the owner", "outcome": "info" }
   ],
   "macos_sleep": [
     { "step": "SMC `MSxb` writes from every CPU", "linux": "Housekeeping, not needed yet" },
@@ -348,7 +361,9 @@
     { "title": "maralcbr's post-slpa writes: most are already in Aura; the cluster APSC disable is new", "body": "A static second pass (2026-11-07) over the trace's 74 writes. Aura's CLOCKS (ClkGen-SOC, T6000 offsets +4), PLL-off (0x28e224000, same sequence), CLUSTERS/EACC (soc-cluster words, T6000 at +0x10000) and DOMAINS (ps_sio_cpu AUTO_ENABLE) steps match the trace entry for entry, independently of our macOS 13.5 J414s RE. The PCIe write is in config space on T6020, the four die-quadrant error-handler writes fall outside every J414s reg, and the pmgr_dcp/PMP-report pre-slpa words sit in a window whose layout differs between chips: none are replayed. The J414s ADT turns APSC on (cpu-apsc = 1) and leaves the ppt/llc/amx throttles off, so the trace's one new cluster write is APSC_DIS (bit 23 on T6020, bit 22 on T6000). Image 61 adds it (run R20)." },
     { "title": "Cluster APSC off before the release IPIs hangs the SoC; the S2R timer does not reset (R20)", "body": "Run R20 (image 61, aura-ctl 0x3db1f, 2026-11-07 08:28): code 0x16 reached, but only Aura cpus 4 and 8 reached their S2R sleep (never-slept feee; cpu1 CPU_OFF, park-loop WFI never returned, a second IPI did not wake it), PCPM0 stayed on (0x6014 ff), and for the first time the timer did not reset the SoC: it hung until the owner held power 28 min later. R13 had an awake core and still reset at 86 s, so the APSC disable itself seems to block the timer's reset. macOS disables APSC only after its secondaries sleep; a variant after the snapshot (R20b) is possible but owner-present only. R18 (SEP SLEEP) runs first." },
     { "title": "The SEP SLEEP message is acknowledged but not what the entry waits for (R18)", "body": "Run R18 (2026-11-07 09:27, R17 + apple_sep.test_sleep_msg=2): the enclave replied (tag 0x11, data 0), and the run ended in the same 86 s timer reset with PMU scratch identical to R17's. macOS 15.6.1 then clears the SEP mailbox OUTBOX_CTRL enable and writes 0x1000030f to the SEP's PMGR word (PS_AUTO 0, so the PMGR may gate the enclave); J414s ps_sep reads 0x1f0000ff (PS_AUTO f, never gated). R18B adds that step; built, waits for the owner to be present." },
-    { "title": "Three fabric lanes (and the SEP) are never allowed to auto-gate on J414s; macOS sets their floor to 0", "body": "From maralcbr's T6000 sleep-entry PMGR dump mapped by DT label: AFNC1_LW2, AFNC2_LW1, APCIE_GP_SYS and SEP read 0x1f0000ff on J414s (AUTO_ENABLE, PS_AUTO f), macOS has 0x1000030f (PS_AUTO 0) at sleep entry; AFNC3_LW0 already matches. Linux's pmgr-pwrstate never writes PS_AUTO. Image 62 (run R21) and R18B test it." }
+    { "title": "Three fabric lanes (and the SEP) are never allowed to auto-gate on J414s; macOS sets their floor to 0", "body": "From maralcbr's T6000 sleep-entry PMGR dump mapped by DT label: AFNC1_LW2, AFNC2_LW1, APCIE_GP_SYS and SEP read 0x1f0000ff on J414s (AUTO_ENABLE, PS_AUTO f), macOS has 0x1000030f (PS_AUTO 0) at sleep entry; AFNC3_LW0 already matches. Linux's pmgr-pwrstate never writes PS_AUTO. Image 62 (run R21) and R18B test it." },
+    { "title": "Every sleep step found so far, in one sleep, still ends in the 86 s reset", "body": "The runs of 2026-11-05 to 07: `slpa`, the PMP and AOP handshakes, the SIO IDLE, the whole PMGR quiesce, the held domains off, the AMCC clear, every core and both P complexes powered down, a quiet commit. The PMU scratch after the reset is byte for byte the same from R17 to R19. The S2R entry still waits for something not yet found." },
+    { "title": "The SEP probe flake was a loader race", "body": "Two units loaded `apple_sep`, and `aurora-sep-load` unloaded the packaged load mid-attach, so the second probe hit the one-shot marker (`-EBUSY`, key type registered then unregistered 2 ms later). Fixed on 2026-11-08: the script now only loads when the module is absent. It had cost R18B its first try." }
   ],
   "rules": [
     "Never remove and rescan PCI devices: it kills Wi-Fi until a reboot.",
@@ -360,14 +375,15 @@
     "Test GRUB entries use `panic=0`, so a panic hangs and the watchdog stamps tell where it died."
   ],
   "unknowns": [
-    "Whether iBoot arms the wake path (reconfig engine, boot CPU RVBAR) for a raw image as it does for a kernelcache.",
     "What starts the SoC’s sleep: not `slpa` alone (the PMGR counters stay in `AWAKE`); presumably the PMGR’s S2R entry, which Aura does not do yet. And what restarts the AP on wake, through which RVBAR.",
     "What the reconfig engine runs on `SLP_S2R`, and what each quiesce action writes.",
     "Whether a DCP with nothing attached can be shut down and restarted.",
     "What the PMP’s VLPM tunables control.",
     "Why an inline `dsb sy; isb; wfi` in `SYSTEM_SUSPEND` never woke when `deep_wfi()` does.",
     "Whether the PMP accepts IDLE after `slpa` once it is sent once (run C again), and whether it needs its display requests released first",
-    "What the ANS waits for after `slpa`: it answers HELLO but never acks IOP power-on (likely the storage power the SMC only restores in a real S2R wake)"
+    "What the ANS waits for after `slpa`: it answers HELLO but never acks IOP power-on (likely the storage power the SMC only restores in a real S2R wake)",
+    "Whether iBoot arms the wake path (reconfig engine, boot CPU RVBAR) for a raw image on T6020 as it does for a kernelcache (answered yes on the M1 by Naeem Malik, not checked here).",
+    "Whether a test root on a USB drive, booted once through GRUB, lets every crash recover to the main install with no one at the Mac (an early iBoot or m1n1 hang still needs the power key)."
   ],
   "upstream": [
     { "name": "aurora-silicon/m1n1#63", "what": "DT headroom for the PMP tunables" },
