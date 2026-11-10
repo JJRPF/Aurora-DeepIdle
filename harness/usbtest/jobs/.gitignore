@@ -1,0 +1,6 @@
+aura-ctl
+mmio-read
+mmio-write
+pmgrcnt
+scan-magic
+wakemask
