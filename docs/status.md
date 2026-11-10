@@ -1,4 +1,4 @@
-# Where the work stands (2026-11-10, 16:25, after run A2)
+# Where the work stands (2026-11-10, 16:04, after run A2)
 
 This is the summary of the whole effort: what was measured, what was built,
 what works, what does not, and what comes next. Each section points to the

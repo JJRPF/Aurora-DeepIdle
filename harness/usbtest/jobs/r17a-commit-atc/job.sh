@@ -1,7 +1,8 @@
 #!/bin/bash
 # R17A: run R17 (the full S2R entry with the PMGR commit, last run 2026-11-07, reset after 86 s) on the rebuilt chain,
-# plus image 63's ATC step: aura-ctl 0x9db1f = R17's 0x1db1f | 0x80000 (atcN_pcie, atcN_common to target 0 before the
-# commit, as macOS has them). Linux side as R17: deep_steps 62 (slpa, PMU 0x50, wake mask, PMP release), pmp_sleep,
+# plus image 63's ATC step: aura-ctl 0xddb1f = R17's 0x1db1f | 0x80000 (atcN_pcie, atcN_common to target 0 before the
+# commit, as macOS has them) | 0x40000 (the fabric write: no effect on AFNC1_LW2 in run A1; kept for its crumb,
+# PMU scratch 0x600d = which fabric lanes read gated at the commit). Linux side as R17: deep_steps 62 (slpa, PMU 0x50, wake mask, PMP release), pmp_sleep,
 # aop.sleep_ap_idle=3 (UKI cmdline), ISP_SYS released, PCPM0/1, afr kept, USB-C wakeup off + teardown, DCP firmware off.
 # NOT self-contained after the suspend: slpa takes the SSD's controller down and the commit powers the SoC off.
 # Outcomes: (a) reset about 86 s after the suspend (the S2R timer, as R17), (b) a real sleep the 30 s alarm ends,
@@ -33,8 +34,8 @@ log "switches: $S"
 case "$S" in *MISSING*) log "a switch is missing: stopping"; return 0 ;; esac
 log "pmgr counters: $($J/pmgrcnt enable 2>&1 | tail -1)"
 log "before: atc $(atc); pmp req $(w 0x28e3c2000) ack $(w 0x28e3c2080); usb $(lsusb 2>/dev/null | wc -l)"
-CTL=$($J/aura-ctl 0x9db1f 0 0 2>&1 | tail -1); log "aura ctl: $CTL"
-case "$CTL" in *9db1f*) ;; *) log "aura-ctl did not read back 0x9db1f: stopping"; $J/aura-ctl 0 0 0 >/dev/null 2>&1; return 0 ;; esac
+CTL=$($J/aura-ctl 0xddb1f 0 0 2>&1 | tail -1); log "aura ctl: $CTL"
+case "$CTL" in *ddb1f*) ;; *) log "aura-ctl did not read back 0xddb1f: stopping"; $J/aura-ctl 0 0 0 >/dev/null 2>&1; return 0 ;; esac
 echo 0 > $R/wakealarm 2>/dev/null; echo +40 > $R/wakealarm
 push "R17A committing" "suspend at $(date -u +%T) UTC, alarm +40 s. $S | $CTL"
 T0=$(date +%s.%N)

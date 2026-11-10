@@ -3472,7 +3472,7 @@ Owner asked for this before the next run. Read-only: 25 branches fetched into `~
 - The job's attachment held only the last 25 log lines, so the "before" values are lost. A2 pushes its own summary.
 - **Job A2** (`harness/usbtest/jobs/a2-atc-wake`, normal path, unattended): four suspends, 20 s alarm, one variable each: base; ATC step; USB wakeup off + teardown; both. Per suspend: duration, Aura's wake line and time, alarm interrupts. About 3 to 4 min away.
 
-## 2026-11-10 16:10 GH-5 run A2: the alarm wakes all four sleeps; neither the ATC step nor the USB teardown makes the SMC wake early
+## 2026-11-10 16:02 GH-5 run A2: the alarm wakes all four sleeps; neither the ATC step nor the USB teardown makes the SMC wake early
 - Away 183 s, back on main by itself. Image 63, four deep suspends on the normal path, 20 s alarm each:
 
 | Suspend | aura-ctl | USB-C wakeup off + teardown | Result | Time | Aura's wake line | In Aura | Alarm irqs | Poll timeouts |
@@ -3486,3 +3486,16 @@ Owner asked for this before the next run. Read-only: 25 branches fetched into `~
 - **So A1's 3 s sleeps (line 865, the SMC mailbox, at 0.52 s) do not come from the ATC step or the USB teardown.** Suspend 4 is A1's first suspend and ran to the alarm. What A1 had and A2 did not: `pm_genpd.test_dump=Y`, and more log lines before the suspend. Not explained. It does not block the commit runs (there the S2R timer ends the wait, not a wake line), but a wake line that fires 0.5 s in would end a real sleep, so it stays on the list.
 - The ATC words read `0x3ff` after every resume; USB lists 6 devices at the end.
 - **Next: run R17A** = R17's Linux side on the new chain + Aura's ATC step (`0x9db1f`). `appledrm.test_sleep_off` was the one R17 switch missing in the rebuilt test kernel; ported (same 35 lines as `patches/psci-efi/linux/0001-TEST-drm-apple-dcp-test_sleep_off-…`), module building.
+
+## 2026-11-10 16:12 GH-5: job R17A written; Aura image 64 built (PCIe chain and AON words off before the commit), not staged
+- **Job R17A** (`harness/usbtest/jobs/r17a-commit-atc`): R17's Linux side set at run time from the job (`deep_steps` 62, `pmp_sleep`, `test_release_aon`, `test_release_ids` `0x1000`, `test_pcpm` `0x300`, `test_sleep_keep` afr, genpd dump, USB-C wakeup off and teardown, `appledrm.test_sleep_off`), `aop.sleep_ap_idle=3` from the UKI's command line, aura-ctl `0xddb1f` = R17's `0x1db1f` + the ATC step + the fabric step. The fabric write did nothing in A1; it is in for its crumb (which lanes read gated at the commit). The job stops before the suspend if any switch is missing or the control word does not read back. It pushes "R17A committing" right before `echo mem`, and "R17A resumed" if it ever comes back into the job.
+- **After a reset:** `sudo bash tools/pmu-scratch.sh` (new) reads and decodes Aura's crumbs from the PMU scratch on main; `zero` clears them. `0x600e` = which ATC words were still on at the commit, `0x600d` = the fabric lanes.
+- **Scratch `0x6010` is shared:** Aura's snapshot writes `0x6010/11` (`ff ff` when every core slept) and the one-shot loader reads `0x6010` (`a5` = boot the test image once). Aura never writes `a5` there unless a core fails in a specific way, and a stray `a5` costs one test-chain boot under the watchdog. Left as is.
+- **`appledrm.test_sleep_off` build:** `make M=…` and the single-module target both fail here, and `make modules` started a full rebuild (the 15:28 module build ran without `LLVM=1`, so the tree had switched to gcc). The full clang rebuild is running. Only the stripped `appledrm.ko` goes into the root image; the UKI keeps the 2026-11-09 kernel image.
+- **Aura image 64** (`v0.1.0-14-g99f6e082`, patch `patches/psci-efi/aura/rebuilt/0006-…`, `~/Work/psci-test/boot-test.bin.64` `68e565ce97d2911b`, **not staged**; the staged test image is still 63):
+  - `0x100000` `PSCI_S2R_PCIE`: `apcie_gp_sys` (`0x290280418`, always-on in the DT), then its parents `apcie_gpshr_sys` (`0x2902803f8`) and `apcie_gp` (`0x290280198`) to target 0, each polled 10 ms. All three are on at every commit so far (S8's list). The M4 Pro code lowers the same pair before its commit.
+  - `0x200000` `PSCI_S2R_AON`: `atc1-3_usb_aon` (`0x29e280098/a0/a8`) and `msg` (`0x29e280078`) to target 0, as macOS has them at sleep entry (`data/psmap.txt`).
+  - Poll timeouts in `psci_dbg[23]` bits 52 to 58; crumb `0x600c` = which are still on. Written back on a resume, but nothing retrains the PCIe links, so these two bits are for commit runs only.
+  - With `0x100000` the fabric step skips `apcie_gp_sys` (it would set its target back to f).
+  - `aura-ctl` accepts bits 0 to 21.
+- **Order after R17A,** one step per run: R17B = R17A + `0x100000` (image 64), R17C = R17B + `0x200000`.

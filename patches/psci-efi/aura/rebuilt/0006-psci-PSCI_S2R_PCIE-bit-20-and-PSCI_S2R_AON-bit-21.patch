@@ -1,0 +1,168 @@
+From 99f6e0826a89c2e96c4752035e362646e9d3a01e Mon Sep 17 00:00:00 2001
+From: Justin Pfister <git@jjrpf.com>
+Date: Tue, 10 Nov 2026 16:05:51 -0500
+Subject: [PATCH] psci: PSCI_S2R_PCIE (bit 20) and PSCI_S2R_AON (bit 21): the
+ PCIe chain and atc1-3_usb_aon, msg to target 0 before the commit
+
+Image 64. macOS has these off or gated at sleep entry (data/psmap.txt in
+Aurora-DeepIdle); the device tree keeps them always-on. Commit runs only.
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+---
+ src/psci.c | 78 ++++++++++++++++++++++++++++++++++++++++++++++++++++--
+ src/psci.h |  7 +++++
+ 2 files changed, 83 insertions(+), 2 deletions(-)
+
+diff --git a/src/psci.c b/src/psci.c
+index b30356c3..81dd1076 100644
+--- a/src/psci.c
++++ b/src/psci.c
+@@ -132,6 +132,8 @@ static volatile struct {
+     u64 dvfs[3];           /* image 61: bit 7, PSCI_S2R_DVFS: each cluster's CLUSTER_PSTATE before APSC_DIS */
+     u32 fabric[3];         /* image 62: bit 8, PSCI_S2R_FABRIC: the three fabric PS words before macOS's value */
+     u32 atc[8];            /* image 63: bit 9, PSCI_S2R_ATC: atcN_pcie and atcN_common before their target went to 0 */
++    u32 pcie[3];           /* image 64: bit 10, PSCI_S2R_PCIE */
++    u32 aon[4];            /* image 64: bit 11, PSCI_S2R_AON */
+ } qs_save __attribute__((aligned(64)));
+ 
+ /*
+@@ -335,8 +337,12 @@ static void psci_quiesce_fabric(void)
+         qs_save.fabric[i] = read32(qs_fabric[i]);
+     qs_save.saved |= 256;
+     dc_civac_range((void *)&qs_save, sizeof(qs_save));
+-    for (unsigned i = 0; i < 3; i++)
++    for (unsigned i = 0; i < 3; i++) {
++        /* image 64: not apcie_gp_sys when the PCIE step has just set its target to 0 */
++        if (i == 2 && (qs_save.saved & 1024))
++            continue;
+         write32(qs_fabric[i], QS_FABRIC_VAL);
++    }
+     psci_dbg2[51] = ((u64)qs_save.fabric[0] << 32) | read32(qs_fabric[0]);
+ }
+ 
+@@ -393,6 +399,59 @@ static u8 qs_atc_state(void)
+     return b;
+ }
+ 
++/*
++ * Image 64: child first. psci_dbg[23] bits 52-54 = poll timeouts (PCIE), 55-58 (AON). All on pages already in the
++ * PSCI map (pmgr_east 0x290280000 with ps_sio, pmgr_mini 0x29e280000 with atcN_usb).
++ */
++static const u64 qs_pcie[3] = {0x290280418ULL, 0x2902803f8ULL, 0x290280198ULL}; /* apcie_gp_sys, apcie_gpshr_sys, apcie_gp */
++static const u64 qs_aon[4] = {0x29e280098ULL, 0x29e2800a0ULL, 0x29e2800a8ULL, 0x29e280078ULL}; /* atc1..3_usb_aon, msg */
++
++static void psci_quiesce_pcie(void)
++{
++    u64 fail = 0;
++
++    for (unsigned i = 0; i < 3; i++)
++        qs_save.pcie[i] = read32(qs_pcie[i]);
++    qs_save.saved |= 1024;
++    dc_civac_range((void *)&qs_save, sizeof(qs_save));
++    for (unsigned i = 0; i < 3; i++) {
++        write32(qs_pcie[i], qs_save.pcie[i] & ~QS_PS_CLEAR);
++        fail |= (u64)qs_poll(qs_pcie[i], 0xf0, 0, 10000) << (52 + i);
++    }
++    psci_dbg[23] |= fail;
++}
++
++static void psci_quiesce_aon(void)
++{
++    u64 fail = 0;
++
++    for (unsigned i = 0; i < 4; i++)
++        qs_save.aon[i] = read32(qs_aon[i]);
++    qs_save.saved |= 2048;
++    dc_civac_range((void *)&qs_save, sizeof(qs_save));
++    for (unsigned i = 0; i < 4; i++) {
++        write32(qs_aon[i], qs_save.aon[i] & ~QS_PS_CLEAR);
++        fail |= (u64)qs_poll(qs_aon[i], 0xf0, 0, 10000) << (55 + i);
++    }
++    psci_dbg[23] |= fail;
++}
++
++/* image 64: bits 0-2 = qs_pcie[i] still on, bits 3-6 = qs_aon[i] still on (each only if its step ran); for the crumb */
++static u8 qs_pcie_aon_state(void)
++{
++    u8 b = 0;
++
++    if (qs_save.saved & 1024)
++        for (unsigned i = 0; i < 3; i++)
++            if (read32(qs_pcie[i]) & 0xf0)
++                b |= BIT(i);
++    if (qs_save.saved & 2048)
++        for (unsigned i = 0; i < 4; i++)
++            if (read32(qs_aon[i]) & 0xf0)
++                b |= BIT(3 + i);
++    return b;
++}
++
+ static void psci_quiesce_dvfs(void)
+ {
+     u32 fail = 0;
+@@ -419,6 +478,14 @@ static void psci_quiesce_undo(void)
+         for (unsigned i = 0; i < 3; i++)
+             write32(qs_fabric[i], qs_save.fabric[i] & ~0x300);
+     }
++    if (qs_save.saved & 2048) {
++        for (int i = 3; i >= 0; i--)
++            write32(qs_aon[i], qs_save.aon[i] & ~(BIT(11) | BIT(9) | BIT(8)));
++    }
++    if (qs_save.saved & 1024) {
++        for (int i = 2; i >= 0; i--)
++            write32(qs_pcie[i], qs_save.pcie[i] & ~(BIT(11) | BIT(9) | BIT(8)));
++    }
+     if (qs_save.saved & 512) {
+         for (int i = 7; i >= 0; i--)
+             write32(qs_atc[i], qs_save.atc[i] & ~(BIT(11) | BIT(9) | BIT(8)));
+@@ -707,6 +774,9 @@ static void qs_crumb_snapshot(void)
+     /* image 63: likewise 0x600e = qs_atc_state() (only when bit 19 ran) */
+     if (fi <= 0 && (qs_save.saved & 512))
+         q[2] = qs_atc_state();
++    /* image 64: 0x600c = qs_pcie_aon_state() (only when bit 20 or 21 ran) */
++    if (fi <= 0 && (qs_save.saved & (1024 | 2048)))
++        q[0] = qs_pcie_aon_state();
+     if (fi > 0) {
+         u64 mp = smp_psci_ipi_mpidr(fi);
+         u32 pe = smp_psci_s2r_word(fi, 1), wr = smp_psci_s2r_word(fi, 2);
+@@ -800,7 +870,7 @@ static unsigned long psci_system_suspend(unsigned long entry, unsigned long cont
+     psci_dbg[2] = daif;
+     psci_dbg[14] = mrs(SYS_IMP_APL_CYC_OVRD);
+     dc_ivac_range((void *)psci_ctl, sizeof(psci_ctl));
+-    u64 steps = psci_ctl[1] & (PSCI_S2R_TIMER | PSCI_S2R_CORESOFF | PSCI_S2R_DOMAINS | PSCI_S2R_CLOCKS | PSCI_S2R_CLUSTERS | PSCI_S2R_STOPREQ | PSCI_S2R_HELD | PSCI_S2R_REC | PSCI_S2R_AMCC | PSCI_S2R_STOPWD2 | PSCI_S2R_AICMASK | PSCI_S2R_WD1OFF | PSCI_S2R_RESUMENOW | PSCI_S2R_CRUMB | PSCI_S2R_QUIET | PSCI_S2R_EACC | PSCI_S2R_DVFS | PSCI_S2R_FABRIC | PSCI_S2R_ATC);
++    u64 steps = psci_ctl[1] & (PSCI_S2R_TIMER | PSCI_S2R_CORESOFF | PSCI_S2R_DOMAINS | PSCI_S2R_CLOCKS | PSCI_S2R_CLUSTERS | PSCI_S2R_STOPREQ | PSCI_S2R_HELD | PSCI_S2R_REC | PSCI_S2R_AMCC | PSCI_S2R_STOPWD2 | PSCI_S2R_AICMASK | PSCI_S2R_WD1OFF | PSCI_S2R_RESUMENOW | PSCI_S2R_CRUMB | PSCI_S2R_QUIET | PSCI_S2R_EACC | PSCI_S2R_DVFS | PSCI_S2R_FABRIC | PSCI_S2R_ATC | PSCI_S2R_PCIE | PSCI_S2R_AON);
+     for (unsigned i = 0; i < 48; i++)
+         psci_dbg2[i] = 0;
+     psci_dbg2[1] = steps | ((u64)qs_amcc_n << 32) | ((u64)qs_amcc_planes << 40);
+@@ -863,6 +933,10 @@ static unsigned long psci_system_suspend(unsigned long entry, unsigned long cont
+         psci_quiesce_domains();
+     if (steps & PSCI_S2R_ATC)
+         psci_quiesce_atc();
++    if (steps & PSCI_S2R_PCIE)
++        psci_quiesce_pcie();
++    if (steps & PSCI_S2R_AON)
++        psci_quiesce_aon();
+     if (steps & PSCI_S2R_FABRIC)
+         psci_quiesce_fabric();
+     if (steps & PSCI_S2R_CLUSTERS)
+diff --git a/src/psci.h b/src/psci.h
+index eac2289a..bfb37f98 100644
+--- a/src/psci.h
++++ b/src/psci.h
+@@ -102,6 +102,13 @@ u64 psci_crumb_base(void);
+ #define PSCI_S2R_FABRIC   BIT(18)
+ /* image 63: the USB-C complexes macOS has off at sleep entry and the DT keeps always-on: atcN_pcie, atcN_common */
+ #define PSCI_S2R_ATC      BIT(19)
++/* image 64: the PCIe chain macOS has off or gated at sleep entry: apcie_gp_sys (always-on in the DT), then its
++ * parents apcie_gpshr_sys and apcie_gp (aurora-silicon t6040_sleep_lower_apcie_gp). Commit runs only: nothing
++ * retrains the links, so Wi-Fi and Bluetooth are gone after a resume that follows this step */
++#define PSCI_S2R_PCIE     BIT(20)
++/* image 64: the AON-side words macOS has at target 0 at sleep entry and the DT keeps always-on: atc1..3_usb_aon, msg
++ * (data/psmap.txt). Commit runs only */
++#define PSCI_S2R_AON      BIT(21)
+ void psci_ctl_init(void);
+ 
+ bool psci_suspend_resuming(void);
+-- 
+2.56.0
+
