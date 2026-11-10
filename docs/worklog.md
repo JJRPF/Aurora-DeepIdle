@@ -3305,3 +3305,8 @@ Static only (DTs in linux-psci-efi-72, m1n1/Aura `cpufreq.c`, J414s ADT); no har
 ## 2026-11-09 22:30 GH-5 run P1 (hello on the new image, early watchdog): passed, 74 s
 - Armed 22:28:02, report 22:28:37, back on main 22:29:16; `oneshot_taken=yes`. `wdt: watchdog0 …, systemd 1min`: the dog started in the initramfs did not reset a good boot, and systemd holds it at 60 s. No disk mounted. The `wifi:` field is still empty though the push arrived over Wi-Fi (my query; cosmetic).
 - Next: P2 (`--failtest missing`), armed now.
+
+## 2026-11-09 22:31 GH-5 run P2 (`--failtest missing`): the hook's failure path brought the Mac back to main in 49 s
+- Armed 22:29:59, back on main 22:30:48; `oneshot_taken=yes`, `reports_from_test_boot=0` as expected. The hook said the image was missing, waited 10 s, `reboot -f`, and Limine booted the default entry. `usbtest-return.sh` removed the `failtest` file.
+- (The session then stopped on the plan's usage limit; resumed by the owner.)
+- Next: P3 (`--failtest hang`), the watchdog path. The apple watchdog's default timeout is not readable here (no sysfs attributes), so the time to the reset is the measurement.
