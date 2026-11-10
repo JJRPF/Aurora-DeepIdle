@@ -1,0 +1,10 @@
+#!/bin/bash
+# GH-5: reopens the Claude Code session after a test reboot (Omarchy post-boot hook).
+# Armed by ~/.local/state/deepidle/resume (holds the worktree path); remove that file to stop it.
+STATE=$HOME/.local/state/deepidle
+[ -s "$STATE/resume" ] || exit 0
+DIR=$(head -1 "$STATE/resume"); [ -d "$DIR" ] || exit 0
+echo "$(date '+%F %T') resume launched in $DIR" >> "$STATE/resume.log"
+sleep 20
+exec xdg-terminal-exec --title="deep-idle (Claude)" --dir="$DIR" -- \
+    bash -lc 'claude --continue --dangerously-skip-permissions "$(cat ~/.local/state/deepidle/prompt.txt)"; echo "claude exited: $?"; exec bash'

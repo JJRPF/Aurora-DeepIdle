@@ -1,0 +1,10 @@
+[Unit]
+Description=GH-5 DeepTest: run one job, report, return to main
+After=multi-user.target iwd.service systemd-resolved.service
+ConditionKernelCommandLine=usbtest=1
+[Service]
+Type=simple
+ExecStart=/usr/local/lib/deepidle/usbtest-run.sh
+StandardOutput=journal+console
+[Install]
+WantedBy=multi-user.target

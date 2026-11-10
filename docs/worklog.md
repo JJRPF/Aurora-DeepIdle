@@ -3240,3 +3240,21 @@ Static only (DTs in linux-psci-efi-72, m1n1/Aura `cpufreq.c`, J414s ADT); no har
 - **What the attended run needs, in order:** (1) a Limine entry for the USB kernel (partition UUID path to `DEEPTEST_BOOT`, root `LABEL=DEEPTEST_ROOT`), added so `limine-entry-tool` does not erase it; (2) a kernel and initramfs on `DEEPTEST_BOOT` (the stock `linux-aurora` 7.2.11-15 modules are on main; the PSCI test kernel, Aura images, U-Boot and m1n1 must be rebuilt from `patches/psci-efi/` and the linux-aurora source in `/usr/src/linux-aurora`); (3) the initramfs overlay hook; (4) a port of `run.sh`, `early.sh` and `deadman.sh` off GRUB.
 - **First attended boot, planned:** stock `linux-aurora` kernel on the USB root, stock `boot.bin`, no Aura steps. It only proves one-shot, RAM overlay and automatic fall-back to main.
 - Status blurb posted (HTTP 200). Cleared the test `LoaderEntryOneShot` variable.
+
+## 2026-11-09 22:30 GH-5: DeepTest boot path built (RAM root from the USB drive, Limine one-shot); three things need the owner
+- **The drive drops off USB by itself.** It disconnected at 21:01:12 while idle (`usb 3-1: USB disconnect`, port `f02280000.usb`, no command of mine in the 11 s before), the second time today. Software could not bring it back: the data-role and power-role writes are refused (not a PD device), an xHCI unbind/bind found no device, and the two steps left are unsafe on this kernel (`cd321x_remove`'s own comment says a reprobe can reset the SoC; `dwc3-apple` unbind has the known oops). It needs a physical replug.
+- **Design changed because of that:** the root is no longer an overlay on the drive. `initcpio/hooks/usbtest` copies a squashfs image (`/deeptest/root.sfs`, sha256 checked) from `LABEL=DEEPTEST_ROOT` into RAM, unmounts the drive, and boots the image under a tmpfs overlay. The drive is needed for about a minute per boot and may drop or be powered down afterwards. Any failure in the hook reboots; with the one-shot consumed, that lands on main. `panic=10`, a 60 s systemd watchdog and a hard deadline (900 s, sysrq b) cover the rest.
+- **Built (all in `harness/usbtest/`):**
+  - `build-root.sh`: lean Arch root (base, iwd, openssh, curl, python, dtc, …; 156 packages, this Mac's firmware, the 7.2.11-15 modules, main's Wi-Fi profile and ssh keys) in `~/Work/deepidle-usbtest/root`, packed as `root.sfs` (314 MB, `008623c56da1ccc9`).
+  - `build-uki.sh`: UKI of the stock `linux-aurora` 7.2.11-15 kernel with the usbtest initramfs (`deeptest.efi`, 48 MB, `d5e3f22299d823fc`).
+  - `install-limine.sh`: the `/DeepTest` entry in the ESP's `limine.conf` after main's entries (`default_entry: 2` untouched). No config hash is enrolled in any Limine binary on the ESP (the signature field is all zeros), so the edit trips no check.
+  - `arm.sh`: checks the drive, image, UKI, entry and default, then `bootctl set-oneshot DeepTest` and reboots. Limine's entry ids are the config path with dots (`LoaderEntries` = `Omarchy.linux-aurora`); `LoaderFeatures` `0x200f` has the one-shot bit.
+  - In the image: `usbtest-run.sh` runs one job per boot (none = a hello report), pushes to ntfy, saves results to `DEEPTEST_BOOT`, reboots.
+  - On main: `usbtest-return.service` (installed) records the return, clears a one-shot Limine never took, pulls the test boot's ntfy reports; the Omarchy post-boot hook `deepidle-resume` (installed, not armed) reopens the session.
+  - `write-usb.sh`, `luks-autounlock.sh`.
+- **Needs the owner:**
+  1. Replug the drive.
+  2. **Main's LUKS root has one keyslot, the passphrase** (`crypttab`: `root … none luks`), so every return to main stops at the unlock prompt. The old install had a keyfile slot for this (worklog 2026-10-15). `luks-autounlock.sh add` does the same for sd-encrypt (`/etc/cryptsetup-keys.d/root.key` in the UKI); it needs the passphrase once and is the owner's security call.
+  3. SDDM has no autologin, so the session only resumes after a login.
+- **Also:** today's system update (Limine 12.9.6 in `BOOTAA64.EFI`, kernel 7.2.11-15) has not been booted; the running boot is Limine 12.9.3 and 7.2.11-14. The first reboot tests that as well.
+- **Not started:** the PSCI test kernel, the Aura images and U-Boot (gone with the old install; to rebuild from `patches/psci-efi/`), and porting `run.sh`/`deadman.sh` into DeepTest jobs.

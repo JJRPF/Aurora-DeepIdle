@@ -1,0 +1,59 @@
+#!/usr/bin/ash
+# GH-5 DeepTest boot: the root is a squashfs image copied from the USB test drive into RAM, under a
+# tmpfs overlay. After the copy the drive is unmounted, so it may drop off the bus or be powered down.
+# No other disk is opened. Any failure here reboots, and since Limine has consumed the one-shot
+# request, the reboot lands on the default (main) entry.
+#   usbtest=1                      turn this on
+#   usbtest_src=LABEL=DEEPTEST_ROOT  partition that carries the image (ext4)
+#   usbtest_img=/deeptest/root.sfs   image path on it; <img>.sha256 is checked if present;
+#                                    the directory <dirname img>/job is copied to /run/usbtest/job
+usbtest_say() { msg ":: usbtest: $*"; echo "usbtest: $*" > /dev/kmsg; }
+usbtest_fail() {
+    usbtest_say "FAILED: $* -- rebooting to the default entry in 10 s"
+    sleep 10
+    reboot -f
+    sleep 30
+    echo b > /proc/sysrq-trigger
+}
+usbtest_mount_handler() {
+    local newroot="$1" src img dev="" n=0 sz want got jobdir
+    src="$(getarg usbtest_src)"; [ -n "$src" ] || src="LABEL=DEEPTEST_ROOT"
+    img="$(getarg usbtest_img)"; [ -n "$img" ] || img="/deeptest/root.sfs"
+    modprobe -a -q loop squashfs overlay ext4 2>/dev/null
+    while [ $n -lt 45 ]; do
+        dev="$(blkid -lt "$src" -o device 2>/dev/null)"
+        [ -n "$dev" ] && [ -b "$dev" ] && break
+        dev=""; n=$((n + 1)); sleep 1
+    done
+    [ -n "$dev" ] || usbtest_fail "source $src not found after 45 s"
+    blockdev --setro "$dev" 2>/dev/null
+    mkdir -p /run/usbtest/src /run/usbtest/img /run/usbtest/lower /run/usbtest/rw /run/usbtest/job
+    mount -t ext4 -o ro,noload "$dev" /run/usbtest/src || usbtest_fail "cannot mount $dev"
+    [ -f "/run/usbtest/src$img" ] || usbtest_fail "no $img on $dev"
+    sz=$(stat -c %s "/run/usbtest/src$img")
+    mount -t tmpfs -o "size=$((sz / 1024 + 65536))k,mode=755" tmpfs /run/usbtest/img || usbtest_fail "tmpfs for the image"
+    usbtest_say "copying $img ($((sz / 1048576)) MB) from $dev to RAM"
+    cp "/run/usbtest/src$img" /run/usbtest/img/root.sfs || usbtest_fail "copy failed (did the drive drop?)"
+    if [ -f "/run/usbtest/src$img.sha256" ]; then
+        want=$(cut -c1-64 "/run/usbtest/src$img.sha256")
+        got=$(sha256sum /run/usbtest/img/root.sfs | cut -c1-64)
+        [ "$want" = "$got" ] || usbtest_fail "image sha256 mismatch ($got)"
+        usbtest_say "image sha256 ok"
+    fi
+    jobdir="/run/usbtest/src${img%/*}/job"
+    [ -d "$jobdir" ] && cp -r "$jobdir/." /run/usbtest/job/ 2>/dev/null
+    umount /run/usbtest/src || usbtest_say "warning: could not unmount $dev"
+    usbtest_say "image in RAM, $dev released"
+    mount -t squashfs -o loop,ro /run/usbtest/img/root.sfs /run/usbtest/lower || usbtest_fail "cannot mount the image"
+    mount -t tmpfs -o size=50%,mode=755 tmpfs /run/usbtest/rw || usbtest_fail "tmpfs for the overlay"
+    mkdir -p /run/usbtest/rw/upper /run/usbtest/rw/work
+    mount -t overlay overlay -o lowerdir=/run/usbtest/lower,upperdir=/run/usbtest/rw/upper,workdir=/run/usbtest/rw/work "$newroot" \
+        || usbtest_fail "overlay mount failed"
+    usbtest_say "root is a RAM overlay over the image; no disk is mounted"
+}
+run_hook() {
+    if [ "$(getarg usbtest)" = "1" ]; then
+        mount_handler="usbtest_mount_handler"
+    fi
+    return 0
+}

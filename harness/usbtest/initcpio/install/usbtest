@@ -1,0 +1,8 @@
+#!/bin/bash
+# GH-5 DeepTest boot: mkinitcpio build hook. Installed to /etc/initcpio/install/usbtest by build-uki.sh.
+build() {
+    map add_module overlay squashfs loop ext4 'uas?' 'usb-storage?'
+    add_binary blockdev
+    add_runscript
+}
+help() { echo "GH-5 DeepTest: copies a squashfs root image from the USB test drive to RAM and boots it under a tmpfs overlay (cmdline usbtest=1)."; }

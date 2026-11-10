@@ -1,0 +1,10 @@
+[Unit]
+Description=GH-5 DeepTest: hard deadline, reset the Mac if the test boot is still up
+ConditionKernelCommandLine=usbtest=1
+DefaultDependencies=no
+[Service]
+Type=simple
+# /run/usbtest/job/deadline (seconds) overrides the 900 s default. sysrq b needs no working userspace.
+ExecStart=/bin/sh -c 'D=$(cat /run/usbtest/job/deadline 2>/dev/null || echo 900); sleep $D; echo "usbtest-deadline: $D s, resetting" > /dev/kmsg; echo 1 > /proc/sys/kernel/sysrq; echo b > /proc/sysrq-trigger'
+[Install]
+WantedBy=sysinit.target

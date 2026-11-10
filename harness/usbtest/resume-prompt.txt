@@ -1,0 +1,2 @@
+[Automatic resume after a reboot, started by the post-boot hook deepidle-resume.]
+Continue GH-5 (S2R on the M2 Pro). The Mac has just come back to main. First read /var/lib/deepidle/usbtest/last/summary and ntfy.txt (what the DeepTest boot reported, if one was armed), then the last entries of docs/worklog.md, then carry on from where the worklog says. Log the result in docs/worklog.md and docs/s2r-status.json, post the status blurb, and notify the owner with agent-notify when something needs them.

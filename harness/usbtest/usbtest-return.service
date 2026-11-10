@@ -1,0 +1,10 @@
+[Unit]
+Description=GH-5: record the DeepTest boot that was armed before this boot
+ConditionPathExists=/var/lib/deepidle/usbtest/armed
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/deepidle/usbtest-return.sh
+[Install]
+WantedBy=multi-user.target
