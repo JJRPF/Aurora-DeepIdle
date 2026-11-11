@@ -3591,3 +3591,7 @@ Owner asked for this before the next run. Read-only: 25 branches fetched into `~
 - **Image 66** `~/Work/psci-test/boot-test.bin.66` `be46a11e5cd24846`, **not staged** (image 65 still is). Without bit 23 it behaves as image 65.
 - **Job `r17e-commit-spmi`**: R17D + `0x800000` (aura-ctl `0xfdcb1f`), checks stage 2 `7f8a122e`, WD1 left armed. To run when reboots are allowed: `sudo bash harness/usbtest/bootbin.sh test ~/Work/psci-test/boot-test.bin.66`, then `arm.sh --chain --job harness/usbtest/jobs/r17e-commit-spmi --label R17E`. Outcomes as R17D: reset about 76 s after the commit push = no change; 110 to 130 s = WD1 (the step changed the commit); "R17E resumed" = it slept and woke.
 - **Order proposed for the next reboots:** R17E first (one write, its own variable), then R18D (the SEP idle word), then both together.
+
+## 2026-11-10 22:37 GH-5: reboots allowed again (owner); image 66 staged, run R17E armed
+- Work stopped from 21:40 to 22:05 (usage limit). The owner then said reboots are fine again.
+- Image 66 (`be46a11e5cd24846`, Aura `7f8a122e`) staged. **R17E armed**: R17D + NOTIFY_ENABLE `0x2000001` on both PMU SPMI controllers before the commit (aura-ctl `0xfdcb1f`), WD1 left armed. Outcomes: reset about 76 s after the "committing" push = no change; 110 to 130 s = WD1; "R17E resumed" = it slept and woke. R18D (the SEP idle word) follows.
