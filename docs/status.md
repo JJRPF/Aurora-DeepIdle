@@ -1,4 +1,4 @@
-# Where the work stands (2026-11-10, 23:15, after run R18I)
+# Where the work stands (2026-11-10, 23:20, after run R18J)
 
 This is the summary of the whole effort: what was measured, what was built,
 what works, what does not, and what comes next. Each section points to the
@@ -97,7 +97,11 @@ There are two goals:
   the SEP being put in that state. So image 67 does the two writes in
   Aura, after Linux is done. Run R18I had them at the end of Aura's
   quiesce and Aura stopped there (the mailbox's own power or clock was
-  already off); image 68 does them first, run R18J tests it.
+  already off, was the reading). Image 68 did them first and stopped at
+  the same place (run R18J): the step read the mailbox again after the
+  enclave was gated, and a gated enclave's mailbox does not answer. That
+  also explains the Linux hangs. Image 69 leaves the mailbox alone after
+  the gate; run R18K tests it.
 * **Estimate: about 45% of the way to working S2R** (risk-weighted guess,
   wide error bar; 33% earlier on 2026-11-04, before Phase 2 closed). Per
   phase: remote hands 100 (replaced by software), CPU_ON and CPU_OFF 85,

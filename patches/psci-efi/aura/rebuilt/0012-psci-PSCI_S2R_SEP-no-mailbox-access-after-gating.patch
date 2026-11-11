@@ -1,0 +1,50 @@
+From a0538eeed03bb64a206136bb0817fa9b0e98c8c9 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <git@jjrpf.com>
+Date: Tue, 10 Nov 2026 23:10:10 -0500
+Subject: [PATCH] psci: PSCI_S2R_SEP reads OUTBOX_CTRL back at once and never
+ touches the mailbox after the enclave is gated
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+---
+ src/psci.c | 13 ++++++++++---
+ 1 file changed, 10 insertions(+), 3 deletions(-)
+
+diff --git a/src/psci.c b/src/psci.c
+index 7b8b9b23..fe24523b 100644
+--- a/src/psci.c
++++ b/src/psci.c
+@@ -473,9 +473,16 @@ static u8 qs_sep_res;
+ 
+ static void psci_quiesce_sep(void)
+ {
+-    u32 w = 0;
++    u32 w = 0, ob;
+ 
++    /*
++     * image 69: OUTBOX_CTRL is read back at once and the mailbox is not touched again. Images 67 and 68 read it
++     * after the word write and hung there (R18I, R18J: crumb 0x18): once the enclave has dropped its floor its
++     * domain is gated and the mailbox, which sits in it, no longer answers. The same access is what hung Linux
++     * (R18F to R18H).
++     */
+     write32(QS_SEP_OUTBOX_CTRL, read32(QS_SEP_OUTBOX_CTRL) & ~1u);
++    ob = read32(QS_SEP_OUTBOX_CTRL);
+     sysop("dsb sy");
+     for (unsigned i = 0; i < 500; i++) {
+         w = read32(QS_PS_SEP);
+@@ -488,11 +495,11 @@ static void psci_quiesce_sep(void)
+     udelay(1000);
+     w = read32(QS_PS_SEP);
+     qs_sep_res = 0x10;
+-    if (read32(QS_SEP_OUTBOX_CTRL) & 1)
++    if (ob & 1)
+         qs_sep_res |= 4;
+     if ((w >> 24) != 0x10 || (w & 0xff) != 0x0f)
+         qs_sep_res |= 8;
+-    psci_dbg2[47] = ((u64)w << 32) | read32(QS_SEP_OUTBOX_CTRL);
++    psci_dbg2[47] = ((u64)w << 32) | ob;
+ }
+ 
+ /* for the crumb: 0x40 = the step ran, bit 0 pmp still on, bit 1 pms_sram still on */
+-- 
+2.56.0
+
