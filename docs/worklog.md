@@ -3757,3 +3757,9 @@ Owner asked for this before the next run. Read-only: 25 branches fetched into `~
 ## 2026-11-11 08:02 GH-5: is the reset still independent of the alarm? Runs R22A (alarm +20 s) and R22B (+70 s) on image 72
 - The rule "the S2R timer resets the Mac whatever the alarm does" rests on run D2 (2026-11-05), when the cores were still in retention and nothing of macOS's entry was done. Every commit run since used one alarm (+40 s) and came back 75 to 76 s after the push. With the usual 24 s firmware chain that puts the reset about 51 s after the push, 10 s after the alarm, and less than the 60 s D2 measured for the timer. So the times no longer separate the two readings.
 - **R22A and R22B are R21 with only the alarm changed.** Main's kernel 75 s after the push in both = the timer, as assumed. A start that moves with the alarm (about 55 s for +20, about 105 s for +70) = the SoC does sleep now and the alarm wake ends in a cold boot, so the work moves to the wake path. 110 to 140 s = WD1.
+
+## 2026-11-11 08:06 GH-5 run R22B (R21 with the alarm at +70 s): the reset does not follow the alarm; R22A not needed
+- Armed 08:03:06, **"R22B committing" 08:03:59** (alarm +70 s, due 08:05:09), main's kernel started **08:05:15: 76 s after the push**, as with the +40 s alarm in every run since R17A. Away 136 s, no "resumed". Scratch as R21 (`0x6004` 16, `0x6011` 50, `0x601f` 80).
+- An alarm-driven cold boot would have put the kernel start near 08:05:33 or later (alarm plus the firmware chain). It came before the firmware chain could even have started from the alarm. **So in the current state too, the reset is the S2R timer's and the SoC is not asleep when the alarm is due.** Run D2's rule holds with all of macOS's entry steps in place.
+- R22A (+20 s) would only repeat this answer; its job stays in the tree, not run.
+

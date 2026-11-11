@@ -160,7 +160,7 @@
         "Flake found and fixed (2026-11-08): `aurora-sep-load` unloaded the packaged `apple_sep` mid-attach, so the SEP probe failed with -16 on some boots"
       ],
       "next": [
-        "R20b and R20c (images 70, 71; 2026-11-11): APSC off right before the commit, on the cluster that is still powered: the step runs and the timer resets the Mac as before. macOS’s PMU driver and retention code were read again: no missing write there. R21 (image 72): each core’s debug power request (EDPRCR) cleared before its deep WFI as macOS’s kernel does: it was already 0, same reset. Next: compare each core’s last system-register state with macOS’s `ml_arm_sleep`",
+        "R20b and R20c (images 70, 71; 2026-11-11): APSC off right before the commit, on the cluster that is still powered: the step runs and the timer resets the Mac as before. macOS’s PMU driver and retention code were read again: no missing write there. R21 (image 72): each core’s debug power request (EDPRCR) cleared before its deep WFI as macOS’s kernel does: it was already 0, same reset. R22B: the same run with the wake alarm at +70 s instead of +40 s reset at the same moment, so the reset is the S2R timer’s and not a failed wake. Each core’s last register writes match macOS’s. Next: what else the M4 Pro entry does that ours does not",
         "Anything DJ and Naeem Malik did that is still untried on T6020, starting with maralcbr’s post-`slpa` writes"
       ],
       "gate": "20 of 20 cycles; lid, key, keyboard and alarm wakes; about 0.3 W on battery."
