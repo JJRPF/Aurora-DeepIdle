@@ -1,4 +1,4 @@
-# Where the work stands (2026-11-10, 21:11, after run R18C)
+# Where the work stands (2026-11-10, 22:50, after run R18E)
 
 This is the summary of the whole effort: what was measured, what was built,
 what works, what does not, and what comes next. Each section points to the
@@ -85,7 +85,11 @@ There are two goals:
   Of macOS's sleep-entry map only the SEP's power word still differs.
   Run R18C sent the enclave macOS's SLEEP message before the commit: it
   acknowledged, but its power word stayed on, and the reset was the same.
-  Getting the word to macOS's value at the commit is run R18D.
+  Run R17E turned the PMU's SPMI notifications on before the commit: the
+  same reset. Runs R18D and R18E looked at the SEP word alone: after the
+  SLEEP the enclave holds it on (`0x1f0003ff`), and the host's write of
+  macOS's value (`0x1000030f`) does not lower it (read back `0x1f0000ff`).
+  Run R18F clears the SEP mailbox's OUTBOX_CTRL enable first, as macOS does.
 * **Estimate: about 45% of the way to working S2R** (risk-weighted guess,
   wide error bar; 33% earlier on 2026-11-04, before Phase 2 closed). Per
   phase: remote hands 100 (replaced by software), CPU_ON and CPU_OFF 85,
