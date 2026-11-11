@@ -3864,3 +3864,15 @@ Owner asked for this before the next run. Read-only: 25 branches fetched into `~
 ## 2026-11-11 13:15 GH-5 a measurement with no core awake: the PMU's whole register space after each kind of reset
 - New `tools/pmu-dump.sh` (read-only, 9 s): all 65535 PMU registers through the nvmem file. 602 of 4096 rows are non-zero. Two dumps 30 s apart on main differ in 34 rows (ADC, RTC, counters): those are the volatile ones to ignore. Dumps in `data/pmu-dumps/`.
 - The PMU is the one part that stays powered and keeps state through whatever happens after the commit (the scratch bytes prove it). If the SoC really goes down and comes back by a failed wake, the PMU sequences rails and should record it somewhere (event, fault or state registers); if the SoC is simply reset by a timer, those should look like a watchdog reset's. Runs R32A (commit, aura-ctl `0x57dcb1f`) and R32B (no commit, `0x257dcb1f`), both without the observer, each followed by a dump on main; the rows that differ between A and B and are not volatile are the answer.
+
+## 2026-11-11 13:18 R32A: commit run without observer, PMU dump taken
+
+R32A (image 82, aura-ctl `0x57dcb1f`) pushed "committing" at 13:16:04 and the main kernel started at 13:17:20, 76 s later, as on every commit run. Last crumb is stage 16 (the boot core's last access before the commit). The PMU dump is in `data/pmu-dumps/after-R32A-commit.txt`.
+
+Against the dump after R31B (no commit, watchdog reset), three rows outside the known volatile set differ:
+
+- `1030` byte 0: `40` after the watchdog reset, `00` after the commit reset.
+- `1550` byte 0 `40` and byte 9 `01` after the watchdog reset, all zero after the commit reset.
+- `1410` bytes 8 to 11: `00013d2b` against `0002bdc1` (looks like a counter).
+
+If R32B (the control, same boot chain and image) shows `40` in `1030` and `1550` again, those are reset-cause flags, and the commit reset is not a watchdog reset. R32B is armed next.
