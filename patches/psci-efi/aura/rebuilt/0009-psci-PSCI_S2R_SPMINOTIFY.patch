@@ -1,0 +1,85 @@
+From 7f8a122e7295c8f4920dc8c53c7fae32212aaeb2 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <git@jjrpf.com>
+Date: Tue, 10 Nov 2026 21:38:27 -0500
+Subject: [PATCH] psci: PSCI_S2R_SPMINOTIFY (bit 23): NOTIFY_ENABLE 0x2000001
+ on both PMU SPMI controllers right before the commit
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/psci.c | 14 ++++++++++++--
+ src/psci.h |  5 +++++
+ src/smp.c  |  3 +++
+ 3 files changed, 20 insertions(+), 2 deletions(-)
+
+diff --git a/src/psci.c b/src/psci.c
+index 80f74c35..86397441 100644
+--- a/src/psci.c
++++ b/src/psci.c
+@@ -115,7 +115,10 @@ static const u8 qs_cluster_id[5] = {1, 2, 3, 6, 4};
+ static const u32 qs_clkgen_off[5] = {0x38160, 0x38168, 0x38164, 0x38158, 0x3816c};
+ /* Wake lines (AIC2 event numbers): 724 nub-spmi0 (PMU alarm), 865 smc mailbox recv-not-empty (key/lid events) */
+ static const unsigned wake_irq[2] = {724, 865};
+-#define MPMGR_AON_S2R_TIMER 0x29e5c4000ULL      /* MPMGR_AON (PMGR reg 38, T6020) + 0x4000 */
++#define MPMGR_AON_S2R_TIMER 0x29e5c4000ULL
++#define QS_SPMI0_NOTIFY_EN  0x29e114040ULL      /* image 66: nub-spmi0 (the PMU, J414s ADT 0x9e114000) + 0x40 */
++#define QS_SPMI1_NOTIFY_EN  0x29e154040ULL      /* image 66: nub-spmi1 (spmi-spmu) + 0x40 */
++#define QS_SPMI_NOTIFY_SLEEP 0x2000001      /* MPMGR_AON (PMGR reg 38, T6020) + 0x4000 */
+ 
+ static volatile struct {
+     u32 saved; /* bit 0 domains, bit 1 clocks, bit 2 clusters, bit 3 held, 4 AMCC, 5 AIC, 6 EACC */
+@@ -909,7 +912,7 @@ static unsigned long psci_system_suspend(unsigned long entry, unsigned long cont
+     psci_dbg[2] = daif;
+     psci_dbg[14] = mrs(SYS_IMP_APL_CYC_OVRD);
+     dc_ivac_range((void *)psci_ctl, sizeof(psci_ctl));
+-    u64 steps = psci_ctl[1] & (PSCI_S2R_TIMER | PSCI_S2R_CORESOFF | PSCI_S2R_DOMAINS | PSCI_S2R_CLOCKS | PSCI_S2R_CLUSTERS | PSCI_S2R_STOPREQ | PSCI_S2R_HELD | PSCI_S2R_REC | PSCI_S2R_AMCC | PSCI_S2R_STOPWD2 | PSCI_S2R_AICMASK | PSCI_S2R_WD1OFF | PSCI_S2R_RESUMENOW | PSCI_S2R_CRUMB | PSCI_S2R_QUIET | PSCI_S2R_EACC | PSCI_S2R_DVFS | PSCI_S2R_FABRIC | PSCI_S2R_ATC | PSCI_S2R_PCIE | PSCI_S2R_AON | PSCI_S2R_PMP);
++    u64 steps = psci_ctl[1] & (PSCI_S2R_TIMER | PSCI_S2R_CORESOFF | PSCI_S2R_DOMAINS | PSCI_S2R_CLOCKS | PSCI_S2R_CLUSTERS | PSCI_S2R_STOPREQ | PSCI_S2R_HELD | PSCI_S2R_REC | PSCI_S2R_AMCC | PSCI_S2R_STOPWD2 | PSCI_S2R_AICMASK | PSCI_S2R_WD1OFF | PSCI_S2R_RESUMENOW | PSCI_S2R_CRUMB | PSCI_S2R_QUIET | PSCI_S2R_EACC | PSCI_S2R_DVFS | PSCI_S2R_FABRIC | PSCI_S2R_ATC | PSCI_S2R_PCIE | PSCI_S2R_AON | PSCI_S2R_PMP | PSCI_S2R_SPMINOTIFY);
+     for (unsigned i = 0; i < 48; i++)
+         psci_dbg2[i] = 0;
+     psci_dbg2[1] = steps | ((u64)qs_amcc_n << 32) | ((u64)qs_amcc_planes << 40);
+@@ -1011,6 +1014,13 @@ static unsigned long psci_system_suspend(unsigned long entry, unsigned long cont
+         qs_crumb_snapshot();
+         qs_crumb(0x16); /* the last access before the commit */
+     }
++    if (quiet && (steps & PSCI_S2R_SPMINOTIFY)) {
++        /* image 66: after the last crumb, nothing in Aura uses SPMI again before the commit */
++        write32(QS_SPMI0_NOTIFY_EN, QS_SPMI_NOTIFY_SLEEP);
++        write32(QS_SPMI1_NOTIFY_EN, QS_SPMI_NOTIFY_SLEEP);
++        sysop("dsb sy");
++        psci_dbg2[46] = ((u64)read32(QS_SPMI1_NOTIFY_EN) << 32) | read32(QS_SPMI0_NOTIFY_EN);
++    }
+     if ((steps & PSCI_S2R_WD1OFF) && (steps & PSCI_S2R_TIMER)) {
+         wdt_psci_disarm();
+         psci_dbg2[45] = 0x5100000000ULL | 1;
+diff --git a/src/psci.h b/src/psci.h
+index 4d8e8107..1124ac66 100644
+--- a/src/psci.h
++++ b/src/psci.h
+@@ -112,6 +112,11 @@ u64 psci_crumb_base(void);
+ /* image 65: the PMP's own power words, which macOS has off at sleep entry (PMP 0x0f0f0300, PMS_SRAM 0x0f000300,
+  * data/psmap.txt); Linux only sends the PMP its RTKit sleep. Commit runs only: nothing boots the PMP again */
+ #define PSCI_S2R_PMP      BIT(22)
++/* image 66: NOTIFY_ENABLE (+0x40) := 0x2000001 on both PMU SPMI controllers (nub-spmi0, nub-spmi1) right before the
++ * timer, after the last crumb, as aurora-silicon's T6040 entry (t6040-sleep.c, "HW") and macOS's per-SoC SPMI config
++ * value on T6020 (15.7.1 AppleSPMI). J414s has 0 there while Linux runs. Commit runs only: Linux's SPMI driver does
++ * not expect it */
++#define PSCI_S2R_SPMINOTIFY BIT(23)
+ void psci_ctl_init(void);
+ 
+ bool psci_suspend_resuming(void);
+diff --git a/src/smp.c b/src/smp.c
+index 95cd60d2..3eddc9bb 100644
+--- a/src/smp.c
++++ b/src/smp.c
+@@ -1321,6 +1321,9 @@ int smp_psci_mmio_ranges(u64 *ranges, int max)
+     /* image 60b: the PMU's SPMI controller for PSCI_S2R_CRUMB (image 60 faulted on its first read: run R10) */
+     if (psci_crumb_base())
+         smp_psci_add_range(ranges, max, &n, psci_crumb_base(), 0x10);
++    /* image 66: NOTIFY_ENABLE on nub-spmi0 (on the crumb page) and nub-spmi1 (PSCI_S2R_SPMINOTIFY) */
++    if (psci_crumb_base() && chip_id == T6020)
++        smp_psci_add_range(ranges, max, &n, 0x29e154040, 4);
+     /* image 60c: the PMP's request/ack words for the PSCI_S2R_CRUMB snapshot (the CPM power words share a mapped page) */
+     if (psci_crumb_base() && chip_id == T6020)
+         smp_psci_add_range(ranges, max, &n, 0x28e3c2000, 0x84);
+-- 
+2.56.0
+
