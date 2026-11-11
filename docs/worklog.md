@@ -4016,3 +4016,9 @@ This is the first register-level footprint of the commit, and it has a control b
 
 - **Probe:** `0x600c` = `2a`: stopped in page 10. Pages 8, 9 and 10 each stop the observer, so I take everything from `0x29e5c8000` up as not readable from here and stop probing.
 - Next: **R35C**, the control without the commit (do any of the five move anyway?), and reading macOS's PMGR code for these five offsets.
+
+## 2026-11-11 14:17 run R35C (control, no commit): none of the always-on words change; the five are the commit's doing
+- Armed 14:02:41, "R35C committing" (no timer write) 14:03:35, main's kernel 14:05:50 (no commit, so the reset is not WD2's 61 s). Away 196 s. Image 87, `0x3d7dcb1f`, report from word 0, no probing.
+- **Scratch:** observer finished (`0x6004` a4, `0x600c` ee), **`0x6006` 00: no word of pages 0 to 7 of `MPMGR_AON` differs** over the same 3 s. All three slots still `ff`.
+- State counters (`0x6005` 92): `AWAKE` and `SYS_AWAKE` only; `SYS_SLP_DDR` (bit 6 in R35B's d2) stays still without the commit, as R34's control.
+- **So the five words of R35B/D/E are the sleep engine's answer to the commit**, not drift: `+0x14` 3 → 1, `+0x100` 8 → 0xa, `+0x4000` 1 → 0, `+0x4008` 0 → 1, `+0x400c` 0 → 1. Next: what macOS's PMGR driver does with these offsets, and whether macOS's own sleep path writes any of them before the timer.
