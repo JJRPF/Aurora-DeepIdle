@@ -3595,3 +3595,9 @@ Owner asked for this before the next run. Read-only: 25 branches fetched into `~
 ## 2026-11-10 22:37 GH-5: reboots allowed again (owner); image 66 staged, run R17E armed
 - Work stopped from 21:40 to 22:05 (usage limit). The owner then said reboots are fine again.
 - Image 66 (`be46a11e5cd24846`, Aura `7f8a122e`) staged. **R17E armed**: R17D + NOTIFY_ENABLE `0x2000001` on both PMU SPMI controllers before the commit (aura-ctl `0xfdcb1f`), WD1 left armed. Outcomes: reset about 76 s after the "committing" push = no change; 110 to 130 s = WD1; "R17E resumed" = it slept and woke. R18D (the SEP idle word) follows.
+
+## 2026-11-10 22:41 GH-5 run R17E: SPMI NOTIFY_ENABLE on before the commit, the same reset; R18D armed
+- Armed 22:38:01, "R17E committing" 22:38:39 (aura-ctl `0xfdcb1f` read back on image 66, the job checks stage 2 `7f8a122e`), main's kernel started 22:39:55: 76 s after the push, as every R17 run. Away 121 s, no "resumed" push, WD1 did not fire first. PMU scratch: R17D's bytes (`0x600c` 00, `0x6011` 40).
+- The write's read-back (`psci_dbg2[46]`) is lost with the reset, so that it took is not shown; the code path is the quiet commit's, after crumb `0x16`, which was reached.
+- **So NOTIFY_ENABLE on the two PMU SPMI controllers is not what the entry waits for either.** The M4 Pro entry steps with a T6020 counterpart are now all tried.
+- **R18D armed** on image 66 without bit 23 (aura-ctl `0x7dcb1f`, i.e. R17D's entry): the job now accepts stage 2 `b22c3766` or `7f8a122e`. It waits for the enclave's idle word (`0x1000030f`) before the SLEEP and again after it, and stops if it is not idle after the SLEEP. Pushes "R18D sep bound", "R18D sep asleep", "R18D committing". Outcomes as before: reset about 76 s after the commit push = no change; about 35 s = a panic in the suspend path; 110 to 130 s = WD1; "R18D resumed" = it slept and woke. The boot can take up to 2 min longer than the others (the waits).
