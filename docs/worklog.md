@@ -3944,3 +3944,26 @@ R34A pushed "committing" at 13:35:43, the main kernel started at 13:37:00 (77 s)
 - WD2 3 s after the commit: alarm **60 s**, count **0 s**, control low nibble 0 (also 0 at the commit). On 11-06 WD2 read alarm 90 s with a running count of about 87 s before the timer write (iBoot's leftover).
 
 Nothing can be read from this without the control R34B (the same without the three timer writes), armed now.
+
+## 2026-11-11 13:42 R34B (control): the commit moves the PMGR's system state from SYS_AWAKE to SYS_SLP_DDR and reloads WD2 to 60 s. The SoC-level state stays AWAKE
+
+R34B (image 83, aura-ctl `0x3d7dcb1f`, no commit) pushed "committing" at 13:38:57, the main kernel started at 13:41:13 (136 s, watchdog). Stage `a4`. Raw scratch: `00 30 00 50 a4 92 12 00 44 00 00 44 00 00 00 00 00 01 10 1f ff 00 00 5a 00 00 00 00 10 10 50 80`.
+
+| Over the 3 s after the commit point | R34B, no commit | R34A, commit |
+|---|---|---|
+| `AWAKE` | +3 s | +3 s |
+| `DEEP_WAIT`, `SLP_S2R`, `SLP_DDR` | 0 | 0 |
+| `SYS_AWAKE` | +3 s | **0** |
+| `SYS_SLP_DDR` | 0 | **+3 s** |
+| `SYS_S2R_AOP` | 0 | 0 |
+| WD2 alarm | 90 s (iBoot's leftover) | **60 s** |
+| WD2 count | under 1 s | under 1 s |
+
+This is the first register-level footprint of the commit, and it has a control beside it.
+
+- **The timer write is taken as a sleep request at once.** The system-level counter switches from `SYS_AWAKE` to `SYS_SLP_DDR` for the whole 3 s (the naming is right: the control counts `SYS_AWAKE`).
+- **The SoC-level state does not follow.** `AWAKE` keeps counting; `DEEP_WAIT` and `SLP_S2R` never start. In this run one core (the observer) was awake, which may by itself hold `AWAKE`. But the runs without an observer end in the same reset, so the SoC-level state most likely never leaves `AWAKE` there either.
+- **The 61 s are WD2.** The commit sets WD2's alarm to 60 s (it reads 90 s without it). That is the "reconfig watchdog" DJ and Naeem describe on the T8140 and M1 (5 s there): the sleep engine loads it at the commit and stops it when the entry completes. So "reset 61 s after the commit" means exactly "the entry did not complete within 60 s". W1's 11-06 result (WD2 stopped, reset at 90 s) fits.
+- The system target is `SYS_SLP_DDR`, not `SYS_S2R_AOP`. Whether macOS's normal sleep on this machine is the one or the other is not known; noted.
+
+**What changed for the work.** Until now each try had one bit of output (reset at 76 s or not). Now there is an instrument: a core can read which state the PMGR is in after the commit. And there is an older fact that now looks like the centre: the SoC-level counters have **never** shown anything but `AWAKE` on Linux, not in s2idle, not with all ten cores in deep sleep under Aura. `DEEP_WAIT` is by its name the state before sleep. The question to answer is what lets the PMGR leave `AWAKE`, and that can be tested without a commit and without a reset.
