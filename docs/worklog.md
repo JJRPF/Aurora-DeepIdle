@@ -3513,3 +3513,9 @@ Owner asked for this before the next run. Read-only: 25 branches fetched into `~
 - **Mistake in the plan:** I meant to read the ATC and fabric state from `0x600e` and `0x600d`. Those two keys read 0 after every reset (noted on 2026-11-07, R15). So this run does not show whether the ATC words were off at the commit. A1 and A2 showed they go off within 10 ms on the normal path.
 - **Fix, Aura `ec1e8686`** (patch `0007`): crumb `0x600c`, which survives, now has bit 7 = some ATC word still on, beside image 64's PCIe bits 0 to 2 and AON bits 3 to 6. Image 64 rebuilt: `boot-test.bin` `767527b8149c77d5`, **staged** (image 63 kept as `~/Work/psci-test/boot-test.bin.63`). `tools/pmu-scratch.sh` updated; crumbs zeroed.
 - **Run R17B armed:** R17A + `0x100000` (PCIe chain to target 0). Expected `0x600c` = `00` if PCIe and ATC were all off at the commit.
+
+## 2026-11-10 20:50 GH-5 run R17B: PCIe chain and USB-C blocks confirmed off at the commit, the same reset; R17C armed
+- Armed 20:46:04, "R17B committing" 20:46:42, main's kernel started 20:47:58 (76 s after the push; R17A the same), no "resumed" push. aura-ctl `0x1ddb1f` read back on image 64 (`ec1e8686`).
+- **PMU scratch:** R17's bytes again, and **`0x600c` = `00`**: at the last access before the commit `apcie_gp_sys`, `apcie_gpshr_sys`, `apcie_gp` and all eight ATC words read actual state 0. (The key was `ff` after R17A and zeroed before this run; the snapshot writes `ff` there first, so `00` is the step's own write.)
+- **So neither the USB-C complexes nor the PCIe chain is what keeps the SoC from powering down.** Two of the largest differences from macOS's sleep-entry map are gone.
+- **R17C armed:** + `0x200000` (`atc1-3_usb_aon`, `msg` to target 0). Expected `0x600c` = `00` again if they all went off.
