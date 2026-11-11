@@ -3763,3 +3763,7 @@ Owner asked for this before the next run. Read-only: 25 branches fetched into `~
 - An alarm-driven cold boot would have put the kernel start near 08:05:33 or later (alarm plus the firmware chain). It came before the firmware chain could even have started from the alarm. **So in the current state too, the reset is the S2R timer's and the SoC is not asleep when the alarm is due.** Run D2's rule holds with all of macOS's entry steps in place.
 - R22A (+20 s) would only repeat this answer; its job stays in the tree, not run.
 
+## 2026-11-11 08:11 status page brought fully up to date (owner asked)
+- The page's top text and image list were current, but four parts had fallen behind: Phase 5's summary stopped at R18D, the "PMGR quiesce, S2R timer" piece at run R (2026-11-06), the first open question still said Aura does not do the S2R entry, and there were no findings for today's runs. All rewritten to R22B.
+- Percentages reviewed: Phase 3 (macOS trace) 55 to 60 (15.7.1's own kernel and device tree read), Phase 4 (devices) 15 to 20 (USB-C lowered and restored 4 of 4, the enclave gated as macOS has it). **Phase 5 stays 10 and the overall figure stays 45:** no sleep has completed, and closing leads is not progress on the bar.
+
