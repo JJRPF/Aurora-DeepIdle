@@ -3706,3 +3706,12 @@ Owner asked for this before the next run. Read-only: 25 branches fetched into `~
 - Domains: `pmp-disp0`, `pmp-dispext0`, `pmp-dispext1`, `pmp-isp-sys` on, `pmp-avd-sys` off. cpufreq: 3 `apple-cpufreq` policies.
 - **Warnings and errors at boot: 16 lines**, of which the test root's own messages are 7, systemd's two `LoaderSystemToken` lines, and from the kernel: `PM domain pmp-isp-sys will not be powered off`, `watchdog: watchdog0: watchdog did not stop!` (the test root keeps the dog armed on purpose) and `ane_t6021 284000000.ane: error -ENODEV: firmware preflight failed` (main's 7.2.11 fails the same preflight: the ANE firmware is not installed). Nothing from the PMP, RTKit, DCP or the fabric.
 - No wakealarm, as expected for the pure DTB. **Next: P12C** (image `p12c` `98558a46cff1d363`: the same plus the alarm cells) for the 10 s2idle cycles.
+
+## 2026-11-11 03:27 issue #12 run P12C: 10 of 10 s2idle cycles pass on PR 933's kernel with the PMP on (steps 3 and 4 done)
+- Armed 03:20:39, back 03:26:46 (away 367 s). Same kernel and stage 2 as P12B; DTB = PR 933's plus only the T602x RTC alarm cells (image `p12c` `98558a46cff1d363`), so the wake source is the PMU alarm.
+- Boot: PMP node `okay`, 81 tunables, ready line, `PMP manages fabric and DCS p-states`, 16 warning lines as in P12B.
+- **Cycles (20 s alarm each):** asleep 20.2, 19.9, 20.1, 20.0, then 19.9 s six times; `echo mem` returned 0 every time; eDP `connected/enabled`, backlight 140; Wi-Fi answered a ping on the second try (about 2 s after wake) every time; USB device count 3 throughout; **0 new warning or error lines in every cycle**.
+- After the cycles the `pmp-*` domains are as at boot (`pmp-disp0`, `pmp-dispext0`, `pmp-dispext1`, `pmp-isp-sys` on, `pmp-avd-sys` off).
+- The run log's per-cycle lines did not come back (the closing push is over ntfy's size limit, and a chain boot has no results drive); the table above is from the job's own summary push.
+- Issue #12 now has steps 1, 3 and 4. Left: the optional fit check, the aura port as stage 2 (aura here already carries the fit fix), results to linux #933.
+- **Next: S2R run R20b** (image 70, APSC off late), WD1 armed, with the S2R UKI put back.
