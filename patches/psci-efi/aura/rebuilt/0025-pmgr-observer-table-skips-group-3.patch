@@ -1,0 +1,26 @@
+From 707704efc07dbc16154a50a852d1f50dae80b4ce Mon Sep 17 00:00:00 2001
+From: Justin Pfister <git@jjrpf.com>
+Date: Wed, 11 Nov 2026 13:05:51 -0500
+Subject: [PATCH] pmgr: the S2R observer's power-word table also leaves out
+ ps-reg group 3, the SMC's words (image 82)
+
+---
+ src/pmgr.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/pmgr.c b/src/pmgr.c
+index 793c0679..6f06dd7b 100644
+--- a/src/pmgr.c
++++ b/src/pmgr.c
+@@ -761,7 +761,7 @@ void pmgr_ps_tab_build(void)
+     for (size_t i = 0; i < pmgr_devices_len && pmgr_ps_tab_n < PMGR_PS_TAB_MAX; i++) {
+         const struct pmgr_device *d = &pmgr_devices[i];
+         uintptr_t a = pmgr_device_get_addr(0, d);
+-        if (!a || d->psreg_idx == 8 || (d->psreg_idx >= 14 && d->psreg_idx <= 16)) /* images 80, 81: groups 8 (ANE) and 14 (ISP) hang the reader; 15, 16 (VENC, PRORES) are the same kind of page */
++        if (!a || d->psreg_idx == 3 /* image 82: SMC_GPIO hangs too */ || d->psreg_idx == 8 || (d->psreg_idx >= 14 && d->psreg_idx <= 16)) /* images 80, 81: groups 8 (ANE) and 14 (ISP) hang the reader; 15, 16 (VENC, PRORES) are the same kind of page */
+             continue;
+         pmgr_ps_tab[pmgr_ps_tab_n].addr = a;
+         pmgr_ps_tab[pmgr_ps_tab_n].key = ((u32)d->psreg_idx << 8) | d->addr_offset;
+-- 
+2.56.0
+

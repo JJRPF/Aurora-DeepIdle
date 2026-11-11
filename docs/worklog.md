@@ -3843,3 +3843,8 @@ Owner asked for this before the next run. Read-only: 25 branches fetched into `~
 - Armed 09:14:02, "R29A committing" 09:14:56, main's kernel started 09:16:13: 77 s. (Then the session's usage limit; this entry is written at 13:02.)
 - 404 words in the table, 202 read; the read of entry 202, ISP_CPU (the first word of group 14, `0x290284000`), hung. Same shape as the ANE's group 8: a second page of a PMGR block (+0x4000) that belongs to a subsystem whose parent is off by then. Likely our own quiesce steps make those pages unreadable, not the commit (R28B showed that for the ANE's).
 - Image 81 (Aura `1a9621ad`) also leaves out groups 14 to 16 (ISP, VENC, PRORES): 391 words, `data/pmgr-ps-table-image81.txt`. Runs R30A and R30B.
+
+## 2026-11-11 13:05 GH-5 run R30A (image 81): the snapshot stops at entry 263, SMC_GPIO
+- Armed 13:02:32, "R30A committing" 13:03:26, main's kernel started 13:04:42: 76 s.
+- 263 of 391 words read; entry 263 is SMC_GPIO (group 3, the SMC's words in the AON block; SMC_FABRIC just before it read). Every group Linux's own device tree lists has now been read; what is left after group 3 is group 0, which already read at entries 205 to 261.
+- Image 82 (Aura `707704ef`) leaves group 3 out: 374 words, `data/pmgr-ps-table-image82.txt`. Runs R31A and R31B. Three runs spent finding unreadable words; that is the cost of having no console after the commit.
