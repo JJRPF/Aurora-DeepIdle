@@ -1,0 +1,150 @@
+From d2b4755c405b1546fe886f3cfe5efc5885712410 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <git@jjrpf.com>
+Date: Wed, 11 Nov 2026 08:21:18 -0500
+Subject: [PATCH] psci: observer reads every core's EDPRSR and the three
+ complex words after the commit; PSCI_S2R_OBSERVE_P0 (bit 28) picks a core of
+ the first P complex (image 74)
+
+---
+ src/psci.c | 44 +++++++++++++++++++++++++++++++++++---------
+ src/psci.h |  2 ++
+ src/smp.c  | 21 +++++++++++----------
+ src/smp.h  |  2 +-
+ 4 files changed, 49 insertions(+), 20 deletions(-)
+
+diff --git a/src/psci.c b/src/psci.c
+index d4965b74..2616af30 100644
+--- a/src/psci.c
++++ b/src/psci.c
+@@ -823,14 +823,39 @@ void psci_s2r_observe(void)
+             r[2] = t / 384000 > 254 ? 254 : t / 384000; /* 16 ms units */
+         r[1] = v;
+     } while (t < 3 * 24000000ULL);
+-    qs_crumb_write(0x6008, r, 3);
+-    qs_crumb_write(0x6012, &r[1], 1);
+-    qs_crumb_write(0x6013, &r[2], 1);
++    /*
++     * image 74: after the 3 s, the three complex words as this core reads them (0x6012 ECPM, 0x6013 PCPM0, 0x601b
++     * PCPM1, each >> 4), this core's own EDPRSR as the calibration (0x600a, bit 7 = read; PU must be 1), then every
++     * other valid core's EDPRSR: 0x6008/0x6009 = the cores that read PU = 1 (bit = Aura index), 0x600b = the index
++     * being read (written first, so a block that does not answer names itself), ff when all are done.
++     */
++    r[0] = read32(QS_CPM_PS) >> 4;
++    r[1] = read32(QS_CPM_PS + 8) >> 4;
++    r[2] = read32(QS_CPM_PS + 0x10) >> 4;
++    qs_crumb_write(0x6012, r, 2);
++    qs_crumb_write(0x601b, &r[2], 1);
+     qs_crumb(0xa2);
+-    /* the boot core's EDPRSR (bit 0 PU: powered up). T6020: cluster 0 core 0. Last, as the block may not answer. */
+-    r[3] = 0x80 | (read32(0x210010000ULL + 0x314) & 0x7f);
+-    qs_crumb_write(0x600b, &r[3], 1);
+-    qs_crumb_write(0x601f, &r[3], 1);
++    u64 me = mrs(MPIDR_EL1);
++    u32 pu = 0;
++    r[3] = 0x80 | (read32(0x210010000ULL + ((me >> 8) & 0xff) * 0x1000000ULL + (me & 0xff) * 0x100000ULL + 0x314) & 0x7f);
++    qs_crumb_write(0x600a, &r[3], 1);
++    for (int i = 0; i < 16 && i < MAX_CPUS; i++) {
++        if (!smp_psci_cpu_valid(i))
++            continue;
++        u64 m = i == boot_cpu_idx ? 0 : smp_psci_ipi_mpidr(i);
++        u64 cl = (m >> 8) & 0xff, co = m & 0xff;
++        if (cl > 2 || co > 3 || (cl == ((me >> 8) & 0xff) && co == (me & 0xff)))
++            continue;
++        u8 b = i;
++        qs_crumb_write(0x600b, &b, 1);
++        if (read32(0x210010000ULL + cl * 0x1000000ULL + co * 0x100000ULL + 0x314) & 1)
++            pu |= BIT(i);
++        r[0] = pu & 0xff;
++        r[1] = pu >> 8;
++        qs_crumb_write(0x6008, r, 2);
++    }
++    r[0] = 0xff;
++    qs_crumb_write(0x600b, r, 1);
+     qs_crumb(0xa3);
+ }
+ static void qs_crumb_snapshot(void)
+@@ -1007,7 +1032,7 @@ static unsigned long psci_system_suspend(unsigned long entry, unsigned long cont
+     psci_dbg[2] = daif;
+     psci_dbg[14] = mrs(SYS_IMP_APL_CYC_OVRD);
+     dc_ivac_range((void *)psci_ctl, sizeof(psci_ctl));
+-    u64 steps = psci_ctl[1] & (PSCI_S2R_TIMER | PSCI_S2R_CORESOFF | PSCI_S2R_DOMAINS | PSCI_S2R_CLOCKS | PSCI_S2R_CLUSTERS | PSCI_S2R_STOPREQ | PSCI_S2R_HELD | PSCI_S2R_REC | PSCI_S2R_AMCC | PSCI_S2R_STOPWD2 | PSCI_S2R_AICMASK | PSCI_S2R_WD1OFF | PSCI_S2R_RESUMENOW | PSCI_S2R_CRUMB | PSCI_S2R_QUIET | PSCI_S2R_EACC | PSCI_S2R_DVFS | PSCI_S2R_FABRIC | PSCI_S2R_ATC | PSCI_S2R_PCIE | PSCI_S2R_AON | PSCI_S2R_PMP | PSCI_S2R_SPMINOTIFY | PSCI_S2R_SEP | PSCI_S2R_DVFSLATE | PSCI_S2R_EDPRCR | PSCI_S2R_OBSERVE);
++    u64 steps = psci_ctl[1] & (PSCI_S2R_TIMER | PSCI_S2R_CORESOFF | PSCI_S2R_DOMAINS | PSCI_S2R_CLOCKS | PSCI_S2R_CLUSTERS | PSCI_S2R_STOPREQ | PSCI_S2R_HELD | PSCI_S2R_REC | PSCI_S2R_AMCC | PSCI_S2R_STOPWD2 | PSCI_S2R_AICMASK | PSCI_S2R_WD1OFF | PSCI_S2R_RESUMENOW | PSCI_S2R_CRUMB | PSCI_S2R_QUIET | PSCI_S2R_EACC | PSCI_S2R_DVFS | PSCI_S2R_FABRIC | PSCI_S2R_ATC | PSCI_S2R_PCIE | PSCI_S2R_AON | PSCI_S2R_PMP | PSCI_S2R_SPMINOTIFY | PSCI_S2R_SEP | PSCI_S2R_DVFSLATE | PSCI_S2R_EDPRCR | PSCI_S2R_OBSERVE | PSCI_S2R_OBSERVE_P0);
+     for (unsigned i = 0; i < 48; i++)
+         psci_dbg2[i] = 0;
+     psci_dbg2[1] = steps | ((u64)qs_amcc_n << 32) | ((u64)qs_amcc_planes << 40);
+@@ -1114,7 +1139,8 @@ static unsigned long psci_system_suspend(unsigned long entry, unsigned long cont
+         if (steps & PSCI_S2R_AICMASK)
+             psci_quiesce_aic();
+         qs_crumb(0x17);
+-        smp_psci_release_parked(steps & PSCI_S2R_STOPREQ, steps & PSCI_S2R_EDPRCR, steps & PSCI_S2R_OBSERVE);
++        smp_psci_release_parked(steps & PSCI_S2R_STOPREQ, steps & PSCI_S2R_EDPRCR,
++                                (steps & PSCI_S2R_OBSERVE) ? ((steps & PSCI_S2R_OBSERVE_P0) ? 2 : 1) : 0);
+         udelay(2000);
+         qs_crumb_snapshot();
+         if (steps & PSCI_S2R_EDPRCR) {
+diff --git a/src/psci.h b/src/psci.h
+index 4b6fe083..4debc4c9 100644
+--- a/src/psci.h
++++ b/src/psci.h
+@@ -134,6 +134,8 @@ u64 psci_crumb_base(void);
+  * result in the PMU scratch (0x6004 a1/a2/a3, 0x6008-0x600b, copies in 0x6012/0x6013/0x601f). Then it sleeps too.
+  */
+ #define PSCI_S2R_OBSERVE  BIT(27)
++/* image 74: the observer is the lowest CPU_OFF P core (index >= 4, the first P complex) instead of the highest */
++#define PSCI_S2R_OBSERVE_P0 BIT(28)
+ void psci_s2r_observe(void);
+ void psci_ctl_init(void);
+ 
+diff --git a/src/smp.c b/src/smp.c
+index ffbf8708..035e223d 100644
+--- a/src/smp.c
++++ b/src/smp.c
+@@ -1162,21 +1162,22 @@ u32 smp_psci_ed_release(void)
+ 
+ static volatile u64 psci_s2r_observer __attribute__((aligned(64)));
+ 
+-void smp_psci_release_parked(bool stopreq, bool ed, bool observe)
++void smp_psci_release_parked(bool stopreq, bool ed, int observe)
+ {
+     psci_s2r_offmask = 0;
+     /* image 73: the observer is the highest CPU_OFF core (a P core of the second P complex on T6020) */
+     u64 obs = 0;
+-    if (observe)
+-        for (int i = MAX_CPUS - 1; i > 0; i--) {
+-            if (i == boot_cpu_idx || !cpu_info[i].valid)
+-                continue;
+-            dc_civac_range(&psci_cpu_state[i], 1);
+-            if (psci_cpu_state[i] == PSCI_CPU_OFF) {
+-                obs = i;
+-                break;
+-            }
++    /* observe: 1 = the highest CPU_OFF core, 2 = the lowest one with index >= 4 (image 74) */
++    for (int k = 0; observe && k < MAX_CPUS; k++) {
++        int i = observe == 2 ? k : MAX_CPUS - 1 - k;
++        if (i == boot_cpu_idx || i < (observe == 2 ? 4 : 1) || !cpu_info[i].valid)
++            continue;
++        dc_civac_range(&psci_cpu_state[i], 1);
++        if (psci_cpu_state[i] == PSCI_CPU_OFF) {
++            obs = i;
++            break;
+         }
++    }
+     psci_s2r_observer = obs;
+     dc_civac_range((void *)&psci_s2r_observer, sizeof(psci_s2r_observer));
+     psci_s2r_go = (ed ? 3 : 1) | (obs ? 4 : 0);
+diff --git a/src/smp.h b/src/smp.h
+index d384e702..0cec4d3d 100644
+--- a/src/smp.h
++++ b/src/smp.h
+@@ -36,7 +36,7 @@ uint64_t smp_get_mpidr(int cpu);
+ u64 smp_get_release_addr(int cpu);
+ void smp_set_wfe_mode(bool new_mode);
+ void smp_send_ipi(int cpu);
+-void smp_psci_release_parked(bool stopreq, bool ed, bool observe);
++void smp_psci_release_parked(bool stopreq, bool ed, int observe);
+ u32 smp_psci_ed_release(void);
+ void smp_psci_s2r_clear(void);
+ 
+-- 
+2.56.0
+

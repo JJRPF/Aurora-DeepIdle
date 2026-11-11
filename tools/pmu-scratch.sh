@@ -31,10 +31,11 @@ else
     echo "0x601f EDPRCR release   $(b 601f) (image 72: bit 7 clear = the step did not run)"
 fi
 case "$(b 6004)" in a1|a2|a3|af)
-    echo "OBSERVER (image 73): stage $(b 6004) (a1 saw the commit, a2 sampled 3 s, a3 read EDPRSR too, af no commit seen)"
-    echo "  boot complex power word >> 4: 20 ms after the commit $(b 6008), after 3 s $(b 6009) (low nibble 0 = off; copy in 0x6012: $(b 6012))"
-    echo "  first read off after $(b 600a) x 16 ms (ff = never in 3 s; copy in 0x6013: $(b 6013))"
-    P=$((0x$(b 600b))); echo "  boot core EDPRSR $(b 600b) (bit 7 = read; PU $((P & 1)) = core powered, SPD $((P >> 1 & 1)), R $((P >> 2 & 1)); copy in 0x601f: $(b 601f))" ;;
+    echo "OBSERVER (image 74): stage $(b 6004) (a1 saw the commit, a2 sampled 3 s and wrote the words, a3 read every EDPRSR, af no commit seen)"
+    echo "  3 s after the commit, as the observer reads them: ECPM $(b 6012) PCPM0 $(b 6013) PCPM1 $(b 601b) (>> 4; low nibble 0 = off, 10 = off and was gated, 1f = on)"
+    P=$((0x$(b 600a))); echo "  observer's own EDPRSR $(b 600a) (calibration: bit 7 = read, PU $((P & 1)) must be 1)"
+    echo "  cores that read powered (PU = 1), bit = Aura index: $(b 6009)$(b 6008); last index started $(b 600b) (ff = all read)"
+    echo "  (image 73 used 0x6008 20 ms word, 0x6009 3 s word, 0x600a first-off x 16 ms, 0x600b boot core EDPRSR)" ;;
 esac
 echo "0x6001/2/3 boot stage $(b 6001), error count $(b 6002), error stage $(b 6003); 0x6010 loader flag $(b 6010); 0x6017 $(b 6017)"
 if [ "${1:-}" = zero ]; then
