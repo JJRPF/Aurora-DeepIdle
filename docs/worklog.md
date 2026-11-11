@@ -3979,3 +3979,15 @@ This is the first register-level footprint of the commit, and it has a control b
 - **Scratch:** `0x6004` 16, no observer stage, `0x600c` = `88` = "before" snapshot, page 8. Every other byte is the boot core's own snapshot. So words `0x29e5c0000`–`0x29e5c7fff` read without trouble and the first access in `0x29e5c8000` either faulted or never returned. The boot core went on after its 2 s and committed, as designed. (Not certain: the boot core's snapshot also writes `0x600c`, but with an observer present it puts a park count there, with zeros in `0x600d/e`; `88` as that count is unlikely.)
 - **Image 85** (Aura `b539476d`, `v0.1.0-36`, `boot-test.bin.85` sha `ef96cf0414e6a880`, patch 0028): the pages to diff are a mask (default pages 0 to 7, which hold the timer word at `+0x4000`); after the report the observer reads the remaining pages one at a time with the page number in `0x600d` first, leaving out page 8, so each run also names the next page that cannot be read. `aura-ctl` takes a fourth word for this (start index, page mask, pages not to probe).
 - Jobs: **R35B** = commit (`0x1d7dcb1f`), **R35C** = control (`0x3d7dcb1f`), both on image 85.
+
+## 2026-11-11 13:54 run R35B: five words of the always-on block change with the commit; two are named, `+0x14` 3 → 1 and `+0x100` 8 → 0xa
+- Armed 13:51:16, "R35B committing" 13:52:09, main's kernel 13:53:26 (77 s after the push). Away 136 s. Image 85 read back.
+- **The observer finished** (`0x6004` a4, `0x600c` ff): pages 0 to 7 of `MPMGR_AON` (8192 words) read three times without trouble, no volatile words.
+- **Five words differ 3 s after the commit** (`0x6006` 05):
+  - word 5, **`0x29e5c0014`: low byte `03` → `01`** (one byte differs);
+  - word 64, **`0x29e5c0100`: low byte `08` → `0a`** (one byte differs);
+  - two more between word 65 and 4095, not reported (two entries per run);
+  - the last is word 4096, `0x29e5c4000`, the S2R timer word itself.
+- State counters over the same time (`0x6005` d2): `AWAKE`, `SYS_AWAKE` and `SYS_SLP_DDR` advanced. `SYS_AWAKE` shows here because this image takes the "before" reading ahead of the commit; otherwise as R34.
+- **`0x600d` and `0x600e` are cleared by the reset** (noted for image 64, forgotten): the probe page and the WD2 byte I put there are lost. Image 86 (Aura `b41fcb54`, `v0.1.0-37`, `boot-test.bin.86` sha `1ee46452563aa108`, patch 0029) reports three entries (`0x6007`, `0x6012`, `0x601b`) and puts the probe page in `0x600c`.
+- **What this is worth.** These are the first status words of the sleep engine seen on this SoC: a small block at the start of the always-on PMGR that reacts to the commit. Their meaning is not known yet. Next: **R35D** = the same with the report starting at word 65 (the two missing words, and the next unreadable page), then **R35C** = the control without the commit (which of these change anyway).

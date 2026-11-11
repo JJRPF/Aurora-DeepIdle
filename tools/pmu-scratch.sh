@@ -53,11 +53,11 @@ case "$(b 6004)" in a1|a2|a3|a4|af|16)
     echo "    WD2 after the 3 s: ctl low nibble $(b 6016 | cut -c2) (at the commit $(b 6016 | cut -c1)), alarm $((0x$(b 6017))) s, count $((0x$(b 601b))) s; complex words E $(b 6012) P0 $(b 6013)"
     echo "  IMAGE 84 ONLY (replaces every observer line above; a1 = before snapshot done, a2 = 3 s over, a4 = written): MPMGR_AON (0x29e5c0000) diff"
     echo "    state counters advanced (bit 0 SLP_DDR, 1 AWAKE, 2 SLP_S2R, 3 DEEP_WAIT, 4 SYS_AWAKE, 5 SYS_S2R_AOP, 6 SYS_SLP_DDR, 7 = written): $(b 6005); changed words $((0x$(b 6006))); page being read $(b 600c) (8x/9x before, cN = before done with N volatile words, 4x/5x after, ff = done); image 85: page being probed after the report $(b 600d) (8x/9x, ff = all read, 00 = not reached)"
-    for e in "6007 6008 6009 600a 600b" "6012 6013 6014 6015 6016"; do
+    for e in "6007 6008 6009 600a 600b" "6012 6013 6014 6015 6016" "601b 601c 601d 601e 601f"; do
         set -- $e; i=$((0x$(b $2)$(b $1))); f=$((0x$(b $3)))
         echo "    word $i = 0x$(printf %x $((0x29e5c0000 + 4 * i))): byte $((f & 15)) (of $((f >> 4)) differing) $(b $4) -> $(b $5)"
     done
-    echo "    last changed word: $((0x$(b 601c)$(b 601b))) = 0x$(printf %x $((0x29e5c0000 + 4 * 0x$(b 601c)$(b 601b)))); WD2 ctl low nibble $(b 600e | cut -c2), alarm about $((0x$(b 600e | cut -c1) * 10)) s"
+    echo "    (image 86: third entry above; 0x600c after the report: 2x/3x = page being probed, ee = every other page read; images 84/85 had the last changed index in 0x601b/c)"
     echo "  IMAGE 79: snapshot index being read 0x6009 0x6008 = $(b 6009) $(b 6008) (high byte has bit 7 set while reading; ffff = snapshot finished; a later diff entry may overwrite 0x6008/9)"
     echo "  (image 73 used 0x6008 20 ms word, 0x6009 3 s word, 0x600a first-off x 16 ms, 0x600b boot core EDPRSR)" ;;
 esac

@@ -1,0 +1,70 @@
+From b41fcb54d07022246eb37647db8891fefa1ebdcd Mon Sep 17 00:00:00 2001
+From: Justin Pfister <git@jjrpf.com>
+Date: Wed, 11 Nov 2026 13:54:33 -0500
+Subject: [PATCH] psci: image 86: three diff entries, the probe page in 0x600c
+ (0x600d/e are cleared by a reset)
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+---
+ src/psci.c | 21 +++++++--------------
+ 1 file changed, 7 insertions(+), 14 deletions(-)
+
+diff --git a/src/psci.c b/src/psci.c
+index b6e86fe4..beca69b6 100644
+--- a/src/psci.c
++++ b/src/psci.c
+@@ -883,7 +883,7 @@ void psci_s2r_observe(void)
+     for (int i = 0; i < 14; i += 2)
+         if (read32(QS_STATE_CNT + 16 * (42 + i) + 8) != c0[i])
+             m0 |= BIT(i >> 1);
+-    static const u16 slot[] = {0x6007, 0x6012};
++    static const u16 slot[] = {0x6007, 0x6012, 0x601b}; /* image 86: three entries; 0x600d/e do not survive a reset */
+     u32 nd = 0, last = 0xffff, from = obs & 0xffff;
+     for (u32 i = 0; i < QS_AON_WORDS; i++) {
+         if (!(pages & BIT(i >> 10)))
+@@ -895,7 +895,7 @@ void psci_s2r_observe(void)
+         u32 v = read32(QS_AON_BASE + 4 * i), x = v ^ qs_aon_snap[i];
+         if (!x || (qs_aon_vol[i >> 3] & BIT(i & 7)))
+             continue;
+-        if (i >= from && nd < 2) {
++        if (i >= from && nd < 3) {
+             u32 fb = 0, nb = 0;
+             for (int k = 3; k >= 0; k--)
+                 if ((x >> (8 * k)) & 0xff) {
+@@ -917,28 +917,21 @@ void psci_s2r_observe(void)
+     r[0] = m0;
+     r[1] = nd > 255 ? 255 : nd;
+     qs_crumb_write(0x6005, r, 2);
+-    r[0] = last & 0xff;
+-    r[1] = last >> 8;
+-    qs_crumb_write(0x601b, r, 2);
++    (void)last;
+     r[0] = 0xff;
+     qs_crumb_write(0x600c, r, 1);
+-    u64 wdt = wdt_psci_base();
+-    r[0] = 0xff;
+-    if (wdt)
+-        r[0] = (read32(wdt + 0x2c) & 0xf) | ((read32(wdt + 0x24) / 240000000) << 4);
+-    qs_crumb_write(0x600e, r, 1);
+     qs_crumb(0xa4);
+     /* image 85: after the report, read the pages not diffed, one by one: 0x600d = 0x80 | page before it, ff = all read */
+     for (u32 pg = 0; pg < QS_AON_WORDS >> 10; pg++) {
+         if ((pages | noprobe) & BIT(pg))
+             continue;
+-        r[0] = 0x80 | pg;
+-        qs_crumb_write(0x600d, r, 1);
++        r[0] = 0x20 | pg; /* image 86: in 0x600c, which survives the reset (2x/3x = probing, ee = all read) */
++        qs_crumb_write(0x600c, r, 1);
+         for (u32 i = pg << 10; i < (pg + 1) << 10; i++)
+             read32(QS_AON_BASE + 4 * i);
+     }
+-    r[0] = 0xff;
+-    qs_crumb_write(0x600d, r, 1);
++    r[0] = 0xee;
++    qs_crumb_write(0x600c, r, 1);
+ }
+ static void qs_crumb_snapshot(void)
+ {
+-- 
+2.56.0
+
