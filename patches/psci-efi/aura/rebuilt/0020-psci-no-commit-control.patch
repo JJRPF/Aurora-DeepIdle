@@ -1,0 +1,61 @@
+From c7df5ab2259ce7b90135450ceceaafded60d2214 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <git@jjrpf.com>
+Date: Wed, 11 Nov 2026 08:40:10 -0500
+Subject: [PATCH] psci: PSCI_S2R_NOCOMMIT (bit 29): the commit run without the
+ three S2R timer writes, the control for the wake probe (image 77)
+
+---
+ src/psci.c | 16 +++++++++-------
+ src/psci.h |  2 ++
+ 2 files changed, 11 insertions(+), 7 deletions(-)
+
+diff --git a/src/psci.c b/src/psci.c
+index 94df391c..e29efd51 100644
+--- a/src/psci.c
++++ b/src/psci.c
+@@ -1078,7 +1078,7 @@ static unsigned long psci_system_suspend(unsigned long entry, unsigned long cont
+     psci_dbg[2] = daif;
+     psci_dbg[14] = mrs(SYS_IMP_APL_CYC_OVRD);
+     dc_ivac_range((void *)psci_ctl, sizeof(psci_ctl));
+-    u64 steps = psci_ctl[1] & (PSCI_S2R_TIMER | PSCI_S2R_CORESOFF | PSCI_S2R_DOMAINS | PSCI_S2R_CLOCKS | PSCI_S2R_CLUSTERS | PSCI_S2R_STOPREQ | PSCI_S2R_HELD | PSCI_S2R_REC | PSCI_S2R_AMCC | PSCI_S2R_STOPWD2 | PSCI_S2R_AICMASK | PSCI_S2R_WD1OFF | PSCI_S2R_RESUMENOW | PSCI_S2R_CRUMB | PSCI_S2R_QUIET | PSCI_S2R_EACC | PSCI_S2R_DVFS | PSCI_S2R_FABRIC | PSCI_S2R_ATC | PSCI_S2R_PCIE | PSCI_S2R_AON | PSCI_S2R_PMP | PSCI_S2R_SPMINOTIFY | PSCI_S2R_SEP | PSCI_S2R_DVFSLATE | PSCI_S2R_EDPRCR | PSCI_S2R_OBSERVE | PSCI_S2R_OBSERVE_P0);
++    u64 steps = psci_ctl[1] & (PSCI_S2R_TIMER | PSCI_S2R_CORESOFF | PSCI_S2R_DOMAINS | PSCI_S2R_CLOCKS | PSCI_S2R_CLUSTERS | PSCI_S2R_STOPREQ | PSCI_S2R_HELD | PSCI_S2R_REC | PSCI_S2R_AMCC | PSCI_S2R_STOPWD2 | PSCI_S2R_AICMASK | PSCI_S2R_WD1OFF | PSCI_S2R_RESUMENOW | PSCI_S2R_CRUMB | PSCI_S2R_QUIET | PSCI_S2R_EACC | PSCI_S2R_DVFS | PSCI_S2R_FABRIC | PSCI_S2R_ATC | PSCI_S2R_PCIE | PSCI_S2R_AON | PSCI_S2R_PMP | PSCI_S2R_SPMINOTIFY | PSCI_S2R_SEP | PSCI_S2R_DVFSLATE | PSCI_S2R_EDPRCR | PSCI_S2R_OBSERVE | PSCI_S2R_OBSERVE_P0 | PSCI_S2R_NOCOMMIT);
+     for (unsigned i = 0; i < 48; i++)
+         psci_dbg2[i] = 0;
+     psci_dbg2[1] = steps | ((u64)qs_amcc_n << 32) | ((u64)qs_amcc_planes << 40);
+@@ -1228,12 +1228,14 @@ static unsigned long psci_system_suspend(unsigned long entry, unsigned long cont
+         psci_dbg2[45] = 0x5100000000ULL | 1;
+     }
+     if (quiet) {
+-        write32(MPMGR_AON_S2R_TIMER, 1);
+-        sysop("dsb sy");
+-        write32(MPMGR_AON_S2R_TIMER, 1);
+-        sysop("dsb sy");
+-        write32(MPMGR_AON_S2R_TIMER, 1);
+-        sysop("dsb sy");
++        if (!(steps & PSCI_S2R_NOCOMMIT)) {
++            write32(MPMGR_AON_S2R_TIMER, 1);
++            sysop("dsb sy");
++            write32(MPMGR_AON_S2R_TIMER, 1);
++            sysop("dsb sy");
++            write32(MPMGR_AON_S2R_TIMER, 1);
++            sysop("dsb sy");
++        }
+         psci_dbg[18] = 3;
+         psci_dbg[0] = 0xA0AA0003;
+         psci_s2r_committed = 1; /* image 73: the observer core starts its 3 s here */
+diff --git a/src/psci.h b/src/psci.h
+index 4debc4c9..4df98343 100644
+--- a/src/psci.h
++++ b/src/psci.h
+@@ -136,6 +136,8 @@ u64 psci_crumb_base(void);
+ #define PSCI_S2R_OBSERVE  BIT(27)
+ /* image 74: the observer is the lowest CPU_OFF P core (index >= 4, the first P complex) instead of the highest */
+ #define PSCI_S2R_OBSERVE_P0 BIT(28)
++/* image 77, the control for the wake probe: everything as a commit run, but the three S2R timer writes are skipped */
++#define PSCI_S2R_NOCOMMIT BIT(29)
+ void psci_s2r_observe(void);
+ void psci_ctl_init(void);
+ 
+-- 
+2.56.0
+
