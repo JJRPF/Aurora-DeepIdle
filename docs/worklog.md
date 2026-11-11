@@ -3935,3 +3935,12 @@ Limit, as before: the observer is an awake core. Here that matters less, because
 
 - Aura `d2e1a86f` (`v0.1.0-34`, patch `0026`), `boot-test.bin.83` sha `39f3a5e98f3d6bcf`. The power-word diff of images 78 to 82 is removed. Scratch layout in `tools/pmu-scratch.sh` (image 83 section).
 - Jobs `r34a-observer-state-counters` (aura-ctl `0x1d7dcb1f`) and `r34b-nocommit-state-counters` (`0x3d7dcb1f`, the control).
+
+## 2026-11-11 13:37 R34A (image 83, observer, commit): AWAKE keeps counting; WD2 reads alarm 60 s, count 0 after the commit. Control next
+
+R34A pushed "committing" at 13:35:43, the main kernel started at 13:37:00 (77 s). Stage `a4`: the observer finished. Raw scratch `0x6000` to `0x601f`: `00 30 00 50 a4 c2 42 00 44 00 00 00 00 00 00 00 00 01 10 1f ff 44 00 3c 00 00 00 00 10 10 50 80`.
+
+- State counters over the 3 s after the commit: `AWAKE` +68 units (the full 3 s) and `SYS_SLP_DDR` +68, with their twins; `SLP_S2R`, `DEEP_WAIT`, `SLP_DDR`, `SYS_AWAKE`, `SYS_S2R_AOP` did not move. (That `SYS_SLP_DDR` counts and `SYS_AWAKE` does not looks like a naming slip in the counter list, to be checked against the control.)
+- WD2 3 s after the commit: alarm **60 s**, count **0 s**, control low nibble 0 (also 0 at the commit). On 11-06 WD2 read alarm 90 s with a running count of about 87 s before the timer write (iBoot's leftover).
+
+Nothing can be read from this without the control R34B (the same without the three timer writes), armed now.
