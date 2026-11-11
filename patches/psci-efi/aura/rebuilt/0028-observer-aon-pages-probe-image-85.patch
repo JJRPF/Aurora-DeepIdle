@@ -1,0 +1,96 @@
+From b539476d666496bdc513993b8768a273803055c2 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <git@jjrpf.com>
+Date: Wed, 11 Nov 2026 13:50:51 -0500
+Subject: [PATCH] psci: image 85: the observer diffs chosen pages of MPMGR_AON
+ (default 0-7) and probes the others after the report
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+---
+ src/psci.c | 34 ++++++++++++++++++++++++++++------
+ 1 file changed, 28 insertions(+), 6 deletions(-)
+
+diff --git a/src/psci.c b/src/psci.c
+index 30ab8a82..b6e86fe4 100644
+--- a/src/psci.c
++++ b/src/psci.c
+@@ -808,8 +808,8 @@ static inline u64 qs_now(void)
+  * the observer reads the block twice 50 ms apart (words that differ are volatile and left out), then waits for the
+  * commit (psci_s2r_committed = 1), 3 s more, reads again and reports the words that changed.
+  * Scratch: 0x6005 state counters that advanced in the 3 s (bit 0 SLP_DDR, 1 AWAKE, 2 SLP_S2R, 3 DEEP_WAIT, 4 SYS_AWAKE,
+- * 5 SYS_S2R_AOP, 6 SYS_SLP_DDR, 7 = written); 0x6006 changed words at or after the start index (psci_ctl[2] bits
+- * 12-27; ff = 255 or more); 0x600c the 4 KiB page being read | 0x80 (before), | 0x40 (after), ff = done; 0x600d
++ * 5 SYS_S2R_AOP, 6 SYS_SLP_DDR, 7 = written); 0x6006 changed words at or after the start index (psci_ctl[4] bits
++ * 0-15; ff = 255 or more); 0x600c the 4 KiB page being read | 0x80 (before), | 0x40 (after), ff = done; 0x600d
+  * volatile words / 16; the first two changed words from the start index as 5-byte entries at 0x6007 and 0x6012:
+  * word index low, high, lowest differing byte (low nibble) | differing bytes (high nibble), old byte, new byte;
+  * 0x601b/c the last changed word's index (ffff = none). WD2: 0x600e = ctl low nibble | alarm s / 10 << 4.
+@@ -831,7 +831,15 @@ void psci_s2r_observe(void)
+             qs_crumb(0xaf); /* the boot core never got to the commit */
+             return;
+         }
++    u64 obs = psci_ctl[4];
++    u32 pages = (obs >> 16) & 0xfffff, noprobe = (obs >> 36) & 0xfffff;
++    if (!pages) {
++        pages = 0xff; /* R35A: the observer stopped in page 8 */
++        noprobe |= BIT(8);
++    }
+     for (u32 i = 0; i < QS_AON_WORDS; i++) {
++        if (!(pages & BIT(i >> 10)))
++            continue;
+         if (!(i & 0x3ff)) {
+             r[0] = 0x80 | (i >> 10);
+             qs_crumb_write(0x600c, r, 1);
+@@ -844,6 +852,8 @@ void psci_s2r_observe(void)
+     while (qs_now() - t0 < 1200000)
+         ;
+     for (u32 i = 0; i < QS_AON_WORDS; i++) {
++        if (!(pages & BIT(i >> 10)))
++            continue;
+         u32 v = read32(QS_AON_BASE + 4 * i);
+         if (v != qs_aon_snap[i]) {
+             qs_aon_vol[i >> 3] |= BIT(i & 7);
+@@ -851,9 +861,8 @@ void psci_s2r_observe(void)
+         }
+         qs_aon_snap[i] = v;
+     }
+-    r[0] = 0xff;
+-    r[1] = (nvol >> 4) > 255 ? 255 : nvol >> 4;
+-    qs_crumb_write(0x600c, r, 2);
++    r[0] = 0xc0 | (nvol > 63 ? 63 : nvol); /* c0 | volatile words: the "before" snapshot is done */
++    qs_crumb_write(0x600c, r, 1);
+     u32 c0[14];
+     for (int i = 0; i < 14; i++)
+         c0[i] = read32(QS_STATE_CNT + 16 * (42 + i) + 8);
+@@ -875,8 +884,10 @@ void psci_s2r_observe(void)
+         if (read32(QS_STATE_CNT + 16 * (42 + i) + 8) != c0[i])
+             m0 |= BIT(i >> 1);
+     static const u16 slot[] = {0x6007, 0x6012};
+-    u32 nd = 0, last = 0xffff, from = (psci_ctl[2] >> 12) & 0xffff;
++    u32 nd = 0, last = 0xffff, from = obs & 0xffff;
+     for (u32 i = 0; i < QS_AON_WORDS; i++) {
++        if (!(pages & BIT(i >> 10)))
++            continue;
+         if (!(i & 0x3ff)) {
+             r[0] = 0x40 | (i >> 10);
+             qs_crumb_write(0x600c, r, 1);
+@@ -917,6 +928,17 @@ void psci_s2r_observe(void)
+         r[0] = (read32(wdt + 0x2c) & 0xf) | ((read32(wdt + 0x24) / 240000000) << 4);
+     qs_crumb_write(0x600e, r, 1);
+     qs_crumb(0xa4);
++    /* image 85: after the report, read the pages not diffed, one by one: 0x600d = 0x80 | page before it, ff = all read */
++    for (u32 pg = 0; pg < QS_AON_WORDS >> 10; pg++) {
++        if ((pages | noprobe) & BIT(pg))
++            continue;
++        r[0] = 0x80 | pg;
++        qs_crumb_write(0x600d, r, 1);
++        for (u32 i = pg << 10; i < (pg + 1) << 10; i++)
++            read32(QS_AON_BASE + 4 * i);
++    }
++    r[0] = 0xff;
++    qs_crumb_write(0x600d, r, 1);
+ }
+ static void qs_crumb_snapshot(void)
+ {
+-- 
+2.56.0
+

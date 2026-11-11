@@ -6,6 +6,9 @@
  * usage: aura-ctl            print the address and the word
  *        aura-ctl <value>    write it, read it back
  *        aura-ctl <value> <mask>  also write the next word, psci_ctl[2]: image 57's held-domain mask (bits 0-11, 0 = all)
+ *        aura-ctl <value> <mask> <cap> <obs>  also psci_ctl[4], image 85's observer word: bits 0-15 the first word index
+ *                                 to report, bits 16-35 the 4 KiB pages of MPMGR_AON to diff (0 = pages 0-7), bits 36-55
+ *                                 the pages the probe after the report leaves out
  *        aura-ctl <value> <mask> <cap>  also psci_ctl[3]: heartbeats (60 s each) after which a suspend with no wake line
  *                                       resumes by itself (0 = Aura's default 5, 0xffff = never; Aura 876622bf on) */
 #include <fcntl.h>
@@ -50,7 +53,10 @@ int main(int argc, char **argv)
 		*w = v;
 		w[1] = argc > 2 ? strtoull(argv[2], NULL, 0) & 0xfff : 0;
 		w[2] = argc > 3 ? strtoull(argv[3], NULL, 0) & 0xffff : 0;
+		w[3] = argc > 4 ? strtoull(argv[4], NULL, 0) : 0; /* image 85: the observer's word, psci_ctl[4] */
 	}
 	printf("aura ctl at 0x%llx: 0x%llx mask 0x%llx cap %llu\n", (unsigned long long)hit, (unsigned long long)*w, (unsigned long long)w[1], (unsigned long long)w[2]);
+	if (w[3])
+		printf("aura ctl observer word 0x%llx\n", (unsigned long long)w[3]);
 	return 0;
 }

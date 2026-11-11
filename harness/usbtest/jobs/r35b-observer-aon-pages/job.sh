@@ -1,5 +1,5 @@
 #!/bin/bash
-# R35B: image 84 (Aura 148fecec), aura-ctl 0x3d7dcb1f: the observer (first P complex) diffs the whole MPMGR_AON block (0x29e5c0000, 0x14000) across the commit. A = with the commit, B = control without it (bit 29).
+# R35B: image 85 (Aura b539476d), aura-ctl 0x1d7dcb1f: the observer (first P complex) diffs the whole MPMGR_AON block (0x29e5c0000, 0x14000) across the commit. A = with the commit, B = control without it (bit 29).
 # R35B: R18K (aura-ctl 0x17dcb1f) + bit 26 (0x4000000) on image 72 (Aura d93a57cd): every core, right before its deep
 # WFI, unlocks its external debug block (EDLAR) and writes EDPRCR := 0, as xnu's ml_arm_sleep does on the secondaries
 # and the boot core (15.7.1 kernel, read 2026-11-11; aurora-silicon's T6040 entry does the same). With CORENPDRQ set a
@@ -14,7 +14,7 @@ w() { $J/mmio-read $1 1 2>/dev/null | awk '{print $2}'; }
 atc() { for a in 278 288 298 2a8 228 230 238 240; do printf '%s ' "$(w 0x28e080$a)"; done; }
 V=$(tr -d '\0' < $C/asahi,m1n1-stage2-version)
 log "R35B kernel $(uname -r); stage2 $V; cmdline aop: $(grep -o 'aop.sleep_ap_idle=[0-9]*' /proc/cmdline || echo none)"
-case "$V" in *148fecec*) ;; *) log "stage 2 is not image 84: stopping"; return 0 ;; esac
+case "$V" in *b539476d*) ;; *) log "stage 2 is not image 85: stopping"; return 0 ;; esac
 [ -e $R/wakealarm ] && grep -q deep /sys/power/mem_sleep || { log "no wakealarm or no deep, stopping"; return 0; }
 grep -q 'aop.sleep_ap_idle=3' /proc/cmdline || { log "aop.sleep_ap_idle=3 not on the cmdline: stopping"; return 0; }
 [ -e $M/appledrm/parameters/test_sleep_off ] || { log "appledrm has no test_sleep_off: stopping"; return 0; }
@@ -71,8 +71,8 @@ MM=$(find /sys/firmware/devicetree/base -name 'aura,psci-runtime-mmio' | head -1
 NR=$(( $(wc -c < "$MM") / 16 )); ED=$(od -An -v -tx1 -w16 "$MM" | tr -d ' ' | grep -c '^000000021[012][0-3]10000')
 log "runtime mmio: $NR ranges, $ED external debug pages"
 [ "$ED" -ge 10 ] || { log "the external debug pages are not in the runtime map: stopping"; return 0; }
-CTL=$($J/aura-ctl 0x3d7dcb1f 0 0 2>&1 | tail -1); log "aura ctl: $CTL"
-case "$CTL" in *3d7dcb1f*) ;; *) log "aura-ctl did not read back 0x3d7dcb1f: stopping"; $J/aura-ctl 0 0 0 >/dev/null 2>&1; return 0 ;; esac
+CTL=$($J/aura-ctl 0x1d7dcb1f 0 0 2>&1 | tail -1); log "aura ctl: $CTL"
+case "$CTL" in *1d7dcb1f*) ;; *) log "aura-ctl did not read back 0x1d7dcb1f: stopping"; $J/aura-ctl 0 0 0 >/dev/null 2>&1; return 0 ;; esac
 echo 0 > $R/wakealarm 2>/dev/null; echo +40 > $R/wakealarm
 push "R35B committing" "suspend at $(date -u +%T) UTC, alarm +40 s. $S | $CTL | mmio $NR ranges, $ED debug pages"
 T0=$(date +%s.%N)
