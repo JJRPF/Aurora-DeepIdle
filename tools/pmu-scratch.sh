@@ -21,6 +21,7 @@ echo "0x6012/13/1b ECPM PCPM0 PCPM1 power words >> 4: $(b 6012) $(b 6013) $(b 60
 echo "0x601c-1e EACC PACC0 PACC1 cluster words: $(b 601c) $(b 601d) $(b 601e)"
 echo "0x600c PCIe/AON still on $(b 600c) (image 64, bits 0-2 apcie_gp_sys gpshr_sys gp, 3-6 atc1-3_usb_aon msg, 7 an ATC word; ff = step not run)"
 echo "0x600d, 0x600e           $(b 600d) $(b 600e) (fabric, ATC: they read 0 after every reset, only valid without one)"
+echo "0x6011 PMP                $(b 6011) (image 65: 40 = pmp and pms_sram off, 41/42/43 = still on; ff = step not run)"
 echo "0x6001/2/3 boot stage $(b 6001), error count $(b 6002), error stage $(b 6003); 0x6010 loader flag $(b 6010); 0x6017 $(b 6017)"
 if [ "${1:-}" = zero ]; then
     for r in 6004 6005 6006 6007 600c 600d 600e 6011 6012 6013 6014 6015 6016 601b 601c 601d 601e; do

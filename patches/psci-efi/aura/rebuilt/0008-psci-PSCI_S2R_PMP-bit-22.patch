@@ -1,0 +1,119 @@
+From b22c376678773a57f65e56baa017f1b3aa148525 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <git@jjrpf.com>
+Date: Tue, 10 Nov 2026 20:53:12 -0500
+Subject: [PATCH] psci: PSCI_S2R_PMP (bit 22): the PMP's power words pmp and
+ pms_sram to target 0 before the commit
+
+Image 65. macOS has both off at sleep entry. Crumb 0x6011 = 0x40 | still-on bits.
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+---
+ src/psci.c | 42 +++++++++++++++++++++++++++++++++++++++++-
+ src/psci.h |  3 +++
+ 2 files changed, 44 insertions(+), 1 deletion(-)
+
+diff --git a/src/psci.c b/src/psci.c
+index 8f19bf36..80f74c35 100644
+--- a/src/psci.c
++++ b/src/psci.c
+@@ -134,6 +134,7 @@ static volatile struct {
+     u32 atc[8];            /* image 63: bit 9, PSCI_S2R_ATC: atcN_pcie and atcN_common before their target went to 0 */
+     u32 pcie[3];           /* image 64: bit 10, PSCI_S2R_PCIE */
+     u32 aon[4];            /* image 64: bit 11, PSCI_S2R_AON */
++    u32 pmp[2];            /* image 65: bit 12, PSCI_S2R_PMP */
+ } qs_save __attribute__((aligned(64)));
+ 
+ /*
+@@ -436,6 +437,36 @@ static void psci_quiesce_aon(void)
+     psci_dbg[23] |= fail;
+ }
+ 
++/* image 65: pmp (0x28e0802c8), then pms_sram (0x28e0802d0); both on image 58's dispext page of the PSCI map.
++ * psci_dbg[23] bits 59-60 = poll timeouts */
++static const u64 qs_pmp[2] = {0x28e0802c8ULL, 0x28e0802d0ULL};
++
++static void psci_quiesce_pmp(void)
++{
++    u64 fail = 0;
++
++    for (unsigned i = 0; i < 2; i++)
++        qs_save.pmp[i] = read32(qs_pmp[i]);
++    qs_save.saved |= 4096;
++    dc_civac_range((void *)&qs_save, sizeof(qs_save));
++    for (unsigned i = 0; i < 2; i++) {
++        write32(qs_pmp[i], qs_save.pmp[i] & ~QS_PS_CLEAR);
++        fail |= (u64)qs_poll(qs_pmp[i], 0xf0, 0, 10000) << (59 + i);
++    }
++    psci_dbg[23] |= fail;
++}
++
++/* for the crumb: 0x40 = the step ran, bit 0 pmp still on, bit 1 pms_sram still on */
++static u8 qs_pmp_state(void)
++{
++    u8 b = 0x40;
++
++    for (unsigned i = 0; i < 2; i++)
++        if (read32(qs_pmp[i]) & 0xf0)
++            b |= BIT(i);
++    return b;
++}
++
+ /* image 64: bits 0-2 = qs_pcie[i] still on, bits 3-6 = qs_aon[i] still on (each only if its step ran); for the crumb */
+ static u8 qs_pcie_aon_state(void)
+ {
+@@ -478,6 +509,10 @@ static void psci_quiesce_undo(void)
+         for (unsigned i = 0; i < 3; i++)
+             write32(qs_fabric[i], qs_save.fabric[i] & ~0x300);
+     }
++    if (qs_save.saved & 4096) {
++        for (int i = 1; i >= 0; i--)
++            write32(qs_pmp[i], qs_save.pmp[i] & ~(BIT(11) | BIT(9) | BIT(8)));
++    }
+     if (qs_save.saved & 2048) {
+         for (int i = 3; i >= 0; i--)
+             write32(qs_aon[i], qs_save.aon[i] & ~(BIT(11) | BIT(9) | BIT(8)));
+@@ -778,6 +813,9 @@ static void qs_crumb_snapshot(void)
+      * 0x600d and 0x600e read 0 after every reset, 0x600c survives */
+     if (fi <= 0 && (qs_save.saved & (1024 | 2048)))
+         q[0] = qs_pcie_aon_state() | (((qs_save.saved & 512) && qs_atc_state()) ? 0x80 : 0);
++    /* image 65: 0x6011 = qs_pmp_state() (only when bit 22 ran; ff otherwise) */
++    if (fi <= 0 && (qs_save.saved & 4096))
++        m[1] = qs_pmp_state();
+     if (fi > 0) {
+         u64 mp = smp_psci_ipi_mpidr(fi);
+         u32 pe = smp_psci_s2r_word(fi, 1), wr = smp_psci_s2r_word(fi, 2);
+@@ -871,7 +909,7 @@ static unsigned long psci_system_suspend(unsigned long entry, unsigned long cont
+     psci_dbg[2] = daif;
+     psci_dbg[14] = mrs(SYS_IMP_APL_CYC_OVRD);
+     dc_ivac_range((void *)psci_ctl, sizeof(psci_ctl));
+-    u64 steps = psci_ctl[1] & (PSCI_S2R_TIMER | PSCI_S2R_CORESOFF | PSCI_S2R_DOMAINS | PSCI_S2R_CLOCKS | PSCI_S2R_CLUSTERS | PSCI_S2R_STOPREQ | PSCI_S2R_HELD | PSCI_S2R_REC | PSCI_S2R_AMCC | PSCI_S2R_STOPWD2 | PSCI_S2R_AICMASK | PSCI_S2R_WD1OFF | PSCI_S2R_RESUMENOW | PSCI_S2R_CRUMB | PSCI_S2R_QUIET | PSCI_S2R_EACC | PSCI_S2R_DVFS | PSCI_S2R_FABRIC | PSCI_S2R_ATC | PSCI_S2R_PCIE | PSCI_S2R_AON);
++    u64 steps = psci_ctl[1] & (PSCI_S2R_TIMER | PSCI_S2R_CORESOFF | PSCI_S2R_DOMAINS | PSCI_S2R_CLOCKS | PSCI_S2R_CLUSTERS | PSCI_S2R_STOPREQ | PSCI_S2R_HELD | PSCI_S2R_REC | PSCI_S2R_AMCC | PSCI_S2R_STOPWD2 | PSCI_S2R_AICMASK | PSCI_S2R_WD1OFF | PSCI_S2R_RESUMENOW | PSCI_S2R_CRUMB | PSCI_S2R_QUIET | PSCI_S2R_EACC | PSCI_S2R_DVFS | PSCI_S2R_FABRIC | PSCI_S2R_ATC | PSCI_S2R_PCIE | PSCI_S2R_AON | PSCI_S2R_PMP);
+     for (unsigned i = 0; i < 48; i++)
+         psci_dbg2[i] = 0;
+     psci_dbg2[1] = steps | ((u64)qs_amcc_n << 32) | ((u64)qs_amcc_planes << 40);
+@@ -938,6 +976,8 @@ static unsigned long psci_system_suspend(unsigned long entry, unsigned long cont
+         psci_quiesce_pcie();
+     if (steps & PSCI_S2R_AON)
+         psci_quiesce_aon();
++    if (steps & PSCI_S2R_PMP)
++        psci_quiesce_pmp();
+     if (steps & PSCI_S2R_FABRIC)
+         psci_quiesce_fabric();
+     if (steps & PSCI_S2R_CLUSTERS)
+diff --git a/src/psci.h b/src/psci.h
+index bfb37f98..4d8e8107 100644
+--- a/src/psci.h
++++ b/src/psci.h
+@@ -109,6 +109,9 @@ u64 psci_crumb_base(void);
+ /* image 64: the AON-side words macOS has at target 0 at sleep entry and the DT keeps always-on: atc1..3_usb_aon, msg
+  * (data/psmap.txt). Commit runs only */
+ #define PSCI_S2R_AON      BIT(21)
++/* image 65: the PMP's own power words, which macOS has off at sleep entry (PMP 0x0f0f0300, PMS_SRAM 0x0f000300,
++ * data/psmap.txt); Linux only sends the PMP its RTKit sleep. Commit runs only: nothing boots the PMP again */
++#define PSCI_S2R_PMP      BIT(22)
+ void psci_ctl_init(void);
+ 
+ bool psci_suspend_resuming(void);
+-- 
+2.56.0
+
