@@ -1,4 +1,4 @@
-# Where the work stands (2026-11-10, 16:04, after run A2)
+# Where the work stands (2026-11-10, 20:58, after run R17D)
 
 This is the summary of the whole effort: what was measured, what was built,
 what works, what does not, and what comes next. Each section points to the
@@ -77,7 +77,13 @@ There are two goals:
   (`atc0-3_common`, `atc0-3_pcie`) and `apcie_gp_sys` on at every commit so
   far. Aura image 63 lowers the eight USB-C words before the commit. On the
   normal path that works and resumes (runs A1, A2: 4 of 4 sleeps to the
-  alarm). Run R17A, the commit with this step, is next.
+  alarm). The commit with this step (R17A), then with the PCIe chain
+  (R17B), `atc1-3_usb_aon` and `msg` (R17C) and `pmp` and `pms_sram`
+  (R17D) off as well, ended four times in the same reset about 86 s
+  later. A crumb in the PMU scratch showed every one of those words off
+  at the commit. So these domains are not what blocks the power-down.
+  Of macOS's sleep-entry map only the SEP's power word still differs
+  (run R18B, next).
 * **Estimate: about 45% of the way to working S2R** (risk-weighted guess,
   wide error bar; 33% earlier on 2026-11-04, before Phase 2 closed). Per
   phase: remote hands 100 (replaced by software), CPU_ON and CPU_OFF 85,
