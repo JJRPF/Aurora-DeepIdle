@@ -1,4 +1,4 @@
-# Where the work stands (2026-11-10, 20:58, after run R17D)
+# Where the work stands (2026-11-10, 21:11, after run R18C)
 
 This is the summary of the whole effort: what was measured, what was built,
 what works, what does not, and what comes next. Each section points to the
@@ -82,8 +82,10 @@ There are two goals:
   (R17D) off as well, ended four times in the same reset about 86 s
   later. A crumb in the PMU scratch showed every one of those words off
   at the commit. So these domains are not what blocks the power-down.
-  Of macOS's sleep-entry map only the SEP's power word still differs
-  (run R18B, next).
+  Of macOS's sleep-entry map only the SEP's power word still differs.
+  Run R18C sent the enclave macOS's SLEEP message before the commit: it
+  acknowledged, but its power word stayed on, and the reset was the same.
+  Getting the word to macOS's value at the commit is run R18D.
 * **Estimate: about 45% of the way to working S2R** (risk-weighted guess,
   wide error bar; 33% earlier on 2026-11-04, before Phase 2 closed). Per
   phase: remote hands 100 (replaced by software), CPU_ON and CPU_OFF 85,
