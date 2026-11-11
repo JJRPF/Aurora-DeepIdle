@@ -1,0 +1,66 @@
+From d293ee5b1eac490de85611149805b29ca9fd20b0 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <git@jjrpf.com>
+Date: Tue, 10 Nov 2026 23:05:35 -0500
+Subject: [PATCH] psci: PSCI_S2R_SEP runs first, before the PMGR quiesce (image
+ 67 hung at it after the quiesce); crumbs 0x18, 0x19
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+---
+ src/psci.c | 13 +++++++++----
+ src/psci.h |  2 +-
+ 2 files changed, 10 insertions(+), 5 deletions(-)
+
+diff --git a/src/psci.c b/src/psci.c
+index beca3543..7b8b9b23 100644
+--- a/src/psci.c
++++ b/src/psci.c
+@@ -464,7 +464,7 @@ static void psci_quiesce_pmp(void)
+  * ack (apple_sep test_sleep_msg); after it the enclave holds its PS_AUTO floor at f (ps_sep 0x1f0003ff, run R18D)
+  * until the mailbox's OUTBOX_CTRL enable (bit 0) is cleared, then drops it within 200 ms (0x1000070f, R18F), and the
+  * host's write of 0x1000030f then takes. Done from Linux, the system hangs within 10 s (R18F to R18H), so it is
+- * done here, last. qs_sep_res for the crumb: 0x10 = ran, bit 2 = the outbox enable did not clear, bit 3 = the word
++ * done here, as the first step of the quiesce (image 68). qs_sep_res for the crumb: 0x10 = ran, bit 2 = the outbox enable did not clear, bit 3 = the word
+  * is not 0x10....0f at the end. psci_dbg2[47] = the word (high) and OUTBOX_CTRL (low) read back.
+  */
+ #define QS_SEP_OUTBOX_CTRL 0x396408114ULL
+@@ -1005,6 +1005,14 @@ static unsigned long psci_system_suspend(unsigned long entry, unsigned long cont
+     dc_civac_range((void *)&psci_resume, sizeof(psci_resume));
+ 
+     /* the S2R steps, in macOS's order: quiesceHW's domains and clocks, its S2R timer last, then every core */
++    /* image 68: the SEP step first. Image 67 had it after the PMGR quiesce and hung at it (run R18I: last crumb
++     * 0x17, WD1's reset): by then the mailbox's own domain or clock is off. Crumbs 0x18 before, 0x19 after */
++    qs_sep_res = 0;
++    if (steps & PSCI_S2R_SEP) {
++        qs_crumb(0x18);
++        psci_quiesce_sep();
++        qs_crumb(0x19);
++    }
+     if (steps & PSCI_S2R_HELD)
+         psci_quiesce_held();
+     if (steps & PSCI_S2R_DOMAINS)
+@@ -1047,9 +1055,6 @@ static unsigned long psci_system_suspend(unsigned long entry, unsigned long cont
+         qs_crumb(0x17);
+         smp_psci_release_parked(steps & PSCI_S2R_STOPREQ);
+         udelay(2000);
+-        qs_sep_res = 0;
+-        if (steps & PSCI_S2R_SEP)
+-            psci_quiesce_sep();
+         qs_crumb_snapshot();
+         qs_crumb(0x16); /* the last access before the commit */
+     }
+diff --git a/src/psci.h b/src/psci.h
+index 789fe288..bdc517b3 100644
+--- a/src/psci.h
++++ b/src/psci.h
+@@ -118,7 +118,7 @@ u64 psci_crumb_base(void);
+  * not expect it */
+ #define PSCI_S2R_SPMINOTIFY BIT(23)
+ /* image 67: the SEP's last two host steps of macOS's sleep entry, after Linux's SLEEP message: the mailbox's
+- * OUTBOX_CTRL enable off, then ps_sep := 0x1000030f. In the quiet commit, before the crumb snapshot (crumb 0x6011
++ * OUTBOX_CTRL enable off, then ps_sep := 0x1000030f. First step of the quiesce (image 68; crumb 0x6011
+  * bits 2-4, with bit 22). Commit runs only: nothing enables the outbox again */
+ #define PSCI_S2R_SEP      BIT(24)
+ void psci_ctl_init(void);
+-- 
+2.56.0
+
