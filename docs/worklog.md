@@ -3876,3 +3876,24 @@ Against the dump after R31B (no commit, watchdog reset), three rows outside the 
 - `1410` bytes 8 to 11: `00013d2b` against `0002bdc1` (looks like a counter).
 
 If R32B (the control, same boot chain and image) shows `40` in `1030` and `1550` again, those are reset-cause flags, and the commit reset is not a watchdog reset. R32B is armed next.
+
+## 2026-11-11 13:24 R32B: the flag idea was wrong; the PMU stamps the reset time, and the commit reset comes 21 s after the alarm
+
+R32B (image 82, aura-ctl `0x257dcb1f`, no commit, no observer) pushed "committing" at 13:19:58; the main kernel started at 13:22:13, 135 s later (watchdog). Dump: `data/pmu-dumps/after-R32B-nocommit.txt`.
+
+**Correction to the R32A entry.** Rows `1030` and `1550` read `00` after R32B as well, so the `40` after R31B is not a watchdog flag. Rows `1020`, `11b0`, `11e0` differ only in R32B (R31B, also a watchdog reset, matches R32A), so they do not follow the commit either. No register in the dump separates the commit reset from the watchdog reset by a flag.
+
+**What the dumps do give: a reset timestamp.** The 6 bytes at `0x1419` (right after `rtc_offset`) are a time in the PMU counter's units (1/32768 s; shifted right by 15 they give counter seconds, the same scale as the counter at `0x1406` and the alarm at `0x140c`). It changes once per boot and sits shortly before the main kernel starts, so it is the time of the reset or of the boot that followed. Against the alarm the job set (commit + 40 s):
+
+| Run | Alarm (`0x140c`) | Stamp (`0x1419` >> 15) | Stamp minus alarm | Stamp minus commit |
+|---|---|---|---|---|
+| R31B, no commit | `0x56ea05` | `0x56ea56` | 81 s | 121 s |
+| R32A, commit | `0x56eb6e` | `0x56eb83` | 21 s | 61 s |
+| R32B, no commit | `0x56ec58` | `0x56eca9` | 81 s | 121 s |
+
+The no-commit runs reset 121 s after the commit point, which is the watchdog (`suspend_timeout` 120). The commit run resets 61 s after the commit, which is also 21 s after the alarm. One run cannot tell those two readings apart:
+
+- the reset follows the **alarm**: the SoC did go down, the alarm started a wake, the wake failed and something reset the machine 21 s later;
+- the reset follows the **commit**: something set off by the three timer writes resets the machine after 61 s, whatever the alarm does.
+
+**Next: R33A**, the same commit run with the alarm at +70 s instead of +40 s (job `r33a-commit-alarm70`). A stamp at alarm + 21 s (commit + 91 s) means the alarm drives it; a stamp at commit + 61 s (before the alarm) means the commit drives it. Both are below the 120 s watchdog.
