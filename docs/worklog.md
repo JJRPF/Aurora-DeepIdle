@@ -3897,3 +3897,18 @@ The no-commit runs reset 121 s after the commit point, which is the watchdog (`s
 - the reset follows the **commit**: something set off by the three timer writes resets the machine after 61 s, whatever the alarm does.
 
 **Next: R33A**, the same commit run with the alarm at +70 s instead of +40 s (job `r33a-commit-alarm70`). A stamp at alarm + 21 s (commit + 91 s) means the alarm drives it; a stamp at commit + 61 s (before the alarm) means the commit drives it. Both are below the 120 s watchdog.
+
+## 2026-11-11 13:27 R33A: the reset follows the commit, not the alarm
+
+R33A (image 82, aura-ctl `0x57dcb1f`, alarm at +70 s) pushed "committing" at 13:25:22; the main kernel started at 13:26:38, 76 s later, the same as with the alarm at +40 s. Dump: `data/pmu-dumps/after-R33A-commit-alarm70.txt`.
+
+| Run | Alarm (`0x140c`) | Stamp (`0x1419` >> 15) | Stamp minus alarm | Stamp minus commit |
+|---|---|---|---|---|
+| R32A, commit, alarm +40 | `0x56eb6e` | `0x56eb83` | +21 s | 61 s |
+| R33A, commit, alarm +70 | `0x56edba` | `0x56edb1` | −9 s | 61 s |
+
+The machine reset 9 s **before** the alarm was due. So the alarm plays no part: this is not a failed wake from the alarm. Something resets the machine 61 s after the commit. (`0x14c0` reads `01` afterwards: the alarm fired during the boot that followed.)
+
+61 s is half of the 121 s the watchdog takes without the commit. That may be chance, or the watchdog (set to 120 s by `suspend_timeout`) may count twice as fast once the three timer writes are done, which would itself be a sign that the SoC changed state.
+
+**Next: R33B**, the commit run with `suspend_timeout` 200 instead of 120 (job `r33b-commit-wd200`). A reset at about 101 s after the commit means the watchdog is the one resetting, running at double rate; a reset at 61 s again means a separate timer that does not depend on the watchdog setting.
