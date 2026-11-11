@@ -3838,3 +3838,8 @@ Owner asked for this before the next run. Read-only: 25 branches fetched into `~
 ## 2026-11-11 09:13 GH-5 run R28B (control): the same stop at ANE_SYS_MPM without the commit
 - Armed 09:09:38, "R28B committing" 09:10:35 (no timer writes), main's kernel started 09:12:51: 136 s, WD1. Snapshot again stopped at index 99.
 - So the ANE's power word (ps-reg group 8, `0x28e084000`) cannot be read from the observer whether or not the commit was written. Not a footprint of the commit. Image 80 (Aura `6b45dd44`) leaves group 8 out; the table it then walks is in `data/pmgr-ps-table-image80.txt`. Runs R29A (commit) and R29B (control).
+
+## 2026-11-11 13:02 GH-5 run R29A (image 80): the snapshot stops at entry 202, ISP_CPU
+- Armed 09:14:02, "R29A committing" 09:14:56, main's kernel started 09:16:13: 77 s. (Then the session's usage limit; this entry is written at 13:02.)
+- 404 words in the table, 202 read; the read of entry 202, ISP_CPU (the first word of group 14, `0x290284000`), hung. Same shape as the ANE's group 8: a second page of a PMGR block (+0x4000) that belongs to a subsystem whose parent is off by then. Likely our own quiesce steps make those pages unreadable, not the commit (R28B showed that for the ANE's).
+- Image 81 (Aura `1a9621ad`) also leaves out groups 14 to 16 (ISP, VENC, PRORES): 391 words, `data/pmgr-ps-table-image81.txt`. Runs R30A and R30B.

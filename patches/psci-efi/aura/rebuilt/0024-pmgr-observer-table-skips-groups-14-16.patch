@@ -1,0 +1,26 @@
+From 1a9621ad79c0525884e30dd22d65c361ce4a33b3 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <git@jjrpf.com>
+Date: Wed, 11 Nov 2026 13:02:24 -0500
+Subject: [PATCH] pmgr: the S2R observer's power-word table also leaves out
+ ps-reg groups 14 to 16 (image 81)
+
+---
+ src/pmgr.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/pmgr.c b/src/pmgr.c
+index 339cd510..793c0679 100644
+--- a/src/pmgr.c
++++ b/src/pmgr.c
+@@ -761,7 +761,7 @@ void pmgr_ps_tab_build(void)
+     for (size_t i = 0; i < pmgr_devices_len && pmgr_ps_tab_n < PMGR_PS_TAB_MAX; i++) {
+         const struct pmgr_device *d = &pmgr_devices[i];
+         uintptr_t a = pmgr_device_get_addr(0, d);
+-        if (!a || d->psreg_idx == 8) /* image 80: group 8 (the ANE's words) hangs the reader, with or without the commit */
++        if (!a || d->psreg_idx == 8 || (d->psreg_idx >= 14 && d->psreg_idx <= 16)) /* images 80, 81: groups 8 (ANE) and 14 (ISP) hang the reader; 15, 16 (VENC, PRORES) are the same kind of page */
+             continue;
+         pmgr_ps_tab[pmgr_ps_tab_n].addr = a;
+         pmgr_ps_tab[pmgr_ps_tab_n].key = ((u32)d->psreg_idx << 8) | d->addr_offset;
+-- 
+2.56.0
+
