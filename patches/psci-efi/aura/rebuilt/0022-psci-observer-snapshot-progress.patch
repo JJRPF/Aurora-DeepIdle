@@ -1,0 +1,41 @@
+From a1da54abf271a72bb93073307eda1001aba46575 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <git@jjrpf.com>
+Date: Wed, 11 Nov 2026 08:50:00 -0500
+Subject: [PATCH] psci: the observer's PMGR snapshot writes each index to
+ 0x6008/9 before its read (image 79)
+
+---
+ src/psci.c | 17 +++++++++++++++--
+ 1 file changed, 15 insertions(+), 2 deletions(-)
+
+diff --git a/src/psci.c b/src/psci.c
+index 5fae1b34..fbb726ec 100644
+--- a/src/psci.c
++++ b/src/psci.c
+@@ -815,8 +815,21 @@ void psci_s2r_observe(void)
+     /* image 78: every PMGR power word as the commit is seen (before the crumb: SPMI takes a while) */
+     static u32 snap[512];
+     u32 nps = pmgr_ps_tab_count(), key;
+-    for (u32 i = 0; i < nps; i++)
+-        snap[i] = read32(pmgr_ps_tab_addr(i, &key));
++    /* image 79: R27A stopped in here, so each index goes to 0x6008 (low byte) / 0x6009 (high) before its read */
++    r[0] = nps >> 1;
++    qs_crumb_write(0x6006, r, 1);
++    for (u32 i = 0; i < nps; i++) {
++        u64 a = pmgr_ps_tab_addr(i, &key);
++        r[0] = i & 0xff;
++        r[1] = 0x80 | (i >> 8);
++        qs_crumb_write(0x6008, r, 2);
++        snap[i] = read32(a);
++    }
++    r[0] = 0xff;
++    r[1] = 0xff;
++    qs_crumb_write(0x6008, r, 2);
++    r[0] = 0;
++    r[1] = 0;
+     qs_crumb(0xa1);
+     t0 = qs_now();
+     do {
+-- 
+2.56.0
+

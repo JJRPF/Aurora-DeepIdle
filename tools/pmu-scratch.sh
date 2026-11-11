@@ -30,7 +30,7 @@ if [ $((E & 0x80)) -ne 0 ]; then
 else
     echo "0x601f EDPRCR release   $(b 601f) (image 72: bit 7 clear = the step did not run)"
 fi
-case "$(b 6004)" in a1|a2|a3|a4|af)
+case "$(b 6004)" in a1|a2|a3|a4|af|16)
     echo "OBSERVER (image 74): stage $(b 6004) (a1 saw the commit, a2 sampled 3 s and wrote the words, a3 read every EDPRSR, af no commit seen)"
     echo "  3 s after the commit, as the observer reads them: ECPM $(b 6012) PCPM0 $(b 6013) PCPM1 $(b 601b) (>> 4; low nibble 0 = off, 10 = off and was gated, 1f = on)"
     P=$((0x$(b 600a))); echo "  observer's own EDPRSR $(b 600a) (calibration: bit 7 = read, PU $((P & 1)) must be 1)"
@@ -47,6 +47,7 @@ case "$(b 6004)" in a1|a2|a3|a4|af)
         set -- $e; o=$(b $1); f=$((0x$(b $2))); v=$((0x$(b $3)))
         echo "    ps-reg $((f & 7)) offset 0x$o (word at base + $((0x$o * 8))): actual $((f >> 4)) -> $((v >> 4)), target now $((v & 15))$([ $((f & 8)) -ne 0 ] && echo ', upper bits changed too')"
     done
+    echo "  IMAGE 79: snapshot index being read 0x6009 0x6008 = $(b 6009) $(b 6008) (high byte has bit 7 set while reading; ffff = snapshot finished; a later diff entry may overwrite 0x6008/9)"
     echo "  (image 73 used 0x6008 20 ms word, 0x6009 3 s word, 0x600a first-off x 16 ms, 0x600b boot core EDPRSR)" ;;
 esac
 echo "0x6001/2/3 boot stage $(b 6001), error count $(b 6002), error stage $(b 6003); 0x6010 loader flag $(b 6010); 0x6017 $(b 6017)"
