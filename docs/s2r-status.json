@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "updated": "2026-11-10",
+  "updated": "2026-11-11",
   "overall": 45,
   "overall_note": "Risk-weighted guess with a wide error bar. The page prefers the live figure in `docs/status.md` when it can read one.",
   "machine": "14-inch MacBook Pro, M2 Pro (`T6020`, `apple,j414s`), Aurora Silicon Linux",
@@ -160,7 +160,7 @@
         "Flake found and fixed (2026-11-08): `aurora-sep-load` unloaded the packaged `apple_sep` mid-attach, so the SEP probe failed with -16 on some boots"
       ],
       "next": [
-        "The order of the last writes: macOS’s PMU driver fires the S2R timer after the AIC quiesce; and the `PwrGateRetentionV2` write",
+        "R20b (image 70, built): each cluster’s APSC off after the secondaries sleep, as macOS does. It may not recover by itself, so it runs last in the night. macOS’s PMU driver and retention code were read again: no missing write there",
         "Anything DJ and Naeem Malik did that is still untried on T6020, starting with maralcbr’s post-`slpa` writes"
       ],
       "gate": "20 of 20 cycles; lid, key, keyboard and alarm wakes; about 0.3 W on battery."

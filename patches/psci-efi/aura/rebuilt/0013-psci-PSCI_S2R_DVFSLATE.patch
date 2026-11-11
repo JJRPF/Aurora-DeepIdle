@@ -1,0 +1,54 @@
+From 8b6229e37abcb0c7faadc28b67671477d139671b Mon Sep 17 00:00:00 2001
+From: Justin Pfister <git@jjrpf.com>
+Date: Tue, 10 Nov 2026 23:20:32 -0500
+Subject: [PATCH] psci: PSCI_S2R_DVFSLATE (bit 25): cluster APSC off after the
+ secondaries have slept, crumb 0x1b
+
+---
+ src/psci.c | 10 ++++++++--
+ src/psci.h |  1 +
+ 2 files changed, 9 insertions(+), 2 deletions(-)
+
+diff --git a/src/psci.c b/src/psci.c
+index fe24523b..2f68b02b 100644
+--- a/src/psci.c
++++ b/src/psci.c
+@@ -955,7 +955,7 @@ static unsigned long psci_system_suspend(unsigned long entry, unsigned long cont
+     psci_dbg[2] = daif;
+     psci_dbg[14] = mrs(SYS_IMP_APL_CYC_OVRD);
+     dc_ivac_range((void *)psci_ctl, sizeof(psci_ctl));
+-    u64 steps = psci_ctl[1] & (PSCI_S2R_TIMER | PSCI_S2R_CORESOFF | PSCI_S2R_DOMAINS | PSCI_S2R_CLOCKS | PSCI_S2R_CLUSTERS | PSCI_S2R_STOPREQ | PSCI_S2R_HELD | PSCI_S2R_REC | PSCI_S2R_AMCC | PSCI_S2R_STOPWD2 | PSCI_S2R_AICMASK | PSCI_S2R_WD1OFF | PSCI_S2R_RESUMENOW | PSCI_S2R_CRUMB | PSCI_S2R_QUIET | PSCI_S2R_EACC | PSCI_S2R_DVFS | PSCI_S2R_FABRIC | PSCI_S2R_ATC | PSCI_S2R_PCIE | PSCI_S2R_AON | PSCI_S2R_PMP | PSCI_S2R_SPMINOTIFY | PSCI_S2R_SEP);
++    u64 steps = psci_ctl[1] & (PSCI_S2R_TIMER | PSCI_S2R_CORESOFF | PSCI_S2R_DOMAINS | PSCI_S2R_CLOCKS | PSCI_S2R_CLUSTERS | PSCI_S2R_STOPREQ | PSCI_S2R_HELD | PSCI_S2R_REC | PSCI_S2R_AMCC | PSCI_S2R_STOPWD2 | PSCI_S2R_AICMASK | PSCI_S2R_WD1OFF | PSCI_S2R_RESUMENOW | PSCI_S2R_CRUMB | PSCI_S2R_QUIET | PSCI_S2R_EACC | PSCI_S2R_DVFS | PSCI_S2R_FABRIC | PSCI_S2R_ATC | PSCI_S2R_PCIE | PSCI_S2R_AON | PSCI_S2R_PMP | PSCI_S2R_SPMINOTIFY | PSCI_S2R_SEP | PSCI_S2R_DVFSLATE);
+     for (unsigned i = 0; i < 48; i++)
+         psci_dbg2[i] = 0;
+     psci_dbg2[1] = steps | ((u64)qs_amcc_n << 32) | ((u64)qs_amcc_planes << 40);
+@@ -1063,7 +1063,13 @@ static unsigned long psci_system_suspend(unsigned long entry, unsigned long cont
+         smp_psci_release_parked(steps & PSCI_S2R_STOPREQ);
+         udelay(2000);
+         qs_crumb_snapshot();
+-        qs_crumb(0x16); /* the last access before the commit */
++        if (steps & PSCI_S2R_DVFSLATE) {
++            /* image 70: macOS turns APSC off once its secondaries are down; image 61 did it before the release */
++            psci_quiesce_dvfs();
++            qs_crumb(0x1b); /* the last access before the commit, the late APSC step done */
++        } else {
++            qs_crumb(0x16); /* the last access before the commit */
++        }
+     }
+     if (quiet && (steps & PSCI_S2R_SPMINOTIFY)) {
+         /* image 66: after the last crumb, nothing in Aura uses SPMI again before the commit */
+diff --git a/src/psci.h b/src/psci.h
+index bdc517b3..73be5d5f 100644
+--- a/src/psci.h
++++ b/src/psci.h
+@@ -121,6 +121,7 @@ u64 psci_crumb_base(void);
+  * OUTBOX_CTRL enable off, then ps_sep := 0x1000030f. First step of the quiesce (image 68; crumb 0x6011
+  * bits 2-4, with bit 22). Commit runs only: nothing enables the outbox again */
+ #define PSCI_S2R_SEP      BIT(24)
++#define PSCI_S2R_DVFSLATE BIT(25) /* image 70: cluster APSC off after the secondaries have slept (run R20b) */
+ void psci_ctl_init(void);
+ 
+ bool psci_suspend_resuming(void);
+-- 
+2.56.0
+

@@ -1,4 +1,4 @@
-# Where the work stands (2026-11-10, 23:28, after run R18L)
+# Where the work stands (2026-11-11, 03:00, after run R18L)
 
 This is the summary of the whole effort: what was measured, what was built,
 what works, what does not, and what comes next. Each section points to the
