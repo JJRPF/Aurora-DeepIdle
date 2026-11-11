@@ -41,6 +41,12 @@ case "$(b 6004)" in a1|a2|a3|a4|af)
     echo "  IMAGE 76 ONLY, stage a4 = the wake probe finished (at a3 the 0x6005-7 line above still holds the image 75 values):"
     echo "    after an IPI to each sleeping core: returned from WFI (state kept) $(b 6006)$(b 6005); restarted through the reset vector (had lost power) $(b 6009)$(b 6008)"
     echo "    (bit = Aura index, bit 15 = written); boot core WFI count $(b 6007); reset_dbg[0] $(b 600a); index being woken $(b 600b) (ff = done)"
+    echo "  IMAGE 78 ONLY (replaces every observer line above; stage a4 = the diff was written):"
+    echo "    PMGR power words that changed in the 3 s after the commit (CPU complex words left out): $((0x$(b 6005))) of about $((0x$(b 6006) * 2))"
+    for e in "6007 6008 6009" "600a 600b 600c" "6012 6013 6014" "6015 6016 6017" "601b 601c 601d"; do
+        set -- $e; o=$(b $1); f=$((0x$(b $2))); v=$((0x$(b $3)))
+        echo "    ps-reg $((f & 7)) offset 0x$o (word at base + $((0x$o * 8))): actual $((f >> 4)) -> $((v >> 4)), target now $((v & 15))$([ $((f & 8)) -ne 0 ] && echo ', upper bits changed too')"
+    done
     echo "  (image 73 used 0x6008 20 ms word, 0x6009 3 s word, 0x600a first-off x 16 ms, 0x600b boot core EDPRSR)" ;;
 esac
 echo "0x6001/2/3 boot stage $(b 6001), error count $(b 6002), error stage $(b 6003); 0x6010 loader flag $(b 6010); 0x6017 $(b 6017)"
