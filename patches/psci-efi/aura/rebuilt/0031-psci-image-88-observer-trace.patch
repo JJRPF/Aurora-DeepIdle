@@ -1,0 +1,114 @@
+From 3228b5506029ce20e910ead72da017ef52d327f2 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <git@jjrpf.com>
+Date: Wed, 11 Nov 2026 14:20:13 -0500
+Subject: [PATCH] psci: image 88: observer trace mode, times each change of the
+ five always-on words the commit moves
+
+---
+ src/psci.c | 83 ++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 83 insertions(+)
+
+diff --git a/src/psci.c b/src/psci.c
+index 0f49d27b..51f3254f 100644
+--- a/src/psci.c
++++ b/src/psci.c
+@@ -820,6 +820,85 @@ static u32 qs_aon_snap[QS_AON_WORDS];
+ static u8 qs_aon_vol[QS_AON_WORDS / 8];
+ static volatile u64 psci_s2r_snapdone __attribute__((aligned(64)));
+ 
++/*
++ * image 88 (psci_ctl[4] bit 63): trace the five MPMGR_AON words the commit changes (R35B/D/E) from the commit until
++ * the reset. Each change is an event of 3 bytes: id << 5 | new value & 0x1f, then the time since the commit in 4 ms
++ * units (16 bits, little endian). ids: 0 +0x14 byte 0, 1 +0x100 byte 0, 2 +0x4000 byte 0, 3 +0x4008 byte 0,
++ * 4 +0x4008 byte 1, 5 +0x400c byte 0, 6 another byte of one of the five (value = word number 0-4).
++ * Slots: 0x6005, 0x6008, 0x6011, 0x6014, 0x601b (first five events); 0x600b = events seen (ff = 255 or more);
++ * 0x600c = +0x100 byte 0 now; 0x601e = +0x14 byte 0 now; 0x601f = bit 0..2: +0x4000/+0x4008/+0x400c byte 0 != 0.
++ */
++static const u32 qs_tr_off[5] = {0x14, 0x100, 0x4000, 0x4008, 0x400c};
++static void psci_s2r_trace(void)
++{
++    static const u16 slot[5] = {0x6005, 0x6008, 0x6011, 0x6014, 0x601b};
++    u32 v[5], n = 0;
++    u8 r[4];
++
++    for (int k = 0; k < 5; k++)
++        v[k] = read32(QS_AON_BASE + qs_tr_off[k]);
++    qs_crumb(0xa1);
++    psci_s2r_snapdone = 1;
++    dc_civac_range((void *)&psci_s2r_snapdone, sizeof(psci_s2r_snapdone));
++    u64 t0 = qs_now();
++    while (*(volatile u64 *)&psci_s2r_committed != 1)
++        if (qs_now() - t0 > 5 * 24000000ULL) {
++            qs_crumb(0xae);
++            return;
++        }
++    t0 = qs_now();
++    /* after the commit: the boot core's own snapshot (before it) uses the same slots */
++    r[0] = r[1] = r[2] = r[3] = 0xff;
++    for (int k = 0; k < 5; k++)
++        qs_crumb_write(slot[k], r, 3);
++    r[0] = 0;
++    qs_crumb_write(0x600b, r, 1);
++    r[0] = v[1];
++    qs_crumb_write(0x600c, r, 1);
++    r[0] = v[0];
++    r[1] = (!!(v[2] & 0xff)) | (!!(v[3] & 0xff)) << 1 | (!!(v[4] & 0xff)) << 2;
++    qs_crumb_write(0x601e, r, 2);
++    qs_crumb(0xa2);
++    while (qs_now() - t0 < 120 * 24000000ULL) {
++        for (int k = 0; k < 5; k++) {
++            u32 w = read32(QS_AON_BASE + qs_tr_off[k]), x = w ^ v[k];
++            if (!x)
++                continue;
++            u32 t = (qs_now() - t0) / 96000; /* 4 ms */
++            for (int b = 0; b < 4 && x; b++) {
++                if (!((x >> (8 * b)) & 0xff))
++                    continue;
++                x &= ~(0xffU << (8 * b));
++                u8 id, val = (w >> (8 * b)) & 0x1f;
++                if (b == 0)
++                    id = k == 0 ? 0 : k == 1 ? 1 : k == 2 ? 2 : k == 3 ? 3 : 5;
++                else if (b == 1 && k == 3)
++                    id = 4;
++                else {
++                    id = 6;
++                    val = k;
++                }
++                if (n < 5) {
++                    r[0] = (id << 5) | val;
++                    r[1] = t > 0xffff ? 0xff : t;
++                    r[2] = t > 0xffff ? 0xff : t >> 8;
++                    qs_crumb_write(slot[n], r, 3);
++                }
++                n++;
++                r[0] = n > 255 ? 255 : n;
++                qs_crumb_write(0x600b, r, 1);
++            }
++            v[k] = w;
++            r[0] = v[1];
++            qs_crumb_write(0x600c, r, 1);
++            r[0] = v[0];
++            r[1] = (!!(v[2] & 0xff)) | (!!(v[3] & 0xff)) << 1 | (!!(v[4] & 0xff)) << 2;
++            qs_crumb_write(0x601e, r, 2);
++        }
++    }
++    qs_crumb(0xa4);
++}
++
+ void psci_s2r_observe(void)
+ {
+     u8 r[5] = {0, 0, 0, 0, 0};
+@@ -832,6 +911,10 @@ void psci_s2r_observe(void)
+             return;
+         }
+     u64 obs = psci_ctl[4];
++    if (obs & BIT(63)) {
++        psci_s2r_trace();
++        return;
++    }
+     u32 pages = (obs >> 16) & 0xfffff, noprobe = (obs >> 36) & 0xfffff;
+     if (!pages) {
+         pages = 0xff; /* R35A: the observer stopped in page 8 */
+-- 
+2.56.0
+
