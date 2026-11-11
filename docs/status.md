@@ -1,4 +1,4 @@
-# Where the work stands (2026-11-11, 03:36, after run R20c)
+# Where the work stands (2026-11-11, 03:52, after run R20c)
 
 This is the summary of the whole effort: what was measured, what was built,
 what works, what does not, and what comes next. Each section points to the
@@ -108,8 +108,10 @@ There are two goals:
   after that are closed too: the order of the last writes (Aura already
   masks the AIC before the timer), `PwrGateRetentionV2` (no table on
   T6020), and cluster APSC (R20b, R20c on 2026-11-11: off on the powered
-  E cluster right before the commit, the same reset). Next: what macOS
-  15.7.1 tells the SMC at sleep.
+  E cluster right before the commit, the same reset). A new lead from
+  the M4 Pro code and macOS 15.7.1's kernel: every core clears its
+  external debug power request (EDPRCR) before its deep WFI, which
+  nothing here has done. Image 72 does it; run R21 tests it.
 * **Estimate: about 45% of the way to working S2R** (risk-weighted guess,
   wide error bar; 33% earlier on 2026-11-04, before Phase 2 closed). Per
   phase: remote hands 100 (replaced by software), CPU_ON and CPU_OFF 85,

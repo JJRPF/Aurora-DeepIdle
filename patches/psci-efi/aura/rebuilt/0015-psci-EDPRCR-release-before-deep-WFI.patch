@@ -1,0 +1,167 @@
+From d93a57cd21c7d28286e34aa5c9d1cfc62f782191 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <git@jjrpf.com>
+Date: Wed, 11 Nov 2026 03:50:32 -0500
+Subject: [PATCH] psci: PSCI_S2R_EDPRCR (bit 26): each core unlocks its
+ external debug block and writes EDPRCR := 0 before its deep WFI, as xnu's
+ ml_arm_sleep; crumb 0x601f (image 72)
+
+---
+ src/kboot.c |  6 +++---
+ src/psci.c  | 15 ++++++++++++---
+ src/psci.h  |  6 ++++++
+ src/smp.c   | 32 ++++++++++++++++++++++++++++++--
+ src/smp.h   |  3 ++-
+ 5 files changed, 53 insertions(+), 9 deletions(-)
+
+diff --git a/src/kboot.c b/src/kboot.c
+index 5fbfa168..07ec3f85 100644
+--- a/src/kboot.c
++++ b/src/kboot.c
+@@ -745,9 +745,9 @@ static int dt_set_psci(void)
+     if (fdt_setprop(dt, node, "aura,psci-runtime-code", code, sizeof(code)))
+         bail("FDT: couldn't set aura,psci-runtime-code\n");
+ 
+-    u64 ranges[2 * 64];
+-    int n = smp_psci_mmio_ranges(ranges, 64);
+-    fdt64_t mmio[2 * 64];
++    u64 ranges[2 * 96]; /* image 72: 64 could not hold the twelve external debug pages too */
++    int n = smp_psci_mmio_ranges(ranges, 96);
++    fdt64_t mmio[2 * 96];
+     for (int i = 0; i < 2 * n; i++)
+         mmio[i] = cpu_to_fdt64(ranges[i]);
+     if (fdt_setprop(dt, node, "aura,psci-runtime-mmio", mmio, 2 * n * sizeof(fdt64_t)))
+diff --git a/src/psci.c b/src/psci.c
+index 03930961..958f5bc9 100644
+--- a/src/psci.c
++++ b/src/psci.c
+@@ -960,7 +960,7 @@ static unsigned long psci_system_suspend(unsigned long entry, unsigned long cont
+     psci_dbg[2] = daif;
+     psci_dbg[14] = mrs(SYS_IMP_APL_CYC_OVRD);
+     dc_ivac_range((void *)psci_ctl, sizeof(psci_ctl));
+-    u64 steps = psci_ctl[1] & (PSCI_S2R_TIMER | PSCI_S2R_CORESOFF | PSCI_S2R_DOMAINS | PSCI_S2R_CLOCKS | PSCI_S2R_CLUSTERS | PSCI_S2R_STOPREQ | PSCI_S2R_HELD | PSCI_S2R_REC | PSCI_S2R_AMCC | PSCI_S2R_STOPWD2 | PSCI_S2R_AICMASK | PSCI_S2R_WD1OFF | PSCI_S2R_RESUMENOW | PSCI_S2R_CRUMB | PSCI_S2R_QUIET | PSCI_S2R_EACC | PSCI_S2R_DVFS | PSCI_S2R_FABRIC | PSCI_S2R_ATC | PSCI_S2R_PCIE | PSCI_S2R_AON | PSCI_S2R_PMP | PSCI_S2R_SPMINOTIFY | PSCI_S2R_SEP | PSCI_S2R_DVFSLATE);
++    u64 steps = psci_ctl[1] & (PSCI_S2R_TIMER | PSCI_S2R_CORESOFF | PSCI_S2R_DOMAINS | PSCI_S2R_CLOCKS | PSCI_S2R_CLUSTERS | PSCI_S2R_STOPREQ | PSCI_S2R_HELD | PSCI_S2R_REC | PSCI_S2R_AMCC | PSCI_S2R_STOPWD2 | PSCI_S2R_AICMASK | PSCI_S2R_WD1OFF | PSCI_S2R_RESUMENOW | PSCI_S2R_CRUMB | PSCI_S2R_QUIET | PSCI_S2R_EACC | PSCI_S2R_DVFS | PSCI_S2R_FABRIC | PSCI_S2R_ATC | PSCI_S2R_PCIE | PSCI_S2R_AON | PSCI_S2R_PMP | PSCI_S2R_SPMINOTIFY | PSCI_S2R_SEP | PSCI_S2R_DVFSLATE | PSCI_S2R_EDPRCR);
+     for (unsigned i = 0; i < 48; i++)
+         psci_dbg2[i] = 0;
+     psci_dbg2[1] = steps | ((u64)qs_amcc_n << 32) | ((u64)qs_amcc_planes << 40);
+@@ -1065,9 +1065,18 @@ static unsigned long psci_system_suspend(unsigned long entry, unsigned long cont
+         if (steps & PSCI_S2R_AICMASK)
+             psci_quiesce_aic();
+         qs_crumb(0x17);
+-        smp_psci_release_parked(steps & PSCI_S2R_STOPREQ);
++        smp_psci_release_parked(steps & PSCI_S2R_STOPREQ, steps & PSCI_S2R_EDPRCR);
+         udelay(2000);
+         qs_crumb_snapshot();
++        if (steps & PSCI_S2R_EDPRCR) {
++            /* image 72: the boot core's own EDPRCR := 0, and what every core had there, kept in 0x601f */
++            u32 b = smp_psci_ed_release(), o = 0;
++            for (int i = 1; i < 16 && i < MAX_CPUS; i++)
++                if (smp_psci_cpu_valid(i))
++                    o |= smp_psci_s2r_word(i, 4);
++            u8 e = 0x80 | (b & 3) | ((b >> 1) & 4) | ((b & 0xff00) ? 8 : 0) | ((o & 3) << 4) | ((o & 8) << 3);
++            qs_crumb_write(0x601f, &e, 1);
++        }
+         if (steps & PSCI_S2R_DVFSLATE) {
+             /*
+              * image 70: macOS turns APSC off once its secondaries are down; image 61 did it before the release.
+@@ -1145,7 +1154,7 @@ static unsigned long psci_system_suspend(unsigned long entry, unsigned long cont
+         psci_dbg[0] = 0xA0AA0001;
+         dc_civac_range((void *)psci_dbg, sizeof(psci_dbg));
+         qs_crumb(0x17);
+-        smp_psci_release_parked(steps & PSCI_S2R_STOPREQ); /* the secondaries go first, as macOS's stall release */
++        smp_psci_release_parked(steps & PSCI_S2R_STOPREQ, false); /* the secondaries go first, as macOS's stall release */
+         udelay(2000);
+         qs_crumb_snapshot();
+         qs_crumb(0x18);
+diff --git a/src/psci.h b/src/psci.h
+index 73be5d5f..95e228ca 100644
+--- a/src/psci.h
++++ b/src/psci.h
+@@ -122,6 +122,12 @@ u64 psci_crumb_base(void);
+  * bits 2-4, with bit 22). Commit runs only: nothing enables the outbox again */
+ #define PSCI_S2R_SEP      BIT(24)
+ #define PSCI_S2R_DVFSLATE BIT(25) /* image 70: cluster APSC off after the secondaries have slept (run R20b) */
++/* image 72: xnu's ml_arm_sleep on every core right before its deep WFI (15.7.1 kernel, both the secondary and the
++ * boot path): unlock the core's external debug block (EDLAR, +0xfb0 := 0xc5acce55) and write EDPRCR (+0x310) := 0,
++ * "tell debugger to not prevent power gating". With CORENPDRQ set a core only emulates its power-down. Crumb 0x601f:
++ * bit 7 ran, bits 0-2 the boot core's EDPRCR before (bits 0, 1, 3), bit 3 its read-back not 0, bits 4-6 the same
++ * three bits ORed over the secondaries */
++#define PSCI_S2R_EDPRCR   BIT(26)
+ void psci_ctl_init(void);
+ 
+ bool psci_suspend_resuming(void);
+diff --git a/src/smp.c b/src/smp.c
+index d242eb23..185f5033 100644
+--- a/src/smp.c
++++ b/src/smp.c
+@@ -1140,10 +1140,30 @@ int smp_psci_cpu_state(int i)
+     return psci_cpu_state[i];
+ }
+ 
+-void smp_psci_release_parked(bool stopreq)
++/*
++ * image 72 (PSCI_S2R_EDPRCR): the calling core's external debug block (J414s ADT cpuN coresight-reg: 0x210010000 +
++ * cluster * 0x1000000 + core * 0x100000), EDLAR unlocked and EDPRCR := 0 as xnu's ml_arm_sleep. Returns bit 31 set,
++ * EDPRCR before in bits 0-7, its read-back after in bits 8-15. Only a core's own block: it is powered while it runs.
++ */
++u32 smp_psci_ed_release(void)
++{
++    u64 mpidr = mrs(MPIDR_EL1);
++    u64 cl = (mpidr >> 8) & 0xff, co = mpidr & 0xff;
++
++    if (chip_id != T6020 || cl > 2 || co > 3)
++        return 0;
++    u64 ed = 0x210010000ULL + cl * 0x1000000ULL + co * 0x100000ULL;
++    write32(ed + 0xfb0, 0xc5acce55);
++    u32 pre = read32(ed + 0x310);
++    write32(ed + 0x310, 0);
++    sysop("dsb sy");
++    return BIT(31) | (pre & 0xff) | ((read32(ed + 0x310) & 0xff) << 8);
++}
++
++void smp_psci_release_parked(bool stopreq, bool ed)
+ {
+     psci_s2r_offmask = 0;
+-    psci_s2r_go = 1;
++    psci_s2r_go = ed ? 3 : 1;
+     dc_civac_range((void *)&psci_s2r_go, sizeof(psci_s2r_go));
+     sysop("dsb sy");
+     for (int i = 0; i < MAX_CPUS; i++) {
+@@ -1208,6 +1228,8 @@ void psci_park_c(u64 index)
+                 sysop("isb");
+             }
+             psci_s2r_loops[index][0]++;
++            if (*(volatile u64 *)&psci_s2r_go & 2)
++                psci_s2r_loops[index][4] = smp_psci_ed_release(); /* image 72 */
+             dc_civac_range((void *)psci_s2r_loops[index], 64);
+             dcsw_op_all(DCSW_OP_DCCISW);
+             sysop("dsb sy");
+@@ -1324,6 +1346,12 @@ int smp_psci_mmio_ranges(u64 *ranges, int max)
+     /* image 66: NOTIFY_ENABLE on nub-spmi0 (on the crumb page) and nub-spmi1 (PSCI_S2R_SPMINOTIFY) */
+     if (psci_crumb_base() && chip_id == T6020)
+         smp_psci_add_range(ranges, max, &n, 0x29e154040, 4);
++    /* image 72: each core's external debug block, EDPRCR +0x310 and EDLAR +0xfb0 (PSCI_S2R_EDPRCR) */
++    if (chip_id == T6020)
++        for (int i = 0; i < MAX_CPUS; i++)
++            if (cpu_info[i].valid)
++                smp_psci_add_range(ranges, max, &n, 0x210010000ULL + (u64)cpu_info[i].cluster * 0x1000000ULL +
++                                   (u64)cpu_info[i].core * 0x100000ULL, 0x1000);
+     /* image 67: the SEP mailbox's OUTBOX_CTRL (PSCI_S2R_SEP); ps_sep 0x290280c00 is on ps_sio's page */
+     if (chip_id == T6020)
+         smp_psci_add_range(ranges, max, &n, 0x396408114, 4);
+diff --git a/src/smp.h b/src/smp.h
+index b8a9600b..598e16ac 100644
+--- a/src/smp.h
++++ b/src/smp.h
+@@ -36,7 +36,8 @@ uint64_t smp_get_mpidr(int cpu);
+ u64 smp_get_release_addr(int cpu);
+ void smp_set_wfe_mode(bool new_mode);
+ void smp_send_ipi(int cpu);
+-void smp_psci_release_parked(bool stopreq);
++void smp_psci_release_parked(bool stopreq, bool ed);
++u32 smp_psci_ed_release(void);
+ void smp_psci_s2r_clear(void);
+ 
+ static inline int smp_id(void)
+-- 
+2.56.0
+
