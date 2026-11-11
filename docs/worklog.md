@@ -3829,3 +3829,8 @@ Owner asked for this before the next run. Read-only: 25 branches fetched into `~
 - Armed 08:46:52, "R27A committing" 08:47:44 (aura-ctl `0x1d7dcb1f`), main's kernel started 08:49:01: 77 s after the push.
 - `0x6004` is still the boot core's `16`: the observer never wrote `a1`, which comes right after the first snapshot. So reading one of the PMGR's power words, taken from the device tree's own list, hung or faulted the observer core, at the moment of the commit.
 - Open: is that word unreadable always, or only once the commit is written? Image 79 (Aura `a1da54ab`) writes each index to `0x6008/9` before its read; R28A (commit) and R28B (control) give the word and the answer. R27B is skipped: it would hang the same way without naming the word.
+
+## 2026-11-11 09:09 GH-5 run R28A (image 79, snapshot with progress): the observer stops reading entry 99, ANE_SYS_MPM
+- Armed 08:50:25, "R28A committing" 08:51:17, main's kernel started 08:52:34: 77 s after the push. (The owner then used the Mac for about 15 minutes; this entry is written after that.)
+- Table: 410 power words. Last index started: 99 (`0x6009 0x6008` = `80 63`), no `a1`. Rebuilt from the saved J414s device tree, entry 99 is **ANE_SYS_MPM**, the first word of ps-reg group 8 (`0x28e084000`), where the ANE's domains sit. Entries 0 to 98 (groups 4 to 7) read fine.
+- Whether that word is unreadable always (ANE logic off) or only after the commit is what the control R28B answers, with the same image.
