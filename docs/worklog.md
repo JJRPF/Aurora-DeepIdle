@@ -3746,3 +3746,10 @@ Owner asked for this before the next run. Read-only: 25 branches fetched into `~
 ## 2026-11-11 03:54 GH-5 run R21, first try: the job stopped before the suspend (its own check failed); fixed, armed again
 - Armed 03:52:28, back on main 03:53:58, away 90 s. Stage 2 `v0.1.0-23-gd93a57cd` (image 72) booted, the SEP slept (reply tag 0xd), then the new check of the runtime MMIO map failed: `find` does not descend `/proc/device-tree` (a symlink), so the property was not found and the job ended, rc 1. No commit, no crumbs. Nothing learned about EDPRCR.
 - Fix: the job searches `/sys/firmware/devicetree/base` and stops with a message if the property is missing. Same image, same word (`0x57dcb1f`). Outcomes as in the entry above.
+
+## 2026-11-11 03:57 GH-5 run R21 (image 72, EDPRCR := 0 on every core before its deep WFI): the step ran, the register was already 0, the same 75 s reset
+- Armed 03:54:46, **"R21 committing" 03:55:38** (aura-ctl `0x57dcb1f` read back; runtime map 45 ranges with the 10 debug pages), main's kernel started 03:56:53: **75 s after the push**, the S2R timer's reset. Away 135 s, no "resumed".
+- **PMU scratch `0x601f` = `80`:** the step ran on the boot core and nothing was set before it: CORENPDRQ, CWRR and COREPURQ read 0 on the boot core and on every secondary, and the boot core's read-back was 0. No core faulted on its debug block: `0x6004` = `16`, every core slept (`0x6007` ff), snapshot as always (CPU_OFF `077e`, ECPM/PCPM0/PCPM1 `1f/10/00`, `0x6011` 50).
+- **So no debug power request was holding the cores up.** macOS writes the register, but on this Mac under Aura it is 0 already. The lead is closed. The step is harmless and stays available (bit 26).
+- Useful by-product: the secondaries can reach MMIO from their sleep path through the runtime map, and a per-core value can be carried into the crumbs, which the next per-core checks can reuse.
+
