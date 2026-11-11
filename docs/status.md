@@ -1,4 +1,4 @@
-# Where the work stands (2026-11-10, 23:20, after run R18J)
+# Where the work stands (2026-11-10, 23:25, after run R18K)
 
 This is the summary of the whole effort: what was measured, what was built,
 what works, what does not, and what comes next. Each section points to the
@@ -101,7 +101,13 @@ There are two goals:
   the same place (run R18J): the step read the mailbox again after the
   enclave was gated, and a gated enclave's mailbox does not answer. That
   also explains the Linux hangs. Image 69 leaves the mailbox alone after
-  the gate; run R18K tests it.
+  the gate. Run R18K: the SEP read back exactly as macOS has it at the
+  commit (asleep, outbox off, power word `0x1000030f`), and the Mac reset
+  on the S2R timer as before. So macOS's whole sleep-entry power map is
+  now matched and the SoC still does not power down. What is left is the
+  order of the last writes (macOS fires the timer from the PMU driver,
+  after the AIC quiesce), `PwrGateRetentionV2`, and cluster APSC (R20b,
+  attended only).
 * **Estimate: about 45% of the way to working S2R** (risk-weighted guess,
   wide error bar; 33% earlier on 2026-11-04, before Phase 2 closed). Per
   phase: remote hands 100 (replaced by software), CPU_ON and CPU_OFF 85,
