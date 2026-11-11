@@ -11,6 +11,7 @@ b() { echo "${B[$((0x$1 - 0x6000))]}"; }
 case $(b 6004) in
     00) S="none (no crumb run, or zeroed)" ;; 11) S="entry" ;; 12) S="records taken" ;; 13) S="S2R timer written" ;;
     14) S="WD2 stopped" ;; 15) S="AIC masked" ;; 16) S="quiet commit: last access before the commit (expected for a commit run)" ;;
+    1c) S="quiet commit: the late APSC step was entered and did not finish (image 71)" ;;
     1b) S="quiet commit with the late APSC step (image 70): last access before the commit" ;;
     17) S="before the secondaries are released" ;; 18|19) S="non-quiet path: after the snapshot. Image 68 commit run: 18 = stopped in the SEP step, 19 = SEP step done, stopped in the PMGR quiesce" ;;
     1e|22) S="RESUME path reached (Aura returned to the kernel)" ;; 21) S="resume: undo done" ;; *) S="?" ;;

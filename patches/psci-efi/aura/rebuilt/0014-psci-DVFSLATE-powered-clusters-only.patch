@@ -1,0 +1,85 @@
+From 80360e1cd809502781d5ee295af67e98704dda6b Mon Sep 17 00:00:00 2001
+From: Justin Pfister <git@jjrpf.com>
+Date: Wed, 11 Nov 2026 03:32:42 -0500
+Subject: [PATCH] psci: PSCI_S2R_DVFSLATE touches only the clusters whose
+ complex reads on, crumb 0x1c before it (image 71)
+
+---
+ src/psci.c | 27 +++++++++++++++++++++------
+ 1 file changed, 21 insertions(+), 6 deletions(-)
+
+diff --git a/src/psci.c b/src/psci.c
+index 2f68b02b..03930961 100644
+--- a/src/psci.c
++++ b/src/psci.c
+@@ -529,22 +529,25 @@ static u8 qs_pcie_aon_state(void)
+     return b;
+ }
+ 
+-static void psci_quiesce_dvfs(void)
++/* image 71: @mask = the clusters to touch (bit = index); a cluster left out is saved as ~0 and skipped by the undo */
++static void psci_quiesce_dvfs(unsigned mask)
+ {
+     u32 fail = 0;
+ 
+     for (unsigned i = 0; i < 3; i++)
+-        qs_save.dvfs[i] = read64(qs_dvfs_base[i] + QS_DVFS_PSTATE);
++        qs_save.dvfs[i] = (mask & BIT(i)) ? read64(qs_dvfs_base[i] + QS_DVFS_PSTATE) : ~0ULL;
+     qs_save.saved |= 128;
+     dc_civac_range((void *)&qs_save, sizeof(qs_save));
+     for (unsigned i = 0; i < 3; i++) {
+         u64 a = qs_dvfs_base[i] + QS_DVFS_PSTATE;
++        if (!(mask & BIT(i)))
++            continue;
+         write64(a, read64(a) | QS_DVFS_APSC_DIS);
+         fail |= qs_poll(a, QS_DVFS_APSC_BUSY, 0, 10000) << (28 + i);
+     }
+     /* psci_dbg2 words 48..50: the low half before (high 32 bits) and after (low 32 bits) */
+     for (unsigned i = 0; i < 3; i++)
+-        psci_dbg2[48 + i] = (qs_save.dvfs[i] << 32) | (u32)read64(qs_dvfs_base[i] + QS_DVFS_PSTATE);
++        psci_dbg2[48 + i] = (mask & BIT(i)) ? (qs_save.dvfs[i] << 32) | (u32)read64(qs_dvfs_base[i] + QS_DVFS_PSTATE) : ~0ULL;
+     psci_dbg[23] |= fail;
+ }
+ 
+@@ -574,6 +577,8 @@ static void psci_quiesce_undo(void)
+     if (qs_save.saved & 128) {
+         for (unsigned i = 0; i < 3; i++) {
+             u64 a = qs_dvfs_base[i] + QS_DVFS_PSTATE;
++            if (qs_save.dvfs[i] == ~0ULL)
++                continue;
+             write64(a, (read64(a) & ~QS_DVFS_APSC_DIS) | (qs_save.dvfs[i] & QS_DVFS_APSC_DIS));
+             qs_poll(a, QS_DVFS_APSC_BUSY, 0, 10000);
+         }
+@@ -1043,7 +1048,7 @@ static unsigned long psci_system_suspend(unsigned long entry, unsigned long cont
+     if (steps & PSCI_S2R_AMCC)
+         psci_quiesce_amcc();
+     if (steps & PSCI_S2R_DVFS)
+-        psci_quiesce_dvfs();
++        psci_quiesce_dvfs(7);
+     if (steps & PSCI_S2R_REC) {
+         qs_rec_wdt(8);
+         qs_rec_amcc(30);
+@@ -1064,8 +1069,18 @@ static unsigned long psci_system_suspend(unsigned long entry, unsigned long cont
+         udelay(2000);
+         qs_crumb_snapshot();
+         if (steps & PSCI_S2R_DVFSLATE) {
+-            /* image 70: macOS turns APSC off once its secondaries are down; image 61 did it before the release */
+-            psci_quiesce_dvfs();
++            /*
++             * image 70: macOS turns APSC off once its secondaries are down; image 61 did it before the release.
++             * image 71: R20b stopped inside the step (crumb 0x17 left, both P complexes read off in the snapshot), so
++             * only the clusters whose complex still reads on are touched (the boot core's E cluster), crumb 0x1c first.
++             */
++            unsigned m = 1;
++            if (read32(QS_CPM_PS + 8) & 0xf0)
++                m |= 2;
++            if (read32(QS_CPM_PS + 0x10) & 0xf0)
++                m |= 4;
++            qs_crumb(0x1c);
++            psci_quiesce_dvfs(m);
+             qs_crumb(0x1b); /* the last access before the commit, the late APSC step done */
+         } else {
+             qs_crumb(0x16); /* the last access before the commit */
+-- 
+2.56.0
+
