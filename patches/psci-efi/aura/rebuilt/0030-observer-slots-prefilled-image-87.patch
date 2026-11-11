@@ -1,0 +1,31 @@
+From 9ed3db9354f9f9572ae79e83ef236207693f6ca1 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <git@jjrpf.com>
+Date: Wed, 11 Nov 2026 13:59:00 -0500
+Subject: [PATCH] psci: image 87: the observer fills its three report slots
+ with ff first
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+---
+ src/psci.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/src/psci.c b/src/psci.c
+index beca69b6..0f49d27b 100644
+--- a/src/psci.c
++++ b/src/psci.c
+@@ -885,6 +885,12 @@ void psci_s2r_observe(void)
+             m0 |= BIT(i >> 1);
+     static const u16 slot[] = {0x6007, 0x6012, 0x601b}; /* image 86: three entries; 0x600d/e do not survive a reset */
+     u32 nd = 0, last = 0xffff, from = obs & 0xffff;
++    /* image 87: the three slots are filled with ff first, so what the boot core left there cannot pass for an entry */
++    r[0] = r[1] = r[2] = r[3] = r[4] = 0xff;
++    for (int k = 0; k < 3; k++) {
++        qs_crumb_write(slot[k], r, 4);
++        qs_crumb_write(slot[k] + 4, r, 1);
++    }
+     for (u32 i = 0; i < QS_AON_WORDS; i++) {
+         if (!(pages & BIT(i >> 10)))
+             continue;
+-- 
+2.56.0
+
