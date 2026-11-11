@@ -71,7 +71,7 @@ MM=$(find /sys/firmware/devicetree/base -name 'aura,psci-runtime-mmio' | head -1
 NR=$(( $(wc -c < "$MM") / 16 )); ED=$(od -An -v -tx1 -w16 "$MM" | tr -d ' ' | grep -c '^000000021[012][0-3]10000')
 log "runtime mmio: $NR ranges, $ED external debug pages"
 [ "$ED" -ge 10 ] || { log "the external debug pages are not in the runtime map: stopping"; return 0; }
-CTL=$($J/aura-ctl 0x3d7dcb1f 0 0 0x300000000000 2>&1 | head -1); log "aura ctl: $CTL"
+CTL=$($J/aura-ctl 0x3d7dcb1f 0 0 0xfff00000000000 2>&1 | head -1); log "aura ctl: $CTL"
 case "$CTL" in *3d7dcb1f*) ;; *) log "aura-ctl did not read back 0x3d7dcb1f: stopping"; $J/aura-ctl 0 0 0 >/dev/null 2>&1; return 0 ;; esac
 echo 0 > $R/wakealarm 2>/dev/null; echo +40 > $R/wakealarm
 push "R35C committing" "suspend at $(date -u +%T) UTC, alarm +40 s. $S | $CTL | mmio $NR ranges, $ED debug pages"

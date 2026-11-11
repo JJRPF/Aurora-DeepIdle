@@ -4000,3 +4000,19 @@ This is the first register-level footprint of the commit, and it has a control b
   - third slot: bytes `00 10 10 00 01`, which read as "word 4096, 00 → 01". The same word cannot be listed twice, and the first three of those bytes are also what the slot holds when nothing is written (zeroed `0x601b`, then the boot core's `10 10`), so I do not trust this entry. For the same reason **R35B's "last changed word = 4096" was not evidence**; its "two more between 65 and 4095" is withdrawn.
 - **Probe:** `0x600c` = `29`: the observer stopped while reading page 9 (`0x29e5c9000`), as it did in page 8 in R35A. Pages 0 to 7 are fine.
 - **Image 87** (Aura `9ed3db93`, `v0.1.0-38`, `boot-test.bin.87` sha `47b9fb566ee9a827`, patch 0030): the three slots are filled with `ff` before the report, so a leftover cannot pass for an entry. **R35E** = commit, report from word 4097, probe leaving out pages 8 and 9. Then **R35C**, the control.
+
+## 2026-11-11 14:02 run R35E: the five words the commit changes are now all named; page 10 cannot be read either
+- Armed 13:59:25, "R35E committing" 14:00:18, main's kernel 14:01:34 (76 s). Away 136 s. Image 87, report from word 4097; unused slot reads `ff` as intended.
+- **Two words from 4097 on** (`0x6006` 02): word 4098 **`0x29e5c4008` `00` → `01`** (two bytes differ, as R35D) and word 4099 **`0x29e5c400c` `00` → `01`**. R35D's doubtful third entry was this word 4099 with its first byte lost.
+- **The whole set, 3 s after the commit** (pages 0 to 7 of `MPMGR_AON`, 8192 words, R35B + R35D + R35E agree):
+
+  | word | before | after |
+  |---|---|---|
+  | `0x29e5c0014` | low byte `03` | `01` |
+  | `0x29e5c0100` | low byte `08` | `0a` |
+  | `0x29e5c4000` (S2R timer) | `01` | `00` |
+  | `0x29e5c4008` | `00` | `01`, a second byte differs too |
+  | `0x29e5c400c` | `00` | `01` |
+
+- **Probe:** `0x600c` = `2a`: stopped in page 10. Pages 8, 9 and 10 each stop the observer, so I take everything from `0x29e5c8000` up as not readable from here and stop probing.
+- Next: **R35C**, the control without the commit (do any of the five move anyway?), and reading macOS's PMGR code for these five offsets.
