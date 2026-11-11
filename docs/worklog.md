@@ -3753,3 +3753,7 @@ Owner asked for this before the next run. Read-only: 25 branches fetched into `~
 - **So no debug power request was holding the cores up.** macOS writes the register, but on this Mac under Aura it is 0 already. The lead is closed. The step is harmless and stays available (bit 26).
 - Useful by-product: the secondaries can reach MMIO from their sleep path through the runtime map, and a per-core value can be carried into the crumbs, which the next per-core checks can reuse.
 
+
+## 2026-11-11 08:02 GH-5: is the reset still independent of the alarm? Runs R22A (alarm +20 s) and R22B (+70 s) on image 72
+- The rule "the S2R timer resets the Mac whatever the alarm does" rests on run D2 (2026-11-05), when the cores were still in retention and nothing of macOS's entry was done. Every commit run since used one alarm (+40 s) and came back 75 to 76 s after the push. With the usual 24 s firmware chain that puts the reset about 51 s after the push, 10 s after the alarm, and less than the 60 s D2 measured for the timer. So the times no longer separate the two readings.
+- **R22A and R22B are R21 with only the alarm changed.** Main's kernel 75 s after the push in both = the timer, as assumed. A start that moves with the alarm (about 55 s for +20, about 105 s for +70) = the SoC does sleep now and the alarm wake ends in a cold boot, so the work moves to the wake path. 110 to 140 s = WD1.
