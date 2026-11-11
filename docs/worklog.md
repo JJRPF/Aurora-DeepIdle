@@ -3848,3 +3848,8 @@ Owner asked for this before the next run. Read-only: 25 branches fetched into `~
 - Armed 13:02:32, "R30A committing" 13:03:26, main's kernel started 13:04:42: 76 s.
 - 263 of 391 words read; entry 263 is SMC_GPIO (group 3, the SMC's words in the AON block; SMC_FABRIC just before it read). Every group Linux's own device tree lists has now been read; what is left after group 3 is group 0, which already read at entries 205 to 261.
 - Image 82 (Aura `707704ef`) leaves group 3 out: 374 words, `data/pmgr-ps-table-image82.txt`. Runs R31A and R31B. Three runs spent finding unreadable words; that is the cost of having no console after the commit.
+
+## 2026-11-11 13:09 GH-5 run R31A (image 82): the diff completes. Two of 374 PMGR power words change in the 3 s after the commit
+- Armed 13:06:00, "R31A committing" 13:06:52, main's kernel started 13:08:09: 77 s. Observer `a4`, snapshot finished (`0x6008` f8 is a diff byte, written later).
+- Changed (CPU complex words left out), both in group 0 (the AON block's first page): offset `0x0c` **NUB_SPMI0** actual `f` -> `4` (target still `f`), and offset `0x16` **MTP_FABRIC** actual `f` -> `0` (target still `f`). Upper bits changed in both. Raw: `0c f8 4f`, `16 f8 0f`.
+- Nothing else moved: no domain in the main PMGR blocks changes state in those 3 s. Whether these two are the commit's doing or happen anyway (NUB_SPMI0 is the bus the crumbs themselves go over; MTP may idle on its own) is what the control R31B shows.
