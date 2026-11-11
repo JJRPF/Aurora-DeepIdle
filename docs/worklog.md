@@ -3742,3 +3742,7 @@ Owner asked for this before the next run. Read-only: 25 branches fetched into `~
 - **Image 72** `~/Work/psci-test/boot-test.bin.72` `f8575276c765d698`, staged. **Job `r21-commit-edprcr`**: R18K + bit 26 (aura-ctl `0x57dcb1f`), stops unless the runtime map holds the debug pages. WD1 armed.
 - **Outcomes after "R21 committing":** "R21 resumed" = it slept and the alarm woke it; a reset about 75 s after the push = no change (the crumb then says what EDPRCR held); 110 to 140 s = WD1 (a core faulted on its debug block, or the timer's reset stopped; the never-slept mask tells which); no return = power has to be held.
 - Aside: the loader flag `0x6010` read `ff` after R20b and R20c because the crumb snapshot writes two bytes at `0x6010` (`ff ff` when every core slept). The loader acts on `a5` only, so it is harmless.
+
+## 2026-11-11 03:54 GH-5 run R21, first try: the job stopped before the suspend (its own check failed); fixed, armed again
+- Armed 03:52:28, back on main 03:53:58, away 90 s. Stage 2 `v0.1.0-23-gd93a57cd` (image 72) booted, the SEP slept (reply tag 0xd), then the new check of the runtime MMIO map failed: `find` does not descend `/proc/device-tree` (a symlink), so the property was not found and the job ended, rc 1. No commit, no crumbs. Nothing learned about EDPRCR.
+- Fix: the job searches `/sys/firmware/devicetree/base` and stops with a message if the property is missing. Same image, same word (`0x57dcb1f`). Outcomes as in the entry above.

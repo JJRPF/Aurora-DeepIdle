@@ -65,7 +65,8 @@ log "switches: $S"
 case "$S" in *MISSING*) log "a switch is missing: stopping"; return 0 ;; esac
 log "pmgr counters: $($J/pmgrcnt enable 2>&1 | tail -1)"
 log "before: atc $(atc); pmp req $(w 0x28e3c2000) ack $(w 0x28e3c2080); usb $(lsusb 2>/dev/null | wc -l)"
-MM=$(find /proc/device-tree -name 'aura,psci-runtime-mmio' | head -1)
+MM=$(find /sys/firmware/devicetree/base -name 'aura,psci-runtime-mmio' | head -1)
+[ -n "$MM" ] || { log "no aura,psci-runtime-mmio in the device tree: stopping"; return 0; }
 NR=$(( $(wc -c < "$MM") / 16 )); ED=$(od -An -v -tx1 -w16 "$MM" | tr -d ' ' | grep -c '^000000021[012][0-3]10000')
 log "runtime mmio: $NR ranges, $ED external debug pages"
 [ "$ED" -ge 10 ] || { log "the external debug pages are not in the runtime map: stopping"; return 0; }
