@@ -3834,3 +3834,7 @@ Owner asked for this before the next run. Read-only: 25 branches fetched into `~
 - Armed 08:50:25, "R28A committing" 08:51:17, main's kernel started 08:52:34: 77 s after the push. (The owner then used the Mac for about 15 minutes; this entry is written after that.)
 - Table: 410 power words. Last index started: 99 (`0x6009 0x6008` = `80 63`), no `a1`. Rebuilt from the saved J414s device tree, entry 99 is **ANE_SYS_MPM**, the first word of ps-reg group 8 (`0x28e084000`), where the ANE's domains sit. Entries 0 to 98 (groups 4 to 7) read fine.
 - Whether that word is unreadable always (ANE logic off) or only after the commit is what the control R28B answers, with the same image.
+
+## 2026-11-11 09:13 GH-5 run R28B (control): the same stop at ANE_SYS_MPM without the commit
+- Armed 09:09:38, "R28B committing" 09:10:35 (no timer writes), main's kernel started 09:12:51: 136 s, WD1. Snapshot again stopped at index 99.
+- So the ANE's power word (ps-reg group 8, `0x28e084000`) cannot be read from the observer whether or not the commit was written. Not a footprint of the commit. Image 80 (Aura `6b45dd44`) leaves group 8 out; the table it then walks is in `data/pmgr-ps-table-image80.txt`. Runs R29A (commit) and R29B (control).
