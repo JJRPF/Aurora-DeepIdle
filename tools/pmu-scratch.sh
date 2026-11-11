@@ -47,6 +47,10 @@ case "$(b 6004)" in a1|a2|a3|a4|af|16)
         set -- $e; o=$(b $1); f=$((0x$(b $2))); v=$((0x$(b $3)))
         echo "    ps-reg $((f & 7)) offset 0x$o (word at base + $((0x$o * 8))): actual $((f >> 4)) -> $((v >> 4)), target now $((v & 15))$([ $((f & 8)) -ne 0 ] && echo ', upper bits changed too')"
     done
+    echo "  IMAGE 83 ONLY (replaces every observer line above; stage a4 = written): PMGR state counters over the 3 s after the commit"
+    echo "    advanced (bit 0 SLP_DDR, 1 AWAKE, 2 SLP_S2R, 3 DEEP_WAIT, 4 SYS_AWAKE, 5 SYS_S2R_AOP, 6 SYS_SLP_DDR, 7 = written): $(b 6005), twins $(b 6006)"
+    echo "    by how much, x 43.7 ms (3 s = 68 = 0x44): SLP_DDR $(b 6007) AWAKE $(b 6008) SLP_S2R $(b 6009) DEEP_WAIT $(b 600a) SYS_AWAKE $(b 600b) SYS_S2R_AOP $(b 600c) SYS_SLP_DDR $(b 6015)"
+    echo "    WD2 after the 3 s: ctl low nibble $(b 6016 | cut -c2) (at the commit $(b 6016 | cut -c1)), alarm $((0x$(b 6017))) s, count $((0x$(b 601b))) s; complex words E $(b 6012) P0 $(b 6013)"
     echo "  IMAGE 79: snapshot index being read 0x6009 0x6008 = $(b 6009) $(b 6008) (high byte has bit 7 set while reading; ffff = snapshot finished; a later diff entry may overwrite 0x6008/9)"
     echo "  (image 73 used 0x6008 20 ms word, 0x6009 3 s word, 0x600a first-off x 16 ms, 0x600b boot core EDPRSR)" ;;
 esac

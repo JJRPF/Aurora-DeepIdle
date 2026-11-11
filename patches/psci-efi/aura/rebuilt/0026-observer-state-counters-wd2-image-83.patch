@@ -1,0 +1,161 @@
+From d2e1a86fd94be8012b94943ee22ef1e631f18bc2 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <git@jjrpf.com>
+Date: Wed, 11 Nov 2026 13:33:58 -0500
+Subject: [PATCH] psci: the S2R observer reports the PMGR state counters and
+ WD2 across the commit (image 83)
+
+Replaces image 78's power-word diff. The observer reads the 14 system-state
+counters (SLP_DDR, AWAKE, SLP_S2R, DEEP_WAIT, SYS_AWAKE, SYS_S2R_AOP,
+SYS_SLP_DDR and twins) and WD2 as it sees the commit and 3 s later, and
+writes which advanced, by how much, and WD2's ctl, alarm and count to the
+PMU scratch.
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+---
+ src/psci.c | 97 +++++++++++++++++++++---------------------------------
+ src/smp.c  |  1 +
+ 2 files changed, 39 insertions(+), 59 deletions(-)
+
+diff --git a/src/psci.c b/src/psci.c
+index fbb726ec..c5881cc4 100644
+--- a/src/psci.c
++++ b/src/psci.c
+@@ -788,6 +788,7 @@ static void qs_crumb(u8 v)
+  */
+ #define QS_PMP_REQ 0x28e3c2000ULL
+ #define QS_CPM_PS  0x28e080060ULL
++#define QS_STATE_CNT 0x29e2c8100ULL /* image 83: perf block 0, config of counter 0 */
+ static volatile u64 psci_s2r_committed __attribute__((aligned(64)));
+ 
+ static inline u64 qs_now(void)
+@@ -812,24 +813,17 @@ void psci_s2r_observe(void)
+             qs_crumb(0xaf); /* the boot core never committed */
+             return;
+         }
+-    /* image 78: every PMGR power word as the commit is seen (before the crumb: SPMI takes a while) */
+-    static u32 snap[512];
+-    u32 nps = pmgr_ps_tab_count(), key;
+-    /* image 79: R27A stopped in here, so each index goes to 0x6008 (low byte) / 0x6009 (high) before its read */
+-    r[0] = nps >> 1;
+-    qs_crumb_write(0x6006, r, 1);
+-    for (u32 i = 0; i < nps; i++) {
+-        u64 a = pmgr_ps_tab_addr(i, &key);
+-        r[0] = i & 0xff;
+-        r[1] = 0x80 | (i >> 8);
+-        qs_crumb_write(0x6008, r, 2);
+-        snap[i] = read32(a);
+-    }
+-    r[0] = 0xff;
+-    r[1] = 0xff;
+-    qs_crumb_write(0x6008, r, 2);
+-    r[0] = 0;
+-    r[1] = 0;
++    /*
++     * image 83 (replaces image 78's power-word diff): the PMGR's system-state counters (perf block 0x29e2c8000, config
++     * at +0x100 + 16 * idx, count at +8; idx 42..55 = SLP_DDR, AWAKE, SLP_S2R, DEEP_WAIT, SYS_AWAKE, SYS_S2R_AOP,
++     * SYS_SLP_DDR, each with a twin; Linux enables them) and WD2, as the commit is seen and again 3 s later.
++     */
++    u32 c0[14], wd2c0 = 0;
++    u64 wdt = wdt_psci_base();
++    for (int i = 0; i < 14; i++)
++        c0[i] = read32(QS_STATE_CNT + 16 * (42 + i) + 8);
++    if (wdt)
++        wd2c0 = read32(wdt + 0x28);
+     qs_crumb(0xa1);
+     t0 = qs_now();
+     do {
+@@ -853,53 +847,38 @@ void psci_s2r_observe(void)
+     r[1] = read32(QS_CPM_PS + 8) >> 4;
+     r[2] = read32(QS_CPM_PS + 0x10) >> 4;
+     qs_crumb_write(0x6012, r, 2);
+-    qs_crumb_write(0x601b, &r[2], 1);
+     qs_crumb(0xa2);
+     /*
+-     * image 75 (replaces image 74's EDPRSR reads, which read 0 on a running core): the cores whose final WFI has
+-     * returned by now, the boot core included (bit = Aura index) in 0x6005/0x6006, the boot core's count in 0x6007,
+-     * every such core's ISR_EL1 low byte ORed in 0x600c (bit 7 IRQ, bit 6 FIQ pending).
++     * image 83: which state counters advanced in the 3 s (0x6005: bit i = state i of the list above, bit 7 = written;
++     * 0x6006: the twins), by how much in 2^20 ticks = 43.7 ms (3 s = 68): 0x6007 SLP_DDR, 0x6008 AWAKE, 0x6009 SLP_S2R,
++     * 0x600a DEEP_WAIT, 0x600b SYS_AWAKE, 0x600c SYS_S2R_AOP, 0x6015 SYS_SLP_DDR. WD2 after the 3 s: 0x6016 ctl low
++     * nibble | ctl at the commit << 4, 0x6017 alarm in s, 0x601b count in s (ff = no WDT).
+      */
+-    u32 wk = 0, isr = 0, bc = smp_psci_s2r_word(boot_cpu_idx, 5);
+-    for (int i = 0; i < 16 && i < MAX_CPUS; i++)
+-        if (smp_psci_cpu_valid(i) && smp_psci_s2r_word(i, 5)) {
+-            wk |= BIT(i);
+-            isr |= smp_psci_s2r_word(i, 6);
++    u8 d[7], m0 = 0x80, m1 = 0;
++    for (int i = 0; i < 14; i++) {
++        u32 dv = read32(QS_STATE_CNT + 16 * (42 + i) + 8) - c0[i];
++        if (!(i & 1)) {
++            d[i >> 1] = (dv >> 20) > 255 ? 255 : dv >> 20;
++            if (dv)
++                m0 |= BIT(i >> 1);
++        } else if (dv) {
++            m1 |= BIT(i >> 1);
+         }
+-    r[0] = wk & 0xff;
+-    r[1] = (wk >> 8) | 0x80; /* bit 15 = written */
+-    r[2] = bc > 255 ? 255 : bc;
+-    qs_crumb_write(0x6005, r, 3);
+-    r[0] = isr & 0xff;
+-    qs_crumb_write(0x600c, r, 1);
+-    qs_crumb(0xa3);
+-
+-    /*
+-     * image 78 (replaces image 76's wake probe, which the control R26B showed to be blind): the PMGR power words that
+-     * differ between the commit and 3 s later, the three CPU complex words left out. 0x6005 = how many differ, 0x6006 =
+-     * words in the table / 2, then up to five 3-byte entries at 0x6007, 0x600a, 0x6012, 0x6015, 0x601b:
+-     * [offset] [ps-reg index (low 3 bits) | upper bits differ (bit 3) | old actual state << 4] [new target | new actual << 4]
+-     */
+-    static const u16 slot[] = {0x6007, 0x600a, 0x6012, 0x6015, 0x601b};
+-    u32 nd = 0;
+-    for (u32 i = 0; i < nps; i++) {
+-        u64 a = pmgr_ps_tab_addr(i, &key);
+-        if (a >= QS_CPM_PS && a <= QS_CPM_PS + 0x10)
+-            continue;
+-        u32 v = read32(a);
+-        if (v == snap[i])
+-            continue;
+-        if (nd < 5) {
+-            r[0] = key & 0xff;
+-            r[1] = ((key >> 8) & 7) | (((v ^ snap[i]) & ~0xffU) ? 8 : 0) | (snap[i] & 0xf0);
+-            r[2] = v & 0xff;
+-            qs_crumb_write(slot[nd], r, 3);
+-        }
+-        nd++;
+     }
+-    r[0] = nd > 255 ? 255 : nd;
+-    r[1] = nps >> 1;
++    r[0] = m0;
++    r[1] = m1;
+     qs_crumb_write(0x6005, r, 2);
++    qs_crumb_write(0x6007, d, 3);
++    qs_crumb_write(0x600a, &d[3], 3);
++    qs_crumb_write(0x6015, &d[6], 1);
++    r[0] = r[1] = r[2] = 0xff;
++    if (wdt) {
++        r[0] = (read32(wdt + 0x28) & 0xf) | ((wd2c0 & 0xf) << 4);
++        r[1] = read32(wdt + 0x24) / 24000000;
++        r[2] = read32(wdt + 0x20) / 24000000;
++    }
++    qs_crumb_write(0x6016, r, 2);
++    qs_crumb_write(0x601b, &r[2], 1);
+     qs_crumb(0xa4);
+ }
+ static void qs_crumb_snapshot(void)
+diff --git a/src/smp.c b/src/smp.c
+index 5871efd7..3a38c3a7 100644
+--- a/src/smp.c
++++ b/src/smp.c
+@@ -1342,6 +1342,7 @@ int smp_psci_mmio_ranges(u64 *ranges, int max)
+     /* image 53's quiesceHW steps (psci.c): MINI 0x4d010, ps_afr, ps_sio(_cpu), ClkGen-SOC, PLL-off */
+     if (chip_id == T6020) {
+         smp_psci_add_range(ranges, max, &n, 0x29e2cd010, 4);
++        smp_psci_add_range(ranges, max, &n, 0x29e2c83a0, 0xe0); /* image 83: the state counters */
+         smp_psci_add_range(ranges, max, &n, 0x404e80100, 4);
+         smp_psci_add_range(ranges, max, &n, 0x2902801c0, 0x24);
+         smp_psci_add_range(ranges, max, &n, 0x28e038158, 0x18);
+-- 
+2.56.0
+

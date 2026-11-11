@@ -3912,3 +3912,26 @@ The machine reset 9 s **before** the alarm was due. So the alarm plays no part: 
 61 s is half of the 121 s the watchdog takes without the commit. That may be chance, or the watchdog (set to 120 s by `suspend_timeout`) may count twice as fast once the three timer writes are done, which would itself be a sign that the SoC changed state.
 
 **Next: R33B**, the commit run with `suspend_timeout` 200 instead of 120 (job `r33b-commit-wd200`). A reset at about 101 s after the commit means the watchdog is the one resetting, running at double rate; a reset at 61 s again means a separate timer that does not depend on the watchdog setting.
+
+## 2026-11-11 13:34 R33B: the 61 s do not depend on the watchdog setting. R33A repeated R22B. A new measurement: the PMGR's state counters (image 83)
+
+R33B (image 82, aura-ctl `0x57dcb1f`, `suspend_timeout` 200 instead of 120) pushed "committing" at 13:28:54; the main kernel started at 13:30:10, 76 s later. PMU stamp `0x56ee85`, alarm `0x56ee70` (commit + 40 s): the reset came 61 s after the commit again. So Aura's watchdog (WD1) at double rate is not the cause; the 61 s belong to the timer write.
+
+**Being critical about R32 and R33.** R33A was a repeat: R22B (08:06 today) had already moved the alarm to +70 s with the same answer, and runs D2 and T0 said it on 11-05 and 11-06. I did not reread the log before arming it. What these four runs added:
+
+- the PMU's reset stamp at `0x1419` (6 bytes, 1/32768 s), which times a reset to the second without relying on boot-chain timing: 61 s after the commit, three times, against 121 s for the watchdog;
+- no PMU register flags the commit reset differently from a watchdog reset;
+- the 61 s do not move with `suspend_timeout`.
+
+None of it says why the entry does not complete. The state of knowledge is the one of 11-06: the timer write is taken, something resets the SoC about 60 s later, and W1 (11-06) moved that to about 90 s by stopping WD2 right after the write.
+
+**The next measurement, chosen for what it can decide.** The PMGR keeps residency counters for its own system states (`AWAKE`, `DEEP_WAIT`, `SLP_S2R`, `SLP_DDR` and the `SYS_` ones, `harness/mmio/pmgrcnt.c`). They were only ever read after a resume, and they are zero after a reset (read on main at 13:32: all 0, `ctl` `0x30000`). They have never been read **after the commit**. Image 83 lets the observer core read them as it sees the commit and 3 s later, with WD2's control, alarm and count:
+
+- only `AWAKE` advances, as in the control: the PMGR's state machine does not react to the timer write at all, and the timer is just a 60 s reset timer here;
+- `DEEP_WAIT` (or another state) advances with the commit and not in the control: the state machine started the entry and waits; the observer core being awake may be what it waits for in that run, but the state it stops in is then known;
+- WD2's control or alarm differ from the control run: the timer write arms WD2 as on the M1 and T8140, and the 61 s are its period.
+
+Limit, as before: the observer is an awake core. Here that matters less, because the question is whether the state machine moves at all.
+
+- Aura `d2e1a86f` (`v0.1.0-34`, patch `0026`), `boot-test.bin.83` sha `39f3a5e98f3d6bcf`. The power-word diff of images 78 to 82 is removed. Scratch layout in `tools/pmu-scratch.sh` (image 83 section).
+- Jobs `r34a-observer-state-counters` (aura-ctl `0x1d7dcb1f`) and `r34b-nocommit-state-counters` (`0x3d7dcb1f`, the control).
