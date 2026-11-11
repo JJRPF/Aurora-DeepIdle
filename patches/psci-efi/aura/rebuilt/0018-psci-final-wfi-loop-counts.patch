@@ -1,0 +1,212 @@
+From a920e69525bf93e3058abe8a1f5370950ae708b1 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <git@jjrpf.com>
+Date: Wed, 11 Nov 2026 08:30:47 -0500
+Subject: [PATCH] psci: the final WFI loop counts its returns and keeps
+ ISR_EL1; the boot core (0x6008-0x600b) and the observer (0x6005-0x6007,
+ 0x600c) report the cores that woke (image 75)
+
+---
+ src/psci.c  | 58 +++++++++++++++++++++++++++++++++--------------------
+ src/smp.c   |  9 ++++++++-
+ src/smp.h   |  1 +
+ src/utils.c | 25 ++++++++++++++++++++++-
+ src/utils.h |  1 +
+ 5 files changed, 70 insertions(+), 24 deletions(-)
+
+diff --git a/src/psci.c b/src/psci.c
+index 2616af30..7294e7ac 100644
+--- a/src/psci.c
++++ b/src/psci.c
+@@ -835,27 +835,23 @@ void psci_s2r_observe(void)
+     qs_crumb_write(0x6012, r, 2);
+     qs_crumb_write(0x601b, &r[2], 1);
+     qs_crumb(0xa2);
+-    u64 me = mrs(MPIDR_EL1);
+-    u32 pu = 0;
+-    r[3] = 0x80 | (read32(0x210010000ULL + ((me >> 8) & 0xff) * 0x1000000ULL + (me & 0xff) * 0x100000ULL + 0x314) & 0x7f);
+-    qs_crumb_write(0x600a, &r[3], 1);
+-    for (int i = 0; i < 16 && i < MAX_CPUS; i++) {
+-        if (!smp_psci_cpu_valid(i))
+-            continue;
+-        u64 m = i == boot_cpu_idx ? 0 : smp_psci_ipi_mpidr(i);
+-        u64 cl = (m >> 8) & 0xff, co = m & 0xff;
+-        if (cl > 2 || co > 3 || (cl == ((me >> 8) & 0xff) && co == (me & 0xff)))
+-            continue;
+-        u8 b = i;
+-        qs_crumb_write(0x600b, &b, 1);
+-        if (read32(0x210010000ULL + cl * 0x1000000ULL + co * 0x100000ULL + 0x314) & 1)
+-            pu |= BIT(i);
+-        r[0] = pu & 0xff;
+-        r[1] = pu >> 8;
+-        qs_crumb_write(0x6008, r, 2);
+-    }
+-    r[0] = 0xff;
+-    qs_crumb_write(0x600b, r, 1);
++    /*
++     * image 75 (replaces image 74's EDPRSR reads, which read 0 on a running core): the cores whose final WFI has
++     * returned by now, the boot core included (bit = Aura index) in 0x6005/0x6006, the boot core's count in 0x6007,
++     * every such core's ISR_EL1 low byte ORed in 0x600c (bit 7 IRQ, bit 6 FIQ pending).
++     */
++    u32 wk = 0, isr = 0, bc = smp_psci_s2r_word(boot_cpu_idx, 5);
++    for (int i = 0; i < 16 && i < MAX_CPUS; i++)
++        if (smp_psci_cpu_valid(i) && smp_psci_s2r_word(i, 5)) {
++            wk |= BIT(i);
++            isr |= smp_psci_s2r_word(i, 6);
++        }
++    r[0] = wk & 0xff;
++    r[1] = (wk >> 8) | 0x80; /* bit 15 = written */
++    r[2] = bc > 255 ? 255 : bc;
++    qs_crumb_write(0x6005, r, 3);
++    r[0] = isr & 0xff;
++    qs_crumb_write(0x600c, r, 1);
+     qs_crumb(0xa3);
+ }
+ static void qs_crumb_snapshot(void)
+@@ -1143,6 +1139,24 @@ static unsigned long psci_system_suspend(unsigned long entry, unsigned long cont
+                                 (steps & PSCI_S2R_OBSERVE) ? ((steps & PSCI_S2R_OBSERVE_P0) ? 2 : 1) : 0);
+         udelay(2000);
+         qs_crumb_snapshot();
++        if (qs_crumbs.on) {
++            /*
++             * image 75: the secondaries whose final WFI has returned so far (bit = Aura index) in 0x6008/0x6009, the
++             * highest count in 0x600a, their ISR_EL1 low bytes ORed in 0x600b (bit 7 IRQ, bit 6 FIQ pending)
++             */
++            u32 wk = 0, isr = 0, mx = 0;
++            for (int i = 1; i < 16 && i < MAX_CPUS; i++) {
++                u32 n = smp_psci_cpu_valid(i) ? smp_psci_s2r_word(i, 5) : 0;
++                if (n) {
++                    wk |= BIT(i);
++                    isr |= smp_psci_s2r_word(i, 6);
++                    if (n > mx)
++                        mx = n;
++                }
++            }
++            u8 k[4] = {wk & 0xff, (wk >> 8) | 0x80 /* bit 15 = written */, mx > 255 ? 255 : mx, isr & 0xff};
++            qs_crumb_write(0x6008, k, 4);
++        }
+         if (steps & PSCI_S2R_EDPRCR) {
+             /* image 72: the boot core's own EDPRCR := 0, and what every core had there, kept in 0x601f */
+             u32 b = smp_psci_ed_release(), o = 0;
+@@ -1195,7 +1209,7 @@ static unsigned long psci_system_suspend(unsigned long entry, unsigned long cont
+         sysop("dsb sy");
+         dcsw_op_all(DCSW_OP_DCCISW);
+         sysop("dsb sy");
+-        cpu_sleep(true); /* back only through RVBAR: psci_suspend_rvbar() */
++        cpu_sleep_counted(true, smp_psci_s2r_ptr(boot_cpu_idx)); /* back only through RVBAR: psci_suspend_rvbar() */
+     }
+     if (!quiet && (steps & PSCI_S2R_TIMER)) {
+         write32(MPMGR_AON_S2R_TIMER, 1);
+diff --git a/src/smp.c b/src/smp.c
+index 035e223d..5871efd7 100644
+--- a/src/smp.c
++++ b/src/smp.c
+@@ -1089,6 +1089,11 @@ static volatile u64 psci_s2r_go __attribute__((aligned(64)));
+ /* image 60d: how often each released secondary went into cpu_sleep(true); one cache line each */
+ static volatile u32 psci_s2r_loops[MAX_CPUS][16] __attribute__((aligned(64)));
+ 
++volatile u32 *smp_psci_s2r_ptr(int i)
++{
++    return psci_s2r_loops[i];
++}
++
+ u32 smp_psci_s2r_loops(int i)
+ {
+     dc_ivac_range((void *)psci_s2r_loops[i], 64);
+@@ -1203,6 +1208,8 @@ void smp_psci_s2r_clear(void)
+     for (int i = 0; i < MAX_CPUS; i++) {
+         psci_s2r_loops[i][0] = 0;
+         psci_s2r_loops[i][2] = 0;
++        psci_s2r_loops[i][5] = 0;
++        psci_s2r_loops[i][6] = 0;
+         dc_civac_range((void *)psci_s2r_loops[i], 64);
+     }
+     psci_s2r_go = 0;
+@@ -1254,7 +1261,7 @@ void psci_park_c(u64 index)
+             dc_civac_range((void *)psci_s2r_loops[index], 64);
+             dcsw_op_all(DCSW_OP_DCCISW);
+             sysop("dsb sy");
+-            cpu_sleep(true);
++            cpu_sleep_counted(true, psci_s2r_loops[index]); /* image 75 */
+         }
+         _deep_wfi_helper();
+         psci_s2r_loops[index][2]++;
+diff --git a/src/smp.h b/src/smp.h
+index 0cec4d3d..d805b6fd 100644
+--- a/src/smp.h
++++ b/src/smp.h
+@@ -57,6 +57,7 @@ void psci_enter(u64 entry, u64 context) __attribute__((noreturn));
+ int smp_psci_affinity_info(u64 mpidr);
+ int smp_psci_mmio_ranges(u64 *ranges, int max);
+ u32 smp_psci_s2r_loops(int i);
++volatile u32 *smp_psci_s2r_ptr(int i);
+ u32 smp_psci_off_mask(void);
+ int smp_psci_cpu_valid(int i);
+ int smp_psci_cpu_state(int i);
+diff --git a/src/utils.c b/src/utils.c
+index fd8b2cde..66e839e2 100644
+--- a/src/utils.c
++++ b/src/utils.c
+@@ -6,6 +6,7 @@
+ #include "utils.h"
+ #include "cpu_regs.h"
+ #include "iodev.h"
++#include "memory.h"
+ #include "smp.h"
+ #include "types.h"
+ #include "utils.h"
+@@ -246,7 +247,7 @@ void deep_wfi(void)
+         msr(SYS_IMP_APL_CYC_OVRD, cyc_ovrd);
+ }
+ 
+-void cpu_sleep(bool deep)
++static void cpu_sleep_setup(bool deep)
+ {
+     if (deep) {
+         switch (cpu_features->sleep_mode) {
+@@ -277,9 +278,31 @@ void cpu_sleep(bool deep)
+                  CYC_OVRD_WFI_MODE(3) | CYC_OVRD_DISABLE_WFI_RET);
+     }
+ 
++}
++
++void cpu_sleep(bool deep)
++{
++    cpu_sleep_setup(deep);
+     // enter deep sleep
+     while (1) {
+         sysop("isb");
+         sysop("wfi");
+     }
+ }
++
++/*
++ * image 75: as cpu_sleep(), but a WFI that returns is counted in w[5] and ISR_EL1 kept in w[6] (bit 8 = valid), flushed
++ * so another core can read it. A core that really powers down never gets here.
++ */
++void cpu_sleep_counted(bool deep, volatile u32 *w)
++{
++    cpu_sleep_setup(deep);
++    while (1) {
++        sysop("isb");
++        sysop("wfi");
++        w[5]++;
++        w[6] |= 0x100 | (mrs(ISR_EL1) & 0xff);
++        dc_civac_range((void *)w, 64);
++        sysop("dsb sy");
++    }
++}
+diff --git a/src/utils.h b/src/utils.h
+index 127ef487..04d0c27e 100644
+--- a/src/utils.h
++++ b/src/utils.h
+@@ -520,6 +520,7 @@ extern struct vector_args next_stage;
+ extern u64 boot_flags, mem_size_actual;
+ 
+ void cpu_sleep(bool deep) __attribute__((noreturn));
++void cpu_sleep_counted(bool deep, volatile u32 *w) __attribute__((noreturn));
+ void deep_wfi(void);
+ 
+ bool is_heap(void *addr);
+-- 
+2.56.0
+
