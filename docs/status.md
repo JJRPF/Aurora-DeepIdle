@@ -1,4 +1,4 @@
-# Where the work stands (2026-11-10, 23:00, after run R18G)
+# Where the work stands (2026-11-10, 23:08, after run R18H)
 
 This is the summary of the whole effort: what was measured, what was built,
 what works, what does not, and what comes next. Each section points to the
@@ -92,10 +92,10 @@ There are two goals:
   Run R18F cleared the SEP mailbox's OUTBOX_CTRL enable first, as macOS
   does: the enclave dropped its floor at once and the word took macOS's
   value. But Linux's suspend then died before reaching Aura (no crumbs),
-  reset 69 s later. Run R18G (a devices-only test suspend) ended the same
-  way, so both resets came 74 to 75 s after the outbox went off. Run R18H
-  checks whether that happens with no suspend at all. Then the two SEP
-  writes move into Aura's commit, after Linux is done (image 67).
+  reset by the 60 s watchdog. Runs R18G (a devices-only test suspend) and
+  R18H (no suspend at all) ended the same way: Linux hangs within 10 s of
+  the SEP being put in that state. So image 67 does the two writes in
+  Aura's commit, after Linux is done; run R18I tests it.
 * **Estimate: about 45% of the way to working S2R** (risk-weighted guess,
   wide error bar; 33% earlier on 2026-11-04, before Phase 2 closed). Per
   phase: remote hands 100 (replaced by software), CPU_ON and CPU_OFF 85,

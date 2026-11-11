@@ -1,0 +1,120 @@
+From 6cbae457b13c1b3d1604cf4b85089b61316e2117 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <git@jjrpf.com>
+Date: Tue, 10 Nov 2026 23:00:12 -0500
+Subject: [PATCH] psci: PSCI_S2R_SEP (bit 24): the SEP mailbox's OUTBOX_CTRL
+ enable off, then ps_sep := 0x1000030f, in the quiet commit
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+---
+ src/psci.c | 43 +++++++++++++++++++++++++++++++++++++++++--
+ src/psci.h |  4 ++++
+ src/smp.c  |  3 +++
+ 3 files changed, 48 insertions(+), 2 deletions(-)
+
+diff --git a/src/psci.c b/src/psci.c
+index 86397441..beca3543 100644
+--- a/src/psci.c
++++ b/src/psci.c
+@@ -459,6 +459,42 @@ static void psci_quiesce_pmp(void)
+     psci_dbg[23] |= fail;
+ }
+ 
++/*
++ * image 67: the secure enclave as macOS has it at sleep entry. Linux has sent the SLEEP control message and got the
++ * ack (apple_sep test_sleep_msg); after it the enclave holds its PS_AUTO floor at f (ps_sep 0x1f0003ff, run R18D)
++ * until the mailbox's OUTBOX_CTRL enable (bit 0) is cleared, then drops it within 200 ms (0x1000070f, R18F), and the
++ * host's write of 0x1000030f then takes. Done from Linux, the system hangs within 10 s (R18F to R18H), so it is
++ * done here, last. qs_sep_res for the crumb: 0x10 = ran, bit 2 = the outbox enable did not clear, bit 3 = the word
++ * is not 0x10....0f at the end. psci_dbg2[47] = the word (high) and OUTBOX_CTRL (low) read back.
++ */
++#define QS_SEP_OUTBOX_CTRL 0x396408114ULL
++#define QS_PS_SEP          0x290280c00ULL
++static u8 qs_sep_res;
++
++static void psci_quiesce_sep(void)
++{
++    u32 w = 0;
++
++    write32(QS_SEP_OUTBOX_CTRL, read32(QS_SEP_OUTBOX_CTRL) & ~1u);
++    sysop("dsb sy");
++    for (unsigned i = 0; i < 500; i++) {
++        w = read32(QS_PS_SEP);
++        if ((w >> 24) == 0x10)
++            break;
++        udelay(1000);
++    }
++    write32(QS_PS_SEP, 0x1000030f);
++    sysop("dsb sy");
++    udelay(1000);
++    w = read32(QS_PS_SEP);
++    qs_sep_res = 0x10;
++    if (read32(QS_SEP_OUTBOX_CTRL) & 1)
++        qs_sep_res |= 4;
++    if ((w >> 24) != 0x10 || (w & 0xff) != 0x0f)
++        qs_sep_res |= 8;
++    psci_dbg2[47] = ((u64)w << 32) | read32(QS_SEP_OUTBOX_CTRL);
++}
++
+ /* for the crumb: 0x40 = the step ran, bit 0 pmp still on, bit 1 pms_sram still on */
+ static u8 qs_pmp_state(void)
+ {
+@@ -818,7 +854,7 @@ static void qs_crumb_snapshot(void)
+         q[0] = qs_pcie_aon_state() | (((qs_save.saved & 512) && qs_atc_state()) ? 0x80 : 0);
+     /* image 65: 0x6011 = qs_pmp_state() (only when bit 22 ran; ff otherwise) */
+     if (fi <= 0 && (qs_save.saved & 4096))
+-        m[1] = qs_pmp_state();
++        m[1] = qs_pmp_state() | qs_sep_res; /* image 67: bits 2-4 = the SEP step (0x10 ran, 4 outbox on, 8 word) */
+     if (fi > 0) {
+         u64 mp = smp_psci_ipi_mpidr(fi);
+         u32 pe = smp_psci_s2r_word(fi, 1), wr = smp_psci_s2r_word(fi, 2);
+@@ -912,7 +948,7 @@ static unsigned long psci_system_suspend(unsigned long entry, unsigned long cont
+     psci_dbg[2] = daif;
+     psci_dbg[14] = mrs(SYS_IMP_APL_CYC_OVRD);
+     dc_ivac_range((void *)psci_ctl, sizeof(psci_ctl));
+-    u64 steps = psci_ctl[1] & (PSCI_S2R_TIMER | PSCI_S2R_CORESOFF | PSCI_S2R_DOMAINS | PSCI_S2R_CLOCKS | PSCI_S2R_CLUSTERS | PSCI_S2R_STOPREQ | PSCI_S2R_HELD | PSCI_S2R_REC | PSCI_S2R_AMCC | PSCI_S2R_STOPWD2 | PSCI_S2R_AICMASK | PSCI_S2R_WD1OFF | PSCI_S2R_RESUMENOW | PSCI_S2R_CRUMB | PSCI_S2R_QUIET | PSCI_S2R_EACC | PSCI_S2R_DVFS | PSCI_S2R_FABRIC | PSCI_S2R_ATC | PSCI_S2R_PCIE | PSCI_S2R_AON | PSCI_S2R_PMP | PSCI_S2R_SPMINOTIFY);
++    u64 steps = psci_ctl[1] & (PSCI_S2R_TIMER | PSCI_S2R_CORESOFF | PSCI_S2R_DOMAINS | PSCI_S2R_CLOCKS | PSCI_S2R_CLUSTERS | PSCI_S2R_STOPREQ | PSCI_S2R_HELD | PSCI_S2R_REC | PSCI_S2R_AMCC | PSCI_S2R_STOPWD2 | PSCI_S2R_AICMASK | PSCI_S2R_WD1OFF | PSCI_S2R_RESUMENOW | PSCI_S2R_CRUMB | PSCI_S2R_QUIET | PSCI_S2R_EACC | PSCI_S2R_DVFS | PSCI_S2R_FABRIC | PSCI_S2R_ATC | PSCI_S2R_PCIE | PSCI_S2R_AON | PSCI_S2R_PMP | PSCI_S2R_SPMINOTIFY | PSCI_S2R_SEP);
+     for (unsigned i = 0; i < 48; i++)
+         psci_dbg2[i] = 0;
+     psci_dbg2[1] = steps | ((u64)qs_amcc_n << 32) | ((u64)qs_amcc_planes << 40);
+@@ -1011,6 +1047,9 @@ static unsigned long psci_system_suspend(unsigned long entry, unsigned long cont
+         qs_crumb(0x17);
+         smp_psci_release_parked(steps & PSCI_S2R_STOPREQ);
+         udelay(2000);
++        qs_sep_res = 0;
++        if (steps & PSCI_S2R_SEP)
++            psci_quiesce_sep();
+         qs_crumb_snapshot();
+         qs_crumb(0x16); /* the last access before the commit */
+     }
+diff --git a/src/psci.h b/src/psci.h
+index 1124ac66..789fe288 100644
+--- a/src/psci.h
++++ b/src/psci.h
+@@ -117,6 +117,10 @@ u64 psci_crumb_base(void);
+  * value on T6020 (15.7.1 AppleSPMI). J414s has 0 there while Linux runs. Commit runs only: Linux's SPMI driver does
+  * not expect it */
+ #define PSCI_S2R_SPMINOTIFY BIT(23)
++/* image 67: the SEP's last two host steps of macOS's sleep entry, after Linux's SLEEP message: the mailbox's
++ * OUTBOX_CTRL enable off, then ps_sep := 0x1000030f. In the quiet commit, before the crumb snapshot (crumb 0x6011
++ * bits 2-4, with bit 22). Commit runs only: nothing enables the outbox again */
++#define PSCI_S2R_SEP      BIT(24)
+ void psci_ctl_init(void);
+ 
+ bool psci_suspend_resuming(void);
+diff --git a/src/smp.c b/src/smp.c
+index 3eddc9bb..d242eb23 100644
+--- a/src/smp.c
++++ b/src/smp.c
+@@ -1324,6 +1324,9 @@ int smp_psci_mmio_ranges(u64 *ranges, int max)
+     /* image 66: NOTIFY_ENABLE on nub-spmi0 (on the crumb page) and nub-spmi1 (PSCI_S2R_SPMINOTIFY) */
+     if (psci_crumb_base() && chip_id == T6020)
+         smp_psci_add_range(ranges, max, &n, 0x29e154040, 4);
++    /* image 67: the SEP mailbox's OUTBOX_CTRL (PSCI_S2R_SEP); ps_sep 0x290280c00 is on ps_sio's page */
++    if (chip_id == T6020)
++        smp_psci_add_range(ranges, max, &n, 0x396408114, 4);
+     /* image 60c: the PMP's request/ack words for the PSCI_S2R_CRUMB snapshot (the CPM power words share a mapped page) */
+     if (psci_crumb_base() && chip_id == T6020)
+         smp_psci_add_range(ranges, max, &n, 0x28e3c2000, 0x84);
+-- 
+2.56.0
+
