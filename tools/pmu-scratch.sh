@@ -30,7 +30,7 @@ if [ $((E & 0x80)) -ne 0 ]; then
 else
     echo "0x601f EDPRCR release   $(b 601f) (image 72: bit 7 clear = the step did not run)"
 fi
-case "$(b 6004)" in a1|a2|a3|af)
+case "$(b 6004)" in a1|a2|a3|a4|af)
     echo "OBSERVER (image 74): stage $(b 6004) (a1 saw the commit, a2 sampled 3 s and wrote the words, a3 read every EDPRSR, af no commit seen)"
     echo "  3 s after the commit, as the observer reads them: ECPM $(b 6012) PCPM0 $(b 6013) PCPM1 $(b 601b) (>> 4; low nibble 0 = off, 10 = off and was gated, 1f = on)"
     P=$((0x$(b 600a))); echo "  observer's own EDPRSR $(b 600a) (calibration: bit 7 = read, PU $((P & 1)) must be 1)"
@@ -38,6 +38,9 @@ case "$(b 6004)" in a1|a2|a3|af)
     echo "  IMAGE 75 ONLY (replaces the two lines above and the CPU_OFF mask line):"
     echo "    before the commit, secondaries whose final WFI returned: $(b 6009)$(b 6008) (bit = Aura index; bit 15 = written), highest count $(b 600a), ISR OR $(b 600b) (80 IRQ, 40 FIQ)"
     echo "    3 s after, cores whose final WFI returned (boot core = bit 0): $(b 6006)$(b 6005), boot core count $(b 6007), ISR OR $(b 600c)"
+    echo "  IMAGE 76 ONLY, stage a4 = the wake probe finished (at a3 the 0x6005-7 line above still holds the image 75 values):"
+    echo "    after an IPI to each sleeping core: returned from WFI (state kept) $(b 6006)$(b 6005); restarted through the reset vector (had lost power) $(b 6009)$(b 6008)"
+    echo "    (bit = Aura index, bit 15 = written); boot core WFI count $(b 6007); reset_dbg[0] $(b 600a); index being woken $(b 600b) (ff = done)"
     echo "  (image 73 used 0x6008 20 ms word, 0x6009 3 s word, 0x600a first-off x 16 ms, 0x600b boot core EDPRSR)" ;;
 esac
 echo "0x6001/2/3 boot stage $(b 6001), error count $(b 6002), error stage $(b 6003); 0x6010 loader flag $(b 6010); 0x6017 $(b 6017)"

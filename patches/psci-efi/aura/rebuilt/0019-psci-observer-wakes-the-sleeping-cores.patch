@@ -1,0 +1,127 @@
+From fac94ea47d297de1404092af10fa5c90309431c0 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <git@jjrpf.com>
+Date: Wed, 11 Nov 2026 08:36:24 -0500
+Subject: [PATCH] psci: the observer IPIs every sleeping core after the commit
+ and records how each comes back: WFI return or reset vector (image 76)
+
+---
+ src/psci.c    | 68 +++++++++++++++++++++++++++++++++++++--------------
+ src/startup.c | 13 ++++++++++
+ 2 files changed, 63 insertions(+), 18 deletions(-)
+
+diff --git a/src/psci.c b/src/psci.c
+index 7294e7ac..94df391c 100644
+--- a/src/psci.c
++++ b/src/psci.c
+@@ -853,6 +853,56 @@ void psci_s2r_observe(void)
+     r[0] = isr & 0xff;
+     qs_crumb_write(0x600c, r, 1);
+     qs_crumb(0xa3);
++
++    /*
++     * image 76: wake each sleeping core with an IPI and see how it comes back. Returned from its WFI (word 5) = it was
++     * only clock-stopped; through its reset vector (psci_s2r_probe) = it had lost power; neither = it cannot be woken.
++     * Order: the other P complex, this one, the E cores, the boot core last. 0x600b = the index being woken (ff = done),
++     * 0x6005/0x6006 = WFI-returned mask, 0x6008/0x6009 = reset-vector mask (bit 15 = written), 0x6007 = the boot
++     * core's WFI count, 0x600a = reset_dbg[0], stage a4.
++     */
++    extern volatile u8 psci_s2r_probe[64];
++    extern volatile u8 reset_dbg[8];
++    int self = smp_id();
++    for (int i = 0; i < 64; i++)
++        psci_s2r_probe[i] = 0;
++    psci_s2r_probe[0] = 0x5a;
++    dc_civac_range((void *)psci_s2r_probe, 64);
++    reset_dbg[0] = 0;
++    dc_civac_range((void *)reset_dbg, 8);
++    sysop("dsb sy");
++    static const s8 order[] = {8, 9, 10, 4, 5, 6, 1, 2, 3, 0};
++    for (u32 n = 0; n < sizeof(order); n++) {
++        int i = order[n];
++        if (i == self || !smp_psci_cpu_valid(i))
++            continue;
++        r[0] = i;
++        qs_crumb_write(0x600b, r, 1);
++        smp_send_ipi(i);
++        sysop("isb");
++        mdelay(100);
++    }
++    u32 rv = 0;
++    wk = 0;
++    dc_ivac_range((void *)psci_s2r_probe, 64);
++    for (int i = 0; i < 12; i++) {
++        if (psci_s2r_probe[16 + i] == 0xa5)
++            rv |= BIT(i);
++        if (i < MAX_CPUS && smp_psci_cpu_valid(i) && smp_psci_s2r_word(i, 5))
++            wk |= BIT(i);
++    }
++    bc = smp_psci_s2r_word(boot_cpu_idx, 5);
++    r[0] = wk & 0xff;
++    r[1] = (wk >> 8) | 0x80;
++    r[2] = bc > 255 ? 255 : bc;
++    qs_crumb_write(0x6005, r, 3);
++    dc_ivac_range((void *)reset_dbg, 8);
++    r[0] = rv & 0xff;
++    r[1] = (rv >> 8) | 0x80;
++    r[2] = reset_dbg[0];
++    r[3] = 0xff;
++    qs_crumb_write(0x6008, r, 4);
++    qs_crumb(0xa4);
+ }
+ static void qs_crumb_snapshot(void)
+ {
+@@ -1139,24 +1189,6 @@ static unsigned long psci_system_suspend(unsigned long entry, unsigned long cont
+                                 (steps & PSCI_S2R_OBSERVE) ? ((steps & PSCI_S2R_OBSERVE_P0) ? 2 : 1) : 0);
+         udelay(2000);
+         qs_crumb_snapshot();
+-        if (qs_crumbs.on) {
+-            /*
+-             * image 75: the secondaries whose final WFI has returned so far (bit = Aura index) in 0x6008/0x6009, the
+-             * highest count in 0x600a, their ISR_EL1 low bytes ORed in 0x600b (bit 7 IRQ, bit 6 FIQ pending)
+-             */
+-            u32 wk = 0, isr = 0, mx = 0;
+-            for (int i = 1; i < 16 && i < MAX_CPUS; i++) {
+-                u32 n = smp_psci_cpu_valid(i) ? smp_psci_s2r_word(i, 5) : 0;
+-                if (n) {
+-                    wk |= BIT(i);
+-                    isr |= smp_psci_s2r_word(i, 6);
+-                    if (n > mx)
+-                        mx = n;
+-                }
+-            }
+-            u8 k[4] = {wk & 0xff, (wk >> 8) | 0x80 /* bit 15 = written */, mx > 255 ? 255 : mx, isr & 0xff};
+-            qs_crumb_write(0x6008, k, 4);
+-        }
+         if (steps & PSCI_S2R_EDPRCR) {
+             /* image 72: the boot core's own EDPRCR := 0, and what every core had there, kept in 0x601f */
+             u32 b = smp_psci_ed_release(), o = 0;
+diff --git a/src/startup.c b/src/startup.c
+index 70401b4c..5c3d181c 100644
+--- a/src/startup.c
++++ b/src/startup.c
+@@ -233,9 +233,22 @@ void _start_c(void *boot_args, void *base)
+ volatile u8 reset_dbg[8] __attribute__((aligned(64), section(".data")));
+ 
+ /* Secondary SMP core boot */
++/*
++ * image 76: [0] = set by the S2R observer before it IPIs the sleeping cores; [16 + cluster * 4 + core] = that core came
++ * back through its reset vector (so it had lost power). Written with the MMU off, straight to DRAM.
++ */
++volatile u8 psci_s2r_probe[64] __attribute__((aligned(64), section(".data")));
++
+ void _cpu_reset_c(void *stack)
+ {
+     reset_dbg[2] = 0xa3;
++    if (psci_s2r_probe[0] == 0x5a) {
++        u64 m = mrs(MPIDR_EL1);
++        psci_s2r_probe[16 + (((m >> 8) & 3) * 4 + (m & 3))] = 0xa5;
++        sysop("dsb sy");
++        while (1)
++            sysop("wfi");
++    }
+     if (chip_id == T8152 && !is_boot_cpu()) {
+         if (smp_secondary_prepare() < 0)
+             while (1)
+-- 
+2.56.0
+
