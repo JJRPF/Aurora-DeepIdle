@@ -1,0 +1,31 @@
+From ec1e8686f28c4b3dcd87021d975568a4cf20d604 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <git@jjrpf.com>
+Date: Tue, 10 Nov 2026 20:45:29 -0500
+Subject: [PATCH] psci: crumb 0x600c bit 7 = an ATC word still on
+ (0x600d/0x600e do not survive a reset)
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+---
+ src/psci.c | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/src/psci.c b/src/psci.c
+index 81dd1076..8f19bf36 100644
+--- a/src/psci.c
++++ b/src/psci.c
+@@ -774,9 +774,10 @@ static void qs_crumb_snapshot(void)
+     /* image 63: likewise 0x600e = qs_atc_state() (only when bit 19 ran) */
+     if (fi <= 0 && (qs_save.saved & 512))
+         q[2] = qs_atc_state();
+-    /* image 64: 0x600c = qs_pcie_aon_state() (only when bit 20 or 21 ran) */
++    /* image 64: 0x600c = qs_pcie_aon_state() (only when bit 20 or 21 ran), bit 7 = some ATC word still on:
++     * 0x600d and 0x600e read 0 after every reset, 0x600c survives */
+     if (fi <= 0 && (qs_save.saved & (1024 | 2048)))
+-        q[0] = qs_pcie_aon_state();
++        q[0] = qs_pcie_aon_state() | (((qs_save.saved & 512) && qs_atc_state()) ? 0x80 : 0);
+     if (fi > 0) {
+         u64 mp = smp_psci_ipi_mpidr(fi);
+         u32 pe = smp_psci_s2r_word(fi, 1), wr = smp_psci_s2r_word(fi, 2);
+-- 
+2.56.0
+
