@@ -3499,3 +3499,9 @@ Owner asked for this before the next run. Read-only: 25 branches fetched into `~
   - With `0x100000` the fabric step skips `apcie_gp_sys` (it would set its target back to f).
   - `aura-ctl` accepts bits 0 to 21.
 - **Order after R17A,** one step per run: R17B = R17A + `0x100000` (image 64), R17C = R17B + `0x200000`.
+
+## 2026-11-10 20:45 GH-5: `appledrm.test_sleep_off` in the test root, `aop.sleep_ap_idle=3` in the UKI; run R17A armed
+- Work stopped from 16:10 to 20:40 (usage limit); the module build had finished at 16:10.
+- **Kernel:** `patches/psci-efi/linux/test-dcp-sleep-off.diff` (`appledrm.test_sleep_off`: on a deep suspend the DCP firmware is shut down and its CPU stopped, never restarted; R17's `DO=1`). Only the module is new: built with clang against the same tree, debug info and BTF removed (1.1 MB), installed in `/usr/lib/modules/7.2.11-psci-efi+`. The old module is in `~/Work/psci-test/appledrm.ko.before-sleep-off`. The kernel image in the UKI is still the 2026-11-09 one.
+- **Root image** `1c0acb77edb3e8f5` (in `/boot/deeptest`), **UKI** `6ee0da2aecd4f602` with `aop.sleep_ap_idle=3` added to the command line. That parameter is now set for every DeepTest job, not only R17A: AOP is told at probe to let the AP idle state go to 3. K5c and A2 ran without it.
+- **Run R17A armed** (`--chain`, image 63 `771d5491dacae658`, job `r17a-commit-atc`). Expected: "R17A committing" on ntfy, then (a) a reset about 86 s later, as R17, or (b) a wake on the 40 s alarm and "R17A resumed". After it: `sudo bash tools/pmu-scratch.sh` on main, `0x6004` should read `16`, `0x600e` which ATC words were still on, `0x600d` the fabric lanes.
