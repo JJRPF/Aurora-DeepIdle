@@ -3519,3 +3519,9 @@ Owner asked for this before the next run. Read-only: 25 branches fetched into `~
 - **PMU scratch:** R17's bytes again, and **`0x600c` = `00`**: at the last access before the commit `apcie_gp_sys`, `apcie_gpshr_sys`, `apcie_gp` and all eight ATC words read actual state 0. (The key was `ff` after R17A and zeroed before this run; the snapshot writes `ff` there first, so `00` is the step's own write.)
 - **So neither the USB-C complexes nor the PCIe chain is what keeps the SoC from powering down.** Two of the largest differences from macOS's sleep-entry map are gone.
 - **R17C armed:** + `0x200000` (`atc1-3_usb_aon`, `msg` to target 0). Expected `0x600c` = `00` again if they all went off.
+
+## 2026-11-10 20:53 GH-5 run R17C: `atc1-3_usb_aon` and `msg` off too, the same reset
+- Armed 20:48:55, "R17C committing" 20:49:33, main's kernel started 20:50:49 (76 s after the push, as R17A and R17B), no "resumed" push. aura-ctl `0x3ddb1f` read back.
+- PMU scratch: R17's bytes, `0x600c` = `00`: the PCIe chain, `atc1-3_usb_aon`, `msg` and the eight ATC words all read actual state 0 at the last access before the commit.
+- **Three candidate blockers ruled out in three runs** (USB-C complexes, PCIe chain, the AON-side USB and `msg` words). The reset after the S2R timer is unchanged.
+- Next: go back to the list of what still differs from macOS at the commit (S8's list, `data/psmap.txt`) and to the M4 Pro code's steps this chain does not have (keep-alive bits, SPMI go-hib, SMC), and pick by evidence rather than by size.
