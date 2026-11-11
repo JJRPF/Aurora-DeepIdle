@@ -1,0 +1,229 @@
+From 148fececc6f8b4b3d16813f1dfdf0c1df54133e0 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <git@jjrpf.com>
+Date: Wed, 11 Nov 2026 13:45:50 -0500
+Subject: [PATCH] psci: image 84: the observer diffs the whole MPMGR_AON block
+ across the commit
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+---
+ src/psci.c | 166 ++++++++++++++++++++++++++++++++++-------------------
+ src/smp.c  |   2 +-
+ 2 files changed, 107 insertions(+), 61 deletions(-)
+
+diff --git a/src/psci.c b/src/psci.c
+index c5881cc4..30ab8a82 100644
+--- a/src/psci.c
++++ b/src/psci.c
+@@ -802,83 +802,120 @@ static inline u64 qs_now(void)
+  * image 73, run on the observer core (smp.c's park loop) with the boot core in its commit. Nothing else uses SPMI after
+  * the boot core's last crumb, so this core may. 24 MHz counter.
+  */
++/*
++ * image 84: the observer diffs the whole MPMGR_AON block (pmgr reg 38, 0x29e5c0000, 0x14000) across the commit.
++ * The boot core asks for the "before" snapshot (psci_s2r_committed = 2) and waits up to 2 s for psci_s2r_snapdone;
++ * the observer reads the block twice 50 ms apart (words that differ are volatile and left out), then waits for the
++ * commit (psci_s2r_committed = 1), 3 s more, reads again and reports the words that changed.
++ * Scratch: 0x6005 state counters that advanced in the 3 s (bit 0 SLP_DDR, 1 AWAKE, 2 SLP_S2R, 3 DEEP_WAIT, 4 SYS_AWAKE,
++ * 5 SYS_S2R_AOP, 6 SYS_SLP_DDR, 7 = written); 0x6006 changed words at or after the start index (psci_ctl[2] bits
++ * 12-27; ff = 255 or more); 0x600c the 4 KiB page being read | 0x80 (before), | 0x40 (after), ff = done; 0x600d
++ * volatile words / 16; the first two changed words from the start index as 5-byte entries at 0x6007 and 0x6012:
++ * word index low, high, lowest differing byte (low nibble) | differing bytes (high nibble), old byte, new byte;
++ * 0x601b/c the last changed word's index (ffff = none). WD2: 0x600e = ctl low nibble | alarm s / 10 << 4.
++ */
++#define QS_AON_BASE  0x29e5c0000ULL
++#define QS_AON_WORDS 0x5000
++static u32 qs_aon_snap[QS_AON_WORDS];
++static u8 qs_aon_vol[QS_AON_WORDS / 8];
++static volatile u64 psci_s2r_snapdone __attribute__((aligned(64)));
++
+ void psci_s2r_observe(void)
+ {
+-    u8 r[4] = {0, 0, 0xff, 0};
+-    u64 t0 = qs_now(), t;
+-    bool first = false;
++    u8 r[5] = {0, 0, 0, 0, 0};
++    u64 t0 = qs_now();
++    u32 nvol = 0;
+ 
+     while (!*(volatile u64 *)&psci_s2r_committed)
+         if (qs_now() - t0 > 5 * 24000000ULL) {
+-            qs_crumb(0xaf); /* the boot core never committed */
++            qs_crumb(0xaf); /* the boot core never got to the commit */
+             return;
+         }
+-    /*
+-     * image 83 (replaces image 78's power-word diff): the PMGR's system-state counters (perf block 0x29e2c8000, config
+-     * at +0x100 + 16 * idx, count at +8; idx 42..55 = SLP_DDR, AWAKE, SLP_S2R, DEEP_WAIT, SYS_AWAKE, SYS_S2R_AOP,
+-     * SYS_SLP_DDR, each with a twin; Linux enables them) and WD2, as the commit is seen and again 3 s later.
+-     */
+-    u32 c0[14], wd2c0 = 0;
+-    u64 wdt = wdt_psci_base();
++    for (u32 i = 0; i < QS_AON_WORDS; i++) {
++        if (!(i & 0x3ff)) {
++            r[0] = 0x80 | (i >> 10);
++            qs_crumb_write(0x600c, r, 1);
++        }
++        qs_aon_snap[i] = read32(QS_AON_BASE + 4 * i);
++    }
++    for (u32 i = 0; i < sizeof(qs_aon_vol); i++)
++        qs_aon_vol[i] = 0;
++    t0 = qs_now();
++    while (qs_now() - t0 < 1200000)
++        ;
++    for (u32 i = 0; i < QS_AON_WORDS; i++) {
++        u32 v = read32(QS_AON_BASE + 4 * i);
++        if (v != qs_aon_snap[i]) {
++            qs_aon_vol[i >> 3] |= BIT(i & 7);
++            nvol++;
++        }
++        qs_aon_snap[i] = v;
++    }
++    r[0] = 0xff;
++    r[1] = (nvol >> 4) > 255 ? 255 : nvol >> 4;
++    qs_crumb_write(0x600c, r, 2);
++    u32 c0[14];
+     for (int i = 0; i < 14; i++)
+         c0[i] = read32(QS_STATE_CNT + 16 * (42 + i) + 8);
+-    if (wdt)
+-        wd2c0 = read32(wdt + 0x28);
+     qs_crumb(0xa1);
++    psci_s2r_snapdone = 1;
++    dc_civac_range((void *)&psci_s2r_snapdone, sizeof(psci_s2r_snapdone));
+     t0 = qs_now();
+-    do {
+-        t = qs_now() - t0;
+-        u8 v = read32(QS_CPM_PS) >> 4;
+-        if (!first && t >= 480000) { /* 20 ms after the commit flag */
+-            r[0] = v;
+-            first = true;
++    while (*(volatile u64 *)&psci_s2r_committed != 1)
++        if (qs_now() - t0 > 5 * 24000000ULL) {
++            qs_crumb(0xae); /* the boot core never committed after the snapshot */
++            return;
+         }
+-        if (!(v & 0xf) && r[2] == 0xff)
+-            r[2] = t / 384000 > 254 ? 254 : t / 384000; /* 16 ms units */
+-        r[1] = v;
+-    } while (t < 3 * 24000000ULL);
+-    /*
+-     * image 74: after the 3 s, the three complex words as this core reads them (0x6012 ECPM, 0x6013 PCPM0, 0x601b
+-     * PCPM1, each >> 4), this core's own EDPRSR as the calibration (0x600a, bit 7 = read; PU must be 1), then every
+-     * other valid core's EDPRSR: 0x6008/0x6009 = the cores that read PU = 1 (bit = Aura index), 0x600b = the index
+-     * being read (written first, so a block that does not answer names itself), ff when all are done.
+-     */
+-    r[0] = read32(QS_CPM_PS) >> 4;
+-    r[1] = read32(QS_CPM_PS + 8) >> 4;
+-    r[2] = read32(QS_CPM_PS + 0x10) >> 4;
+-    qs_crumb_write(0x6012, r, 2);
++    t0 = qs_now();
++    while (qs_now() - t0 < 3 * 24000000ULL)
++        ;
+     qs_crumb(0xa2);
+-    /*
+-     * image 83: which state counters advanced in the 3 s (0x6005: bit i = state i of the list above, bit 7 = written;
+-     * 0x6006: the twins), by how much in 2^20 ticks = 43.7 ms (3 s = 68): 0x6007 SLP_DDR, 0x6008 AWAKE, 0x6009 SLP_S2R,
+-     * 0x600a DEEP_WAIT, 0x600b SYS_AWAKE, 0x600c SYS_S2R_AOP, 0x6015 SYS_SLP_DDR. WD2 after the 3 s: 0x6016 ctl low
+-     * nibble | ctl at the commit << 4, 0x6017 alarm in s, 0x601b count in s (ff = no WDT).
+-     */
+-    u8 d[7], m0 = 0x80, m1 = 0;
+-    for (int i = 0; i < 14; i++) {
+-        u32 dv = read32(QS_STATE_CNT + 16 * (42 + i) + 8) - c0[i];
+-        if (!(i & 1)) {
+-            d[i >> 1] = (dv >> 20) > 255 ? 255 : dv >> 20;
+-            if (dv)
+-                m0 |= BIT(i >> 1);
+-        } else if (dv) {
+-            m1 |= BIT(i >> 1);
++    u8 m0 = 0x80;
++    for (int i = 0; i < 14; i += 2)
++        if (read32(QS_STATE_CNT + 16 * (42 + i) + 8) != c0[i])
++            m0 |= BIT(i >> 1);
++    static const u16 slot[] = {0x6007, 0x6012};
++    u32 nd = 0, last = 0xffff, from = (psci_ctl[2] >> 12) & 0xffff;
++    for (u32 i = 0; i < QS_AON_WORDS; i++) {
++        if (!(i & 0x3ff)) {
++            r[0] = 0x40 | (i >> 10);
++            qs_crumb_write(0x600c, r, 1);
+         }
++        u32 v = read32(QS_AON_BASE + 4 * i), x = v ^ qs_aon_snap[i];
++        if (!x || (qs_aon_vol[i >> 3] & BIT(i & 7)))
++            continue;
++        if (i >= from && nd < 2) {
++            u32 fb = 0, nb = 0;
++            for (int k = 3; k >= 0; k--)
++                if ((x >> (8 * k)) & 0xff) {
++                    fb = k;
++                    nb++;
++                }
++            r[0] = i & 0xff;
++            r[1] = i >> 8;
++            r[2] = fb | (nb << 4);
++            r[3] = qs_aon_snap[i] >> (8 * fb);
++            r[4] = v >> (8 * fb);
++            qs_crumb_write(slot[nd], r, 4);
++            qs_crumb_write(slot[nd] + 4, &r[4], 1);
++        }
++        if (i >= from)
++            nd++;
++        last = i;
+     }
+     r[0] = m0;
+-    r[1] = m1;
++    r[1] = nd > 255 ? 255 : nd;
+     qs_crumb_write(0x6005, r, 2);
+-    qs_crumb_write(0x6007, d, 3);
+-    qs_crumb_write(0x600a, &d[3], 3);
+-    qs_crumb_write(0x6015, &d[6], 1);
+-    r[0] = r[1] = r[2] = 0xff;
+-    if (wdt) {
+-        r[0] = (read32(wdt + 0x28) & 0xf) | ((wd2c0 & 0xf) << 4);
+-        r[1] = read32(wdt + 0x24) / 24000000;
+-        r[2] = read32(wdt + 0x20) / 24000000;
+-    }
+-    qs_crumb_write(0x6016, r, 2);
+-    qs_crumb_write(0x601b, &r[2], 1);
++    r[0] = last & 0xff;
++    r[1] = last >> 8;
++    qs_crumb_write(0x601b, r, 2);
++    r[0] = 0xff;
++    qs_crumb_write(0x600c, r, 1);
++    u64 wdt = wdt_psci_base();
++    r[0] = 0xff;
++    if (wdt)
++        r[0] = (read32(wdt + 0x2c) & 0xf) | ((read32(wdt + 0x24) / 240000000) << 4);
++    qs_crumb_write(0x600e, r, 1);
+     qs_crumb(0xa4);
+ }
+ static void qs_crumb_snapshot(void)
+@@ -1205,6 +1242,15 @@ static unsigned long psci_system_suspend(unsigned long entry, unsigned long cont
+         psci_dbg2[45] = 0x5100000000ULL | 1;
+     }
+     if (quiet) {
++        if (steps & PSCI_S2R_OBSERVE) { /* image 84: the observer's "before" snapshot, up to 2 s */
++            u64 ts = qs_now();
++            psci_s2r_snapdone = 0;
++            dc_civac_range((void *)&psci_s2r_snapdone, sizeof(psci_s2r_snapdone));
++            psci_s2r_committed = 2;
++            dc_civac_range((void *)&psci_s2r_committed, sizeof(psci_s2r_committed));
++            while (!*(volatile u64 *)&psci_s2r_snapdone && qs_now() - ts < 2 * 24000000ULL)
++                ;
++        }
+         if (!(steps & PSCI_S2R_NOCOMMIT)) {
+             write32(MPMGR_AON_S2R_TIMER, 1);
+             sysop("dsb sy");
+diff --git a/src/smp.c b/src/smp.c
+index 3a38c3a7..110cf20f 100644
+--- a/src/smp.c
++++ b/src/smp.c
+@@ -1338,7 +1338,7 @@ int smp_psci_mmio_ranges(u64 *ranges, int max)
+         smp_psci_add_range(ranges, max, &n, wdt, 0x30); /* image 58: WD2 (+0x20..0x2c) too */
+     /* MPMGR_AON's S2R timer (PSCI_S2R_TIMER, psci.c) */
+     if (chip_id == T6020)
+-        smp_psci_add_range(ranges, max, &n, 0x29e5c4000, 4);
++        smp_psci_add_range(ranges, max, &n, 0x29e5c0000, 0x14000); /* image 84: the whole MPMGR_AON block */
+     /* image 53's quiesceHW steps (psci.c): MINI 0x4d010, ps_afr, ps_sio(_cpu), ClkGen-SOC, PLL-off */
+     if (chip_id == T6020) {
+         smp_psci_add_range(ranges, max, &n, 0x29e2cd010, 4);
+-- 
+2.56.0
+
