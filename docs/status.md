@@ -1,4 +1,4 @@
-# Where the work stands (2026-11-11, 08:20, after run R23)
+# Where the work stands (2026-11-11, 19:06, after run R36A)
 
 This is the summary of the whole effort: what was measured, what was built,
 what works, what does not, and what comes next. Each section points to the
@@ -375,6 +375,15 @@ There are two goals:
   on, a push before each); a new kind of step still gets one attended run.
 
 ## The last two days
+
+* **2026-11-11, runs R25A to R36A: the commit is taken, and then the engine parks.**
+  The commit moves the PMGR state to SYS_SLP_DDR, reloads the reconfig watchdog
+  to 60 s and changes exactly five words of the always-on PMGR block, all within
+  4 ms (none change without it). After that nothing moves until the watchdog
+  resets the Mac 61 s later and the SoC-level state stays AWAKE. macOS does not
+  write those words itself. What the engine waits for is therefore outside that
+  block (the cores' deep WFI, the SMC/PMP handshake, or the unreadable pages 8
+  to 10). The observer core itself being awake may be the condition.
 
 * **2026-11-04 evening: Phase 2 done on the full system.** 20 of 20 cycles on
   the boot CPU alone (image 41) and **20 of 20 with all 10 CPUs** (image 47;
