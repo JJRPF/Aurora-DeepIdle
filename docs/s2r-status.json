@@ -290,7 +290,8 @@
     { "n": 83, "what": "PMGR state counters and WD2 across the commit (R34A, control R34B)", "result": "The commit moves SYS_AWAKE to SYS_SLP_DDR and reloads WD2 to 60 s, so the commit is taken. The SoC-level state stays AWAKE; DEEP_WAIT, SLP_S2R and SLP_DDR never start", "outcome": "info" },
     { "n": 84, "what": "Diff of the whole always-on PMGR block (MPMGR_AON) across the commit (R35A)", "result": "The observer stops in page 8 (0x29e5c8000): pages 8, 9 and 10 cannot be read from here", "outcome": "info" },
     { "n": 87, "what": "The same diff, paged, with unused report slots blanked (R35B to R35E, control R35C)", "result": "Exactly five words change 3 s after the commit and none without it: +0x14 3→1, +0x100 8→0xa, the timer word 1→0, +0x4008 0→1, +0x400c 0→1", "outcome": "info" },
-    { "n": 88, "what": "Traces those five words from the commit to the reset, timed in 4 ms steps (R36A)", "result": "All six changes land within 4 ms of the commit and nothing moves for the next ~58 s: the engine finishes its visible bookkeeping at once and parks, waiting for something outside this block", "outcome": "info" }
+    { "n": 88, "what": "Traces those five words from the commit to the reset, timed in 4 ms steps (R36A)", "result": "All six changes land within 4 ms of the commit and nothing moves for the next ~58 s: the engine finishes its visible bookkeeping at once and parks, waiting for something outside this block", "outcome": "info" },
+    { "n": 89, "what": "No new image: runs R37A (page 8 read from the test Linux) and P12D–P12H (issue #12 Aura port)", "result": "MPMGR_AON page 8 (0x29e5c8000) kills the machine from Linux too, so the sleep engine’s state is not readable from any core. The Aura PMP port works on both paths but is not shown to be needed", "outcome": "info" }
   ],
   "macos_sleep": [
     { "step": "SMC `MSxb` writes from every CPU", "linux": "Housekeeping, not needed yet" },
