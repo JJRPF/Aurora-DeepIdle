@@ -1,0 +1,109 @@
+From 94f0bbd709d25ec8814cc8bb3b0c104188e611cd Mon Sep 17 00:00:00 2001
+From: Justin Pfister <git@jjrpf.com>
+Date: Thu, 12 Nov 2026 15:54:57 -0500
+Subject: [PATCH] psci: image 90: observer mode bit 62, the AP wake status
+ words that stand 3 s after the commit
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+---
+ src/psci.c | 64 ++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ src/smp.c  |  1 +
+ 2 files changed, 65 insertions(+)
+
+diff --git a/src/psci.c b/src/psci.c
+index 81308b88..b07684b6 100644
+--- a/src/psci.c
++++ b/src/psci.c
+@@ -820,6 +820,66 @@ static u32 qs_aon_snap[QS_AON_WORDS];
+ static u8 qs_aon_vol[QS_AON_WORDS / 8];
+ static volatile u64 psci_s2r_snapdone __attribute__((aligned(64)));
+ 
++/*
++ * image 90 (psci_ctl[4] bit 62): which AP wake sources stand at the commit. The five-wake-status words of Naeem Malik's T8103
++ * entry latch at the first S2R-timer write; the T6020 block is the PMGR's "AOP global" one (0x404ea8000: mask words +0x0c,
++ * status words +0x30, nine each, as AppleT6020PMGR::setAPWakeupSources/getAPWakeupSources). Read 3 s after the commit.
++ * Scratch: 0x6005 count of set status bits (255 max), 0x6006..0x600b the first three as word, bit; 0x6011/0x6012 the fourth;
++ * 0x601b count of set bits whose mask bit is 0 (enabled); 0x601c status word 0 low byte; 0x601d..0x601f words 1..3 low bytes.
++ */
++#define QS_WAKE_BASE 0x404ea8000ULL
++static void psci_s2r_wakestat(void)
++{
++    u8 r[4] = {0xff, 0xff, 0xff, 0xff};
++    u32 n = 0, ne = 0, st[9], mk[9];
++
++    psci_s2r_snapdone = 1;
++    dc_civac_range((void *)&psci_s2r_snapdone, sizeof(psci_s2r_snapdone));
++    qs_crumb(0xa1);
++    u64 t0 = qs_now();
++    while (*(volatile u64 *)&psci_s2r_committed != 1)
++        if (qs_now() - t0 > 5 * 24000000ULL) {
++            qs_crumb(0xae);
++            return;
++        }
++    t0 = qs_now();
++    while (qs_now() - t0 < 3 * 24000000ULL)
++        ;
++    qs_crumb(0xa2);
++    for (int w = 0; w < 9; w++) {
++        st[w] = read32(QS_WAKE_BASE + 0x30 + 4 * w);
++        mk[w] = read32(QS_WAKE_BASE + 0x0c + 4 * w);
++    }
++    qs_crumb_write(0x6006, r, 4);
++    qs_crumb_write(0x600a, r, 2);
++    qs_crumb_write(0x6011, r, 2);
++    u8 src[8] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
++    for (int w = 0; w < 9; w++)
++        for (int b = 0; b < 32; b++)
++            if (st[w] & BIT(b)) {
++                if (n < 4) {
++                    src[2 * n] = w;
++                    src[2 * n + 1] = b;
++                }
++                n++;
++                if (!(mk[w] & BIT(b)))
++                    ne++;
++            }
++    qs_crumb_write(0x6006, src, 4);
++    qs_crumb_write(0x600a, src + 4, 2);
++    qs_crumb_write(0x6011, src + 6, 2);
++    r[0] = n > 255 ? 255 : n;
++    qs_crumb_write(0x6005, r, 1);
++    r[0] = ne > 255 ? 255 : ne;
++    r[1] = st[0];
++    r[2] = st[1];
++    r[3] = st[2];
++    qs_crumb_write(0x601b, r, 4);
++    r[0] = st[3];
++    qs_crumb_write(0x601f, r, 1);
++    qs_crumb(0xa4);
++}
++
+ /*
+  * image 88 (psci_ctl[4] bit 63): trace the five MPMGR_AON words the commit changes (R35B/D/E) from the commit until
+  * the reset. Each change is an event of 3 bytes: id << 5 | new value & 0x1f, then the time since the commit in 4 ms
+@@ -915,6 +975,10 @@ void psci_s2r_observe(void)
+         psci_s2r_trace();
+         return;
+     }
++    if (obs & BIT(62)) {
++        psci_s2r_wakestat();
++        return;
++    }
+     u32 pages = (obs >> 16) & 0xfffff, noprobe = (obs >> 36) & 0xfffff;
+     if (!pages) {
+         pages = 0xff; /* R35A: the observer stopped in page 8 */
+diff --git a/src/smp.c b/src/smp.c
+index 110cf20f..569458c2 100644
+--- a/src/smp.c
++++ b/src/smp.c
+@@ -1339,6 +1339,7 @@ int smp_psci_mmio_ranges(u64 *ranges, int max)
+     /* MPMGR_AON's S2R timer (PSCI_S2R_TIMER, psci.c) */
+     if (chip_id == T6020)
+         smp_psci_add_range(ranges, max, &n, 0x29e5c0000, 0x14000); /* image 84: the whole MPMGR_AON block */
++        smp_psci_add_range(ranges, max, &n, 0x404ea8000, 0x100);   /* image 90: the AP wake-source mask (+0x0c) and status (+0x30) words */
+     /* image 53's quiesceHW steps (psci.c): MINI 0x4d010, ps_afr, ps_sio(_cpu), ClkGen-SOC, PLL-off */
+     if (chip_id == T6020) {
+         smp_psci_add_range(ranges, max, &n, 0x29e2cd010, 4);
+-- 
+2.56.0
+
