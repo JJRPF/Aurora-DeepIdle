@@ -4133,3 +4133,7 @@ This is the first register-level footprint of the commit, and it has a control b
 
 ## 2026-11-12 16:59 run R40B (image 91: macOS's whole order: stop requests, release after the commit, TWO timer writes): no change
 - Armed 16:56:22, "R40B committing" 16:57:15 (`0xc17dcb3f`), main's kernel 16:58:30: 75 s after the push, the usual reset, no wake. macOS's order from the hypervisor trace, as far as Aura can reproduce it, is not enough. R40C (two writes in our usual quiet path) next, for completeness.
+
+## 2026-11-12 17:02 run R40C (image 91, our usual quiet path with two timer writes): no change; R40A to R40C closed
+- Armed 16:59:18, "R40C committing" 17:00:10 (`0x817dcb1f`), main's kernel 17:01:26: 76 s after the push, the usual reset. **Of macOS's order, as the hypervisor shows it, three differences from ours are now tested alone and together: two timer writes (R40C), stop requests before the commit and the release after it (R40A), both (R40B). None changes anything.**
+- What the trace still has that we do not reproduce **in order**: macOS's PMP `DEV_STATUS_TGT_WR` steps happen **between** the CPU stop requests (0x300 → 0x200 after CPUs 1 to 6, → 0 after CPUs 8 to 10) and the `0x2902801c0` bit-28 clear, all just before the timer. Ours: Linux clears PCPM0/1 (`test_pcpm=768`) in suspend_late, long before, with every core running; Aura's stop requests and the `0x2902801c0` step come later. A PCPM powered off before its cores are stopped is a different state from macOS's. Candidate next image: Aura does the PCPM steps itself, interleaved as macOS.
