@@ -1,5 +1,5 @@
 /* mmio-write: one 32-bit write through /dev/mem, then read back.
- * Limited to the nub-spmi0 controller page (0x29e114000-0x29e1140ff)
+ * Limited to the nub-spmi0 and nub-spmi1 controller pages (0x29e114000-0x29e1140ff, 0x29e154000-0x29e1540ff)
  * so a typo cannot reach anything else.
  * usage: mmio-write <phys-addr> <value> */
 #include <fcntl.h>
@@ -9,8 +9,8 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
-#define LO 0x29e114000ULL
-#define HI 0x29e114100ULL
+#define LO0 0x29e114000ULL
+#define LO1 0x29e154000ULL
 
 int main(int argc, char **argv)
 {
@@ -20,7 +20,8 @@ int main(int argc, char **argv)
 	}
 	uint64_t phys = strtoull(argv[1], NULL, 0);
 	uint32_t val = strtoul(argv[2], NULL, 0);
-	if (phys < LO || phys >= HI || (phys & 3)) {
+	uint64_t LO = phys >= LO1 ? LO1 : LO0;
+	if ((LO != LO0 && LO != LO1) || phys < LO || phys >= LO + 0x100 || (phys & 3)) {
 		fprintf(stderr, "0x%llx outside the allowed window\n",
 			(unsigned long long)phys);
 		return 2;
