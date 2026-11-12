@@ -1,0 +1,69 @@
+From 4d774aae426750f8ca691ea412285e743f2fd959 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <git@jjrpf.com>
+Date: Wed, 11 Nov 2026 23:01:51 -0500
+Subject: [PATCH] psci: image 89: PSCI_S2R_LATEREL, the parked secondaries are
+ released only after the commit (Naeem's global-sleep order)
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+---
+ src/psci.c | 12 ++++++++----
+ src/psci.h |  6 ++++++
+ 2 files changed, 14 insertions(+), 4 deletions(-)
+
+diff --git a/src/psci.c b/src/psci.c
+index 51f3254f..81308b88 100644
+--- a/src/psci.c
++++ b/src/psci.c
+@@ -1196,7 +1196,7 @@ static unsigned long psci_system_suspend(unsigned long entry, unsigned long cont
+     psci_dbg[2] = daif;
+     psci_dbg[14] = mrs(SYS_IMP_APL_CYC_OVRD);
+     dc_ivac_range((void *)psci_ctl, sizeof(psci_ctl));
+-    u64 steps = psci_ctl[1] & (PSCI_S2R_TIMER | PSCI_S2R_CORESOFF | PSCI_S2R_DOMAINS | PSCI_S2R_CLOCKS | PSCI_S2R_CLUSTERS | PSCI_S2R_STOPREQ | PSCI_S2R_HELD | PSCI_S2R_REC | PSCI_S2R_AMCC | PSCI_S2R_STOPWD2 | PSCI_S2R_AICMASK | PSCI_S2R_WD1OFF | PSCI_S2R_RESUMENOW | PSCI_S2R_CRUMB | PSCI_S2R_QUIET | PSCI_S2R_EACC | PSCI_S2R_DVFS | PSCI_S2R_FABRIC | PSCI_S2R_ATC | PSCI_S2R_PCIE | PSCI_S2R_AON | PSCI_S2R_PMP | PSCI_S2R_SPMINOTIFY | PSCI_S2R_SEP | PSCI_S2R_DVFSLATE | PSCI_S2R_EDPRCR | PSCI_S2R_OBSERVE | PSCI_S2R_OBSERVE_P0 | PSCI_S2R_NOCOMMIT);
++    u64 steps = psci_ctl[1] & (PSCI_S2R_TIMER | PSCI_S2R_CORESOFF | PSCI_S2R_DOMAINS | PSCI_S2R_CLOCKS | PSCI_S2R_CLUSTERS | PSCI_S2R_STOPREQ | PSCI_S2R_HELD | PSCI_S2R_REC | PSCI_S2R_AMCC | PSCI_S2R_STOPWD2 | PSCI_S2R_AICMASK | PSCI_S2R_WD1OFF | PSCI_S2R_RESUMENOW | PSCI_S2R_CRUMB | PSCI_S2R_QUIET | PSCI_S2R_EACC | PSCI_S2R_DVFS | PSCI_S2R_FABRIC | PSCI_S2R_ATC | PSCI_S2R_PCIE | PSCI_S2R_AON | PSCI_S2R_PMP | PSCI_S2R_SPMINOTIFY | PSCI_S2R_SEP | PSCI_S2R_DVFSLATE | PSCI_S2R_EDPRCR | PSCI_S2R_OBSERVE | PSCI_S2R_OBSERVE_P0 | PSCI_S2R_NOCOMMIT | PSCI_S2R_LATEREL);
+     for (unsigned i = 0; i < 48; i++)
+         psci_dbg2[i] = 0;
+     psci_dbg2[1] = steps | ((u64)qs_amcc_n << 32) | ((u64)qs_amcc_planes << 40);
+@@ -1303,9 +1303,11 @@ static unsigned long psci_system_suspend(unsigned long entry, unsigned long cont
+         if (steps & PSCI_S2R_AICMASK)
+             psci_quiesce_aic();
+         qs_crumb(0x17);
+-        smp_psci_release_parked(steps & PSCI_S2R_STOPREQ, steps & PSCI_S2R_EDPRCR,
+-                                (steps & PSCI_S2R_OBSERVE) ? ((steps & PSCI_S2R_OBSERVE_P0) ? 2 : 1) : 0);
+-        udelay(2000);
++        if (!(steps & PSCI_S2R_LATEREL)) {
++            smp_psci_release_parked(steps & PSCI_S2R_STOPREQ, steps & PSCI_S2R_EDPRCR,
++                                    (steps & PSCI_S2R_OBSERVE) ? ((steps & PSCI_S2R_OBSERVE_P0) ? 2 : 1) : 0);
++            udelay(2000);
++        }
+         qs_crumb_snapshot();
+         if (steps & PSCI_S2R_EDPRCR) {
+             /* image 72: the boot core's own EDPRCR := 0, and what every core had there, kept in 0x601f */
+@@ -1368,6 +1370,8 @@ static unsigned long psci_system_suspend(unsigned long entry, unsigned long cont
+         psci_s2r_committed = 1; /* image 73: the observer core starts its 3 s here */
+         dc_civac_range((void *)&psci_s2r_committed, sizeof(psci_s2r_committed));
+         sysop("dsb sy");
++        if (steps & PSCI_S2R_LATEREL) /* image 89: only now do the secondaries arm their deep sleep, with the boot core */
++            smp_psci_release_parked(steps & PSCI_S2R_STOPREQ, false, 0);
+         dcsw_op_all(DCSW_OP_DCCISW);
+         sysop("dsb sy");
+         cpu_sleep_counted(true, smp_psci_s2r_ptr(boot_cpu_idx)); /* back only through RVBAR: psci_suspend_rvbar() */
+diff --git a/src/psci.h b/src/psci.h
+index 4df98343..f216673c 100644
+--- a/src/psci.h
++++ b/src/psci.h
+@@ -138,6 +138,12 @@ u64 psci_crumb_base(void);
+ #define PSCI_S2R_OBSERVE_P0 BIT(28)
+ /* image 77, the control for the wake probe: everything as a commit run, but the three S2R timer writes are skipped */
+ #define PSCI_S2R_NOCOMMIT BIT(29)
++/*
++ * image 89 (Naeem Malik's global-sleep order, from XNU's arm64_stall_sleep and his macOS traces on t8103): the parked
++ * secondaries stay in their retention WFI until AFTER the commit; only then are they released, and every core (the boot
++ * core right after) arms its deep sleep together. Quiet path only; without it the secondaries sleep deep before the commit.
++ */
++#define PSCI_S2R_LATEREL BIT(30)
+ void psci_s2r_observe(void);
+ void psci_ctl_init(void);
+ 
+-- 
+2.56.0
+
