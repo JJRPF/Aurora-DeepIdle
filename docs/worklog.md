@@ -4130,3 +4130,6 @@ This is the first register-level footprint of the commit, and it has a control b
 
 ## 2026-11-12 16:56 run R40A (image 91: stop requests before the commit, release after it, 3 timer writes): no change
 - Armed 16:53:24, "R40A committing" 16:54:18 (`aura-ctl` read back `0x417dcb3f`), main's kernel 16:55:34: 76 s after the push, the usual WD2 reset, no wake at +40 s. `0x6004` = 16. The stop requests before the commit and the late release together do not make it sleep. Next **R40B** (the same with two timer writes: macOS's whole order).
+
+## 2026-11-12 16:59 run R40B (image 91: macOS's whole order: stop requests, release after the commit, TWO timer writes): no change
+- Armed 16:56:22, "R40B committing" 16:57:15 (`0xc17dcb3f`), main's kernel 16:58:30: 75 s after the push, the usual reset, no wake. macOS's order from the hypervisor trace, as far as Aura can reproduce it, is not enough. R40C (two writes in our usual quiet path) next, for completeness.
