@@ -1,0 +1,93 @@
+From 434ce16502a95113946ddf7eac2721e2b5aac849 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <git@jjrpf.com>
+Date: Thu, 12 Nov 2026 16:52:43 -0500
+Subject: [PATCH] psci: image 91: stop requests before the commit with LATEREL
+ (macOS order), PSCI_S2R_TWOWR (two timer writes as macOS)
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+---
+ src/psci.c | 12 +++++++++---
+ src/psci.h |  3 +++
+ src/smp.c  | 15 +++++++++++++++
+ 3 files changed, 27 insertions(+), 3 deletions(-)
+
+diff --git a/src/psci.c b/src/psci.c
+index b07684b6..722283ef 100644
+--- a/src/psci.c
++++ b/src/psci.c
+@@ -1260,7 +1260,7 @@ static unsigned long psci_system_suspend(unsigned long entry, unsigned long cont
+     psci_dbg[2] = daif;
+     psci_dbg[14] = mrs(SYS_IMP_APL_CYC_OVRD);
+     dc_ivac_range((void *)psci_ctl, sizeof(psci_ctl));
+-    u64 steps = psci_ctl[1] & (PSCI_S2R_TIMER | PSCI_S2R_CORESOFF | PSCI_S2R_DOMAINS | PSCI_S2R_CLOCKS | PSCI_S2R_CLUSTERS | PSCI_S2R_STOPREQ | PSCI_S2R_HELD | PSCI_S2R_REC | PSCI_S2R_AMCC | PSCI_S2R_STOPWD2 | PSCI_S2R_AICMASK | PSCI_S2R_WD1OFF | PSCI_S2R_RESUMENOW | PSCI_S2R_CRUMB | PSCI_S2R_QUIET | PSCI_S2R_EACC | PSCI_S2R_DVFS | PSCI_S2R_FABRIC | PSCI_S2R_ATC | PSCI_S2R_PCIE | PSCI_S2R_AON | PSCI_S2R_PMP | PSCI_S2R_SPMINOTIFY | PSCI_S2R_SEP | PSCI_S2R_DVFSLATE | PSCI_S2R_EDPRCR | PSCI_S2R_OBSERVE | PSCI_S2R_OBSERVE_P0 | PSCI_S2R_NOCOMMIT | PSCI_S2R_LATEREL);
++    u64 steps = psci_ctl[1] & (PSCI_S2R_TIMER | PSCI_S2R_CORESOFF | PSCI_S2R_DOMAINS | PSCI_S2R_CLOCKS | PSCI_S2R_CLUSTERS | PSCI_S2R_STOPREQ | PSCI_S2R_HELD | PSCI_S2R_REC | PSCI_S2R_AMCC | PSCI_S2R_STOPWD2 | PSCI_S2R_AICMASK | PSCI_S2R_WD1OFF | PSCI_S2R_RESUMENOW | PSCI_S2R_CRUMB | PSCI_S2R_QUIET | PSCI_S2R_EACC | PSCI_S2R_DVFS | PSCI_S2R_FABRIC | PSCI_S2R_ATC | PSCI_S2R_PCIE | PSCI_S2R_AON | PSCI_S2R_PMP | PSCI_S2R_SPMINOTIFY | PSCI_S2R_SEP | PSCI_S2R_DVFSLATE | PSCI_S2R_EDPRCR | PSCI_S2R_OBSERVE | PSCI_S2R_OBSERVE_P0 | PSCI_S2R_NOCOMMIT | PSCI_S2R_LATEREL | PSCI_S2R_TWOWR);
+     for (unsigned i = 0; i < 48; i++)
+         psci_dbg2[i] = 0;
+     psci_dbg2[1] = steps | ((u64)qs_amcc_n << 32) | ((u64)qs_amcc_planes << 40);
+@@ -1372,6 +1372,10 @@ static unsigned long psci_system_suspend(unsigned long entry, unsigned long cont
+                                     (steps & PSCI_S2R_OBSERVE) ? ((steps & PSCI_S2R_OBSERVE_P0) ? 2 : 1) : 0);
+             udelay(2000);
+         }
++        if ((steps & PSCI_S2R_LATEREL) && (steps & PSCI_S2R_STOPREQ)) {
++            smp_psci_stop_parked(); /* image 91: the stop requests while every core is still awake, as macOS */
++            udelay(40000);
++        }
+         qs_crumb_snapshot();
+         if (steps & PSCI_S2R_EDPRCR) {
+             /* image 72: the boot core's own EDPRCR := 0, and what every core had there, kept in 0x601f */
+@@ -1426,8 +1430,10 @@ static unsigned long psci_system_suspend(unsigned long entry, unsigned long cont
+             sysop("dsb sy");
+             write32(MPMGR_AON_S2R_TIMER, 1);
+             sysop("dsb sy");
+-            write32(MPMGR_AON_S2R_TIMER, 1);
+-            sysop("dsb sy");
++            if (!(steps & PSCI_S2R_TWOWR)) {
++                write32(MPMGR_AON_S2R_TIMER, 1);
++                sysop("dsb sy");
++            }
+         }
+         psci_dbg[18] = 3;
+         psci_dbg[0] = 0xA0AA0003;
+diff --git a/src/psci.h b/src/psci.h
+index f216673c..234248b4 100644
+--- a/src/psci.h
++++ b/src/psci.h
+@@ -144,6 +144,9 @@ u64 psci_crumb_base(void);
+  * core right after) arms its deep sleep together. Quiet path only; without it the secondaries sleep deep before the commit.
+  */
+ #define PSCI_S2R_LATEREL BIT(30)
++/* image 91: the S2R timer written twice, as macOS does on T6020 (HV run 2026-11-12: two writes of 1 by CPU 0, none other in MPMGR_AON) */
++#define PSCI_S2R_TWOWR BIT(31)
++void smp_psci_stop_parked(void);
+ void psci_s2r_observe(void);
+ void psci_ctl_init(void);
+ 
+diff --git a/src/smp.c b/src/smp.c
+index 569458c2..931511b2 100644
+--- a/src/smp.c
++++ b/src/smp.c
+@@ -1203,6 +1203,21 @@ void smp_psci_release_parked(bool stopreq, bool ed, int observe)
+     sysop("sev");
+ }
+ 
++/* image 91: macOS's step 6 (HV run 2026-11-12): each secondary's PMGR stop request (CPUSTART + 0, its own bit, one write per core)
++ * BEFORE the commit while the cores are still awake; used with PSCI_S2R_LATEREL, which releases them into deep sleep after it. */
++void smp_psci_stop_parked(void)
++{
++    for (int i = 0; i < MAX_CPUS; i++) {
++        if (i == boot_cpu_idx || !cpu_info[i].valid)
++            continue;
++        dc_civac_range(&psci_cpu_state[i], 1);
++        if (psci_cpu_state[i] != PSCI_CPU_OFF)
++            continue;
++        write32(cpu_start_base + cpu_info[i].die * PMGR_DIE_OFFSET + 0x0, cpu_start_bit(i, &cpu_info[i]));
++    }
++    sysop("dsb sy");
++}
++
+ void smp_psci_s2r_clear(void)
+ {
+     for (int i = 0; i < MAX_CPUS; i++) {
+-- 
+2.56.0
+
