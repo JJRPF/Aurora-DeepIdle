@@ -1,0 +1,458 @@
+From 1b7204ff17359983feeeb91e1c0b38e6e1c77cb0 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <git@jjrpf.com>
+Date: Thu, 12 Nov 2026 22:52:43 -0500
+Subject: [PATCH] psci: image 93: observer mode bit 61 compares the 374 PMGR
+ power words before the commit with macOS's at its timer write
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+---
+ src/psci.c        |  40 +++++
+ src/qs_macos_ps.h | 378 ++++++++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 418 insertions(+)
+ create mode 100644 src/qs_macos_ps.h
+
+diff --git a/src/psci.c b/src/psci.c
+index b4d4b722..8c389b94 100644
+--- a/src/psci.c
++++ b/src/psci.c
+@@ -840,6 +840,42 @@ static void psci_quiesce_asc(void)
+     }
+ }
+ 
++#include "qs_macos_ps.h"
++/*
++ * image 93 (psci_ctl[4] bit 61): the observer compares the 374 PMGR power words, as they stand right before the commit (after
++ * every Aura quiesce step), with macOS's at its own S2R timer write (qs_macos_ps.h, from the hypervisor run). bits 0-9 only.
++ * psci_ctl[4] bits 0-15 = first mismatch index to list. Scratch: 0x6005 number of mismatches (255 max), then the list as
++ * index - start (one byte each, ff = none) at 0x6006..0x600b and 0x6011..0x6016.
++ */
++static void psci_s2r_pscmp(void)
++{
++    u8 e[12], r[1];
++    u32 n = 0, k = 0, start = psci_ctl[4] & 0xffff;
++
++    for (int i = 0; i < 12; i++)
++        e[i] = 0xff;
++    qs_crumb(0xa1);
++    for (u32 i = 0; i < sizeof(qs_macos_ps) / sizeof(qs_macos_ps[0]); i++) {
++        u32 v = read32(qs_macos_ps[i].addr) & 0x3ff;
++        if (v == qs_macos_ps[i].val)
++            continue;
++        n++;
++        if (i >= start && k < 12) {
++            u32 d = i - start;
++            e[k++] = d > 254 ? 254 : d;
++        }
++    }
++    qs_crumb_write(0x6006, e, 4);
++    qs_crumb_write(0x600a, e + 4, 2);
++    qs_crumb_write(0x6011, e + 6, 4);
++    qs_crumb_write(0x6015, e + 10, 2);
++    r[0] = n > 255 ? 255 : n;
++    qs_crumb_write(0x6005, r, 1);
++    qs_crumb(0xa4);
++    psci_s2r_snapdone = 1;
++    dc_civac_range((void *)&psci_s2r_snapdone, sizeof(psci_s2r_snapdone));
++}
++
+ /*
+  * image 90 (psci_ctl[4] bit 62): which AP wake sources stand at the commit. The five-wake-status words of Naeem Malik's T8103
+  * entry latch at the first S2R-timer write; the T6020 block is the PMGR's "AOP global" one (0x404ea8000: mask words +0x0c,
+@@ -995,6 +1031,10 @@ void psci_s2r_observe(void)
+         psci_s2r_trace();
+         return;
+     }
++    if (obs & BIT(61)) {
++        psci_s2r_pscmp();
++        return;
++    }
+     if (obs & BIT(62)) {
+         psci_s2r_wakestat();
+         return;
+diff --git a/src/qs_macos_ps.h b/src/qs_macos_ps.h
+new file mode 100644
+index 00000000..2d011655
+--- /dev/null
++++ b/src/qs_macos_ps.h
+@@ -0,0 +1,378 @@
++/* image 93: macOS 14.8.9's PMGR power words at its S2R timer write (hypervisor run 2026-11-12, docs/hv-macos-state-at-commit-20261112.txt)
++ * for the 374-entry observer table of image 82 (the readable ones), same order. Compared on bits 0-9 (desired, actual, clkgated, pwrgated). */
++static const struct { u64 addr; u16 val; } qs_macos_ps[] = {
++    {0x28e080000ULL, 0x1f0}, /* ECPU0_0 */
++    {0x28e080008ULL, 0x1f0}, /* ECPU0_1 */
++    {0x28e080010ULL, 0x1f0}, /* ECPU0_2 */
++    {0x28e080018ULL, 0x1f0}, /* ECPU0_3 */
++    {0x28e080020ULL, 0x1f0}, /* PCPU0_0 */
++    {0x28e080028ULL, 0x1f0}, /* PCPU0_1 */
++    {0x28e080030ULL, 0x1f0}, /* PCPU0_2 */
++    {0x28e080038ULL, 0x100}, /* PCPU0_3 */
++    {0x28e080040ULL, 0x1f0}, /* PCPU1_0 */
++    {0x28e080048ULL, 0x1f0}, /* PCPU1_1 */
++    {0x28e080050ULL, 0x1f0}, /* PCPU1_2 */
++    {0x28e080058ULL, 0x100}, /* PCPU1_3 */
++    {0x28e080060ULL, 0x1f0}, /* ECPM */
++    {0x28e080068ULL, 0x1f0}, /* PCPM0 */
++    {0x28e080070ULL, 0x1f0}, /* PCPM1 */
++    {0x28e080100ULL, 0x0ff}, /* AFI */
++    {0x28e080108ULL, 0x0ff}, /* AIC */
++    {0x28e080110ULL, 0x2ff}, /* DWI */
++    {0x28e080118ULL, 0x0ff}, /* PMS */
++    {0x28e080120ULL, 0x0ff}, /* GPIO */
++    {0x28e080128ULL, 0x0ff}, /* SOC_DPE */
++    {0x28e080130ULL, 0x0ff}, /* PMS_C1PPT */
++    {0x28e080138ULL, 0x0ff}, /* PMGR_SOC_OCLA */
++    {0x29e280000ULL, 0x000}, /* PMS_FPWM0 */
++    {0x29e280000ULL, 0x000}, /* PMS_FPWM1 */
++    {0x29e280000ULL, 0x000}, /* PMS_FPWM2 */
++    {0x29e280000ULL, 0x000}, /* PMS_FPWM3 */
++    {0x29e280000ULL, 0x000}, /* PMS_FPWM4 */
++    {0x28e080168ULL, 0x3ff}, /* AMCC0 */
++    {0x28e080170ULL, 0x3ff}, /* AMCC2 */
++    {0x28e080178ULL, 0x3ff}, /* DCS_00 */
++    {0x28e080180ULL, 0x3ff}, /* DCS_01 */
++    {0x28e080188ULL, 0x3ff}, /* DCS_02 */
++    {0x28e080190ULL, 0x3ff}, /* DCS_03 */
++    {0x28e080198ULL, 0x3ff}, /* DCS_08 */
++    {0x28e0801a0ULL, 0x3ff}, /* DCS_09 */
++    {0x28e0801a8ULL, 0x3ff}, /* DCS_10 */
++    {0x28e0801b0ULL, 0x3ff}, /* DCS_11 */
++    {0x28e0801b8ULL, 0x0ff}, /* AFNC1_IOA */
++    {0x28e0801c0ULL, 0x200}, /* AFI_D2D_LEFT */
++    {0x28e0801c8ULL, 0x200}, /* AFI_D2D_RIGHT */
++    {0x28e0801d0ULL, 0x2ff}, /* AFC */
++    {0x28e0801d8ULL, 0x200}, /* AFC_D2D_LEFT */
++    {0x28e0801e0ULL, 0x200}, /* AFC_D2D_RIGHT */
++    {0x28e0801e8ULL, 0x3ff}, /* AFNC0_IOA */
++    {0x28e0801f0ULL, 0x0ff}, /* AFNC1_LS */
++    {0x28e0801f8ULL, 0x3ff}, /* AFNC0_LS */
++    {0x28e080200ULL, 0x20f}, /* AFNC1_LW0 */
++    {0x28e080208ULL, 0x0ff}, /* AFNC1_LW1 */
++    {0x28e080210ULL, 0x20f}, /* AFNC1_LW2 */
++    {0x28e080218ULL, 0x3ff}, /* AFNC0_LW0 */
++    {0x28e080220ULL, 0x300}, /* SCODEC */
++    {0x28e080228ULL, 0x0ff}, /* ATC0_COMMON */
++    {0x28e080230ULL, 0x300}, /* ATC1_COMMON */
++    {0x28e080238ULL, 0x300}, /* ATC2_COMMON */
++    {0x28e080240ULL, 0x300}, /* ATC3_COMMON */
++    {0x28e080248ULL, 0x300}, /* DISPEXT1_SYS */
++    {0x28e080250ULL, 0x2ff}, /* PMS_BRIDGE */
++    {0x28e080258ULL, 0x300}, /* DISPEXT0_SYS */
++    {0x28e080260ULL, 0x300}, /* ANE_SYS */
++    {0x28e080268ULL, 0x300}, /* AVD_SYS */
++    {0x28e080270ULL, 0x300}, /* ATC0_CIO */
++    {0x28e080278ULL, 0x300}, /* ATC0_PCIE */
++    {0x28e080280ULL, 0x300}, /* ATC1_CIO */
++    {0x28e080288ULL, 0x300}, /* ATC1_PCIE */
++    {0x28e080290ULL, 0x300}, /* ATC2_CIO */
++    {0x28e080298ULL, 0x300}, /* ATC2_PCIE */
++    {0x28e0802a0ULL, 0x300}, /* ATC3_CIO */
++    {0x28e0802a8ULL, 0x300}, /* ATC3_PCIE */
++    {0x28e0802b0ULL, 0x300}, /* DISPEXT1_FE */
++    {0x28e0802b8ULL, 0x300}, /* DISPEXT1_CPU0 */
++    {0x28e0802c0ULL, 0x300}, /* DISPEXT0_FE */
++    {0x28e0802c8ULL, 0x300}, /* PMP */
++    {0x28e0802d0ULL, 0x300}, /* PMS_SRAM */
++    {0x28e0802d8ULL, 0x300}, /* DISPEXT0_CPU0 */
++    {0x28e0802e0ULL, 0x300}, /* ANE_CPU */
++    {0x28e0802e8ULL, 0x300}, /* ATC0_CIO_PCIE */
++    {0x28e0802f0ULL, 0x300}, /* ATC0_CIO_USB */
++    {0x28e0802f8ULL, 0x300}, /* ATC1_CIO_PCIE */
++    {0x28e080300ULL, 0x300}, /* ATC1_CIO_USB */
++    {0x28e080308ULL, 0x300}, /* ATC2_CIO_PCIE */
++    {0x28e080310ULL, 0x300}, /* ATC2_CIO_USB */
++    {0x28e080318ULL, 0x300}, /* ATC3_CIO_PCIE */
++    {0x28e080320ULL, 0x300}, /* ATC3_CIO_USB */
++    {0x28e080328ULL, 0x300}, /* DISPEXT1_BE */
++    {0x28e080330ULL, 0x300}, /* DISPEXT1_GP0 */
++    {0x28e080338ULL, 0x300}, /* DISPEXT1_GP1 */
++    {0x28e080340ULL, 0x300}, /* DISPEXT1_GP2 */
++    {0x28e080348ULL, 0x300}, /* DISPEXT1_PPP */
++    {0x28e080350ULL, 0x300}, /* DISPEXT0_BE */
++    {0x28e080358ULL, 0x300}, /* DISPEXT0_GP0 */
++    {0x28e080360ULL, 0x300}, /* DISPEXT0_GP1 */
++    {0x28e080368ULL, 0x300}, /* DISPEXT0_GP2 */
++    {0x28e080370ULL, 0x300}, /* DISPEXT0_PPP */
++    {0x28e080378ULL, 0x300}, /* DISPEXT1_DP */
++    {0x28e080380ULL, 0x300}, /* DISPEXT1_DSC */
++    {0x28e080388ULL, 0x300}, /* DISPEXT0_DP */
++    {0x28e080390ULL, 0x300}, /* TRACE_FAB */
++    {0x28e080398ULL, 0x300}, /* DISPEXT0_DSC */
++    {0x290280100ULL, 0x24f}, /* CLVR_SPMI0 */
++    {0x290280108ULL, 0x24f}, /* CLVR_SPMI1 */
++    {0x290280110ULL, 0x24f}, /* CLVR_SPMI2 */
++    {0x290280118ULL, 0x24f}, /* CLVR_SPMI3 */
++    {0x290280120ULL, 0x24f}, /* CLVR_SPMI4 */
++    {0x290280128ULL, 0x200}, /* ISPSENS0 */
++    {0x290280130ULL, 0x200}, /* ISPSENS1 */
++    {0x290280138ULL, 0x200}, /* ISPSENS2 */
++    {0x290280140ULL, 0x200}, /* ISPSENS3 */
++    {0x290280148ULL, 0x3ff}, /* AFNC6_IOA */
++    {0x290280150ULL, 0x3ff}, /* AFNC6_LS */
++    {0x290280158ULL, 0x3ff}, /* AFNC6_LW0 */
++    {0x290280160ULL, 0x30f}, /* AFNC2_IOA */
++    {0x290280168ULL, 0x30f}, /* AFNC2_LS */
++    {0x290280170ULL, 0x30f}, /* AFNC2_LW0 */
++    {0x290280178ULL, 0x30f}, /* AFNC2_LW1 */
++    {0x290280180ULL, 0x30f}, /* AFNC3_IOA */
++    {0x290280188ULL, 0x30f}, /* AFNC3_LS */
++    {0x290280190ULL, 0x30f}, /* AFNC3_LW0 */
++    {0x290280198ULL, 0x0ff}, /* APCIE_GP */
++    {0x2902801a0ULL, 0x0ff}, /* APCIE_ST */
++    {0x2902801a8ULL, 0x3ff}, /* ANS2 */
++    {0x2902801b0ULL, 0x300}, /* DISP0_SYS */
++    {0x2902801b8ULL, 0x300}, /* JPG */
++    {0x2902801c0ULL, 0x2ff}, /* SIO */
++    {0x2902801c8ULL, 0x300}, /* ISP_SYS */
++    {0x2902801d0ULL, 0x300}, /* DISP0_FE */
++    {0x2902801d8ULL, 0x300}, /* DISP0_CPU0 */
++    {0x2902801e0ULL, 0x2ff}, /* SIO_CPU */
++    {0x2902801e8ULL, 0x2ff}, /* FPWM0 */
++    {0x2902801f0ULL, 0x200}, /* FPWM1 */
++    {0x2902801f8ULL, 0x200}, /* FPWM2 */
++    {0x290280200ULL, 0x200}, /* I2C0 */
++    {0x290280208ULL, 0x200}, /* I2C1 */
++    {0x290280210ULL, 0x200}, /* I2C2 */
++    {0x290280218ULL, 0x200}, /* I2C3 */
++    {0x290280220ULL, 0x200}, /* I2C4 */
++    {0x290280228ULL, 0x200}, /* I2C5 */
++    {0x290280230ULL, 0x200}, /* I2C6 */
++    {0x290280238ULL, 0x200}, /* I2C7 */
++    {0x290280240ULL, 0x200}, /* I2C8 */
++    {0x290280248ULL, 0x0ff}, /* SPI_P */
++    {0x290280250ULL, 0x200}, /* SIO_SPMI0 */
++    {0x290280258ULL, 0x200}, /* SIO_SPMI1 */
++    {0x290280260ULL, 0x200}, /* SIO_SPMI2 */
++    {0x290280268ULL, 0x0ff}, /* UART_P */
++    {0x290280270ULL, 0x2ff}, /* AUDIO_P */
++    {0x290280278ULL, 0x200}, /* SIO_ADMA */
++    {0x290280280ULL, 0x0ff}, /* AES */
++    {0x290280288ULL, 0x0ff}, /* DPTX_PHY_PS */
++    {0x290280290ULL, 0x300}, /* DISP0_BE */
++    {0x290280298ULL, 0x300}, /* DISP0_SPI */
++    {0x2902802a0ULL, 0x300}, /* DISP0_SPMI */
++    {0x2902802a8ULL, 0x300}, /* DISP0_GP0 */
++    {0x2902802b0ULL, 0x300}, /* DISP0_GP1 */
++    {0x2902802b8ULL, 0x300}, /* DISP0_GP2 */
++    {0x2902802c0ULL, 0x300}, /* DISP0_PPP */
++    {0x2902802c8ULL, 0x300}, /* DISP0_BLC */
++    {0x2902802d0ULL, 0x300}, /* DISP0_BRC */
++    {0x2902802d8ULL, 0x200}, /* SPI0 */
++    {0x2902802e0ULL, 0x200}, /* SPI1 */
++    {0x2902802e8ULL, 0x200}, /* SPI2 */
++    {0x2902802f0ULL, 0x200}, /* SPI3 */
++    {0x2902802f8ULL, 0x200}, /* SPI4 */
++    {0x290280300ULL, 0x200}, /* SPI5 */
++    {0x290280308ULL, 0x0ff}, /* UART_N */
++    {0x290280310ULL, 0x0ff}, /* UART0 */
++    {0x290280318ULL, 0x3ff}, /* AMCC1 */
++    {0x290280320ULL, 0x3ff}, /* AMCC3 */
++    {0x290280328ULL, 0x3ff}, /* DCS_04 */
++    {0x290280330ULL, 0x3ff}, /* DCS_05 */
++    {0x290280338ULL, 0x3ff}, /* DCS_06 */
++    {0x290280340ULL, 0x3ff}, /* DCS_07 */
++    {0x290280348ULL, 0x3ff}, /* DCS_12 */
++    {0x290280350ULL, 0x3ff}, /* DCS_13 */
++    {0x290280358ULL, 0x3ff}, /* DCS_14 */
++    {0x290280360ULL, 0x3ff}, /* DCS_15 */
++    {0x290280368ULL, 0x0ff}, /* UART1 */
++    {0x290280370ULL, 0x0ff}, /* UART2 */
++    {0x290280378ULL, 0x0ff}, /* UART3 */
++    {0x290280380ULL, 0x2ff}, /* UART4 */
++    {0x290280388ULL, 0x2ff}, /* UART5 */
++    {0x290280390ULL, 0x2ff}, /* UART6 */
++    {0x290280398ULL, 0x200}, /* MCA0 */
++    {0x2902803a0ULL, 0x200}, /* MCA1 */
++    {0x2902803a8ULL, 0x200}, /* MCA2 */
++    {0x2902803b0ULL, 0x200}, /* MCA3 */
++    {0x2902803b8ULL, 0x2ff}, /* DPA0 */
++    {0x2902803c0ULL, 0x2ff}, /* DPA1 */
++    {0x2902803c8ULL, 0x2ff}, /* DPA2 */
++    {0x2902803d0ULL, 0x200}, /* DPA3 */
++    {0x2902803d8ULL, 0x300}, /* MSR0 */
++    {0x2902803e0ULL, 0x300}, /* VENC_SYS */
++    {0x2902803e8ULL, 0x200}, /* DPA4 */
++    {0x2902803f0ULL, 0x300}, /* MSR0_ASE_CORE */
++    {0x2902803f8ULL, 0x3ff}, /* APCIE_GPSHR_SYS */
++    {0x290280400ULL, 0x300}, /* DP */
++    {0x290280408ULL, 0x3ff}, /* APCIE_ST_SYS */
++    {0x290280410ULL, 0x30f}, /* APCIE_ST1_SYS */
++    {0x290280418ULL, 0x24f}, /* APCIE_GP_SYS */
++    {0x290280420ULL, 0x3ff}, /* APCIE_GE_SYS */
++    {0x290280428ULL, 0x24f}, /* APCIE_PHY_SW */
++    {0x290280c00ULL, 0x30f}, /* SEP */
++    {0x404e80000ULL, 0x2ff}, /* GPX */
++    {0x404e80100ULL, 0x300}, /* AFR */
++    {0x404e80108ULL, 0x300}, /* GFX */
++    {0x29e280000ULL, 0x000}, /* GFX-SGX */
++    {0x29e280000ULL, 0x000}, /* GFX-ASC */
++    {0x29e280058ULL, 0x0ff}, /* DEBUG */
++    {0x29e280060ULL, 0x24f}, /* NUB_SPMI0 */
++    {0x29e280068ULL, 0x24f}, /* NUB_SPMI1 */
++    {0x29e280070ULL, 0x2ff}, /* NUB_AON */
++    {0x29e280078ULL, 0x200}, /* MSG */
++    {0x29e280080ULL, 0x2ff}, /* NUB_GPIO */
++    {0x29e280088ULL, 0x3ff}, /* NUB_FABRIC */
++    {0x29e280090ULL, 0x0ff}, /* ATC0_USB_AON */
++    {0x29e280098ULL, 0x3ff}, /* ATC1_USB_AON */
++    {0x29e2800a0ULL, 0x300}, /* ATC2_USB_AON */
++    {0x29e2800a8ULL, 0x300}, /* ATC3_USB_AON */
++    {0x29e2800b0ULL, 0x30f}, /* MTP_FABRIC */
++    {0x29e2800b8ULL, 0x30f}, /* NUB_SRAM */
++    {0x29e2800c0ULL, 0x0ff}, /* DEBUG_SWITCH */
++    {0x29e2800c8ULL, 0x0ff}, /* ATC0_USB */
++    {0x29e2800d0ULL, 0x300}, /* ATC1_USB */
++    {0x29e2800d8ULL, 0x300}, /* ATC2_USB */
++    {0x29e2800e0ULL, 0x300}, /* ATC3_USB */
++    {0x29e2800e8ULL, 0x0ff}, /* MTP_GPIO */
++    {0x29e2800f0ULL, 0x24f}, /* MTP_BASE */
++    {0x29e2800f8ULL, 0x0ff}, /* MTP_PERIPH */
++    {0x29e280100ULL, 0x24f}, /* MTP_SPI0 */
++    {0x29e280108ULL, 0x200}, /* MTP_I2CM0 */
++    {0x29e280110ULL, 0x200}, /* MTP_UART0 */
++    {0x29e280118ULL, 0x30f}, /* MTP_CPU */
++    {0x29e280120ULL, 0x24f}, /* MTP_SCM_FABRIC */
++    {0x29e280128ULL, 0x24f}, /* MTP_SRAM */
++    {0x29e280130ULL, 0x300}, /* MTP_DMA */
++    {0x29e280000ULL, 0x000}, /* AOP_FILTER */
++    {0x29e280000ULL, 0x000}, /* AOP_GPIO */
++    {0x29e280000ULL, 0x000}, /* AOP_BASE */
++    {0x29e280000ULL, 0x000}, /* AOP_FR */
++    {0x29e280000ULL, 0x000}, /* AOP_LEAP_CLK */
++    {0x29e280000ULL, 0x000}, /* AOP_SHIM */
++    {0x29e280000ULL, 0x000}, /* AOP_SCM */
++    {0x29e280000ULL, 0x000}, /* AOP_ADMA0 */
++    {0x29e280000ULL, 0x000}, /* AOP_CPU */
++    {0x29e280000ULL, 0x000}, /* AOP_I2CM0 */
++    {0x29e280000ULL, 0x000}, /* AOP_I2CM1 */
++    {0x29e280000ULL, 0x000}, /* AOP_MCA0 */
++    {0x29e280000ULL, 0x000}, /* AOP_MCA1 */
++    {0x29e280000ULL, 0x000}, /* AOP_SPI0 */
++    {0x29e280000ULL, 0x000}, /* AOP_SPI1 */
++    {0x29e280000ULL, 0x000}, /* AOP_SPMI0 */
++    {0x29e280000ULL, 0x000}, /* AOP_SPMI1 */
++    {0x29e280000ULL, 0x000}, /* AOP_LEAP */
++    {0x29e280000ULL, 0x000}, /* AOP_AUDIO_SHIM */
++    {0x29e280000ULL, 0x000}, /* AOP_AUDIO_ADMA0 */
++    {0x29e280000ULL, 0x000}, /* AOP_UART0 */
++    {0x29e280000ULL, 0x000}, /* AOP_UART1 */
++    {0x29e280000ULL, 0x000}, /* AOP_UART2 */
++    {0x29e280000ULL, 0x000}, /* AOP_PDMC_LPD */
++    {0x29e280000ULL, 0x000}, /* AOP_SRAM */
++    {0x29e280000ULL, 0x000}, /* AOP_PDM0_REF */
++    {0x29e280000ULL, 0x000}, /* AOP_PDM1_REF */
++    {0x29e280000ULL, 0x000}, /* CPU-BUSY */
++    {0x29e280000ULL, 0x000}, /* ECPM_NRG */
++    {0x29e280000ULL, 0x000}, /* PCPM0_NRG */
++    {0x29e280000ULL, 0x000}, /* DISP-MIE-DPB */
++    {0x29e280000ULL, 0x000}, /* DISP-FB-ACTIVE */
++    {0x29e280000ULL, 0x000}, /* DISP-CARVE-OUT */
++    {0x29e280000ULL, 0x000}, /* SIO-CPU-V */
++    {0x29e280000ULL, 0x000}, /* USB-AUDIO-V */
++    {0x29e280000ULL, 0x000}, /* VENC-SYS-V */
++    {0x29e280000ULL, 0x000}, /* VENC-FAST */
++    {0x29e280000ULL, 0x000}, /* VENC-MEM-FAST */
++    {0x29e280000ULL, 0x000}, /* VENC-SOC-VMAX */
++    {0x29e280000ULL, 0x000}, /* AVD-SYS-V */
++    {0x29e280000ULL, 0x000}, /* AVD-SOC-VNOM */
++    {0x29e280000ULL, 0x000}, /* AVD-SOC-VMAX */
++    {0x29e280000ULL, 0x000}, /* ANE-SYS-V */
++    {0x29e280000ULL, 0x000}, /* JPG0-V */
++    {0x29e280000ULL, 0x000}, /* JPG1-V */
++    {0x29e280000ULL, 0x000}, /* JPG-FAB0-VNOM */
++    {0x29e280000ULL, 0x000}, /* JPG-FAB0-VMAX */
++    {0x29e280000ULL, 0x000}, /* MSR0-V */
++    {0x29e280000ULL, 0x000}, /* ISP-SYS-V */
++    {0x29e280000ULL, 0x000}, /* ISP-SOC-VNOM */
++    {0x29e280000ULL, 0x000}, /* ISP-SOC-VMAX */
++    {0x29e280000ULL, 0x000}, /* SOC-VNOM */
++    {0x29e280000ULL, 0x000}, /* SOC-VMAX */
++    {0x29e280000ULL, 0x000}, /* DCS-VNOM */
++    {0x29e280000ULL, 0x000}, /* DCS-VMAX */
++    {0x29e280000ULL, 0x000}, /* SEP-V */
++    {0x29e280000ULL, 0x000}, /* SEP-PEARL-V */
++    {0x29e280000ULL, 0x000}, /* APCIE-ST-V */
++    {0x29e280000ULL, 0x000}, /* APCIE-ST1-SYS-V */
++    {0x29e280000ULL, 0x000}, /* AUDIO-LLT-V */
++    {0x29e280000ULL, 0x000}, /* FR-SCALING-V */
++    {0x29e280000ULL, 0x000}, /* SCODEC-V */
++    {0x29e280000ULL, 0x000}, /* ATC0-USB-V */
++    {0x29e280000ULL, 0x000}, /* ATC1-USB-V */
++    {0x29e280000ULL, 0x000}, /* AUDIO-P-V */
++    {0x29e280000ULL, 0x000}, /* SIO-DART */
++    {0x29e280000ULL, 0x000}, /* ATC0-USB-DART */
++    {0x29e280000ULL, 0x000}, /* ATC1-USB-DART */
++    {0x29e280000ULL, 0x000}, /* VENC-SYS-DART */
++    {0x29e280000ULL, 0x000}, /* AVD-SYS-DART */
++    {0x29e280000ULL, 0x000}, /* ANE-SYS-DART */
++    {0x29e280000ULL, 0x000}, /* JPG0-DART */
++    {0x29e280000ULL, 0x000}, /* JPG1-DART */
++    {0x29e280000ULL, 0x000}, /* MSR0-DART */
++    {0x29e280000ULL, 0x000}, /* ISP-SYS-DART */
++    {0x29e280000ULL, 0x000}, /* VENC-DART */
++    {0x29e280000ULL, 0x000}, /* SCODEC-DART */
++    {0x29e280000ULL, 0x000}, /* AVEMSR-V */
++    {0x29e280000ULL, 0x000}, /* ATC2-USB-DART */
++    {0x29e280000ULL, 0x000}, /* ATC3-USB-DART */
++    {0x29e280000ULL, 0x000}, /* VDD_CIO-V */
++    {0x29e280000ULL, 0x000}, /* ATC0_RESET-V */
++    {0x29e280000ULL, 0x000}, /* ATC1_RESET-V */
++    {0x29e280000ULL, 0x000}, /* CIO0_RECONFIG-V */
++    {0x29e280000ULL, 0x000}, /* CIO1_RECONFIG-V */
++    {0x29e280000ULL, 0x000}, /* CIO2_RECONFIG-V */
++    {0x29e280000ULL, 0x000}, /* CIO3_RECONFIG-V */
++    {0x29e280000ULL, 0x000}, /* ATC0-USB-AUD-V */
++    {0x29e280000ULL, 0x000}, /* ATC1-USB-AUD-V */
++    {0x29e280000ULL, 0x000}, /* ATC2-USB-AUD-V */
++    {0x29e280000ULL, 0x000}, /* ATC3-USB-AUD-V */
++    {0x29e280000ULL, 0x000}, /* PCPM1_NRG */
++    {0x29e280000ULL, 0x000}, /* JPG1-FAB0-VNOM */
++    {0x29e280000ULL, 0x000}, /* JPG1-FAB0-VMAX */
++    {0x29e280000ULL, 0x000}, /* AUSB0_AONUSB-V */
++    {0x29e280000ULL, 0x000}, /* AUSB1_AONUSB-V */
++    {0x29e280000ULL, 0x000}, /* AUSB2_AONUSB-V */
++    {0x29e280000ULL, 0x000}, /* AUSB3_AONUSB-V */
++    {0x29e280000ULL, 0x000}, /* AUSB0_AONPCIE-V */
++    {0x29e280000ULL, 0x000}, /* AUSB1_AONPCIE-V */
++    {0x29e280000ULL, 0x000}, /* AUSB2_AONPCIE-V */
++    {0x29e280000ULL, 0x000}, /* AUSB3_AONPCIE-V */
++    {0x29e280000ULL, 0x000}, /* DP0-SOC-VMAX */
++    {0x29e280000ULL, 0x000}, /* DP1-SOC-VMAX */
++    {0x29e280000ULL, 0x000}, /* DP2-SOC-VMAX */
++    {0x29e280000ULL, 0x000}, /* DP3-SOC-VMAX */
++    {0x29e280000ULL, 0x000}, /* GFX-BUSY */
++    {0x29e280000ULL, 0x000}, /* APCIE_ST-V */
++    {0x29e280000ULL, 0x000}, /* APCIE-GEGP-V */
++    {0x29e280000ULL, 0x000}, /* APCIE-PHY-SW-V */
++    {0x29e280000ULL, 0x000}, /* DISP0_CPU0-V */
++    {0x29e280000ULL, 0x000}, /* DISPEXT0_CPU0-V */
++    {0x29e280000ULL, 0x000}, /* DISPEXT1_CPU0-V */
++    {0x29e280000ULL, 0x000}, /* VENC-SOC-VMID2 */
++    {0x29e280000ULL, 0x000}, /* GFX-ERR-HNDLR-V */
++    {0x29e280000ULL, 0x000}, /* SCODEC-SOC-VNOM */
++    {0x29e280000ULL, 0x000}, /* SCODEC-SOC-VMAX */
++    {0x29e280000ULL, 0x000}, /* APCIE-PHY-ST-V */
++    {0x29e280000ULL, 0x000}, /* APCIE-PHY-GEGP-V */
++    {0x29e280000ULL, 0x000}, /* EACC0_0_SRAM */
++    {0x29e280000ULL, 0x000}, /* EACC0_1_SRAM */
++    {0x29e280000ULL, 0x000}, /* EACC0_2_SRAM */
++    {0x29e280000ULL, 0x000}, /* EACC0_3_SRAM */
++    {0x29e280000ULL, 0x000}, /* PACC0_0_SRAM */
++    {0x29e280000ULL, 0x000}, /* PACC0_1_SRAM */
++    {0x29e280000ULL, 0x000}, /* PACC0_2_SRAM */
++    {0x29e280000ULL, 0x000}, /* PACC0_3_SRAM */
++    {0x29e280000ULL, 0x000}, /* PACC1_0_SRAM */
++    {0x29e280000ULL, 0x000}, /* PACC1_1_SRAM */
++    {0x29e280000ULL, 0x000}, /* PACC1_2_SRAM */
++    {0x29e280000ULL, 0x000}, /* PACC1_3_SRAM */
++    {0x29e280000ULL, 0x000}, /* ECPM0_SRAM */
++    {0x29e280000ULL, 0x000}, /* PCPM0_SRAM */
++    {0x29e280000ULL, 0x000}, /* PCPM1_SRAM */
++    {0x29e280000ULL, 0x000}, /* MSR0-AVEMSR-VNOM */
++    {0x29e280000ULL, 0x000}, /* MSR0-AVEMSR-VMAX */
++    {0x29e280000ULL, 0x000}, /* VENC-FAB0-VMAX */
++    {0x29e280000ULL, 0x000}, /* APCIE-GP-V */
++    {0x29e280000ULL, 0x000}, /* APCIE-GE-V */
++};
+-- 
+2.56.0
+
