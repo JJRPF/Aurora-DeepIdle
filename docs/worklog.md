@@ -4185,3 +4185,6 @@ This is the first register-level footprint of the commit, and it has a control b
 ## 2026-11-12 22:56 run R43A (image 93, our PMGR power words against macOS's right before the commit): 85 of 374 differ; image 94 lists 18 per run
 - Armed 22:53:00, "R43A committing" 22:53:52, main's kernel 22:55:09. Observer finished (`0x6004` a4). **`0x6005` = 0x55 = 85 mismatching words of 374** (bits 0 to 9: desired, actual, clk/pwr-gated). The first twelve are indexes 1, 2, 3, 5, 6, 8, 9, 10, 14, 17, 18, 19 (the table's first entries are the CPU cores' words, whose state differs by construction: macOS's cores are stopped or in their last WFI, ours parked). So the list has to be read past the cores.
 - **Image 94** (Aura `bcbd5ece`, `boot-test.bin.94` sha `ab7c9de33fceeeb4`, patch 0037): 18 entries per run (`0x6006..0x600c`, `0x6011..0x6016`, `0x601b..0x601f`, index minus start). Job `r44-psword-page`: the start index is read from the job's `start` file, so I page through the 85 by editing it between runs (no rebuild).
+
+## 2026-11-12 22:59 R44 page 0 (start 0): 86 mismatches; first listed indexes 1, 2, 3, 5, 6, 8, 9, 10, 14, 17, 18, 19, 22, (one lost), 30, 31, 32, 33
+- Armed 22:56:28, main's kernel 22:58:37. `0x6005` = 0x56 = 86 (85 in R43A: one word varies between boots). Indexes ≥ 34 next (start 34).
