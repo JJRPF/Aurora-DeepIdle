@@ -4200,3 +4200,6 @@ This is the first register-level footprint of the commit, and it has a control b
 
 ## 2026-11-12 23:14 R44b page 0 (bits 0 to 7 only, image 95): 59 mismatches, not 85; the memory controllers (DCS) match
 - `0x6005` = 0x3b = **59** real desired/actual mismatches. First listed: 1-3 ECPU0_1-3, 5-6 PCPU0_1-2, 8-10 PCPU1_0-2 (cores), 14 PCPM1, 17 DWI, 19 GPIO, 22 PMGR_SOC_OCLA, 38 AFNC1_IOA, 48 AFNC1_LW1, 52 ATC0_COMMON, 97 TRACE_FAB, 111 AFNC2_IOA, plus one lost. The DCS words and PMS (18) matched once the history flags are ignored. Next start 112.
+
+## 2026-11-12 23:18 R44b page 112: peripherals macOS has in another state: APCIE_GP/ST, ANS2, SIO_CPU, FPWM0-2, I2C5-7, SPI_P, SIO_SPMI, UART_P, AUDIO_P (and DCP-side ones)
+- Mismatches at indexes 112, 114, 118 to 120, 127 to 130, 136 to 138, 140, 142 to 145 (plus a lost one near 141) on top of page 0's. 59 in all; the rest (about 25) are from index 146 up (start 146 next). These are the devices (PCIe, storage coprocessor 2, SIO, PWM, I2C, SPI, SPMI, UART, audio) whose desired/actual state at our commit differs from macOS's at its commit; the cores (0 to 10), PCPM1 and a few fabric words are in the list too.
