@@ -1,0 +1,177 @@
+From ce98322f3a3b17dd22bf545899c67c9dba8c4269 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <git@jjrpf.com>
+Date: Thu, 12 Nov 2026 23:50:10 -0500
+Subject: [PATCH] psci: replay macOS's late-window device writes too
+ (ANE/AVE/AOP GPIO/PCIe/PMGR/event-log) with the memory ones; completion
+ marker at 0x601e
+
+---
+ src/psci.c         |  8 +++--
+ src/qs_macos_mem.h | 75 ++++++++++++++++++++++++++++++++++++++++++++--
+ src/smp.c          | 20 +++++++++++++
+ 3 files changed, 98 insertions(+), 5 deletions(-)
+
+diff --git a/src/psci.c b/src/psci.c
+index 9b4720e0..a0b0b859 100644
+--- a/src/psci.c
++++ b/src/psci.c
+@@ -847,6 +847,7 @@ static void psci_quiesce_asc(void)
+  * per-plane words it clears or sets (0x158000/0x158800 groups, 0x1c1c00, 0x200584.., the 0x1000-stepped banks) and mcc_0's
+  * 0x11000 block, which it clears twice around the PMP's last target write. Applied count into 0x601e.
+  */
++static u8 psci_mem_done;
+ static void psci_replay_mem(void)
+ {
+     u8 r[1] = {0};
+@@ -860,7 +861,7 @@ static void psci_replay_mem(void)
+             r[0]++;
+     }
+     sysop("dsb sy");
+-    qs_crumb_write(0x601e, r, 1);
++    psci_mem_done = 1;
+ }
+ 
+ /*
+@@ -885,7 +886,10 @@ static void psci_force_ps(void)
+             r[0]++;
+     }
+     sysop("dsb sy");
+-    qs_crumb_write(0x601f, r, 1);
++    {
++        u8 rr[2] = {psci_mem_done ? 0x77 : 0x11, r[0]};
++        qs_crumb_write(0x601e, rr, 2); /* image 98: 0x77 = the memory/device replay finished */
++    }
+ }
+ 
+ /*
+diff --git a/src/qs_macos_mem.h b/src/qs_macos_mem.h
+index 94b1c48d..e5338267 100644
+--- a/src/qs_macos_mem.h
++++ b/src/qs_macos_mem.h
+@@ -1,12 +1,40 @@
+-/* image 97: macOS 14.8.9's memory-controller (mcc) writes between its MBSE=slpa and the end of its sleep entry, in order
+- * (hypervisor run 2026-11-12 'memw', docs/hv-mem-writes-sleep-20261112.txt): size in bytes, address, value. */
++/* image 98: macOS 14.8.9's device writes between its first sleep-entry memory-controller write (just after MBSE=slpa) and the end of
++ * its sleep entry, in order: the memory controller (mcc) and, new in image 98, ANE/AVE power words, AOP GPIO, PCIe port 4/6, the
++ * PMGR word 0x2902801e0, event-log/error-handler blocks (hypervisor run 2026-11-12 'latew', docs/hv-mem-writes-sleep-20261112.txt and
++ * docs/hv-late-writes-sleep-20261112.txt). size in bytes, address, value. */
+ static const struct { u64 addr; u64 val; u8 size; } qs_macos_mem[] = {
+     {0x28e3d1080ULL, 0x2000000000000000ULL, 8},
+-    {0x2010a1004ULL, 0x4000000ULL, 4},
++    {0x2000a1004ULL, 0x4000000ULL, 4},
+     {0x28e3d1088ULL, 0x2000000000000000ULL, 8},
+     {0x28e3d1090ULL, 0x2000000000000000ULL, 8},
++    {0x28e0802c8ULL, 0xf0f00ffULL, 4},
++    {0x28e0802c8ULL, 0xf0f03f0ULL, 4},
++    {0x28e0802d0ULL, 0xfULL, 4},
++    {0x28e0802d0ULL, 0x300ULL, 4},
+     {0x28e3d1000ULL, 0x200ULL, 8},
++    {0x28e08c030ULL, 0x80000000ULL, 4},
++    {0x28e08c034ULL, 0x80000000ULL, 4},
++    {0x28e08c038ULL, 0x80000000ULL, 4},
++    {0x28e088004ULL, 0x0ULL, 4},
+     {0x28e3d1000ULL, 0x0ULL, 8},
++    {0x28e08c030ULL, 0x80000000ULL, 4},
++    {0x28e08c034ULL, 0x80000000ULL, 4},
++    {0x28e08c038ULL, 0x80000000ULL, 4},
++    {0x28e088008ULL, 0x0ULL, 4},
++    {0x2a6820900ULL, 0xffffffffULL, 4},
++    {0x2a6820904ULL, 0xffffffffULL, 4},
++    {0x2a6820908ULL, 0xffffffffULL, 4},
++    {0x59e008000ULL, 0x1f0c383ULL, 4},
++    {0x59e008000ULL, 0x1f0c381ULL, 4},
++    {0x59e008000ULL, 0x1f0c380ULL, 4},
++    {0x59e008000ULL, 0x1f0c080ULL, 4},
++    {0x59e008004ULL, 0x1ULL, 4},
++    {0x59e008004ULL, 0x0ULL, 4},
++    {0x59c000400ULL, 0xc0f00010ULL, 4},
++    {0x290280420ULL, 0xf000000ULL, 4},
++    {0x290280420ULL, 0xf00000fULL, 4},
++    {0x290280420ULL, 0x1f00000fULL, 4},
++    {0x29e2c400cULL, 0x0ULL, 4},
+     {0x2001c1c00ULL, 0x0ULL, 4},
+     {0x2011c1c00ULL, 0x0ULL, 4},
+     {0x2021c1c00ULL, 0x0ULL, 4},
+@@ -416,6 +444,47 @@ static const struct { u64 addr; u64 val; u8 size; } qs_macos_mem[] = {
+     {0x203810710ULL, 0x0ULL, 4},
+     {0x203810714ULL, 0x0ULL, 4},
+     {0x203810718ULL, 0x0ULL, 4},
++    {0x280000a00ULL, 0x0ULL, 4},
++    {0x300000a00ULL, 0x0ULL, 4},
++    {0x380000a00ULL, 0x0ULL, 4},
++    {0x400000a00ULL, 0x0ULL, 4},
++    {0x340000a00ULL, 0x0ULL, 4},
++    {0x28e0e0000ULL, 0x0ULL, 4},
++    {0x28e0e8000ULL, 0x0ULL, 4},
++    {0x28e0e8800ULL, 0x0ULL, 4},
++    {0x28e0e9000ULL, 0x0ULL, 4},
++    {0x28e0e9800ULL, 0x0ULL, 4},
++    {0x28e0ea000ULL, 0x0ULL, 4},
++    {0x28e070000ULL, 0x0ULL, 4},
++    {0x2902ac000ULL, 0x0ULL, 4},
++    {0x28e0e0000ULL, 0x0ULL, 4},
++    {0x28e08c030ULL, 0x80000000ULL, 4},
++    {0x28e08c034ULL, 0x80000000ULL, 4},
++    {0x28e08c038ULL, 0x80000000ULL, 4},
+     {0x28e3d1000ULL, 0x0ULL, 8},
++    {0x28e08c030ULL, 0x80000000ULL, 4},
++    {0x28e08c034ULL, 0x80000000ULL, 4},
++    {0x28e08c038ULL, 0x80000000ULL, 4},
+     {0x28e3d1000ULL, 0x0ULL, 8},
++    {0x28e08c030ULL, 0x80000000ULL, 4},
++    {0x28e08c034ULL, 0x80000000ULL, 4},
++    {0x28e08c038ULL, 0x80000000ULL, 4},
++    {0x2902b0000ULL, 0x0ULL, 4},
++    {0x28e0cc200ULL, 0x0ULL, 4},
++    {0x28e0cc400ULL, 0x0ULL, 4},
++    {0x28e0cc600ULL, 0x0ULL, 4},
++    {0x28e0cc000ULL, 0x0ULL, 4},
++    {0x28e088000ULL, 0x0ULL, 4},
++    {0x28e088004ULL, 0x10ULL, 4},
++    {0x28e088008ULL, 0x10ULL, 4},
++    {0x28e08800cULL, 0x0ULL, 4},
++    {0x28e088010ULL, 0x20ULL, 4},
++    {0x28e0cc400ULL, 0x0ULL, 4},
++    {0x28e088018ULL, 0x0ULL, 4},
++    {0x2902801e0ULL, 0x400024fULL, 4},
++    {0x28e038160ULL, 0x80100000ULL, 4},
++    {0x28e038168ULL, 0x80100000ULL, 4},
++    {0x28e038164ULL, 0x80100000ULL, 4},
++    {0x28e038158ULL, 0x80100000ULL, 4},
++    {0x28e03816cULL, 0x80100000ULL, 4},
+ };
+diff --git a/src/smp.c b/src/smp.c
+index df0fa28d..eee6f0ac 100644
+--- a/src/smp.c
++++ b/src/smp.c
+@@ -1472,7 +1472,27 @@ int smp_psci_mmio_ranges(u64 *ranges, int max)
+             0x203800000,
+             0x203810000,
+             0x203860000,
++            0x280000000,
++            0x28e038000,
++            0x28e070000,
++            0x28e080000,
++            0x28e088000,
++            0x28e08c000,
++            0x28e0cc000,
++            0x28e0e0000,
++            0x28e0e8000,
+             0x28e3d0000,
++            0x290280000,
++            0x2902ac000,
++            0x2902b0000,
++            0x29e2c4000,
++            0x2a6820000,
++            0x300000000,
++            0x340000000,
++            0x380000000,
++            0x400000000,
++            0x59c000000,
++            0x59e008000,
+         };
+         for (u32 i = 0; i < sizeof(pg) / sizeof(pg[0]); i++)
+             smp_psci_add_range(ranges, max, &n, pg[i], SZ_16K);
+-- 
+2.56.0
+
