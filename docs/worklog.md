@@ -4244,3 +4244,7 @@ This is the first register-level footprint of the commit, and it has a control b
 
 ## 2026-11-13 17:12 Pi moved to LiveFreeOrDie (5 GHz)
 - After the router's WPA2/3 transition mode was enabled, the Pi joined LiveFreeOrDie (ch 48, 5240 MHz, wpa-psk, power-save off) at 192.168.1.112; `dd-wrt` stays as a fallback profile (priority 5 vs 20). Credentials saved locally (not in the repo). `pi-ssh` and `tools/pi-fetch.sh` point at the new address.
+
+## 2026-11-13 17:16 HV rebuild for a real macOS deep sleep ("realsleep" run)
+- New HV tree `~/Work/src/aura-hvsleep2` (branch hvsleep-unmask on Aura main bc79acc4 + the RVBAR and CYC_OVRD patches; patch `patches/hvsleep-trace/0002-hv-unmask-...`): CYC_OVRD (all bits, incl. WFI_MODE=3 and DISABLE_WFI_RET) and ACC_OVRD writes now pass to the hardware from C (no proxy entry), and `hv_rendezvous` no longer panics when cores stop answering: it marks them as in deep sleep and carries on (so CPU0's late traps are still handled while other cores sleep). Built on the host (clang, RUSTC_BOOTSTRAP=1, local popcount stub), `m1n1.bin` sha 1a7d28f80f779bc2, on the Pi as `hv/aura-hvsleep.unmask.bin`.
+- Run: the guest's hvsleep job does `pmset schedule wake +5 min; pmset sleepnow`. If macOS's own S2R works under this HV the SoC sleeps and the PMU alarm wakes it 5 min later (through RVBAR; whether the HV image survives that is unknown). What to read: HV log lines "assumed in deep sleep", the last traced writes, whether/when the Mac resets by itself, PMU scratch/reset reason after.

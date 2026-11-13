@@ -1,0 +1,91 @@
+From 95533584a4ed8198c062ffe0dc8618646322a63d Mon Sep 17 00:00:00 2001
+From: x <x@x>
+Date: Fri, 13 Nov 2026 17:16:02 -0500
+Subject: [PATCH] hv (GH-5): pass CYC_OVRD/ACC_OVRD deep-sleep writes in C;
+ rendezvous skips CPUs that stopped answering
+
+---
+ src/hv/hv.c     | 15 ++++++++++-----
+ src/hv/hv_exc.c | 14 ++++++++++++--
+ 2 files changed, 22 insertions(+), 7 deletions(-)
+
+diff --git a/src/hv/hv.c b/src/hv/hv.c
+index 7cbd0e3d..ca14b20e 100644
+--- a/src/hv/hv.c
++++ b/src/hv/hv.c
+@@ -422,27 +422,32 @@ void hv_exit_cpu(int cpu)
+     hv_should_exit[cpu] = true;
+ }
+ 
++/* GH-5: CPUs the guest put into a real deep sleep; they cannot answer an IPI, so later rendezvous skip them. */
++static u64 hv_gone_cpus;
++
+ void hv_rendezvous(void)
+ {
+     int timeout = 1000000;
+ 
+-    if (!__atomic_load_n(&hv_cpus_in_guest, __ATOMIC_ACQUIRE))
++    if (!(__atomic_load_n(&hv_cpus_in_guest, __ATOMIC_ACQUIRE) & ~hv_gone_cpus))
+         return;
+ 
+     /* IPI all CPUs. This might result in spurious IPIs to the guest... */
+     for (int i = 0; i < MAX_CPUS; i++) {
+-        if (i != smp_id() && hv_started_cpus[i]) {
++        if (i != smp_id() && hv_started_cpus[i] && !(hv_gone_cpus & BIT(i))) {
+             smp_send_ipi(i);
+         }
+     }
+ 
+     while (timeout--) {
+-        if (!__atomic_load_n(&hv_cpus_in_guest, __ATOMIC_ACQUIRE))
++        if (!(__atomic_load_n(&hv_cpus_in_guest, __ATOMIC_ACQUIRE) & ~hv_gone_cpus))
+             return;
+     }
+ 
+-    hv_panic("HV: Failed to rendezvous, missing CPUs: 0x%lx (current: %d)\n",
+-             __atomic_load_n(&hv_cpus_in_guest, __ATOMIC_ACQUIRE), smp_id());
++    u64 missing = __atomic_load_n(&hv_cpus_in_guest, __ATOMIC_ACQUIRE) & ~hv_gone_cpus;
++    hv_gone_cpus |= missing;
++    printf("HV: CPUs 0x%lx did not answer the rendezvous: assumed in deep sleep, continuing (current: %d)\n", missing,
++           smp_id());
+ }
+ 
+ bool hv_switch_cpu(int cpu)
+diff --git a/src/hv/hv_exc.c b/src/hv/hv_exc.c
+index 7c4fa64f..38d1a983 100644
+--- a/src/hv/hv_exc.c
++++ b/src/hv/hv_exc.c
+@@ -332,7 +332,7 @@ static bool hv_handle_msr_unlocked(struct exc_info *ctx, u64 iss)
+          * still returning, and reads back the value it wrote.
+          */
+         case SYSREG_ISS(SYS_IMP_APL_CYC_OVRD): {
+-            const u64 sleep_bits = CYC_OVRD_DISABLE_WFI_RET | CYC_OVRD_FIQ_MODE_MASK;
++            const u64 sleep_bits = CYC_OVRD_DISABLE_WFI_RET | CYC_OVRD_FIQ_MODE_MASK | CYC_OVRD_WFI_MODE_MASK;
+             if (is_read) {
+                 regs[rt] = mrs(SYS_IMP_APL_CYC_OVRD) | PERCPU(cyc_ovrd_masked);
+             } else {
+@@ -341,10 +341,20 @@ static bool hv_handle_msr_unlocked(struct exc_info *ctx, u64 iss)
+                     printf("HV: CPU %ld CYC_OVRD <- 0x%lx at pc 0x%lx (masked 0x%lx)\n",
+                            mrs(TPIDR_EL2), regs[rt], ctx->elr, masked);
+                 PERCPU(cyc_ovrd_masked) = masked;
+-                msr(SYS_IMP_APL_CYC_OVRD, regs[rt] & ~sleep_bits);
++                /* GH-5 unmask build: let macOS's deep-sleep request reach the hardware (a real system sleep) */
++                msr(SYS_IMP_APL_CYC_OVRD, regs[rt]);
+             }
+             return true;
+         }
++        /* GH-5 unmask build: the per-core deep-sleep configuration, handled here so no proxy entry is needed late in the sleep path */
++        case SYSREG_ISS(SYS_IMP_APL_ACC_OVRD):
++            if (is_read) {
++                regs[rt] = mrs(SYS_IMP_APL_ACC_OVRD);
++            } else {
++                printf("HV: CPU %ld ACC_OVRD <- 0x%lx\n", mrs(TPIDR_EL2), regs[rt]);
++                msr(SYS_IMP_APL_ACC_OVRD, regs[rt]);
++            }
++            return true;
+             /* clang-format off */
+         /* IPI handling */
+         SYSREG_PASS(SYS_IMP_APL_IPI_CR_EL1)
+-- 
+2.56.0
+
