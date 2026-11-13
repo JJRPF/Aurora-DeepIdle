@@ -1,0 +1,70 @@
+From 6c4afa49ae9d363e8a91a088354ddfcbca4c5e36 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <git@jjrpf.com>
+Date: Thu, 12 Nov 2026 22:38:53 -0500
+Subject: [PATCH] psci: image 92: PSCI_ctl[5] bit 0 halts the GFX, ANS, SIO and
+ PMP coprocessors before the commit, as macOS does
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+---
+ src/psci.c | 22 ++++++++++++++++++++++
+ src/smp.c  |  4 ++++
+ 2 files changed, 26 insertions(+)
+
+diff --git a/src/psci.c b/src/psci.c
+index 722283ef..b4d4b722 100644
+--- a/src/psci.c
++++ b/src/psci.c
+@@ -820,6 +820,26 @@ static u32 qs_aon_snap[QS_AON_WORDS];
+ static u8 qs_aon_vol[QS_AON_WORDS / 8];
+ static volatile u64 psci_s2r_snapdone __attribute__((aligned(64)));
+ 
++/*
++ * image 92 (psci_ctl[5] bit 0): macOS halts the coprocessors' firmware before the commit (hypervisor run 2026-11-12, "ascw2"):
++ * after the RTKit idle messages (SetAPPower/SetIOPPower 0x201) it writes each wrapper's mailbox control (+0x8114) and
++ * CPU_CONTROL (+0x44) := 0 for GFX, ANS, SIO and the PMP (the DCPs are shut down by Linux's test_sleep_off). Linux leaves these four running.
++ */
++static void psci_quiesce_asc(void)
++{
++    static const struct { u64 base; u32 ctrl; } asc[] = {
++        {0x406400000ULL, 0x21100}, /* gfx-asc */
++        {0x347400000ULL, 0x24400}, /* ans */
++        {0x39bc00000ULL, 0x29900}, /* sio */
++        {0x28ec00000ULL, 0x21100}, /* pmp */
++    };
++    for (unsigned i = 0; i < sizeof(asc) / sizeof(asc[0]); i++) {
++        write32(asc[i].base + 0x8114, asc[i].ctrl);
++        write32(asc[i].base + 0x44, 0);
++        sysop("dsb sy");
++    }
++}
++
+ /*
+  * image 90 (psci_ctl[4] bit 62): which AP wake sources stand at the commit. The five-wake-status words of Naeem Malik's T8103
+  * entry latch at the first S2R-timer write; the T6020 block is the PMGR's "AOP global" one (0x404ea8000: mask words +0x0c,
+@@ -1360,6 +1380,8 @@ static unsigned long psci_system_suspend(unsigned long entry, unsigned long cont
+      * sleep action leaves WD1 alone and clears WD0 and reg 3's low byte, both already 0 here). Aura's WD1 has been armed
+      * (120 s) through every entry so far. The timer's own reset stays as the safety net.
+      */
++    if (psci_ctl[5] & 1)
++        psci_quiesce_asc();
+     qs_crumb(0x12);
+     bool quiet = (steps & PSCI_S2R_QUIET) && (steps & PSCI_S2R_TIMER) && (steps & PSCI_S2R_CORESOFF);
+     if (quiet) {
+diff --git a/src/smp.c b/src/smp.c
+index 931511b2..454bc90a 100644
+--- a/src/smp.c
++++ b/src/smp.c
+@@ -1354,6 +1354,10 @@ int smp_psci_mmio_ranges(u64 *ranges, int max)
+     /* MPMGR_AON's S2R timer (PSCI_S2R_TIMER, psci.c) */
+     if (chip_id == T6020)
+         smp_psci_add_range(ranges, max, &n, 0x29e5c0000, 0x14000); /* image 84: the whole MPMGR_AON block */
++        smp_psci_add_range(ranges, max, &n, 0x347400000, 0x10000); /* image 92: ANS, SIO, GFX and PMP coprocessor wrappers (CPU_CONTROL +0x44, mailbox +0x8114) */
++        smp_psci_add_range(ranges, max, &n, 0x39bc00000, 0x10000);
++        smp_psci_add_range(ranges, max, &n, 0x406400000, 0x10000);
++        smp_psci_add_range(ranges, max, &n, 0x28ec00000, 0x10000);
+         smp_psci_add_range(ranges, max, &n, 0x404ea8000, 0x100);   /* image 90: the AP wake-source mask (+0x0c) and status (+0x30) words */
+     /* image 53's quiesceHW steps (psci.c): MINI 0x4d010, ps_afr, ps_sio(_cpu), ClkGen-SOC, PLL-off */
+     if (chip_id == T6020) {
+-- 
+2.56.0
+

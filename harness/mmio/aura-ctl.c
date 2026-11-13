@@ -54,6 +54,7 @@ int main(int argc, char **argv)
 		w[1] = argc > 2 ? strtoull(argv[2], NULL, 0) & 0xfff : 0;
 		w[2] = argc > 3 ? strtoull(argv[3], NULL, 0) & 0xffff : 0;
 		w[3] = argc > 4 ? strtoull(argv[4], NULL, 0) : 0; /* image 85: the observer's word, psci_ctl[4] */
+		w[4] = argc > 5 ? strtoull(argv[5], NULL, 0) : 0; /* image 92: psci_ctl[5] */
 	}
 	printf("aura ctl at 0x%llx: 0x%llx mask 0x%llx cap %llu\n", (unsigned long long)hit, (unsigned long long)*w, (unsigned long long)w[1], (unsigned long long)w[2]);
 	if (w[3])
