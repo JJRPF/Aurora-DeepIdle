@@ -4188,3 +4188,6 @@ This is the first register-level footprint of the commit, and it has a control b
 
 ## 2026-11-12 22:59 R44 page 0 (start 0): 86 mismatches; first listed indexes 1, 2, 3, 5, 6, 8, 9, 10, 14, 17, 18, 19, 22, (one lost), 30, 31, 32, 33
 - Armed 22:56:28, main's kernel 22:58:37. `0x6005` = 0x56 = 86 (85 in R43A: one word varies between boots). Indexes ≥ 34 next (start 34).
+
+## 2026-11-12 23:05 R44 pages 34 and 115: more power words that differ from macOS's at the commit
+- Mismatching table indexes so far (name): 1-3 ECPU0_1-3, 5-6 PCPU0_1-2, 8-10 PCPU1_0-2, 14 PCPM1, 17 DWI, 18 PMS, 19 GPIO, 22 PMGR_SOC_OCLA, one lost in 23 to 29, **30-37 DCS_00-03 and DCS_08-11 (the memory controllers)**, 38 AFNC1_IOA, 45 AFNC1_LS, 47-49 AFNC1_LW0-2, 52 ATC0_COMMON, 97 TRACE_FAB, 108-110 AFNC6_IOA/LS/LW0, 111-114 AFNC2_IOA/LS/LW0/LW1, 118-120, 123, 127-130, 136-138, 140, 141, one lost, 143-145, 164 (not yet named). One entry per page is lost (the crumb at `0x601b` is overwritten by the boot core). Next start 165; 85 total.
