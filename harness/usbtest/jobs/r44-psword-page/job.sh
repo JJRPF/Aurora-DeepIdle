@@ -1,5 +1,5 @@
 #!/bin/bash
-# R44: image 94 (Aura bcbd5ece), aura-ctl 0x1d7dcb1f + observer word bit 61: before the commit the observer compares the 374 PMGR power words with macOS's at its timer write (docs/hv-macos-state-at-commit-20261112.txt); count of mismatches in 0x6005, the first twelve indexes in 0x6006.. and 0x6011..
+# R44: image 95 (Aura c6d688a5), aura-ctl 0x1d7dcb1f + observer word bit 61: before the commit the observer compares the 374 PMGR power words with macOS's at its timer write (docs/hv-macos-state-at-commit-20261112.txt); count of mismatches in 0x6005, the first twelve indexes in 0x6006.. and 0x6011..
 # R44: R18K (aura-ctl 0x17dcb1f) + bit 26 (0x4000000) on image 72 (Aura d93a57cd): every core, right before its deep
 # WFI, unlocks its external debug block (EDLAR) and writes EDPRCR := 0, as xnu's ml_arm_sleep does on the secondaries
 # and the boot core (15.7.1 kernel, read 2026-11-11; aurora-silicon's T6040 entry does the same). With CORENPDRQ set a
@@ -14,7 +14,7 @@ w() { $J/mmio-read $1 1 2>/dev/null | awk '{print $2}'; }
 atc() { for a in 278 288 298 2a8 228 230 238 240; do printf '%s ' "$(w 0x28e080$a)"; done; }
 V=$(tr -d '\0' < $C/asahi,m1n1-stage2-version)
 log "R44 kernel $(uname -r); stage2 $V; cmdline aop: $(grep -o 'aop.sleep_ap_idle=[0-9]*' /proc/cmdline || echo none)"
-case "$V" in *bcbd5ece*) ;; *) log "stage 2 is not image 94: stopping"; return 0 ;; esac
+case "$V" in *c6d688a5*) ;; *) log "stage 2 is not image 95: stopping"; return 0 ;; esac
 [ -e $R/wakealarm ] && grep -q deep /sys/power/mem_sleep || { log "no wakealarm or no deep, stopping"; return 0; }
 grep -q 'aop.sleep_ap_idle=3' /proc/cmdline || { log "aop.sleep_ap_idle=3 not on the cmdline: stopping"; return 0; }
 [ -e $M/appledrm/parameters/test_sleep_off ] || { log "appledrm has no test_sleep_off: stopping"; return 0; }

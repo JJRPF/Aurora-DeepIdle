@@ -1,0 +1,29 @@
+From c6d688a5b27590ed77403cc9aae586f4f82fe3aa Mon Sep 17 00:00:00 2001
+From: Justin Pfister <git@jjrpf.com>
+Date: Thu, 12 Nov 2026 23:11:42 -0500
+Subject: [PATCH] psci: image 95: the power-word comparison looks at desired
+ and actual only (bits 0-7)
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+---
+ src/psci.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/psci.c b/src/psci.c
+index ff888fdc..7443b6a1 100644
+--- a/src/psci.c
++++ b/src/psci.c
+@@ -856,8 +856,8 @@ static void psci_s2r_pscmp(void)
+         e[i] = 0xff;
+     qs_crumb(0xa1);
+     for (u32 i = 0; i < sizeof(qs_macos_ps) / sizeof(qs_macos_ps[0]); i++) {
+-        u32 v = read32(qs_macos_ps[i].addr) & 0x3ff;
+-        if (v == qs_macos_ps[i].val)
++        u32 v = read32(qs_macos_ps[i].addr) & 0xff;
++        if (v == (qs_macos_ps[i].val & 0xff))
+             continue;
+         n++;
+         if (i >= start && k < 18) {
+-- 
+2.56.0
+

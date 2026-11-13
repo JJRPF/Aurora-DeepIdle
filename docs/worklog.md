@@ -4191,3 +4191,9 @@ This is the first register-level footprint of the commit, and it has a control b
 
 ## 2026-11-12 23:05 R44 pages 34 and 115: more power words that differ from macOS's at the commit
 - Mismatching table indexes so far (name): 1-3 ECPU0_1-3, 5-6 PCPU0_1-2, 8-10 PCPU1_0-2, 14 PCPM1, 17 DWI, 18 PMS, 19 GPIO, 22 PMGR_SOC_OCLA, one lost in 23 to 29, **30-37 DCS_00-03 and DCS_08-11 (the memory controllers)**, 38 AFNC1_IOA, 45 AFNC1_LS, 47-49 AFNC1_LW0-2, 52 ATC0_COMMON, 97 TRACE_FAB, 108-110 AFNC6_IOA/LS/LW0, 111-114 AFNC2_IOA/LS/LW0/LW1, 118-120, 123, 127-130, 136-138, 140, 141, one lost, 143-145, 164 (not yet named). One entry per page is lost (the crumb at `0x601b` is overwritten by the boot core). Next start 165; 85 total.
+
+## 2026-11-12 23:08 R44 page 165: mismatches 165, 168 to 179, one lost (180?), 181, 186 to 188; next start 189 (about 13 left)
+
+## 2026-11-12 23:11 R44 last page (start 189): the full mismatch list is mostly peripherals and the memory controllers; image 95 compares desired and actual only
+- Last page added 194, 196 to 200, 214, 215, 221, 229, 230, 233, 234 (and one lost). Across the pages the 85 mismatching words are: the CPU cores, DWI/PMS/GPIO/OCLA, **all DCS (memory controller) words 00 to 15**, AFNC1/AFNC6/AFNC2 (fabric), ATC0_COMMON, TRACE_FAB, APCIE_GP/ST, ANS2, SIO and SIO_CPU, FPWM0-2, I2C5-7, SPI_P, SIO_SPMI0/2, UART_P/N/0-6, AUDIO_P, DPA0-2, and a few unnamed ones in 194-234. Many of these are devices macOS has off with the history flags (bits 8 and 9: was-clock-gated, was-power-gated) set, which Linux clears; the comparison used bits 0 to 9.
+- **Image 95** (Aura `c6d688a5`, `boot-test.bin.95` sha `5140da6aacdc7fb8`, patch 0038): bits 0 to 7 only (desired and actual state). The paging job is on image 95 with start 0.
