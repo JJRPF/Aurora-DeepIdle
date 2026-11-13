@@ -28,6 +28,8 @@ try:
                     continue
                 if size > 0x400000:
                     continue
+                if node.name == "ans" and i == 3:
+                    continue  # the NVMe queues: 1.2 million writes in the first run; the guest never reached its sleep
                 hv.trace_range(irange(addr, size), TraceMode.SYNC, read=False, name="asc_%s_%d" % (node.name, i))
                 done += 1
 except Exception as e:
