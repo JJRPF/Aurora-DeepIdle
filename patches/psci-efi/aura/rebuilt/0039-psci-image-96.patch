@@ -1,0 +1,59 @@
+From 257556866d63995e4ded63e1160db8a2d4e4d342 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <git@jjrpf.com>
+Date: Thu, 12 Nov 2026 23:21:13 -0500
+Subject: [PATCH] psci: image 96: psci_ctl[5] bit 1 forces every PMGR power
+ word to macOS's state before the commit
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+---
+ src/psci.c | 27 +++++++++++++++++++++++++++
+ 1 file changed, 27 insertions(+)
+
+diff --git a/src/psci.c b/src/psci.c
+index 7443b6a1..e4dceb65 100644
+--- a/src/psci.c
++++ b/src/psci.c
+@@ -841,6 +841,31 @@ static void psci_quiesce_asc(void)
+ }
+ 
+ #include "qs_macos_ps.h"
++/*
++ * image 96 (psci_ctl[5] bit 1): force every PMGR power word that differs from macOS's at its S2R timer write (desired/actual,
++ * bits 0-7; table of image 93) to macOS's desired state, outside the CPU cores and complexes (indexes 0 to 14), each waited
++ * for 1 ms. R44 found 59 such words on the J414s (peripherals, fabric, PCIe, SIO, UARTs...). Counts into 0x6005 (applied).
++ */
++static void psci_force_ps(void)
++{
++    u8 r[1] = {0};
++
++    for (u32 i = 15; i < sizeof(qs_macos_ps) / sizeof(qs_macos_ps[0]); i++) {
++        u64 a = qs_macos_ps[i].addr;
++        u32 want = qs_macos_ps[i].val & 0xff, v = read32(a);
++        if ((v & 0xff) == want)
++            continue;
++        write32(a, (v & ~0xfU) | (want & 0xf));
++        u64 t0 = qs_now();
++        while ((((read32(a) >> 4) & 0xf) != (want >> 4 & 0xf)) && qs_now() - t0 < 24000)
++            ;
++        if (r[0] < 255)
++            r[0]++;
++    }
++    sysop("dsb sy");
++    qs_crumb_write(0x601f, r, 1);
++}
++
+ /*
+  * image 93 (psci_ctl[4] bit 61): the observer compares the 374 PMGR power words, as they stand right before the commit (after
+  * every Aura quiesce step), with macOS's at its own S2R timer write (qs_macos_ps.h, from the hypervisor run). bits 0-9 only.
+@@ -1424,6 +1449,8 @@ static unsigned long psci_system_suspend(unsigned long entry, unsigned long cont
+      */
+     if (psci_ctl[5] & 1)
+         psci_quiesce_asc();
++    if (psci_ctl[5] & 2)
++        psci_force_ps();
+     qs_crumb(0x12);
+     bool quiet = (steps & PSCI_S2R_QUIET) && (steps & PSCI_S2R_TIMER) && (steps & PSCI_S2R_CORESOFF);
+     if (quiet) {
+-- 
+2.56.0
+
