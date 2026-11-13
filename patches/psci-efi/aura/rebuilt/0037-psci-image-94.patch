@@ -1,0 +1,53 @@
+From bcbd5ece45dc3a952e257b0e4aebe82608c996a3 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <git@jjrpf.com>
+Date: Thu, 12 Nov 2026 22:56:09 -0500
+Subject: [PATCH] psci: image 94: the power-word comparison lists 18 mismatches
+ per run
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+---
+ src/psci.c | 14 ++++++++------
+ 1 file changed, 8 insertions(+), 6 deletions(-)
+
+diff --git a/src/psci.c b/src/psci.c
+index 8c389b94..ff888fdc 100644
+--- a/src/psci.c
++++ b/src/psci.c
+@@ -849,10 +849,10 @@ static void psci_quiesce_asc(void)
+  */
+ static void psci_s2r_pscmp(void)
+ {
+-    u8 e[12], r[1];
++    u8 e[18], r[1];
+     u32 n = 0, k = 0, start = psci_ctl[4] & 0xffff;
+ 
+-    for (int i = 0; i < 12; i++)
++    for (int i = 0; i < 18; i++)
+         e[i] = 0xff;
+     qs_crumb(0xa1);
+     for (u32 i = 0; i < sizeof(qs_macos_ps) / sizeof(qs_macos_ps[0]); i++) {
+@@ -860,15 +860,17 @@ static void psci_s2r_pscmp(void)
+         if (v == qs_macos_ps[i].val)
+             continue;
+         n++;
+-        if (i >= start && k < 12) {
++        if (i >= start && k < 18) {
+             u32 d = i - start;
+             e[k++] = d > 254 ? 254 : d;
+         }
+     }
+     qs_crumb_write(0x6006, e, 4);
+-    qs_crumb_write(0x600a, e + 4, 2);
+-    qs_crumb_write(0x6011, e + 6, 4);
+-    qs_crumb_write(0x6015, e + 10, 2);
++    qs_crumb_write(0x600a, e + 4, 3);
++    qs_crumb_write(0x6011, e + 7, 4);
++    qs_crumb_write(0x6015, e + 11, 2);
++    qs_crumb_write(0x601b, e + 13, 4);
++    qs_crumb_write(0x601f, e + 17, 1);
+     r[0] = n > 255 ? 255 : n;
+     qs_crumb_write(0x6005, r, 1);
+     qs_crumb(0xa4);
+-- 
+2.56.0
+
