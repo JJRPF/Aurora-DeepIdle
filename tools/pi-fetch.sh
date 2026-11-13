@@ -16,7 +16,7 @@ for i in $(seq 12); do
     sleep 8
 done
 RS="ssh -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=10 -o ServerAliveCountMax=3 -o IdentitiesOnly=yes -i $HOME/.ssh/id_ed25519_pi"
-HOST=jjrpfister@192.168.5.111
+HOST=jjrpfister@192.168.1.112
 for i in $(seq 40); do
     rsync -a --partial --append-verify -e "$RS" "$HOST:$DIR/" "$DEST/$(basename $DIR)/" && { echo "fetched $DIR -> $DEST/$(basename $DIR)"; exit 0; }
     sleep 6
