@@ -4277,3 +4277,7 @@ This is the first register-level footprint of the commit, and it has a control b
 - P13B: mean total **5.100 W**, heatpipe **2.204 W** (16 windows). P13A: 4.349 W / 1.113 W. Paired by window: total -0.75 W (-0.70 to -0.83), heatpipe -1.09 W (-1.00 to -1.28). Both runs' totals drift up ~0.6 W, the heatpipe is flat. Warnings: PMP boot only `pmp-isp-sys will not be powered off`; control only the test root's watchdog line.
 - Posted on aurora-silicon/linux#933: the rebase (`8d843865`, CI green), and these numbers with the caveats (one boot per DTB, order A then B, same drift in both).
 - Restored: UKI back to the S2R one (`6ee0da2a`) below.
+
+## 2026-11-13 23:25 branch check (night) and m1n1 PR 63 port to Aura
+- Naeem: S2R branches unchanged (s2r-mem 148c72964e, s2r-pmp b6b2ea1d19, s2r-rs1 ed5e15e8de, m1-power-lab fa6d307394). His only newer pushes: `pr-template-booted-kernel` (a GitHub PR template) and `g15-289-third-j516c-pin-v2` (drm/asahi J514C); neither touches S2R, so nothing to test. DJ: no S2R activity.
+- Aura `recon` e52464cf: ported m1n1 edcd9a66 (`pmp_prop_size()` in the PMP copy loop); the first PR 63 commit was already there as 6fb6a87e. Not built, not pushed (remote is omacom/m1n1).
