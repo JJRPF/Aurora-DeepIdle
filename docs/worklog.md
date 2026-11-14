@@ -4281,3 +4281,8 @@ This is the first register-level footprint of the commit, and it has a control b
 ## 2026-11-13 23:25 branch check (night) and m1n1 PR 63 port to Aura
 - Naeem: S2R branches unchanged (s2r-mem 148c72964e, s2r-pmp b6b2ea1d19, s2r-rs1 ed5e15e8de, m1-power-lab fa6d307394). His only newer pushes: `pr-template-booted-kernel` (a GitHub PR template) and `g15-289-third-j516c-pin-v2` (drm/asahi J514C); neither touches S2R, so nothing to test. DJ: no S2R activity.
 - Aura `recon` e52464cf: ported m1n1 edcd9a66 (`pmp_prop_size()` in the PMP copy loop); the first PR 63 commit was already there as 6fb6a87e. Not built, not pushed (remote is omacom/m1n1).
+
+## 2026-11-14 09:11 native macOSTest baseline attempt: not possible, macOSTest's boot object is m1n1
+- Armed `bless.sh next macOSTest` at 09:05 for a boot with no Pi/HV so the owner could set the sleep timer and watch whether stock macOS wakes. Owner's note on the ntfy stream at 09:10: "Boot object is m1n1." The one-shot was used, the Mac is back on Omarchy (default and next both Omarchy), no DeepTest ran (`last/summary` is still P13B from last night). No result.
+- What a native baseline needs: macOSTest's boot object set back to the stock kernel from recoveryOS (`kmutil configure-boot -c <BootKernelExtensions.kc> -v /Volumes/macOSTest`), the sleep timer or `hvsleep=1` boot-arg set, and afterwards m1n1 installed again for HV runs. macOSTest is disposable, so this is cheap in risk but it is an owner step in recoveryOS; not started.
+- From now on: after each test I read the ntfy stream (owner sends failure notes there).
