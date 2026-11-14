@@ -4272,3 +4272,8 @@ This is the first register-level footprint of the commit, and it has a control b
 ## 2026-11-13 20:58 P13A (PMP on, screen on): total 4.349 W, heatpipe 1.113 W; the total drifts up during the run
 - Armed 20:46:46, away 669 s. Kernel 7.3.0-pr933+, m1n1 edcd9a66, rebased PR 933 DTB (81 tunables, node okay). 16 windows of 30 s after a 120 s settle, backlight 40%: mean **total 4.349 W, heatpipe 1.113 W**, busy 0.0%. Warnings: only `PM domain pmp-isp-sys will not be powered off`.
 - **Caveat:** the total rises steadily across the windows (4.02 W in window 1 to 4.66 W in window 16) while the heatpipe stays flat (1.09-1.14 W), so something outside the SoC (battery charging, display warming) drifts by 0.6 W; a single run cannot be compared with the control without this. Plan: P13B (no PMP) next, then P13A again, so the drift is bracketed (A-B-A).
+
+## 2026-11-13 21:10 P13B (no PMP, screen on) and the PR 933 comment
+- P13B: mean total **5.100 W**, heatpipe **2.204 W** (16 windows). P13A: 4.349 W / 1.113 W. Paired by window: total -0.75 W (-0.70 to -0.83), heatpipe -1.09 W (-1.00 to -1.28). Both runs' totals drift up ~0.6 W, the heatpipe is flat. Warnings: PMP boot only `pmp-isp-sys will not be powered off`; control only the test root's watchdog line.
+- Posted on aurora-silicon/linux#933: the rebase (`8d843865`, CI green), and these numbers with the caveats (one boot per DTB, order A then B, same drift in both).
+- Restored: UKI back to the S2R one (`6ee0da2a`) below.
