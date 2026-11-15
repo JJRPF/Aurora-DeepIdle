@@ -4300,3 +4300,8 @@ This is the first register-level footprint of the commit, and it has a control b
 ## 2026-11-15 16:58 run R48A armed: image 98 with the macOS SMC handshake (pmVC and WKTP added)
 - Root repacked with both module trees (`0db27544fbdcd931`, the new macsmc-reboot.ko in it), UKI still the S2R one (6ee0da2a). Job `harness/usbtest/jobs/r48a-pmvc` = R47A with `deep_steps` 191 (62 + WKTP 1 + pmVC 128). R47A's 62 lacked WKTP; macOS sends slpw, pmVC, WKTP, slpa.
 - Look for: "sleep: pmVC = 0x101 (0)" in the report (a negative rc = the SMC refused the key). "R48A resumed" = it slept and woke; reset about 75 s after the push = no change (then pmVC is not the missing piece); 110-140 s = WD1. No return: hold power.
+
+## 2026-11-15 17:01 R48A result: pmVC + WKTP in the SMC handshake, no change
+- Armed 16:58:31, "R48A committing" 16:59:29 (deep_steps=191 took effect, image 98 chain), back on main 17:00:52 (141 s away in all, about 80 s after the commit): the usual reset. PMU scratch: stage 0x16 (quiet commit, last access before the commit), as in every commit run. ntfy stream: only my own messages, no note from the owner.
+- Gap in the evidence: the job's push lines carry no dmesg of "sleep: pmVC = 0x101 (rc)", so I do not know that the SMC accepted the write (rc). A later run should push that line.
+- Reading: the missing pmVC/WKTP are not the missing piece (unless the SMC refused pmVC). Remaining untested lead from the M5 Pro driver: the timed spacing between slpw, pmVC, slpa and the timer (macOS's shortest warning-to-slpa gap was 770 ms in their trace; ours is not paced).
