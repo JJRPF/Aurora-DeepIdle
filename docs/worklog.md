@@ -4296,3 +4296,7 @@ This is the first register-level footprint of the commit, and it has a control b
 ## 2026-11-15 13:38 pmVC test switch built and installed; root image and job still to do
 - `patches/psci-efi/linux/0001-TEST-macsmc-reboot-deep_steps-bit-128-pmVC-after-slpw.patch`: `deep_steps` bit 128 writes SMC `pmVC` = 0x101 (raw bytes 01 01 00 00, as macOS) right after `slpw`. `macsmc-reboot.ko` rebuilt module-only (rc 0), stripped, installed in `/usr/lib/modules/7.2.11-psci-efi+`; the old one is `~/Work/psci-test/macsmc-reboot.ko.before-pmvc`.
 - Not done: repack the DeepTest root (`sudo bash harness/usbtest/build-root.sh pack`, with MODS for both module trees), a job that sets `deep_steps` = (image 98 chain's value) + 128, and the armed run. Nothing armed.
+
+## 2026-11-15 16:58 run R48A armed: image 98 with the macOS SMC handshake (pmVC and WKTP added)
+- Root repacked with both module trees (`0db27544fbdcd931`, the new macsmc-reboot.ko in it), UKI still the S2R one (6ee0da2a). Job `harness/usbtest/jobs/r48a-pmvc` = R47A with `deep_steps` 191 (62 + WKTP 1 + pmVC 128). R47A's 62 lacked WKTP; macOS sends slpw, pmVC, WKTP, slpa.
+- Look for: "sleep: pmVC = 0x101 (0)" in the report (a negative rc = the SMC refused the key). "R48A resumed" = it slept and woke; reset about 75 s after the push = no change (then pmVC is not the missing piece); 110-140 s = WD1. No return: hold power.
