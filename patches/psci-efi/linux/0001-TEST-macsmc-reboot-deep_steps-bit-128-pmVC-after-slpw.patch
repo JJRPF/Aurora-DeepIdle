@@ -1,0 +1,34 @@
+diff --git i/drivers/power/reset/macsmc-reboot.c w/drivers/power/reset/macsmc-reboot.c
+index fe9eac92b17b..025459e518f2 100644
+--- i/drivers/power/reset/macsmc-reboot.c
++++ w/drivers/power/reset/macsmc-reboot.c
+@@ -89,6 +89,8 @@ struct macsmc_reboot {
+ #define MACSMC_SLEEP_PMPREL	BIT(5)
+ /* Suspend to RAM only (test): log the PMGR power domains not off (actual state != 0) at suspend_late and resume_early */
+ #define MACSMC_SLEEP_PSDUMP	BIT(6)
++/* Suspend to RAM only (test): the SMC key pmVC = raw bytes 01 01 00 00 right after slpw, as macOS writes it on the T6020 */
++#define MACSMC_SLEEP_PMVC	BIT(7)
+ int apple_pmp_report_sleep_release(bool release);
+ #define WAKEMASK_PHYS		0x29e00400cULL
+ static const u32 wake_valid[WAKEMASK_WORDS] = {
+@@ -116,7 +118,7 @@ MODULE_PARM_DESC(s2idle_steps, "SMC sleep handshake in s2idle, bit mask: 1 WKTP,
+  */
+ static unsigned int deep_steps;
+ module_param(deep_steps, uint, 0644);
+-MODULE_PARM_DESC(deep_steps, "SMC sleep handshake in suspend to RAM, bit mask as s2idle_steps plus 8: PMU boot_stage 0x50, 16: macOS's AP wake-source mask, 32: the PMP's sleep-release requests withdrawn before slpa, 64: log the PMGR power domains not off at suspend_late (default 0, off; test only)");
++MODULE_PARM_DESC(deep_steps, "SMC sleep handshake in suspend to RAM, bit mask as s2idle_steps plus 8: PMU boot_stage 0x50, 16: macOS's AP wake-source mask, 32: the PMP's sleep-release requests withdrawn before slpa, 64: log the PMGR power domains not off at suspend_late, 128: SMC key pmVC after slpw as macOS writes it (default 0, off; test only)");
+ 
+ /* Helpers to read/write a u8 given a struct nvmem_cell */
+ static int nvmem_cell_get_u8(struct nvmem_cell *cell)
+@@ -478,6 +480,11 @@ static int macsmc_reboot_pm_prepare(struct device *dev)
+ 	if (reboot->sleep_steps & MACSMC_SLEEP_SLPW) {
+ 		ret = apple_smc_write_u32(reboot->smc, SMC_KEY(MBSE), SMC_KEY(slpw));
+ 		dev_info(dev, "sleep: MBSE = slpw (%d)\n", ret);
++		if (reboot->sleep_steps & MACSMC_SLEEP_PMVC) {
++			/* macOS: ui32, raw bytes 01 01 00 00 (0x101 little endian), between slpw and WKTP */
++			ret = apple_smc_write_u32(reboot->smc, SMC_KEY(pmVC), 0x101);
++			dev_info(dev, "sleep: pmVC = 0x101 (%d)\n", ret);
++		}
+ 	}
+ 	return 0;
+ }
