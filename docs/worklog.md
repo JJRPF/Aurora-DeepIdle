@@ -4332,3 +4332,8 @@ This is the first register-level footprint of the commit, and it has a control b
 ## 2026-11-15 20:57 overnight s2idle drain test on the daily boot (Aura PR 268 + PMP)
 - Owner asked for an overnight sleep test via CLI, not the lid. Kernel 7.2.11-15-1-ARCH, mem_sleep s2idle only, no rtc0 wakealarm on this kernel (the PMU alarm is the test kernel's), so nothing wakes the Mac before the owner does. Battery 89%, discharging, on battery. `sleep-drain-probe.py arm` then `systemctl suspend`; after the wake (a key) run `sudo python3 tools/sleep-drain-probe.py report`: drain, suspended time, wake activity.
 - Look for: resume works at all (PMP on, first overnight), battery Wh lost per suspended hour, domains left on.
+
+## 2026-11-16 15:05 overnight s2idle test result (daily boot, Aura PR 268 + PMP): resumed fine, drain 1.75 W
+- Suspended 20:58 with `sudo systemctl suspend -i` (the Headless Mode block inhibitor needed the override; a user-level `-i` fails on a polkit prompt), woke by key at about 15:04: **18.11 h suspended**, awake 0.9 min. Resume worked with the PMP on. Battery 49.64 -> 18.00 Wh (31.6 Wh), **average 1.746 W**, now 32%.
+- What woke the SoC: 54,494 whole-SoC wakes (3.6 per second per CPU), 99.9% from the AOP mailbox (`2a6408000.mbox-recv`, AOP at `2a6c00000.aop`); arch_timer 1.7 per wake. 19 non-always-on power domains stayed on (afr, apcie_gp, atc0-2_usb, the three disp and dispext domains, pmp-*...).
+- Reading: s2idle works but is not low-power: the AOP wakes the SoC about 3.6 times a second all night. No stock-boot (no PMP) baseline exists to say the PMP changes this; the A/B is the thing to run before blaming it. The `aop.sleep_ap_idle` parameter (used in the S2R tests) is the lever for the AOP side.
