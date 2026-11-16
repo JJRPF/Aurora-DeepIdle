@@ -4324,3 +4324,7 @@ This is the first register-level footprint of the commit, and it has a control b
 ## 2026-11-15 19:57 Aura PR 268 as the real boot.bin: first boot good
 - Back on Omarchy 7.2.11-15-1-ARCH ~1 min after the reboot. boot.bin b4b7e988dd6aca02 (loader), stage 2 `1.0.0b13-g8c217751-dirty`, pmp node okay, "PMP firmware and endpoint ready" / "PMP started", 0 failed units. PMU flag 00. Total system power 4.60 W right after boot (desktop still settling; was 2.2 W in the trial).
 - The Mac now runs Aura PR 268 + PR 933 DTB (PMP on) as its daily boot. Open: S2R work unchanged (waiting on Naeem); update-m1n1 would put stock back.
+
+## 2026-11-15 20:03 power-use logger for the daily boot (PMP on)
+- Owner asked to log power use with what is running. `tools/power-log.py` (installed as `~/.local/bin/power-log`, user service `power-log.service`, enabled): every 30 s one JSON line in `~/.local/share/power-log/power.jsonl`: Total System and Heatpipe power (macsmc_hwmon), battery W/%/status, AC, backlight %, load, open Hyprland window classes, top CPU processes. `power-log report [hours]` gives mean power per open app and the busiest processes. The older 3-minute `mac-power-telemetry` timer is untouched.
+- First samples (browser + terminal open, battery, backlight 30%): total 6.6-9.6 W, heatpipe 1.9-3.3 W, driven by the browser (zen) and Hyprland.
