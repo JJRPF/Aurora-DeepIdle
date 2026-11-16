@@ -4317,3 +4317,6 @@ This is the first register-level footprint of the commit, and it has a control b
 - Not seen: the "PMP manages fabric and DCS p-states" line (this kernel's pmgr driver may not print it), so PMP control is shown by the firmware coming up, not by that line.
 - Installed with `bootbin.sh install ~/Work/psci-test/boot-daily.bin` (sha b4b7e988dd6aca02); `boot-stock.bin` (8cb700e0ae50e9bf) kept; `bootbin.sh restore` puts stock back. The first boot of this image as boot.bin itself (not chainloaded) is the owner's next reboot; if it does not come up, recoveryOS or hold power. update-m1n1 (package updates) overwrites it with stock: run bootbin.sh install again.
 - Caveat: PR 933's DTB is from a newer base than the kernel's own DTBs; nothing broke. Suspend with the PMP on is only qualified for s2idle (PR 933: 10/10); deep S2R is the open work.
+
+## 2026-11-15 19:56 reboot to check Aura PR 268 as the real boot.bin
+- Owner asked for the reboot. Expect: stage 1 1.0.0b13-g8c217751-dirty, pmp node okay, "PMP firmware and endpoint ready". If the Mac does not come back, hold power / recoveryOS; stock is boot-stock.bin.
