@@ -4328,3 +4328,7 @@ This is the first register-level footprint of the commit, and it has a control b
 ## 2026-11-15 20:03 power-use logger for the daily boot (PMP on)
 - Owner asked to log power use with what is running. `tools/power-log.py` (installed as `~/.local/bin/power-log`, user service `power-log.service`, enabled): every 30 s one JSON line in `~/.local/share/power-log/power.jsonl`: Total System and Heatpipe power (macsmc_hwmon), battery W/%/status, AC, backlight %, load, open Hyprland window classes, top CPU processes. `power-log report [hours]` gives mean power per open app and the busiest processes. The older 3-minute `mac-power-telemetry` timer is untouched.
 - First samples (browser + terminal open, battery, backlight 30%): total 6.6-9.6 W, heatpipe 1.9-3.3 W, driven by the browser (zen) and Hyprland.
+
+## 2026-11-15 20:57 overnight s2idle drain test on the daily boot (Aura PR 268 + PMP)
+- Owner asked for an overnight sleep test via CLI, not the lid. Kernel 7.2.11-15-1-ARCH, mem_sleep s2idle only, no rtc0 wakealarm on this kernel (the PMU alarm is the test kernel's), so nothing wakes the Mac before the owner does. Battery 89%, discharging, on battery. `sleep-drain-probe.py arm` then `systemctl suspend`; after the wake (a key) run `sudo python3 tools/sleep-drain-probe.py report`: drain, suspended time, wake activity.
+- Look for: resume works at all (PMP on, first overnight), battery Wh lost per suspended hour, domains left on.
