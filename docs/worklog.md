@@ -4320,3 +4320,7 @@ This is the first register-level footprint of the commit, and it has a control b
 
 ## 2026-11-15 19:56 reboot to check Aura PR 268 as the real boot.bin
 - Owner asked for the reboot. Expect: stage 1 1.0.0b13-g8c217751-dirty, pmp node okay, "PMP firmware and endpoint ready". If the Mac does not come back, hold power / recoveryOS; stock is boot-stock.bin.
+
+## 2026-11-15 19:57 Aura PR 268 as the real boot.bin: first boot good
+- Back on Omarchy 7.2.11-15-1-ARCH ~1 min after the reboot. boot.bin b4b7e988dd6aca02 (loader), stage 2 `1.0.0b13-g8c217751-dirty`, pmp node okay, "PMP firmware and endpoint ready" / "PMP started", 0 failed units. PMU flag 00. Total system power 4.60 W right after boot (desktop still settling; was 2.2 W in the trial).
+- The Mac now runs Aura PR 268 + PR 933 DTB (PMP on) as its daily boot. Open: S2R work unchanged (waiting on Naeem); update-m1n1 would put stock back.
