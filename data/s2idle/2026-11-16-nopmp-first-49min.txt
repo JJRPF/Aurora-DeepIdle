@@ -1,0 +1,35 @@
+window 0.83 h: suspended 0.82 h, awake 0.5 min; suspends 1; mem_sleep [s2idle]
+battery: 53.58 -> 51.05 Wh (2.531 Wh used), status Discharging -> Discharging
+average drain over the window: 3.062 W
+s2idle entries per suspended second (each is one wake of that CPU):
+  cpu0:     3.63/s  (CPU PD 10694)
+  cpu1:     3.63/s  (CPU PD 10702)
+  cpu2:     3.65/s  (CPU PD 10740)
+  cpu3:     3.63/s  (CPU PD 10683)
+  cpu4:     3.62/s  (CPU PD 10674)
+  cpu5:     5.68/s  (CPU PD 16729)
+  cpu6:     5.18/s  (CPU PD 15261)
+  cpu7:     3.62/s  (CPU PD 10675)
+  cpu8:     3.62/s  (CPU PD 10675)
+  cpu9:     3.63/s  (CPU PD 10676)
+interrupts over the window (top 12; includes the awake time):
+      376467 IPI1 Function call interrupts (127.83 per suspended s)
+      164454 37 AIC-FIQ 1 Level arch_timer (55.84 per suspended s)
+       48761 47 AIC2 66682 Level 406408000.mbox-recv (16.56 per suspended s)
+       10837 41 AIC2 66152 Level 2a6408000.mbox-recv (3.68 per suspended s)
+        9685 73 AIC2 66471 Level 389c08000.mbox-recv (3.29 per suspended s)
+        5953 92 AIC2 67368 Level nvme-apple (2.02 per suspended s)
+        5464 115 AIC2 66743 Level 39b108000.spi (1.86 per suspended s)
+        2802 143 PCI-MSI-0000:01:00.0 0 Edge brcmf_pcie_intr (0.95 per suspended s)
+        2498 IPI0 Rescheduling interrupts (0.85 per suspended s)
+        1264 133 dockchannel-irqc 3 Edge apple-dockchannel-rx (0.43 per suspended s)
+          98 39 AIC2 66401 Level 2a2408000.mbox-recv (0.03 per suspended s)
+          93 117 AIC2 66756 Level pasemi_apple_i2c (0.03 per suspended s)
+wakeup sources (events, wakeups):
+       2      0 tps6598x-source-psy-0-003f
+       2      0 tps6598x-source-psy-0-003a
+       1      0 tps6598x-source-psy-0-003b
+       1      0 tps6598x-source-psy-0-0038
+power domains not always-on that stayed on through a suspend (16; 80 always-on domains not listed):
+  afr apcie_gp apcie_gpshr_sys atc0_usb atc1_usb atc2_usb disp0_cpu0 disp0_fe disp0_sys dispext0_cpu0 dispext0_fe dispext0_sys dispext1_cpu0 dispext1_fe dispext1_sys sio
+s2idle trace: not armed
