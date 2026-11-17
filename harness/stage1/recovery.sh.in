@@ -1,0 +1,79 @@
+#!/bin/sh
+# Stage 1 of the Linux volume (omarchy): install Andreas Fernandez's thin stage 1 for the S2R test, or put the
+# stage 1 back. Run in the Linux volume's own (paired) recoveryOS. It touches only the volume's custom boot object
+# (kmutil configure-boot); no other volume, no security policy.
+#   curl -fsS http://<pi>:8099/recovery.sh | sh -s -- install|restore|backup http://<pi>:8099
+#     backup   copy the volume's current boot object (the kernelcache in Preboot) to the Pi. Changes nothing.
+#     install  backup, then install the thin stage 1 (thin.bin)
+#     restore  install restore.bin again (the original stage 1 when a backup was converted, else Omarchy's own)
+# Images (checked by size and the best digest recoveryOS has): thin.bin @THIN_SZ@ B sha256 @THIN_SHA@
+#                                                               restore.bin @REST_SZ@ B sha256 @REST_SHA@
+set -u
+MODE=${1:-}; BASE=${2:-}
+case "$MODE" in install|restore|backup) ;; *) echo "usage: sh -s -- install|restore|backup <http://host:port>"; exit 1 ;; esac
+[ -n "$BASE" ] || { echo "usage: sh -s -- $MODE <http://host:port>"; exit 1; }
+NAME=${VOL:-omarchy}; V="/Volumes/$NAME"; T=/tmp/s1; mkdir -p $T
+ask() { printf "%s" "$1"; read a < /dev/tty; [ "$a" = yes ]; }
+miss=
+for t in plutil diskutil kmutil curl grep cut tr wc mkdir find; do
+    if command -v $t > /dev/null 2>&1; then echo "  ok       $t"; else echo "  MISSING  $t"; miss="$miss $t"; fi
+done
+SUM=size
+for t in shasum openssl md5 cksum; do command -v $t > /dev/null 2>&1 && { SUM=$t; break; }; done
+echo "image check: $SUM"
+[ -z "$miss" ] || { echo "recoveryOS lacks:$miss. Stopping, nothing changed. Send these lines back."; exit 1; }
+[ -d "$V" ] || { echo "$V is not mounted. Open Disk Utility, mount $NAME (or run with VOL=<name>), then again."; exit 1; }
+diskutil info -plist "$V" > $T/vi.plist 2>/dev/null
+VGID=$(plutil -extract APFSVolumeGroupID raw $T/vi.plist 2>/dev/null || true)
+echo "volume $V, volume group ${VGID:-unknown}"
+if [ "$VGID" != "5869ADE9-5A75-441D-85A1-B12746D28AFD" ]; then
+    echo "The running Linux reports Preboot UUID 5869ADE9-5A75-441D-85A1-B12746D28AFD; this volume's group is different or unreadable."
+    ask "Type yes if $V is really the Linux volume: " || { echo "Stopping, nothing changed."; exit 1; }
+fi
+fetch() { # fetch <name> <size> <sha256> <md5> <cksum>
+    curl -fsS "$BASE/$1" -o $T/$1 || { echo "cannot download $BASE/$1: stopping, nothing changed."; exit 1; }
+    sz=$(wc -c < $T/$1 | tr -d ' '); [ "$sz" = "$2" ] || { echo "$1 is $sz bytes, not $2: stopping, nothing changed."; exit 1; }
+    case "$SUM" in
+    shasum) g=$(shasum -a 256 $T/$1 | cut -d' ' -f1); w=$3 ;;
+    openssl) g=$(openssl dgst -sha256 -r $T/$1 | cut -d' ' -f1); w=$3 ;;
+    md5) g=$(md5 -q $T/$1); w=$4 ;;
+    cksum) g=$(cksum $T/$1 | cut -d' ' -f1); w=$5 ;;
+    *) g=; w= ;;
+    esac
+    [ "$g" = "$w" ] || { echo "$1 $SUM mismatch ($g): stopping, nothing changed."; exit 1; }
+    echo "$1: $sz bytes, $SUM check OK"
+}
+backup() {
+    echo "--- backup of the current boot object"
+    for d in $(diskutil list | grep " Preboot " | tr -s ' ' | tr ' ' '\n' | grep '^disk[0-9]*s[0-9]*$'); do
+        diskutil mount "$d" > /dev/null 2>&1 || true
+    done
+    K=$(find /Volumes /System/Volumes -maxdepth 8 -path "*${VGID:-x}*" -name kernelcache -path "*kernelcaches*" 2>/dev/null | head -1)
+    [ -n "$K" ] || K=$(find /Volumes -maxdepth 8 -path "*/boot/*kernelcaches*" -name kernelcache 2>/dev/null | head -1)
+    if [ -z "$K" ]; then echo "no kernelcache found in a Preboot volume (nothing to back up)."; return 1; fi
+    echo "found $K ($(wc -c < "$K" | tr -d ' ') bytes)"
+    N=backup-kernelcache-$(date +%Y%m%d-%H%M%S)
+    curl -fsS -T "$K" "$BASE/$N" && echo "uploaded to the Pi as $N" || { echo "upload failed."; return 1; }
+}
+put_stage1() { # put_stage1 <file>
+    echo
+    echo "Target: $V (volume group ${VGID:-?}). kmutil asks for the volume's admin user and password."
+    ask "Type yes to install $1 as the boot object: " || { echo "cancelled, nothing changed."; exit 1; }
+    until kmutil configure-boot -c "$1" --raw --entry-point 2048 --lowest-virtual-address 0 -v "$V" < /dev/tty; do
+        printf "kmutil failed (wrong password?). Enter to retry, q to stop: "; read a < /dev/tty
+        [ "$a" = q ] && exit 1
+    done
+}
+case "$MODE" in
+backup) backup || exit 1 ;;
+install)
+    fetch thin.bin @THIN_SZ@ @THIN_SHA@ @THIN_MD5@ @THIN_CK@
+    backup || { echo "No backup. Restore then falls back to Omarchy's packaged stage 1 (an untested build, newer than yours)."; ask "Type yes to go on without a backup: " || { echo "Stopping, nothing changed."; exit 1; }; }
+    put_stage1 $T/thin.bin
+    echo; echo "Done. Startup disk: Linux (omarchy), then restart. Linux's boot log should say stage 1 v1.6.1-467-ge45188f7-dirty."
+    echo "If it does not boot: boot this recoveryOS again and run 'restore'." ;;
+restore)
+    fetch restore.bin @REST_SZ@ @REST_SHA@ @REST_MD5@ @REST_CK@
+    put_stage1 $T/restore.bin
+    echo; echo "Done. Startup disk: Linux (omarchy), then restart." ;;
+esac
