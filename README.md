@@ -13,6 +13,11 @@ machine and what it showed.
 
 ## Findings
 
+* **Suspend to RAM: the SoC still resets instead of sleeping.** The sequence matches macOS's, and the working
+  M1 Pro deep sleep by Andreas Fernandez ([Ante042/linux](https://github.com/Ante042/linux), branch
+  `t600x-s2r-reference`), step for step; the S2R timer is accepted and the SoC resets about 80 s later. Current
+  state: [docs/status.md](docs/status.md) and https://jjrpf.com/S2R.
+
 * **Booting the PMP saves 0.9-1.15 W, the largest single win.** The PMP
   is the fabric and memory power controller (Asahi measured about 0.5 W
   on an M1 Pro). J414s does not boot it today, and enabling it stops the
@@ -186,6 +191,8 @@ makes it persistent: copy it to `/etc/tmpfiles.d/`.
 | `harness/tools/bootbin-build.py` | Assemble a test `boot.bin` (new stage 2, one DTB replaced, new U-Boot) from the stock one, offline |
 | `docs/hv-guest-checklist.md`, `docs/hv-run5-analysis.md`, `docs/hv-boot-trace-reference.md` | The owner's checklist for the guest, the analysis of the run 5 hang, and what macOS does at boot and at the start of sleep, from the trace |
 | `patches/psci-efi/`, `patches/hvsleep-trace/` | Phase 1 (Aura, U-Boot, the T6020 PSCI DTS) and the Aura hypervisor change for the sleep trace |
+| `harness/usbtest/` | The DeepTest harness: jobs run from a test boot and return to Omarchy by themselves (`arm.sh`, `bootbin.sh` for the one-shot `boot.bin` loader, `jobs/`) |
+| `tools/swapimg.py`, `tools/rebuild-loader.py` | Put a new Aura image in front of a `boot.bin`'s device trees; rebuild the loader image after an update replaced `boot.bin` with stock |
 | `tools/idle-ab.py` | Paired A/B of cpuidle settings by SMC power (all sensors), with busy time and clocks; settings `default`, `wfi-only`, `pd-always[@cpus]`, `res=US`, `no-eas`, `set:PATH=VALUE[,...]` (any sysfs knob for the window) |
 | `tools/wakelat.c` | Wake-up latency probe (timer overshoot, cross-CPU futex wake), SCHED_FIFO |
 | `tools/sleep-drain-probe.py` | s2idle drain, wake sources (tracefs), domains left on through a suspend |
@@ -260,6 +267,12 @@ The tools install nothing. Installing a kernel, touching `/boot` or
 m1n1's `boot.bin`, and rebooting are left to the machine's owner, step by
 step, in the write-up. The exception is `harness/`, which does all of
 those as root once installed; read its README first.
+
+## Credits
+
+The M1 Pro deep sleep that we compare against is Andreas Fernandez's (Ante042). Suspend-to-RAM groundwork on
+Apple silicon is by DJ and Naeem Malik; the Aura port of the PMP tunable headroom (aurora-silicon/m1n1#63 and
+aura#268) is muness's. Their code and notes keep their authorship wherever we use them.
 
 ## License
 

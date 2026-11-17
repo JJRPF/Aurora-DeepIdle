@@ -1,4 +1,4 @@
-# Where the work stands (2026-11-11, 19:06, after run R36A)
+# Where the work stands (2026-11-16, 19:50, after run R50A)
 
 This is the summary of the whole effort: what was measured, what was built,
 what works, what does not, and what comes next. Each section points to the
@@ -376,6 +376,22 @@ There are two goals:
 
 ## The last two days
 
+* **2026-11-16, runs R48A to R50A: our sequence matches the M1 Pro deep sleep, and none of its remaining differences matter.**
+  Andreas Fernandez (Ante042) published a working deep sleep for the M1 Pro (T6000, J314s):
+  branch `t600x-s2r-reference` and `S2R-T600X-NOTES.md` in https://github.com/Ante042/linux. Compared step
+  by step, Aura's image 98 does the same things in the same order: SMC `slpw`, `pmVC`/`WKTP`, `slpa`, the SEP
+  asleep, the PMGR stops before the S2R timer, the timer last, the wake mask, and every core down through
+  `CYC_OVRD` WFI mode 3 with the L1 flushed. The remaining differences were tested: the SMC accepts `pmVC`
+  and `WKTP` (return code 0, R49A); one timer write instead of two plus the deep-sleep core interrupt modes
+  and timers off (image 99, R50A). Neither changes anything: the Mac still resets about 80 s after the commit.
+  What is left is the chip (T6000 against T6020) and his thin stage 1, which needs replacing the main
+  install's stage 1 and has not been tried. A question was posted as a comment on his notes commit.
+  Everything of his that we reuse keeps his authorship.
+* **2026-11-15: Aura PR 268 is the daily boot.bin.** m1n1 stage 1 `1.0.0b13-g8c217751-dirty` (PR head plus the
+  one-shot test loader), with the PR 933 J414s device tree, so the PMP boots with its tunables; stock is kept as
+  `boot-stock.bin`. A system update rewrites `boot.bin` with stock: `tools/rebuild-loader.py` builds the loader
+  image again on the new device trees (done on 2026-11-16 after the aurora23 update), then `bootbin.sh install`.
+
 * **2026-11-11, runs R25A to R36A: the commit is taken, and then the engine parks.**
   The commit moves the PMGR state to SYS_SLP_DDR, reloads the reconfig watchdog
   to 60 s and changes exactly five words of the always-on PMGR block, all within
@@ -518,6 +534,7 @@ The phases are in `s2r-plan.md`:
 | Harness: one-boot images, early restore, run, dead-man switch, attended runs | `harness/psci-efi/` |
 | PMGR state counters, read from Linux | `harness/mmio/pmgrcnt.c` |
 | Hypervisor sleep trace: CYC_OVRD logged and masked, not refused | Aura branch `hvsleep-trace`; `patches/hvsleep-trace/` |
+| Aura PR 268 build as the daily `boot.bin` (one-shot loader: a flag in the PMU scratch starts the 120 s watchdog and chainloads the test image); Aura image 98 (484 device writes replayed) and 99 (one timer write, deep-sleep core modes) | `harness/usbtest/bootbin.sh`, `tools/swapimg.py`, `tools/rebuild-loader.py`; `patches/psci-efi/aura/rebuilt/` |
 | macOS guest setup | `tools/macos-hv-testvol.sh`, `tools/macos-hv-prep.sh`, `harness/hv/`, `harness/remote/hv-run.sh`, `tools/im4p-extract.py` |
 
 ## Built, not yet booted
