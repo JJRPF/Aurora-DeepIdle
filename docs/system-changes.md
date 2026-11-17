@@ -30,3 +30,4 @@ Filled in below as it happens.
 
 - 2026-11-17 18:58 correction: the first hv run (R53, 15:32) failed to connect: the Pi's `hv-run.sh` waited only 300 s for the proxy, started 2 min before the Mac reboot, so it gave up ("no /dev/m1n1 after 300 s") and the Mac sat in the m1n1 proxy until the owner restarted it. No test ran. The one-shot next-boot target was consumed (`bless.sh list`: default and next both Omarchy).
 - 2026-11-17: Pi `~/deepidle/hv-run.sh` now reads the proxy wait from `WAITSECS` (default 300). Backup: `hv-run.sh.bak-before-waitsecs`; reverse with `cp ~/deepidle/hv-run.sh.bak-before-waitsecs ~/deepidle/hv-run.sh`.
+- 2026-11-17 19:00: retry R53b: Pi hv-run (tag clusterpower0b, WAITSECS=900) started, then `bless.sh next macOSTest` set again (one-shot, same reversal).
