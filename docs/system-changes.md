@@ -23,3 +23,7 @@ Entries marked (earlier) come from the session history and `docs/worklog.md`; th
 ## This run (hypervisor route, 2026-11-17)
 
 Filled in below as it happens.
+
+- 2026-11-17: `asahi-bless --next --set-boot macOSTest` (one-shot NVRAM boot target; the default stays Omarchy). Consumed by the first boot; if a run is aborted and it is still set: `sudo bash harness/hv/bless.sh clear-next` (check with `bless.sh list`).
+- 2026-11-17: Pi started `hv-run.sh` (tag `clusterpower0`, run dir `~/deepidle/hv/<date>-clusterpower0`). It makes the Mac boot macOSTest through Aura's hypervisor, then reboots the Mac into Omarchy by itself. Nothing is installed; delete the run dir when no longer wanted.
+- macOS is only booted from macOSTest (a disposable volume); the main install and Macintosh HD are untouched.
