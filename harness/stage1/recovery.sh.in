@@ -30,6 +30,14 @@ if [ "$VGID" != "5869ADE9-5A75-441D-85A1-B12746D28AFD" ]; then
     echo "The running Linux reports Preboot UUID 5869ADE9-5A75-441D-85A1-B12746D28AFD; this volume's group is different or unreadable."
     ask "Type yes if $V is really the Linux volume: " || { echo "Stopping, nothing changed."; exit 1; }
 fi
+diag() { # what the volumes look like, to the Pi (best effort), so a failure can be read from there
+    D=$T/diag.txt
+    { echo "== $MODE $(date)"; echo "-- diskutil list"; diskutil list; echo "-- mount"; mount; echo "-- ls /Volumes"; ls -la /Volumes
+      echo "-- diskutil info $V"; diskutil info "$V"; echo "-- preboot files"
+      find /Volumes /System/Volumes -maxdepth 9 -path "*/boot/*" -type f 2>/dev/null | head -60; } > $D 2>&1
+    curl -fsS -T $D "$BASE/diag-$(date +%Y%m%d-%H%M%S).txt" > /dev/null 2>&1 && echo "diagnostics sent to the Pi" || echo "diagnostics: upload failed (kept in $D)"
+}
+diag
 fetch() { # fetch <name> <size> <sha256> <md5> <cksum>
     curl -fsS "$BASE/$1" -o $T/$1 || { echo "cannot download $BASE/$1: stopping, nothing changed."; exit 1; }
     sz=$(wc -c < $T/$1 | tr -d ' '); [ "$sz" = "$2" ] || { echo "$1 is $sz bytes, not $2: stopping, nothing changed."; exit 1; }
@@ -48,8 +56,7 @@ backup() {
     for d in $(diskutil list | grep " Preboot " | tr -s ' ' | tr ' ' '\n' | grep '^disk[0-9]*s[0-9]*$'); do
         diskutil mount "$d" > /dev/null 2>&1 || true
     done
-    K=$(find /Volumes /System/Volumes -maxdepth 8 -path "*${VGID:-x}*" -name kernelcache -path "*kernelcaches*" 2>/dev/null | head -1)
-    [ -n "$K" ] || K=$(find /Volumes -maxdepth 8 -path "*/boot/*kernelcaches*" -name kernelcache 2>/dev/null | head -1)
+    K=$(find /Volumes /System/Volumes -maxdepth 9 -path "*${VGID:-x}/boot/*" -type f -size +500k 2>/dev/null | head -1)
     if [ -z "$K" ]; then echo "no kernelcache found in a Preboot volume (nothing to back up)."; return 1; fi
     echo "found $K ($(wc -c < "$K" | tr -d ' ') bytes)"
     N=backup-kernelcache-$(date +%Y%m%d-%H%M%S)
@@ -59,10 +66,20 @@ put_stage1() { # put_stage1 <file>
     echo
     echo "Target: $V (volume group ${VGID:-?}). kmutil asks for the volume's admin user and password."
     ask "Type yes to install $1 as the boot object: " || { echo "cancelled, nothing changed."; exit 1; }
-    until kmutil configure-boot -c "$1" --raw --entry-point 2048 --lowest-virtual-address 0 -v "$V" < /dev/tty; do
-        printf "kmutil failed (wrong password?). Enter to retry, q to stop: "; read a < /dev/tty
-        [ "$a" = q ] && exit 1
+    MP=$(plutil -extract MountPoint raw $T/vi.plist 2>/dev/null || true)
+    RP=$(cd "$V" 2>/dev/null && pwd -P || true)
+    for P in "$MP" "$V" "$RP"; do
+        [ -n "$P" ] && [ -d "$P" ] || continue
+        echo "kmutil on $P"
+        while :; do
+            kmutil configure-boot -c "$1" --raw --entry-point 2048 --lowest-virtual-address 0 -v "$P" < /dev/tty 2> $T/k.err && { cat $T/k.err; return 0; }
+            cat $T/k.err
+            grep -q "Could not find device name" $T/k.err && break
+            printf "kmutil failed (wrong password?). Enter to retry, q to stop: "; read a < /dev/tty
+            [ "$a" = q ] && exit 1
+        done
     done
+    echo "kmutil could not use any path for the volume. Nothing changed. The diagnostics are on the Pi."; diag; exit 1
 }
 case "$MODE" in
 backup) backup || exit 1 ;;
