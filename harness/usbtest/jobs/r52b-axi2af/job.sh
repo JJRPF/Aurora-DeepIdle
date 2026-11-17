@@ -1,13 +1,13 @@
 #!/bin/bash
-# R52A: R50A plus the SIO axi2af tunables (nekolyanich, GH-5 issue comment 2026-11-17: with the SEP asleep AFNC2_IOA/LS/LW1
+# R52B: R50A plus the SIO axi2af tunables (nekolyanich, GH-5 issue comment 2026-11-17: with the SEP asleep AFNC2_IOA/LS/LW1
 # auto-gate only once SIO's axi2af bridge at 0x39a000000 has macOS's _af_sioaxi2af_figs_1 tunables). Read from the macOS 15
 # kernelcache (AppleT6020PMGR figs table, 22 entries of reg = (reg & ~clear) | set), none applied under Linux (read 2026-11-17).
 # Applied once at job start, before the SEP pass; AFNC2 words logged before and after. Outcomes as R50A.
-# R52A: image 99 = image 98 (ce98322f) + psci_ctl[5] bit 3 (one S2R timer write) + bit 4 (cpu_sleep deep path: CNTP/CNTV off, IRQ/FIQ_MODE 2), both as Andreas Fernandez's t6000 driver; otherwise R48A (deep_steps 191). Outcomes as R48A.
+# R52B: image 99 = image 98 (ce98322f) + psci_ctl[5] bit 3 (one S2R timer write) + bit 4 (cpu_sleep deep path: CNTP/CNTV off, IRQ/FIQ_MODE 2), both as Andreas Fernandez's t6000 driver; otherwise R48A (deep_steps 191). Outcomes as R48A.
 # WFI, unlocks its external debug block (EDLAR) and writes EDPRCR := 0, as xnu's ml_arm_sleep does on the secondaries
 # and the boot core (15.7.1 kernel, read 2026-11-11; aurora-silicon's T6040 entry does the same). With CORENPDRQ set a
 # core only emulates its power-down, which would leave the PMGR's S2R engine waiting. WD1 stays armed.
-# Outcomes after "R52A committing": "R52A resumed" = it slept and the alarm woke it; a reset about 75 s after the push =
+# Outcomes after "R52B committing": "R52B resumed" = it slept and the alarm woke it; a reset about 75 s after the push =
 # no change (crumb 0x601f then says what EDPRCR held); 110 to 140 s = WD1 (a core faulted on its debug block, or the
 # timer's reset stopped: the never-slept mask tells which); no return at all = hold power.
 J=/run/usbtest/job; C=/proc/device-tree/chosen; R=/sys/class/rtc/rtc0; M=/sys/module
@@ -16,7 +16,7 @@ set1() { [ -e "$1" ] && echo "$2" > "$1"; printf '%s=%s ' "$(basename $1)" "$(ca
 w() { $J/mmio-read $1 1 2>/dev/null | awk '{print $2}'; }
 atc() { for a in 278 288 298 2a8 228 230 238 240; do printf '%s ' "$(w 0x28e080$a)"; done; }
 V=$(tr -d '\0' < $C/asahi,m1n1-stage2-version)
-log "R52A kernel $(uname -r); stage2 $V; cmdline aop: $(grep -o 'aop.sleep_ap_idle=[0-9]*' /proc/cmdline || echo none)"
+log "R52B kernel $(uname -r); stage2 $V; cmdline aop: $(grep -o 'aop.sleep_ap_idle=[0-9]*' /proc/cmdline || echo none)"
 case "$V" in *ce98322f*) ;; *) log "stage 2 is not image 98: stopping"; return 0 ;; esac
 [ -e $R/wakealarm ] && grep -q deep /sys/power/mem_sleep || { log "no wakealarm or no deep, stopping"; return 0; }
 grep -q 'aop.sleep_ap_idle=3' /proc/cmdline || { log "aop.sleep_ap_idle=3 not on the cmdline: stopping"; return 0; }
@@ -36,7 +36,7 @@ for t in "0x0 0x3 0x1" "0xc 0xfffff 0xd" "0x10 0xfffff 0xc" "0x14 0xfff 0x1" "0x
 done
 log "axi2af: $AXL"
 log "$AXB; after: $(for a in 0x290280160 0x290280168 0x290280170 0x290280178; do printf '%s ' "$(w $a)"; done)"
-push "R52A axi2af" "$AXL"
+push "R52B axi2af" "$AXL"
 # --- the SEP: load read-only, send SLEEP alone in a freezer-only pass, report, then go on
 # R18B (SLEEP + OUTBOX_CTRL clear + ps_sep write) reset the Mac about 9 s after this pass began, kernel.panic=10: most
 # likely a panic on a mailbox access after the enclave slept. S3: in this root ps_sep already reads 0x1000030f with the
@@ -55,7 +55,7 @@ SI=0; for i in $(seq 1 90); do case "$(w 0x290280c00)" in 0x100003?f) SI=$i; bre
 RC=/sys/class/misc/hw_random/rng_current
 RNG0=$(cat $RC 2>/dev/null); echo none > $RC 2>/dev/null; RNG1=$(cat $RC 2>/dev/null)
 B="ps_sep before the driver $P0, idle after ${SI} s (0 = never): $(w 0x290280c00); rng_current $RNG0 -> $RNG1; panic=$(cat /proc/sys/kernel/panic); the SLEEP pass is next"
-log "sep: $B"; push "R52A sep bound" "$B"
+log "sep: $B"; push "R52B sep bound" "$B"
 echo 2 > $SP/test_sleep_msg; echo N > $SP/test_sleep_psoff
 echo freezer > /sys/power/pm_test
 echo mem > /sys/power/state; frc=$?
@@ -65,7 +65,7 @@ echo 0 > $SP/test_sleep_msg
 sleep 2
 SEPL="freezer pass rc=$frc; ps_sep right after $PA, 2 s later $(w 0x290280c00); $(dmesg | grep -E 'TEST SLEEP|apple_sep.*(fail|error|timeout|warn)' | tail -4 | cut -c1-140 | tr '\n' '|'); the commit is next (Aura does the outbox and the word)"
 log "sep: $SEPL"
-push "R52A sep asleep" "$SEPL"
+push "R52B sep asleep" "$SEPL"
 case "$SEPL" in *"TEST SLEEP type 2: reply"*) ;; *) log "the SLEEP got no reply: stopping"; return 0 ;; esac
 # R18F to R18H: the outbox off and the word written from Linux hang the system within 10 s. Image 67 does both in
 # Aura's quiet commit (aura-ctl bit 24, 0x1000000), after Linux is done. Here only the SLEEP, as R18C (which reached Aura).
@@ -93,18 +93,18 @@ log "runtime mmio: $NR ranges, $ED external debug pages"
 CTL=$($J/aura-ctl 0xc17dcb3f 0 0 0 31 2>&1 | head -1); log "aura ctl: $CTL"
 case "$CTL" in *c17dcb3f*) ;; *) log "aura-ctl did not read back 0xc17dcb3f: stopping"; $J/aura-ctl 0 0 0 >/dev/null 2>&1; return 0 ;; esac
 echo 0 > $R/wakealarm 2>/dev/null; echo +40 > $R/wakealarm
-push "R52A committing" "suspend at $(date -u +%T) UTC, alarm +40 s. $S | $CTL | mmio $NR ranges, $ED debug pages"
+push "R52B committing" "suspend at $(date -u +%T) UTC, alarm +40 s. $S | $CTL | mmio $NR ranges, $ED debug pages"
 T0=$(date +%s.%N)
 log "echo mem at $(date -u +%T.%N | cut -c1-12) UTC"
 echo mem > /sys/power/state; rc=$?
 T1=$(date +%s.%N)
 DUR=$(echo "$T1 $T0" | awk '{printf "%.1f", $1-$2}')
-RES="R52A RESUMED INTO THE JOB: rc=$rc after $DUR s, online $(cat /sys/devices/system/cpu/online)
+RES="R52B RESUMED INTO THE JOB: rc=$rc after $DUR s, online $(cat /sys/devices/system/cpu/online)
 dbg: $($J/scan-magic 0xA0AA0001 64 2>&1 | head -1)
 dbg2: $($J/scan-magic 0xA0AA0002 64 52 2>&1 | head -1)
 counters: $($J/pmgrcnt show 2>&1 | tail -1)
 atc after: $(atc)
 pm lines: $(dmesg | grep -E 'PM: |TEST|macsmc' | tail -12 | cut -c1-120 | tr '\n' '|')"
 log "$RES"
-push "R52A resumed" "$RES"
+push "R52B resumed" "$RES"
 $J/aura-ctl 0 0 0 > /dev/null 2>&1

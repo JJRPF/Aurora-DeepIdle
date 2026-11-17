@@ -1,7 +1,7 @@
 /* mmio-write: one 32-bit write through /dev/mem, then read back.
  * Limited to the nub-spmi0 and nub-spmi1 controller pages (0x29e114000-0x29e1140ff, 0x29e154000-0x29e1540ff) and, since
  * R41 (2026-11-12), the three display controllers' register blocks macOS programs at suspend (0x38a000000, 0x28a000000,
- * 0x316000000, offsets below 0xc00)
+ * 0x316000000, offsets below 0xc00) R52A: and the SIO axi2af bridge 0x39a000000, offsets below 0xc00.
  * so a typo cannot reach anything else.
  * usage: mmio-write <phys-addr> <value> */
 #include <fcntl.h>
@@ -24,7 +24,7 @@ int main(int argc, char **argv)
 	uint32_t val = strtoul(argv[2], NULL, 0);
 	static const struct { uint64_t base, len; } win[] = {
 		{0x29e114000ULL, 0x100}, {0x29e154000ULL, 0x100},
-		{0x38a000000ULL, 0xc00}, {0x28a000000ULL, 0xc00}, {0x316000000ULL, 0xc00},
+		{0x38a000000ULL, 0xc00}, {0x28a000000ULL, 0xc00}, {0x316000000ULL, 0xc00}, {0x39a000000ULL, 0xc00},
 	};
 	uint64_t LO = 0;
 	for (unsigned i = 0; i < sizeof(win) / sizeof(win[0]); i++)
