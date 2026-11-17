@@ -7,4 +7,4 @@ DIR=$(head -1 "$STATE/resume"); [ -d "$DIR" ] || exit 0
 echo "$(date '+%F %T') resume launched in $DIR" >> "$STATE/resume.log"
 sleep 20
 exec xdg-terminal-exec --title="deep-idle (Claude)" --dir="$DIR" -- \
-    bash -lc 'claude --continue --dangerously-skip-permissions "$(cat ~/.local/state/deepidle/prompt.txt)"; echo "claude exited: $?"; exec bash'
+    bash -lc 'claude --continue --remote-control --dangerously-skip-permissions "$(cat ~/.local/state/deepidle/prompt.txt)"; echo "claude exited: $?"; exec bash'
