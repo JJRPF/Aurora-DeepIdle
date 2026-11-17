@@ -4383,3 +4383,7 @@ Owner: test his fixes first; if they do not help, send the question (draft shown
 
 ## 2026-11-16 19:12 Question posted to Andreas Fernandez (Ante042)
 Commit comment on https://github.com/Ante042/linux/commit/3acb8cf8d (his forks have issues off): our sequence matches his, pmVC/WKTP rc 0, one timer write, cpu_sleep extras tried, no change; asks (1) did he see this state and what fixed it, (2) anything needed after the timer write, (3) which steps were optional. Link: https://github.com/Ante042/linux/commit/3acb8cf8d294a50f2d1b72eb74c6df1a176ce329#commitcomment-210365944. Next: wait for his answer; meanwhile nothing armed. Untested and needing a go-ahead: his thin stage 1 (replaces the main install's stage 1).
+
+## 2026-11-16 19:48 System update replaced boot.bin (no test armed)
+The Mac came back on main with kernel 7.2.11-16 (the R50A test boot was on -15, already logged). A pacman upgrade at 19:44 took m1n1-aurora aurora22 -> aurora23, and `95-m1n1-install.hook` wrote a new stock `/boot/efi/m1n1/boot.bin` (the one-shot loader is gone; `bootbin.sh status` says "not the loader"). `boot-stock.bin` is still the aurora22 build (10:24 on 11-10); `boot-test.bin` (image 99) is untouched. PMU flag 00, nothing armed.
+Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the owner approved for the Aura PR 268 install), and the PMP tunables room is gone until then. Not reinstalled yet; waiting for the next test decision. No new S2R result.
