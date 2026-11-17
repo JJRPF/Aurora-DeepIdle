@@ -1,0 +1,75 @@
+diff --git i/src/psci.c w/src/psci.c
+index a0b0b859..13a40dbe 100644
+--- i/src/psci.c
++++ w/src/psci.c
+@@ -1479,6 +1479,10 @@ static unsigned long psci_system_suspend(unsigned long entry, unsigned long cont
+         psci_replay_mem();
+     if (psci_ctl[5] & 2)
+         psci_force_ps();
++    /* image 99 (psci_ctl[5] bit 4): the deep sleep path also sets IRQ/FIQ_MODE 2 and stops the timers (see cpu_sleep_setup) */
++    cpu_sleep_deep_extra = !!(psci_ctl[5] & 16);
++    dc_civac_range((void *)&cpu_sleep_deep_extra, sizeof(cpu_sleep_deep_extra));
++    sysop("dsb sy");
+     qs_crumb(0x12);
+     bool quiet = (steps & PSCI_S2R_QUIET) && (steps & PSCI_S2R_TIMER) && (steps & PSCI_S2R_CORESOFF);
+     if (quiet) {
+@@ -1547,9 +1551,12 @@ static unsigned long psci_system_suspend(unsigned long entry, unsigned long cont
+         if (!(steps & PSCI_S2R_NOCOMMIT)) {
+             write32(MPMGR_AON_S2R_TIMER, 1);
+             sysop("dsb sy");
+-            write32(MPMGR_AON_S2R_TIMER, 1);
+-            sysop("dsb sy");
+-            if (!(steps & PSCI_S2R_TWOWR)) {
++            /* image 99 (psci_ctl[5] bit 3): one timer write, as Andreas Fernandez's t6000 driver */
++            if (!(psci_ctl[5] & 8)) {
++                write32(MPMGR_AON_S2R_TIMER, 1);
++                sysop("dsb sy");
++            }
++            if (!(steps & PSCI_S2R_TWOWR) && !(psci_ctl[5] & 8)) {
+                 write32(MPMGR_AON_S2R_TIMER, 1);
+                 sysop("dsb sy");
+             }
+diff --git i/src/utils.c w/src/utils.c
+index 66e839e2..ff25b7f2 100644
+--- i/src/utils.c
++++ w/src/utils.c
+@@ -247,8 +247,27 @@ void deep_wfi(void)
+         msr(SYS_IMP_APL_CYC_OVRD, cyc_ovrd);
+ }
+ 
++volatile bool cpu_sleep_deep_extra;
++
++/* image 99: what Andreas Fernandez's apple_s2r_cpu_sleep does before the final WFI (his s2r-sleep.S): a pending timer,
++ * even a masked one, aborts the power down, and a parked core takes no IRQ/FIQ as a wake source */
++static void cpu_sleep_deep_extra_setup(void)
++{
++    msr(CNTP_CTL_EL0, 0L);
++    msr(CNTV_CTL_EL0, 0L);
++    if (in_el2()) {
++        msr(CNTP_CTL_EL02, 0L);
++        msr(CNTV_CTL_EL02, 0L);
++    }
++    if (cpu_features->apple_sysregs_unlocked)
++        reg_mask(SYS_IMP_APL_CYC_OVRD, CYC_OVRD_FIQ_MODE_MASK | CYC_OVRD_IRQ_MODE_MASK,
++                 CYC_OVRD_FIQ_MODE(2) | CYC_OVRD_IRQ_MODE(2));
++}
++
+ static void cpu_sleep_setup(bool deep)
+ {
++    if (deep && cpu_sleep_deep_extra)
++        cpu_sleep_deep_extra_setup();
+     if (deep) {
+         switch (cpu_features->sleep_mode) {
+             case SLEEP_GLOBAL:
+diff --git i/src/utils.h w/src/utils.h
+index 04d0c27e..5030bb12 100644
+--- i/src/utils.h
++++ w/src/utils.h
+@@ -520,6 +520,7 @@ extern struct vector_args next_stage;
+ extern u64 boot_flags, mem_size_actual;
+ 
+ void cpu_sleep(bool deep) __attribute__((noreturn));
++extern volatile bool cpu_sleep_deep_extra;
+ void cpu_sleep_counted(bool deep, volatile u32 *w) __attribute__((noreturn));
+ void deep_wfi(void);
+ 
