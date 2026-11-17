@@ -376,6 +376,11 @@ There are two goals:
 
 ## The last two days
 
+* **2026-11-17: s2idle without the PMP drains 2.0 W, with it 1.75 W (one night each).** Same boot chain, PMP off
+  against on: 2.003 W over 9.19 h (3.85 AOP wakes per second per CPU) against 1.746 W over 18.11 h (3.6 per second).
+  The PMP saves about 0.26 W in s2idle and does not change the AOP wake rate. One night each, and the no-PMP one
+  ran on the charger with the battery force-discharged, so it is a hint, not a measurement
+  (`data/s2idle/2026-11-17-night-nopmp.txt`).
 * **2026-11-16, runs R48A to R50A: our sequence matches the M1 Pro deep sleep, and none of its remaining differences matter.**
   Andreas Fernandez (Ante042) published a working deep sleep for the M1 Pro (T6000, J314s):
   branch `t600x-s2r-reference` and `S2R-T600X-NOTES.md` in https://github.com/Ante042/linux. Compared step
