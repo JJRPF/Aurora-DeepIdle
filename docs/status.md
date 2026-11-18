@@ -1,4 +1,4 @@
-# Where the work stands (2026-11-16, 19:50, after run R50A)
+# Where the work stands (2026-11-18, 17:05, after run R54A)
 
 This is the summary of the whole effort: what was measured, what was built,
 what works, what does not, and what comes next. Each section points to the
@@ -113,6 +113,7 @@ There are two goals:
   external debug power request (EDPRCR) before its deep WFI, which
   nothing here had done. Run R21 (image 72) did it: the register was
   already 0 on every core, and the reset came as before. Closed.
+* **2026-11-17 and 18 (R52B, R53c, R54A): no wake yet; a secondary-stop race found in `LATEREL`.** R52B applied all 22 decoded T6020 SIO `axi2af` `figs_1` tunables before the SEP sleep and commit: no change. R53c booted macOS 14.8.9 under our hypervisor with `cluster_power=0` and no tracers: it ran its full sleep entry and reset 60 s after the last write with no wake, so the HV route gives no working macOS reference. R54A (image 100) tested nekolyanich's T6020 commit order (commit 1 to `MPMGR_AON+0x4000`, AIC mask-all, `udelay(520)`, commit 2): no wake, main kernel started 77 s after the commit push (86 s to userspace return, consistent with ~6 s Linux suspend + ~60 s WD2 + ~11 s boot to kernel). Auditing `psci.c`/`smp.c` after R54A exposed a bug affecting R40A through R54A: `smp_psci_stop_parked()` wrote `CPUSTART+0` and waited 40 ms while secondaries were already sitting in retention `WFI_MODE(3)`, powering both P complexes off (`PCPM0=10`, `PCPM1=00`) before commit 1 so the post-commit release IPIs hit already-stopped cores; and `cpu_sleep_setup(true)` wrote cluster-wide `ACC_OVRD` on every core instead of only the last core per cluster. Image 101 (R55A) fixes both by holding all 9 secondaries awake in a `WFE` loop through `CPUSTART+0` and commit 2, releasing them via `SEV` at cpu0's edge, and writing cluster `ACC_OVRD` only on each cluster's last core.
 * **Estimate: about 45% of the way to working S2R** (risk-weighted guess,
   wide error bar; 33% earlier on 2026-11-04, before Phase 2 closed). Per
   phase: remote hands 100 (replaced by software), CPU_ON and CPU_OFF 85,
