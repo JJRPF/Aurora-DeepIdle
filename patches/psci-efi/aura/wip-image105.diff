@@ -1,0 +1,175 @@
+diff --git i/src/psci.c w/src/psci.c
+index b8609999..dfcdf45a 100644
+--- i/src/psci.c
++++ w/src/psci.c
+@@ -143,6 +143,17 @@ static volatile struct {
+     u32 pmp[2];            /* image 65: bit 12, PSCI_S2R_PMP */
+ } qs_save __attribute__((aligned(64)));
+ 
++/* image 105: save domains lowered by psci_force_ps_lower() so psci_quiesce_undo() restores them parents-first */
++static volatile struct {
++    u32 n;
++    u32 pad;
++    struct {
++        u64 addr;
++        u32 val;
++        u32 pad;
++    } ent[128];
++} qs_lower_save __attribute__((aligned(64)));
++
+ /*
+  * Image 58 (GH-8 worklog 2026-11-06 'image 58'): leads from DJ's T8140 (aurora-silicon/aura feat/sptm-hv,
+  * docs/sptm-nv2-virt.md) and Naeem Malik's t8103 (malik-na/m1-power-lab, docs/evidence/2026-11-06-mac27-hv) S2R.
+@@ -602,6 +613,18 @@ static void psci_quiesce_undo(void)
+         write32(QS_SIO, qs_save.sio);
+         write32(QS_AFR, qs_save.afr);
+     }
++    dc_ivac_range((void *)&qs_lower_save, sizeof(qs_lower_save));
++    if (qs_lower_save.n && qs_lower_save.n <= 128) {
++        for (int i = (int)qs_lower_save.n - 1; i >= 0; i--) {
++            u64 a = qs_lower_save.ent[i].addr;
++            u32 v = qs_lower_save.ent[i].val & ~(BIT(11) | BIT(9) | BIT(8));
++            write32(a, v);
++            if (v & 0xf)
++                qs_poll(a, 0xf0, (v & 0xf) << 4, 2000);
++        }
++        qs_lower_save.n = 0;
++        dc_civac_range((void *)&qs_lower_save, sizeof(qs_lower_save));
++    }
+     if (qs_save.saved & 32) {
+         /* unmask what was unmasked, except Aura's two wake lines, which Linux keeps masked */
+         for (u32 w = 0; w < qs_save.aic_words; w++) {
+@@ -921,6 +944,7 @@ static void psci_quiesce_pcie_rc(void)
+  */
+ static void psci_force_ps_lower(void)
+ {
++    qs_lower_save.n = 0;
+     for (int pass = 0; pass < 2; pass++) {
+         for (int i = (int)(sizeof(qs_macos_ps) / sizeof(qs_macos_ps[0])) - 1; i >= 15; i--) {
+             u64 a = qs_macos_ps[i].addr;
+@@ -929,6 +953,11 @@ static void psci_force_ps_lower(void)
+             u32 v = read32(a);
+             if ((v & 0xff) == 0)
+                 continue;
++            if (pass == 0 && qs_lower_save.n < 128) {
++                u32 k = qs_lower_save.n++;
++                qs_lower_save.ent[k].addr = a;
++                qs_lower_save.ent[k].val = v;
++            }
+             write32(a, v & ~QS_PS_CLEAR);
+             u64 t0 = qs_now();
+             while ((read32(a) & 0xf0) && qs_now() - t0 < 48000)
+@@ -936,6 +965,7 @@ static void psci_force_ps_lower(void)
+         }
+     }
+     sysop("dsb sy");
++    dc_civac_range((void *)&qs_lower_save, sizeof(qs_lower_save));
+ }
+ 
+ static u8 qs_zero_ps_still_on(u8 *key_mask)
+@@ -1406,8 +1436,12 @@ static void __attribute__((noreturn)) psci_resume_kernel(int line, int via_rvbar
+     psci_resume.magic = 0;
+     smp_psci_s2r_clear();
+     psci_quiesce_undo();
+-    if (via_rvbar)
++    if (via_rvbar) {
++        qs_crumb(0x26);
++        smp_psci_s2r_prep_secondaries();
++        qs_crumb(0x27);
+         wdt_psci_arm(RESUME_WDT_S); /* stage 2: reset unless the kernel's resume takes over its watchdog */
++    }
+     psci_dbg[3] = 1;
+     psci_dbg[4] = line;
+     psci_dbg[5] = now - psci_resume.start;
+diff --git i/src/smp.c w/src/smp.c
+index a350b52b..ffe20da6 100644
+--- i/src/smp.c
++++ w/src/smp.c
+@@ -253,6 +253,8 @@ void smp_secondary_entry(void)
+         sysop("dmb sy");
+         me->flag++;
+         sysop("dmb sy");
++        if (psci_runtime_quiet())
++            psci_enter(target, me->args[0]);
+         me->retval = ((u64 (*)(u64 a, u64 b, u64 c, u64 d))target)(me->args[0], me->args[1],
+                                                                    me->args[2], me->args[3]);
+         sysop("dmb sy");
+@@ -975,6 +977,7 @@ enum psci_cpu_state {
+ };
+ 
+ static u8 psci_cpu_state[MAX_CPUS] SMP_SHARED;
++static u8 psci_cpu_cold[MAX_CPUS] SMP_SHARED;
+ 
+ static int smp_psci_index(u64 mpidr)
+ {
+@@ -1052,6 +1055,28 @@ int smp_psci_cpu_on(u64 mpidr, u64 entry, u64 context)
+         case PSCI_CPU_PARKED:
+         case PSCI_CPU_OFF:
+         default:
++            dc_civac_range(&psci_cpu_cold[index], 1);
++            if (psci_cpu_cold[index]) {
++                struct spin_table *t = &spin_table[index];
++                psci_cpu_cold[index] = 0;
++                dc_civac_range(&psci_cpu_cold[index], 1);
++                t->flag = 0;
++                t->args[0] = context;
++                t->args[1] = 0;
++                t->args[2] = 0;
++                t->args[3] = 0;
++                sysop("dmb sy");
++                t->target = entry;
++                dc_civac_range(t, sizeof(*t));
++                psci_cpu_state[index] = PSCI_CPU_ON;
++                dc_civac_range(&psci_cpu_state[index], 1);
++                sysop("dsb sy");
++                u64 start_base = cpu_start_base + cpu_info[index].die * PMGR_DIE_OFFSET;
++                write32(start_base + 0x4, cpu_start_bit(index, &cpu_info[index]));
++                write32(start_base + 0x8 + 4 * cpu_info[index].cluster, 1 << cpu_info[index].core);
++                sysop("dsb sy");
++                return PSCI_RET_SUCCESS;
++            }
+             /* An OFF core is parked in psci_park_c(), which takes the entry like the boot-time park loop. */
+             return smp_psci_dispatch(index, entry, context);
+     }
+@@ -1368,6 +1393,29 @@ void smp_psci_s2r_clear(void)
+     dc_civac_range((void *)&psci_s2r_go, sizeof(psci_s2r_go));
+ }
+ 
++/* image 105: after a real RVBAR wake (SLP_S2R), secondary CPUs lost power; rewrite unlocked RVBAR and mark cold */
++void smp_psci_s2r_prep_secondaries(void)
++{
++    for (int i = 0; i < MAX_CPUS; i++) {
++        if (i == boot_cpu_idx || !cpu_info[i].valid)
++            continue;
++        dc_ivac_range(&psci_cpu_state[i], 1);
++        if (psci_cpu_state[i] != PSCI_CPU_OFF)
++            continue;
++        if (cpu_features->apple_sysregs_unlocked) {
++            u64 rvbar = read64(cpu_info[i].impl_reg);
++            if (!(rvbar & RVBAR_LOCK))
++                write64(cpu_info[i].impl_reg, (u64)_vectors_start);
++        }
++        spin_table[i].flag = 0;
++        spin_table[i].target = 0;
++        dc_civac_range(&spin_table[i], sizeof(spin_table[i]));
++        psci_cpu_cold[i] = 1;
++        dc_civac_range(&psci_cpu_cold[i], 1);
++    }
++    sysop("dsb sy");
++}
++
+ /* The parked state of a CPU_OFF'd core: deep WFI on the Aura stack until it is handed an entry. */
+ void psci_park_c(u64 index) __attribute__((noreturn, used));
+ void psci_park_c(u64 index)
+diff --git i/src/smp.h w/src/smp.h
+index 47af5113..b7653625 100644
+--- i/src/smp.h
++++ w/src/smp.h
+@@ -42,6 +42,7 @@ u32 smp_psci_ping_held(void);
+ void smp_psci_edge_release_and_sleep(void) __attribute__((noreturn));
+ u32 smp_psci_ed_release(void);
+ void smp_psci_s2r_clear(void);
++void smp_psci_s2r_prep_secondaries(void);
+ 
+ static inline int smp_id(void)
+ {
