@@ -1,0 +1,256 @@
+diff --git c/src/psci.c w/src/psci.c
+index a45dec19..9b27fba8 100644
+--- c/src/psci.c
++++ w/src/psci.c
+@@ -892,6 +892,98 @@ static void psci_force_ps(void)
+     }
+ }
+ 
++/*
++ * image 102 (psci_ctl[5] bit 7): PCIe root-complex teardown written before psci_quiesce_pcie() powers
++ * the PCIe domains off.
++ */
++static void psci_quiesce_pcie_rc(void)
++{
++    write32(0x59e008000ULL, 0x1f0c383);
++    write32(0x59e008000ULL, 0x1f0c381);
++    write32(0x59e008000ULL, 0x1f0c380);
++    write32(0x59e008000ULL, 0x1f0c080);
++    write32(0x59e008004ULL, 1);
++    write32(0x59e008004ULL, 0);
++    write32(0x59c000400ULL, 0xc0f00010);
++    sysop("dsb sy");
++}
++
++/*
++ * image 102 (psci_ctl[5] bit 7): lower-only PMGR PS helper. Never turns any domain ON; clears target
++ * and AUTO_ENABLE (QS_PS_CLEAR) for macOS-OFF entries (val & 0xf == 0) in two reverse passes so
++ * children precede parents and ANE/GFX (with AUTO_ENABLE=1) actually gate.
++ */
++static void psci_force_ps_lower(void)
++{
++    for (int pass = 0; pass < 2; pass++) {
++        for (int i = (int)(sizeof(qs_macos_ps) / sizeof(qs_macos_ps[0])) - 1; i >= 15; i--) {
++            u64 a = qs_macos_ps[i].addr;
++            if (a == 0x29e280000ULL || (qs_macos_ps[i].val & 0xf) != 0)
++                continue;
++            u32 v = read32(a);
++            if ((v & 0xff) == 0)
++                continue;
++            write32(a, v & ~QS_PS_CLEAR);
++            u64 t0 = qs_now();
++            while ((read32(a) & 0xf0) && qs_now() - t0 < 48000)
++                ;
++        }
++    }
++    sysop("dsb sy");
++}
++
++static u8 qs_zero_ps_still_on(u8 *key_mask)
++{
++    static const u64 key_addrs[8] = {
++        0x28e080260ULL, /* ANE_SYS */
++        0x28e0802e0ULL, /* ANE_CPU */
++        0x2902801c8ULL, /* ISP_SYS */
++        0x404e80108ULL, /* GFX */
++        0x29e2800e0ULL, /* ATC3_USB */
++        0x290280420ULL, /* APCIE_GE_SYS */
++        0x290280408ULL, /* APCIE_ST_SYS */
++        0x2902801a8ULL, /* ANS2 */
++    };
++    u32 n = 0;
++    u8 km = 0;
++
++    for (u32 i = 15; i < sizeof(qs_macos_ps) / sizeof(qs_macos_ps[0]); i++) {
++        u64 a = qs_macos_ps[i].addr;
++        if (a == 0x29e280000ULL || (qs_macos_ps[i].val & 0xf) != 0)
++            continue;
++        if (read32(a) & 0xf0)
++            n++;
++    }
++    for (u32 k = 0; k < 8; k++)
++        if (read32(key_addrs[k]) & 0xf0)
++            km |= BIT(k);
++    *key_mask = km;
++    return n > 255 ? 255 : (u8)n;
++}
++
++/*
++ * image 102 (psci_ctl[5] bit 7): filtered qs_macos_mem[] replay keeping MCC/SLC/DCS drain, PMP DVFS
++ * idle, AOP GPIO IRQ clear, error-handler and event-log zeros while skipping poison power-ons
++ * (APCIE_GE_SYS, SIO_CPU), PMP/PMS_SRAM toggle, early-done PCIe RC teardown, and soc-clusters.
++ */
++static void psci_replay_mem_clean(void)
++{
++    for (u32 i = 0; i < sizeof(qs_macos_mem) / sizeof(qs_macos_mem[0]); i++) {
++        u64 a = qs_macos_mem[i].addr;
++        if (a == 0x28e0802c8ULL || a == 0x28e0802d0ULL ||
++            a == 0x290280420ULL || a == 0x2902801e0ULL ||
++            a == 0x59e008000ULL || a == 0x59e008004ULL || a == 0x59c000400ULL ||
++            (a >= 0x28e088000ULL && a <= 0x28e088018ULL))
++            continue;
++        if (qs_macos_mem[i].size == 8)
++            write64(a, qs_macos_mem[i].val);
++        else
++            write32(a, (u32)qs_macos_mem[i].val);
++    }
++    sysop("dsb sy");
++    psci_mem_done = 1;
++}
++
+ /*
+  * image 93 (psci_ctl[4] bit 61): the observer compares the 374 PMGR power words, as they stand right before the commit (after
+  * every Aura quiesce step), with macOS's at its own S2R timer write (qs_macos_ps.h, from the hypervisor run). bits 0-9 only.
+@@ -1436,6 +1528,7 @@ static unsigned long psci_system_suspend(unsigned long entry, unsigned long cont
+      * 0x17, WD1's reset): by then the mailbox's own domain or clock is off. Crumbs 0x18 before, 0x19 after */
+     bool quiet = (steps & PSCI_S2R_QUIET) && (steps & PSCI_S2R_TIMER) && (steps & PSCI_S2R_CORESOFF);
+     bool edge_hold = quiet && (psci_ctl[5] & 64);
++    bool clean_mode = quiet && (psci_ctl[5] & 128);
+     u32 edge_awake = 0;
+     if (edge_hold)
+         edge_awake = smp_psci_hold_parked();
+@@ -1445,18 +1538,24 @@ static unsigned long psci_system_suspend(unsigned long entry, unsigned long cont
+         psci_quiesce_sep();
+         qs_crumb(0x19);
+     }
++    if (clean_mode && (psci_ctl[5] & 1))
++        psci_quiesce_asc();
+     if (steps & PSCI_S2R_HELD)
+         psci_quiesce_held();
+     if (steps & PSCI_S2R_DOMAINS)
+         psci_quiesce_domains();
+     if (steps & PSCI_S2R_ATC)
+         psci_quiesce_atc();
++    if (clean_mode)
++        psci_quiesce_pcie_rc();
+     if (steps & PSCI_S2R_PCIE)
+         psci_quiesce_pcie();
+     if (steps & PSCI_S2R_AON)
+         psci_quiesce_aon();
+     if (steps & PSCI_S2R_PMP)
+         psci_quiesce_pmp();
++    if (clean_mode)
++        psci_force_ps_lower();
+     if (steps & PSCI_S2R_FABRIC)
+         psci_quiesce_fabric();
+     if (steps & PSCI_S2R_CLUSTERS)
+@@ -1478,15 +1577,19 @@ static unsigned long psci_system_suspend(unsigned long entry, unsigned long cont
+      * sleep action leaves WD1 alone and clears WD0 and reg 3's low byte, both already 0 here). Aura's WD1 has been armed
+      * (120 s) through every entry so far. The timer's own reset stays as the safety net.
+      */
+-    if (psci_ctl[5] & 1)
++    if (!clean_mode && (psci_ctl[5] & 1))
+         psci_quiesce_asc();
+-    if (psci_ctl[5] & 4)
++    if (clean_mode)
++        psci_replay_mem_clean();
++    else if (psci_ctl[5] & 4)
+         psci_replay_mem();
+-    if (psci_ctl[5] & 2)
++    if (!clean_mode && (psci_ctl[5] & 2))
+         psci_force_ps();
+-    /* image 99 (psci_ctl[5] bit 4): the deep sleep path also sets IRQ/FIQ_MODE 2 and stops the timers (see cpu_sleep_setup) */
++    /* image 99 (psci_ctl[5] bit 4): deep sleep timers off (+ IRQ/FIQ_MODE 2 on secondaries; image 102 keeps 0 on CPU0) */
+     cpu_sleep_deep_extra = !!(psci_ctl[5] & 16);
++    cpu_sleep_boot_irq_route = clean_mode;
+     dc_civac_range((void *)&cpu_sleep_deep_extra, sizeof(cpu_sleep_deep_extra));
++    dc_civac_range((void *)&cpu_sleep_boot_irq_route, sizeof(cpu_sleep_boot_irq_route));
+     sysop("dsb sy");
+     qs_crumb(0x12);
+     if (quiet) {
+@@ -1518,9 +1621,15 @@ static unsigned long psci_system_suspend(unsigned long entry, unsigned long cont
+                     qs_crumb_write(0x6011, &pm, 1);
+                 }
+                 if (qs_save.saved & (1024 | 2048)) {
+-                    u8 pa = qs_pcie_aon_state();
++                    u8 pa = qs_pcie_aon_state() | (((qs_save.saved & 512) && qs_atc_state()) ? 0x80 : 0);
+                     qs_crumb_write(0x600c, &pa, 1);
+                 }
++                if (clean_mode) {
++                    u8 key_on = 0;
++                    u8 rem_on = qs_zero_ps_still_on(&key_on);
++                    qs_crumb_write(0x6014, &rem_on, 1);
++                    qs_crumb_write(0x601f, &key_on, 1);
++                }
+             }
+         } else {
+             if (!(steps & PSCI_S2R_LATEREL)) {
+diff --git c/src/utils.c w/src/utils.c
+index d0288869..8b45af75 100644
+--- c/src/utils.c
++++ w/src/utils.c
+@@ -248,10 +248,11 @@ void deep_wfi(void)
+ }
+ 
+ volatile bool cpu_sleep_deep_extra;
++volatile bool cpu_sleep_boot_irq_route;
+ 
+ /* image 99: what Andreas Fernandez's apple_s2r_cpu_sleep does before the final WFI (his s2r-sleep.S): a pending timer,
+- * even a masked one, aborts the power down, and a parked core takes no IRQ/FIQ as a wake source */
+-static void cpu_sleep_deep_extra_setup(void)
++ * even a masked one, aborts the power down; image 102 keeps IRQ/FIQ_MODE=0 on CPU0 (as Ante042 and macOS) so wake sources stay routed */
++static void cpu_sleep_deep_extra_setup(bool keep_irq_route)
+ {
+     msr(CNTP_CTL_EL0, 0L);
+     msr(CNTV_CTL_EL0, 0L);
+@@ -259,15 +260,16 @@ static void cpu_sleep_deep_extra_setup(void)
+         msr(CNTP_CTL_EL02, 0L);
+         msr(CNTV_CTL_EL02, 0L);
+     }
+-    if (cpu_features->apple_sysregs_unlocked)
+-        reg_mask(SYS_IMP_APL_CYC_OVRD, CYC_OVRD_FIQ_MODE_MASK | CYC_OVRD_IRQ_MODE_MASK,
+-                 CYC_OVRD_FIQ_MODE(2) | CYC_OVRD_IRQ_MODE(2));
++    if (cpu_features->apple_sysregs_unlocked) {
++        u64 mode = keep_irq_route ? 0 : (CYC_OVRD_FIQ_MODE(2) | CYC_OVRD_IRQ_MODE(2));
++        reg_mask(SYS_IMP_APL_CYC_OVRD, CYC_OVRD_FIQ_MODE_MASK | CYC_OVRD_IRQ_MODE_MASK, mode);
++    }
+ }
+ 
+-static void cpu_sleep_setup(bool deep)
++static void cpu_sleep_setup(bool deep, bool keep_irq_route)
+ {
+     if (deep && cpu_sleep_deep_extra)
+-        cpu_sleep_deep_extra_setup();
++        cpu_sleep_deep_extra_setup(keep_irq_route);
+     if (deep) {
+         switch (cpu_features->sleep_mode) {
+             case SLEEP_GLOBAL:
+@@ -301,7 +303,7 @@ static void cpu_sleep_setup(bool deep)
+ 
+ void cpu_sleep(bool deep)
+ {
+-    cpu_sleep_setup(deep);
++    cpu_sleep_setup(deep, false);
+     // enter deep sleep
+     while (1) {
+         sysop("isb");
+@@ -315,7 +317,7 @@ void cpu_sleep(bool deep)
+  */
+ void cpu_sleep_counted(bool deep, volatile u32 *w)
+ {
+-    cpu_sleep_setup(deep);
++    cpu_sleep_setup(deep, cpu_sleep_boot_irq_route);
+     while (1) {
+         sysop("isb");
+         sysop("wfi");
+@@ -333,7 +335,7 @@ void cpu_sleep_counted(bool deep, volatile u32 *w)
+ void cpu_sleep_no_acc(void)
+ {
+     if (cpu_sleep_deep_extra)
+-        cpu_sleep_deep_extra_setup();
++        cpu_sleep_deep_extra_setup(false);
+     if (cpu_features->apple_sysregs_unlocked) {
+         reg_mask(SYS_IMP_APL_CYC_OVRD, CYC_OVRD_WFI_MODE_MASK,
+                  CYC_OVRD_WFI_MODE(3) | CYC_OVRD_DISABLE_WFI_RET);
+diff --git c/src/utils.h w/src/utils.h
+index 085a50d0..f6ad2ca5 100644
+--- c/src/utils.h
++++ w/src/utils.h
+@@ -521,6 +521,7 @@ extern u64 boot_flags, mem_size_actual;
+ 
+ void cpu_sleep(bool deep) __attribute__((noreturn));
+ extern volatile bool cpu_sleep_deep_extra;
++extern volatile bool cpu_sleep_boot_irq_route;
+ void cpu_sleep_counted(bool deep, volatile u32 *w) __attribute__((noreturn));
+ void cpu_sleep_no_acc(void) __attribute__((noreturn));
+ void deep_wfi(void);
