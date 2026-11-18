@@ -1,0 +1,12 @@
+[Unit]
+Description=DeepIdle stage 1 upload server (serves recovery.sh/thin.bin/restore.bin to recoveryOS, receives diag files)
+
+[Service]
+WorkingDirectory=%h/deepidle/stage1
+ExecStart=/usr/bin/python3 upload-server.py . 8099
+Restart=on-failure
+StandardOutput=append:%h/deepidle/stage1/server.log
+StandardError=append:%h/deepidle/stage1/server.log
+
+[Install]
+WantedBy=default.target
