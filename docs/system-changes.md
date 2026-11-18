@@ -13,6 +13,7 @@ Entries marked (earlier) come from the session history and `docs/worklog.md`; th
 | earlier | Test kernel module `macsmc-reboot.ko` rebuilt with a TEST patch (`deep_steps` bit 128) and installed | `/usr/lib/modules/7.2.11-psci-efi+/` | the old module is `~/Work/psci-test/macsmc-reboot.ko.before-pmvc`; copy it back |
 | earlier | Pi (core-node): hand-started upload server, `hv-run.sh` edits (backups `hv-run.sh.bak-before-*`), run dirs under `~/deepidle/hv/` | Pi `~jjrpfister/deepidle` | kill the server; restore the backups; `rm` the run dirs when no longer wanted |
 | 2026-11-17 | `mmio-write` allow-list gained the SIO axi2af window `0x39a000000` (+0xc00) | `harness/mmio/mmio-write.c`, a copy inside a job dir | repo only; revert the commit |
+| 2026-11-18 | Post-boot resume hook switched from Claude to Antigravity (`agy`), targeting the active conversation via `~/.local/state/deepidle/agy-conversation` | `~/.config/omarchy/hooks/post-boot.d/deepidle-resume` (repo copy `harness/usbtest/deepidle-resume`) and `~/.local/state/deepidle/agy-conversation` | restore the Claude version from git (`git show ed779b6:harness/usbtest/deepidle-resume > ~/.config/omarchy/hooks/post-boot.d/deepidle-resume`) and delete `~/.local/state/deepidle/agy-conversation` |
 
 ## Temporary, undone already
 

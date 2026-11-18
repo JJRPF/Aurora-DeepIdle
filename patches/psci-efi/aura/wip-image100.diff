@@ -1,0 +1,38 @@
+diff --git c/src/psci.c w/src/psci.c
+index 13a40dbe..0d4d02e3 100644
+--- c/src/psci.c
++++ w/src/psci.c
+@@ -1487,7 +1487,7 @@ static unsigned long psci_system_suspend(unsigned long entry, unsigned long cont
+     bool quiet = (steps & PSCI_S2R_QUIET) && (steps & PSCI_S2R_TIMER) && (steps & PSCI_S2R_CORESOFF);
+     if (quiet) {
+         /* image 60g: everything that touches hardware happens before the commit */
+-        if (steps & PSCI_S2R_AICMASK)
++        if ((steps & PSCI_S2R_AICMASK) && !(psci_ctl[5] & 32)) /* image 100 (bit 5): the mask-all goes between the two commits */
+             psci_quiesce_aic();
+         qs_crumb(0x17);
+         if (!(steps & PSCI_S2R_LATEREL)) {
+@@ -1551,12 +1551,23 @@ static unsigned long psci_system_suspend(unsigned long entry, unsigned long cont
+         if (!(steps & PSCI_S2R_NOCOMMIT)) {
+             write32(MPMGR_AON_S2R_TIMER, 1);
+             sysop("dsb sy");
++            if (psci_ctl[5] & 32) {
++                /*
++                 * image 100 (psci_ctl[5] bit 5), nekolyanich's t6020 order (GH-5 #5, 2026-11-18): commit 1, AIC mask-all,
++                 * commit 2 about 0.52 ms later. Only two writes in total, so bit 3 is implied.
++                 */
++                if (steps & PSCI_S2R_AICMASK)
++                    psci_quiesce_aic();
++                udelay(520);
++                write32(MPMGR_AON_S2R_TIMER, 1);
++                sysop("dsb sy");
++            } else
+             /* image 99 (psci_ctl[5] bit 3): one timer write, as Andreas Fernandez's t6000 driver */
+             if (!(psci_ctl[5] & 8)) {
+                 write32(MPMGR_AON_S2R_TIMER, 1);
+                 sysop("dsb sy");
+             }
+-            if (!(steps & PSCI_S2R_TWOWR) && !(psci_ctl[5] & 8)) {
++            if (!(steps & PSCI_S2R_TWOWR) && !(psci_ctl[5] & (8 | 32))) {
+                 write32(MPMGR_AON_S2R_TIMER, 1);
+                 sysop("dsb sy");
+             }
