@@ -326,6 +326,7 @@
     { "what": "macOS 15.7.1", "value": "0.24 W", "detail": "5.9 h, 98.7% of it in S2R" }
   ],
   "findings": [
+    { "title": "macOS 14.8.9 under our hypervisor does not sleep either (R53c)", "body": "With cluster_power=0, wdt=-1, clpc=0, apcie off and no tracers, the guest runs its full sleep entry (CPUSTART stop requests for CPUs 1-6 and 8-10, then the PMGR write at 0x2902801c0) and the SoC resets 60 s later, with no wake. Same as the earlier hypervisor runs, so the stall is not our Linux entry alone; it is shared with macOS under this hypervisor on this chip." },
     { "title": "The AOP's queues must run before the CPUs come back", "body": "With the AOP's endpoint queues stopped across the CPU bring-up, every secondary hung in the kernel's secondary entry after Aura handed it the entry (5 runs); restarting them from syscore resume, before the secondaries, fixed it (3 runs, 12 cycles)." },
     { "title": "The gap is SoC sleep itself", "body": "Awake idle matches macOS once the PMP runs (5.38 W against 5.57 W, SoC 1.22 W on both). The lid-closed gap is not the devices." },
     { "title": "s2idle’s 1.4 W is power left on, not wakes", "body": "The 3.2 wakes a second come from the AOP’s ambient-light and lid-angle reports and cost milliwatts. The PMP doesn’t change the drain." },
