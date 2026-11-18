@@ -1,0 +1,103 @@
+diff --git i/src/psci.c w/src/psci.c
+index 9b27fba8..1a18d706 100644
+--- i/src/psci.c
++++ w/src/psci.c
+@@ -1427,6 +1427,90 @@ bool psci_suspend_resuming(void)
+     return psci_resume.magic == RESUME_MAGIC;
+ }
+ 
++/* image 103: RVBAR wake telemetry (T6020 real AP wake status at 0x29e004030, PMGR state counters, WD2) */
++#define QS_AP_WAKE_STAT 0x29e004030ULL
++
++static u8 qs_cnt_sec(u32 idx)
++{
++    u64 a = QS_STATE_CNT + 16ULL * idx;
++    u32 hi1, lo, hi2;
++
++    do {
++        hi1 = read32(a + 12);
++        lo = read32(a + 8);
++        hi2 = read32(a + 12);
++    } while (hi1 != hi2);
++    u64 ticks = ((u64)hi1 << 32) | lo;
++    if (!ticks)
++        return 0;
++    if (ticks < 24000000ULL)
++        return 0xfe;
++    u64 secs = ticks / 24000000ULL;
++    return secs > 253 ? 253 : (u8)secs;
++}
++
++static void qs_rvbar_telemetry(int line)
++{
++    if (!qs_crumbs.on)
++        return;
++
++    /* Stage 0x23: elapsed cntpct_el0 seconds (u16 LE at 0x6005..0x6006), zero MMIO reads */
++    u64 now = qs_now();
++    u16 el_s;
++    if (!psci_resume.frq)
++        el_s = 0xffff;
++    else if (now < psci_resume.start)
++        el_s = 0xfffe;
++    else {
++        u64 s = (now - psci_resume.start) / psci_resume.frq;
++        el_s = s > 0xfffd ? 0xfffd : (u16)s;
++    }
++    u8 el[2] = {el_s & 0xff, el_s >> 8};
++    qs_crumb_write(0x6005, el, 2);
++    qs_crumb(0x23);
++
++    /* Stage 0x24: 7 PMGR AON state counters (0x6007..0x600b and 0x6012..0x6013) */
++    u8 sc[4] = {qs_cnt_sec(46), qs_cnt_sec(42), qs_cnt_sec(48), qs_cnt_sec(52)};
++    u8 sc5 = qs_cnt_sec(54);
++    u8 aw[2] = {qs_cnt_sec(44), qs_cnt_sec(50)};
++    qs_crumb_write(0x6007, sc, 4);
++    qs_crumb_write(0x600b, &sc5, 1);
++    qs_crumb_write(0x6012, aw, 2);
++    qs_crumb(0x24);
++
++    /* Stage 0x25: AP wake status (0x6015..0x6016) + WD2 / RVBAR count / AIC line (0x601b..0x601e) */
++    u8 wk[2] = {0xff, 0};
++    for (u32 w = 0; w < 9; w++) {
++        u32 v = read32(QS_AP_WAKE_STAT + 4ULL * w);
++        for (u32 b = 0; b < 32; b++) {
++            if (v & BIT(b)) {
++                if (wk[0] == 0xff) {
++                    u32 bit = w * 32 + b;
++                    wk[0] = bit > 254 ? 254 : (u8)bit;
++                }
++                if (wk[1] < 255)
++                    wk[1]++;
++            }
++        }
++    }
++    qs_crumb_write(0x6015, wk, 2);
++
++    u8 tail[4];
++    u64 wdt = wdt_psci_base();
++    if (wdt) {
++        u32 ws = read32(wdt + 0x20) / 24000000U;
++        tail[0] = ws > 255 ? 255 : (u8)ws;
++        tail[1] = read32(wdt + 0x2c) & 0xff;
++    } else {
++        tail[0] = 0xff;
++        tail[1] = 0xff;
++    }
++    tail[2] = psci_dbg[12] > 255 ? 255 : (u8)psci_dbg[12];
++    tail[3] = line < 0 ? 0xff : (line == 724 ? 1 : (line == 865 ? 2 : 0xfe));
++    qs_crumb_write(0x601b, tail, 4);
++    qs_crumb(0x25);
++}
++
+ /* RVBAR re-entry of the boot CPU from psci_system_suspend(), after init_cpu() and exception_initialize() */
+ void __attribute__((noreturn)) psci_suspend_rvbar(void)
+ {
+@@ -1448,6 +1532,7 @@ void __attribute__((noreturn)) psci_suspend_rvbar(void)
+      * restore and drivers take over. Stage 2 (RESUME_WDT_S) resets the Mac if the kernel's resume hangs.
+      */
+     line = psci_wake_line();
++    qs_rvbar_telemetry(line);
+     psci_resume_kernel(line, 1);
+ }
+ 

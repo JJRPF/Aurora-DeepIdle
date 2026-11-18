@@ -4568,3 +4568,16 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
 - **Code nuance (`src/smp.c:1346`):** `smp_psci_edge_release_and_sleep()` calls `cpu_sleep(true)` (noreturn) directly, so `psci.c:1729` `cpu_sleep_counted()` was never reached — meaning CPU0 slept with `IRQ/FIQ_MODE=2` and STILL woke via RVBAR. The breakthrough therefore comes strictly from Image 102's domain/ASC/PCIe-RC/MCC fixes (combined with edge-hold WFE and nekolyanich's commit order).
 - Linux did not reach `"R56A resumed"` after `psci_enter()` (expected: no S2R resume fixes yet — `psci_force_ps_lower()` domains are not restored in `psci_quiesce_undo()`, secondary `CPU_ON` after a real power cut, plus Linux SIO DART noirq / PMP SRAM / i2c0 pinctrl / PCIe re-init), and `panic=10` rebooted ~22 s after wake (`+33 s` total after the `+40 s` alarm to main kernel start).
 - Next: Image 103 (`R56B`) keeps the exact R56A entry untouched, sets **`alarm = +90 s`** (30 s past WD2's 60 s bite), and records `(now - psci_resume.start)/frq`, all 7 PMGR state counters (`SLP_S2R`, `SLP_DDR`, `DEEP_WAIT`, `SYS_S2R_AOP`, `SYS_SLP_DDR`, `AWAKE`, `SYS_AWAKE`), AP wake status (`0x29e004030`), and WD2 count/ctl directly inside `psci_suspend_rvbar()` to prove genuine 90 s `SLP_S2R` sleep past WD2.
+
+## 2026-11-18 17:50 R56B armed: image 103 (+90 s alarm + RVBAR wake telemetry)
+- Image 103 (`~/Work/src/aura-img99` branch `gh5-img99-local`, local commit `206fad03`, tag `v0.1.0-54-g206fad03`, `build/aura.bin` sha `be17271d0aebf88f`, packaged as `~/Work/psci-test/boot-test.bin.103` sha `bfc63d18c573481b`, staged as `boot-test.bin`; diff saved in `patches/psci-efi/aura/wip-image103.diff`).
+- Entry path and `aura-ctl` (`0xc17dcb3f 0 0 0 241`) are identical to R56A; only `psci_suspend_rvbar()` adds `qs_rvbar_telemetry(line)` before `psci_resume_kernel(line, 1)` and `job.sh` raises the alarm from `+40 s` to **`+90 s`** (30 s past WD2's 60 s bite).
+- PMU scratch decode on RVBAR wake:
+  - `0x6004`: `0x21 -> 0x23 -> 0x24 -> 0x25 -> 0x22`
+  - `0x6005..0x6006`: elapsed `cntpct_el0` seconds from suspend entry (`u16` LE)
+  - `0x6007..0x600b`: 7 PMGR state counters (`SLP_S2R`, `SLP_DDR`, `DEEP_WAIT`, `SYS_S2R_AOP`, `SYS_SLP_DDR`) in seconds (`0xfe` = `< 1 s`, `253` max)
+  - `0x6012..0x6013`: `AWAKE`, `SYS_AWAKE` in seconds
+  - `0x6015..0x6016`: first set AP wake status bit in `0x29e004030..0x29e004050` (`0xff` if none) and total set bit count
+  - `0x601b..0x601e`: WD2 current count seconds, WD2 ctl low byte, `psci_dbg[12]` (RVBAR count), AIC wake line (`0xff` none, `1` IRQ 724, `2` IRQ 865)
+  - `0x600c/11/14/1f`: left untouched from pre-commit (`00 / 50 / 00 / 00`)
+- Job `harness/usbtest/jobs/r56b-confirm-90s`. Look for: Mac dark ~2.5–3 min; `"R56B resumed"` = full Linux resume; otherwise `"R56B committing"` followed by main boot ~2 min later (with `0x6004=0x22` and `elapsed ~90 s` proving real S2R sleep past WD2). Hold power only if dark > 6 min.
