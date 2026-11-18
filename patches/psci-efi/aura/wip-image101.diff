@@ -1,0 +1,383 @@
+diff --git i/src/psci.c w/src/psci.c
+index 0d4d02e3..a45dec19 100644
+--- i/src/psci.c
++++ w/src/psci.c
+@@ -1434,6 +1434,11 @@ static unsigned long psci_system_suspend(unsigned long entry, unsigned long cont
+     /* the S2R steps, in macOS's order: quiesceHW's domains and clocks, its S2R timer last, then every core */
+     /* image 68: the SEP step first. Image 67 had it after the PMGR quiesce and hung at it (run R18I: last crumb
+      * 0x17, WD1's reset): by then the mailbox's own domain or clock is off. Crumbs 0x18 before, 0x19 after */
++    bool quiet = (steps & PSCI_S2R_QUIET) && (steps & PSCI_S2R_TIMER) && (steps & PSCI_S2R_CORESOFF);
++    bool edge_hold = quiet && (psci_ctl[5] & 64);
++    u32 edge_awake = 0;
++    if (edge_hold)
++        edge_awake = smp_psci_hold_parked();
+     qs_sep_res = 0;
+     if (steps & PSCI_S2R_SEP) {
+         qs_crumb(0x18);
+@@ -1484,22 +1489,51 @@ static unsigned long psci_system_suspend(unsigned long entry, unsigned long cont
+     dc_civac_range((void *)&cpu_sleep_deep_extra, sizeof(cpu_sleep_deep_extra));
+     sysop("dsb sy");
+     qs_crumb(0x12);
+-    bool quiet = (steps & PSCI_S2R_QUIET) && (steps & PSCI_S2R_TIMER) && (steps & PSCI_S2R_CORESOFF);
+     if (quiet) {
+         /* image 60g: everything that touches hardware happens before the commit */
+         if ((steps & PSCI_S2R_AICMASK) && !(psci_ctl[5] & 32)) /* image 100 (bit 5): the mask-all goes between the two commits */
+             psci_quiesce_aic();
+         qs_crumb(0x17);
+-        if (!(steps & PSCI_S2R_LATEREL)) {
+-            smp_psci_release_parked(steps & PSCI_S2R_STOPREQ, steps & PSCI_S2R_EDPRCR,
+-                                    (steps & PSCI_S2R_OBSERVE) ? ((steps & PSCI_S2R_OBSERVE_P0) ? 2 : 1) : 0);
+-            udelay(2000);
++        if (edge_hold) {
++            if (steps & PSCI_S2R_STOPREQ) {
++                smp_psci_stop_parked();
++                udelay(2000);
++            }
++            u32 edge_alive = smp_psci_ping_held();
++            if (qs_crumbs.on) {
++                u8 cnt = 0;
++                for (int i = 0; i < 16; i++)
++                    if (edge_awake & BIT(i))
++                        cnt++;
++                u8 aw[3] = {edge_awake & 0xff, edge_awake >> 8, cnt};
++                u8 al[2] = {edge_alive & 0xff, edge_alive >> 8};
++                u8 cp[2] = {read32(QS_CPM_PS) >> 4, read32(QS_CPM_PS + 8) >> 4};
++                u8 cl[4] = {read32(QS_CPM_PS + 0x10) >> 4, read32(QS_CLUSTER), read32(QS_CLUSTER + 4), read32(QS_CLUSTER + 8)};
++                qs_crumb_write(0x6005, aw, 3);
++                qs_crumb_write(0x6015, al, 2);
++                qs_crumb_write(0x6012, cp, 2);
++                qs_crumb_write(0x601b, cl, 4);
++                if (qs_save.saved & 4096) {
++                    u8 pm = qs_pmp_state() | qs_sep_res;
++                    qs_crumb_write(0x6011, &pm, 1);
++                }
++                if (qs_save.saved & (1024 | 2048)) {
++                    u8 pa = qs_pcie_aon_state();
++                    qs_crumb_write(0x600c, &pa, 1);
++                }
++            }
++        } else {
++            if (!(steps & PSCI_S2R_LATEREL)) {
++                smp_psci_release_parked(steps & PSCI_S2R_STOPREQ, steps & PSCI_S2R_EDPRCR,
++                                        (steps & PSCI_S2R_OBSERVE) ? ((steps & PSCI_S2R_OBSERVE_P0) ? 2 : 1) : 0);
++                udelay(2000);
++            }
++            if ((steps & PSCI_S2R_LATEREL) && (steps & PSCI_S2R_STOPREQ)) {
++                smp_psci_stop_parked(); /* image 91: the stop requests while every core is still awake, as macOS */
++                udelay(40000);
++            }
++            qs_crumb_snapshot();
+         }
+-        if ((steps & PSCI_S2R_LATEREL) && (steps & PSCI_S2R_STOPREQ)) {
+-            smp_psci_stop_parked(); /* image 91: the stop requests while every core is still awake, as macOS */
+-            udelay(40000);
+-        }
+-        qs_crumb_snapshot();
+         if (steps & PSCI_S2R_EDPRCR) {
+             /* image 72: the boot core's own EDPRCR := 0, and what every core had there, kept in 0x601f */
+             u32 b = smp_psci_ed_release(), o = 0;
+@@ -1577,6 +1611,8 @@ static unsigned long psci_system_suspend(unsigned long entry, unsigned long cont
+         psci_s2r_committed = 1; /* image 73: the observer core starts its 3 s here */
+         dc_civac_range((void *)&psci_s2r_committed, sizeof(psci_s2r_committed));
+         sysop("dsb sy");
++        if (edge_hold)
++            smp_psci_edge_release_and_sleep();
+         if (steps & PSCI_S2R_LATEREL) /* image 89: only now do the secondaries arm their deep sleep, with the boot core */
+             smp_psci_release_parked(steps & PSCI_S2R_STOPREQ, false, 0);
+         dcsw_op_all(DCSW_OP_DCCISW);
+diff --git i/src/smp.c w/src/smp.c
+index eee6f0ac..a350b52b 100644
+--- i/src/smp.c
++++ w/src/smp.c
+@@ -1089,6 +1089,18 @@ static volatile u64 psci_s2r_go __attribute__((aligned(64)));
+ /* image 60d: how often each released secondary went into cpu_sleep(true); one cache line each */
+ static volatile u32 psci_s2r_loops[MAX_CPUS][16] __attribute__((aligned(64)));
+ 
++/*
++ * image 101 (psci_ctl[5] bit 6): hold all CPU_OFF secondaries awake in a WFE loop (WFI_MODE=0)
++ * from before CPUSTART+0 and the S2R commit until cpu0's edge (SEV), then only the last core of
++ * each cluster writes ACC_OVRD after its siblings reach WFI.
++ * psci_s2r_edge: 0 = inactive, 1 = wake into WFE hold, 2 = post-STOPREQ liveness ping, 3 = edge release.
++ * psci_s2r_edge_state[i]: [0] = awake in WFE, [1] = post-STOPREQ ping ack, [2] = released & entering WFI.
++ */
++static volatile u64 psci_s2r_edge __attribute__((aligned(64)));
++static volatile u32 psci_s2r_edge_state[MAX_CPUS][16] __attribute__((aligned(64)));
++static volatile u8 psci_s2r_cluster_last[MAX_CPUS] __attribute__((aligned(64)));
++static volatile u32 psci_s2r_expected_mask __attribute__((aligned(64)));
++
+ volatile u32 *smp_psci_s2r_ptr(int i)
+ {
+     return psci_s2r_loops[i];
+@@ -1218,6 +1230,122 @@ void smp_psci_stop_parked(void)
+     sysop("dsb sy");
+ }
+ 
++u32 smp_psci_hold_parked(void)
++{
++    u32 expected = 0;
++
++    for (int i = 0; i < MAX_CPUS; i++) {
++        psci_s2r_cluster_last[i] = 0;
++        for (int k = 0; k < 4; k++)
++            psci_s2r_edge_state[i][k] = 0;
++        dc_civac_range((void *)psci_s2r_edge_state[i], 64);
++        if (i == boot_cpu_idx || !cpu_info[i].valid)
++            continue;
++        dc_civac_range(&psci_cpu_state[i], 1);
++        if (psci_cpu_state[i] == PSCI_CPU_OFF)
++            expected |= BIT(i);
++    }
++    /* Boot core is last in its own cluster; highest valid CPU_OFF core is last in each other cluster */
++    psci_s2r_cluster_last[boot_cpu_idx] = 1;
++    u8 boot_cl = cpu_info[boot_cpu_idx].cluster;
++    for (int c = 0; c < 8; c++) {
++        if (c == boot_cl)
++            continue;
++        int last = -1;
++        for (int i = 0; i < MAX_CPUS; i++)
++            if ((expected & BIT(i)) && cpu_info[i].cluster == c)
++                last = i;
++        if (last >= 0)
++            psci_s2r_cluster_last[last] = 1;
++    }
++    dc_civac_range((void *)psci_s2r_cluster_last, sizeof(psci_s2r_cluster_last));
++    psci_s2r_expected_mask = expected;
++    psci_s2r_offmask = expected;
++    dc_civac_range((void *)&psci_s2r_expected_mask, 64);
++    psci_s2r_edge = 1;
++    dc_civac_range((void *)&psci_s2r_edge, 64);
++    sysop("dsb sy");
++
++    for (int i = 0; i < MAX_CPUS; i++)
++        if (expected & BIT(i))
++            smp_send_ipi(i);
++    sysop("sev");
++
++    u32 awake = 0;
++    for (int t = 0; t < 500; t++) {
++        awake = 0;
++        for (int i = 0; i < MAX_CPUS; i++) {
++            if (!(expected & BIT(i)))
++                continue;
++            dc_ivac_range((void *)psci_s2r_edge_state[i], 64);
++            if (psci_s2r_edge_state[i][0])
++                awake |= BIT(i);
++        }
++        if (awake == expected)
++            break;
++        udelay(100);
++    }
++    return awake;
++}
++
++u32 smp_psci_ping_held(void)
++{
++    u32 expected = psci_s2r_expected_mask;
++
++    psci_s2r_edge = 2;
++    dc_civac_range((void *)&psci_s2r_edge, 64);
++    sysop("dsb sy");
++    sysop("sev");
++
++    u32 alive = 0;
++    for (int t = 0; t < 200; t++) {
++        alive = 0;
++        for (int i = 0; i < MAX_CPUS; i++) {
++            if (!(expected & BIT(i)))
++                continue;
++            dc_ivac_range((void *)psci_s2r_edge_state[i], 64);
++            if (psci_s2r_edge_state[i][1])
++                alive |= BIT(i);
++        }
++        if (alive == expected)
++            break;
++        sysop("sev");
++        udelay(100);
++    }
++    return alive;
++}
++
++void smp_psci_edge_release_and_sleep(void)
++{
++    u32 expected = psci_s2r_expected_mask;
++
++    psci_s2r_edge = 3;
++    dc_civac_range((void *)&psci_s2r_edge, 64);
++    sysop("dsb sy");
++    sysop("sev");
++
++    u64 t0 = mrs(CNTPCT_EL0), lim = 20 * (mrs(CNTFRQ_EL0) / 1000);
++    while (mrs(CNTPCT_EL0) - t0 < lim) {
++        bool all = true;
++        for (int j = 0; j < MAX_CPUS; j++) {
++            if (!(expected & BIT(j)))
++                continue;
++            dc_ivac_range((void *)psci_s2r_edge_state[j], 64);
++            if (!psci_s2r_edge_state[j][2]) {
++                all = false;
++                break;
++            }
++        }
++        if (all)
++            break;
++        sysop("sev");
++    }
++    udelay(3000);
++    dcsw_op_all(DCSW_OP_DCCISW);
++    sysop("dsb sy");
++    cpu_sleep(true);
++}
++
+ void smp_psci_s2r_clear(void)
+ {
+     for (int i = 0; i < MAX_CPUS; i++) {
+@@ -1226,7 +1354,16 @@ void smp_psci_s2r_clear(void)
+         psci_s2r_loops[i][5] = 0;
+         psci_s2r_loops[i][6] = 0;
+         dc_civac_range((void *)psci_s2r_loops[i], 64);
++        psci_s2r_cluster_last[i] = 0;
++        for (int k = 0; k < 4; k++)
++            psci_s2r_edge_state[i][k] = 0;
++        dc_civac_range((void *)psci_s2r_edge_state[i], 64);
+     }
++    dc_civac_range((void *)psci_s2r_cluster_last, sizeof(psci_s2r_cluster_last));
++    psci_s2r_expected_mask = 0;
++    dc_civac_range((void *)&psci_s2r_expected_mask, 64);
++    psci_s2r_edge = 0;
++    dc_civac_range((void *)&psci_s2r_edge, 64);
+     psci_s2r_go = 0;
+     dc_civac_range((void *)&psci_s2r_go, sizeof(psci_s2r_go));
+ }
+@@ -1256,6 +1393,80 @@ void psci_park_c(u64 index)
+         /* Plain load: the mapping is inner-shareable write-back, the other CPU's civac-ed store is visible. */
+         if ((target = *(volatile u64 *)&me->target))
+             break;
++        if (*(volatile u64 *)&psci_s2r_edge >= 1) {
++            if (cpu_features->fast_ipi) {
++                msr(SYS_IMP_APL_IPI_SR_EL1, IPI_SR_PENDING);
++                sysop("isb");
++            }
++            asm volatile("msr daifset, #0xf\n isb" ::: "memory");
++            if (cpu_features->apple_sysregs_unlocked) {
++                reg_mask(SYS_IMP_APL_CYC_OVRD,
++                         CYC_OVRD_WFI_MODE_MASK | CYC_OVRD_DISABLE_WFI_RET |
++                         CYC_OVRD_FIQ_MODE_MASK | CYC_OVRD_IRQ_MODE_MASK,
++                         CYC_OVRD_FIQ_MODE(2) | CYC_OVRD_IRQ_MODE(2));
++                sysop("isb");
++            }
++            msr(CNTP_CTL_EL0, 0L);
++            msr(CNTV_CTL_EL0, 0L);
++            if (in_el2()) {
++                msr(CNTP_CTL_EL02, 0L);
++                msr(CNTV_CTL_EL02, 0L);
++            }
++            psci_s2r_edge_state[index][0] = 1;
++            dc_civac_range((void *)psci_s2r_edge_state[index], 64);
++            sysop("dsb sy");
++            sysop("sev");
++            while (*(volatile u64 *)&psci_s2r_edge < 2) {
++                sysop("wfe");
++                sysop("dsb sy");
++            }
++            psci_s2r_edge_state[index][1] = 1;
++            dc_civac_range((void *)psci_s2r_edge_state[index], 64);
++            sysop("dsb sy");
++            sysop("sev");
++            while (*(volatile u64 *)&psci_s2r_edge < 3) {
++                sysop("wfe");
++                sysop("dsb sy");
++            }
++            dc_ivac_range((void *)psci_s2r_cluster_last, sizeof(psci_s2r_cluster_last));
++            dc_ivac_range((void *)&psci_s2r_expected_mask, 64);
++            if (!psci_s2r_cluster_last[index]) {
++                psci_s2r_edge_state[index][2] = 1;
++                dc_civac_range((void *)psci_s2r_edge_state[index], 64);
++                sysop("dsb sy");
++                sysop("sev");
++                dcsw_op_level1(DCSW_OP_DCCISW);
++                sysop("dsb sy");
++                cpu_sleep_no_acc();
++            } else {
++                u8 my_cl = cpu_info[index].cluster;
++                u32 exp = psci_s2r_expected_mask;
++                u64 t0 = mrs(CNTPCT_EL0), lim = 10 * (mrs(CNTFRQ_EL0) / 1000);
++                while (mrs(CNTPCT_EL0) - t0 < lim) {
++                    bool all = true;
++                    for (int j = 0; j < MAX_CPUS; j++) {
++                        if (j == (int)index || j == boot_cpu_idx || !cpu_info[j].valid ||
++                            cpu_info[j].cluster != my_cl || !(exp & BIT(j)))
++                            continue;
++                        dc_ivac_range((void *)psci_s2r_edge_state[j], 64);
++                        if (!psci_s2r_edge_state[j][2]) {
++                            all = false;
++                            break;
++                        }
++                    }
++                    if (all)
++                        break;
++                }
++                udelay(3000);
++                psci_s2r_edge_state[index][2] = 1;
++                dc_civac_range((void *)psci_s2r_edge_state[index], 64);
++                sysop("dsb sy");
++                sysop("sev");
++                dcsw_op_all(DCSW_OP_DCCISW);
++                sysop("dsb sy");
++                cpu_sleep(true);
++            }
++        }
+         if (*(volatile u64 *)&psci_s2r_go) {
+             /*
+              * image 60d: the release IPI stays pending in IPI_SR (nothing here acked it, unlike the boot-time
+diff --git i/src/smp.h w/src/smp.h
+index d805b6fd..47af5113 100644
+--- i/src/smp.h
++++ w/src/smp.h
+@@ -37,6 +37,9 @@ u64 smp_get_release_addr(int cpu);
+ void smp_set_wfe_mode(bool new_mode);
+ void smp_send_ipi(int cpu);
+ void smp_psci_release_parked(bool stopreq, bool ed, int observe);
++u32 smp_psci_hold_parked(void);
++u32 smp_psci_ping_held(void);
++void smp_psci_edge_release_and_sleep(void) __attribute__((noreturn));
+ u32 smp_psci_ed_release(void);
+ void smp_psci_s2r_clear(void);
+ 
+diff --git i/src/utils.c w/src/utils.c
+index ff25b7f2..d0288869 100644
+--- i/src/utils.c
++++ w/src/utils.c
+@@ -325,3 +325,21 @@ void cpu_sleep_counted(bool deep, volatile u32 *w)
+         sysop("dsb sy");
+     }
+ }
++
++/*
++ * image 101: non-last core in a cluster enters deep WFI (WFI_MODE 3 + DISABLE_WFI_RET) without writing
++ * cluster-wide ACC_OVRD_DEEP_SLEEP, which xnu cpu.c / nekolyanich warn only the last core in the cluster should write.
++ */
++void cpu_sleep_no_acc(void)
++{
++    if (cpu_sleep_deep_extra)
++        cpu_sleep_deep_extra_setup();
++    if (cpu_features->apple_sysregs_unlocked) {
++        reg_mask(SYS_IMP_APL_CYC_OVRD, CYC_OVRD_WFI_MODE_MASK,
++                 CYC_OVRD_WFI_MODE(3) | CYC_OVRD_DISABLE_WFI_RET);
++    }
++    while (1) {
++        sysop("isb");
++        sysop("wfi");
++    }
++}
+diff --git i/src/utils.h w/src/utils.h
+index 5030bb12..085a50d0 100644
+--- i/src/utils.h
++++ w/src/utils.h
+@@ -522,6 +522,7 @@ extern u64 boot_flags, mem_size_actual;
+ void cpu_sleep(bool deep) __attribute__((noreturn));
+ extern volatile bool cpu_sleep_deep_extra;
+ void cpu_sleep_counted(bool deep, volatile u32 *w) __attribute__((noreturn));
++void cpu_sleep_no_acc(void) __attribute__((noreturn));
+ void deep_wfi(void);
+ 
+ bool is_heap(void *addr);
