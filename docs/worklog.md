@@ -4598,3 +4598,11 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
   - Thus `NUB.SPMI0Sw3IRQ` (AP wake bit 54, enabled in macOS's wake mask `macos[1] = 0x005e0900` bit 22) stands asserted HIGH at Commit 1 and immediately wakes the SoC the millisecond it enters `SLP_DDR`.
   - The identical `+73 s` return in R56A and R56B is ~2 s Linux suspend + immediate `< 1 s` wake + ~60 s SMC wake-without-`waka` AP watchdog while Linux hangs/panics in unported resume + ~11 s boot.
 - Next: Image 104 (`R56C-spmi-ack-80s`, alarm `+80 s` = 20 s past WD2) W1C-acks `SPMI_IRQ_NOTIFY` (`b + 0x80`) in `qs_crumb_write()` and W1C-acks `0x29e114080`/`0x29e154080` before & after `NOTIFY_EN`, plus samples pre-crumb `nub-spmi0` active IRQs into `0x601e` on RVBAR wake (`0x84` = PMU RTC alarm IRQ 2).
+
+## 2026-11-18 18:01 R56C armed: image 104 (SPMI0/1 NOTIFY_ACK W1C fix + 80 s alarm)
+- Image 104 (`~/Work/src/aura-img99` branch `gh5-img99-local`, local commit `4e5f33cc`, tag `v0.1.0-55-g4e5f33cc`, `build/aura.bin` sha `f1dc5199db149025`, packaged as `~/Work/psci-test/boot-test.bin.104` sha `6736a9461a95fe27`, staged as `boot-test.bin`; diff saved in `patches/psci-efi/aura/wip-image104.diff`).
+- Changes from Image 103:
+  1. `qs_crumb_write()` W1C-acks `SPMI_IRQ_NOTIFY` (`write32(b + 0x80, 1); read32(b + 0x80);`) after draining `rsp` when `!qs_crumbs.st`.
+  2. `psci_system_suspend()` `PSCI_S2R_SPMINOTIFY` W1C-acks `0xffffffffU` to `0x29e114080` and `0x29e154080` before AND after writing `NOTIFY_EN`.
+  3. `psci_suspend_rvbar()` samples `nub-spmi0` active IRQs (`0x29e114060 & 0x29e114020`, `0x29e114080 & 0x29e114040`) BEFORE `qs_crumb(0x21)` and stores `spmi_wk` into `0x601e` when `line < 0`: `0x84` = PMU RTC alarm IRQ 2, `0x81` = `SPMI_IRQ_NOTIFY`, `0x82` = other ctrl IRQ, `0x88` = other periph IRQ, `0x80` = non-SPMI0.
+- Job `harness/usbtest/jobs/r56c-spmi-ack-80s` (`alarm +80 s`, `aura-ctl 0xc17dcb3f 0 0 0 241`). Look for: Mac dark ~3.5 min; `"R56C resumed"` = full Linux resume; otherwise main boot ~+100..+120 s after `"R56C committing"` with `0x6004=0x22` and `elapsed ~80 s` confirming genuine 80 s S2R sleep past WD2! Hold power only if dark > 6 min.

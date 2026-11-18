@@ -1,0 +1,92 @@
+diff --git i/src/psci.c w/src/psci.c
+index 1a18d706..b8609999 100644
+--- i/src/psci.c
++++ w/src/psci.c
+@@ -118,7 +118,9 @@ static const u32 qs_clkgen_off[5] = {0x38160, 0x38168, 0x38164, 0x38158, 0x3816c
+ static const unsigned wake_irq[2] = {724, 865};
+ #define MPMGR_AON_S2R_TIMER 0x29e5c4000ULL
+ #define QS_SPMI0_NOTIFY_EN  0x29e114040ULL      /* image 66: nub-spmi0 (the PMU, J414s ADT 0x9e114000) + 0x40 */
++#define QS_SPMI0_NOTIFY_ACK 0x29e114080ULL      /* image 104: W1C controller IRQ ack (incl. bit 0 SPMI_IRQ_NOTIFY) */
+ #define QS_SPMI1_NOTIFY_EN  0x29e154040ULL      /* image 66: nub-spmi1 (spmi-spmu) + 0x40 */
++#define QS_SPMI1_NOTIFY_ACK 0x29e154080ULL
+ #define QS_SPMI_NOTIFY_SLEEP 0x2000001      /* MPMGR_AON (PMGR reg 38, T6020) + 0x4000 */
+ 
+ static volatile struct {
+@@ -768,6 +770,10 @@ static void qs_crumb_write(u16 reg, const u8 *v, int len)
+     do {
+         if (!(read32(b + qs_crumbs.st) & qs_crumbs.rx_empty)) {
+             read32(b + qs_crumbs.rsp);
++            if (!qs_crumbs.st) {
++                write32(b + 0x80, 1);
++                (void)read32(b + 0x80);
++            }
+             return;
+         }
+         asm volatile("isb\n mrs %0, cntpct_el0" : "=r"(t));
+@@ -1449,7 +1455,7 @@ static u8 qs_cnt_sec(u32 idx)
+     return secs > 253 ? 253 : (u8)secs;
+ }
+ 
+-static void qs_rvbar_telemetry(int line)
++static void qs_rvbar_telemetry(int line, u8 spmi_wk)
+ {
+     if (!qs_crumbs.on)
+         return;
+@@ -1478,7 +1484,7 @@ static void qs_rvbar_telemetry(int line)
+     qs_crumb_write(0x6012, aw, 2);
+     qs_crumb(0x24);
+ 
+-    /* Stage 0x25: AP wake status (0x6015..0x6016) + WD2 / RVBAR count / AIC line (0x601b..0x601e) */
++    /* Stage 0x25: AP wake status (0x6015..0x6016) + WD2 / RVBAR count / pre-crumb SPMI0 or AIC line (0x601b..0x601e) */
+     u8 wk[2] = {0xff, 0};
+     for (u32 w = 0; w < 9; w++) {
+         u32 v = read32(QS_AP_WAKE_STAT + 4ULL * w);
+@@ -1506,7 +1512,7 @@ static void qs_rvbar_telemetry(int line)
+         tail[1] = 0xff;
+     }
+     tail[2] = psci_dbg[12] > 255 ? 255 : (u8)psci_dbg[12];
+-    tail[3] = line < 0 ? 0xff : (line == 724 ? 1 : (line == 865 ? 2 : 0xfe));
++    tail[3] = line < 0 ? spmi_wk : (line == 724 ? 1 : (line == 865 ? 2 : 0xfe));
+     qs_crumb_write(0x601b, tail, 4);
+     qs_crumb(0x25);
+ }
+@@ -1522,6 +1528,11 @@ void __attribute__((noreturn)) psci_suspend_rvbar(void)
+      * (stage 2) are unlike every other dog (120 s) and the SMC's own reset, so a reset time names its stage.
+      */
+     wdt_psci_arm(RVBAR_WDT_S);
++    /* Sample nub-spmi0 active IRQs before qs_crumb(0x21) triggers SPMI_IRQ_NOTIFY */
++    u32 spmi_p0 = read32(0x29e114060ULL) & read32(0x29e114020ULL);
++    u32 spmi_c0 = read32(0x29e114080ULL) & read32(0x29e114040ULL);
++    u8 spmi_wk = 0x80 | ((spmi_c0 & 1U) ? 1 : 0) | ((spmi_c0 & ~1U) ? 2 : 0) |
++                 ((spmi_p0 & BIT(2)) ? 4 : 0) | ((spmi_p0 & ~BIT(2)) ? 8 : 0);
+     qs_crumb(0x21);
+     dc_ivac_range((void *)psci_dbg, sizeof(psci_dbg));
+     psci_dbg[12]++;
+@@ -1532,7 +1543,7 @@ void __attribute__((noreturn)) psci_suspend_rvbar(void)
+      * restore and drivers take over. Stage 2 (RESUME_WDT_S) resets the Mac if the kernel's resume hangs.
+      */
+     line = psci_wake_line();
+-    qs_rvbar_telemetry(line);
++    qs_rvbar_telemetry(line, spmi_wk);
+     psci_resume_kernel(line, 1);
+ }
+ 
+@@ -1756,9 +1767,17 @@ static unsigned long psci_system_suspend(unsigned long entry, unsigned long cont
+         }
+     }
+     if (quiet && (steps & PSCI_S2R_SPMINOTIFY)) {
+-        /* image 66: after the last crumb, nothing in Aura uses SPMI again before the commit */
++        /* image 104: W1C-ack pending controller IRQs on nub-spmi0/1 (incl. SPMI_IRQ_NOTIFY from qs_crumb) before and after NOTIFY_EN */
++        write32(QS_SPMI0_NOTIFY_ACK, 0xffffffffU);
++        (void)read32(QS_SPMI0_NOTIFY_ACK);
++        write32(QS_SPMI1_NOTIFY_ACK, 0xffffffffU);
++        (void)read32(QS_SPMI1_NOTIFY_ACK);
+         write32(QS_SPMI0_NOTIFY_EN, QS_SPMI_NOTIFY_SLEEP);
+         write32(QS_SPMI1_NOTIFY_EN, QS_SPMI_NOTIFY_SLEEP);
++        write32(QS_SPMI0_NOTIFY_ACK, 0xffffffffU);
++        (void)read32(QS_SPMI0_NOTIFY_ACK);
++        write32(QS_SPMI1_NOTIFY_ACK, 0xffffffffU);
++        (void)read32(QS_SPMI1_NOTIFY_ACK);
+         sysop("dsb sy");
+         psci_dbg2[46] = ((u64)read32(QS_SPMI1_NOTIFY_EN) << 32) | read32(QS_SPMI0_NOTIFY_EN);
+     }
