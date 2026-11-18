@@ -4469,3 +4469,9 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
 - Two attempts, 15:32 (R53) and 18:58 (R53b, wait raised to 900 s): the Mac rebooted into macOSTest each time, but **`/dev/m1n1` never appeared**; the second wait ended "no /dev/m1n1 after 900 s". Pi side: `lsusb` shows only the root hubs, `uhubctl` hub 1 port 1 `0100 power` (nothing attached), and the Pi's dmesg has no USB device event since 2026-11-14 (the last Aura enumeration). So the Mac was not talking to the Pi over USB; with nobody to drive the proxy it sat there until restarted (R53b: from about 19:00 until 21:25).
 - **Blocker: the USB link Pi to Mac.** Likely the cable or the port changed since 11-14 (it must be the Pi's USB-A to the Mac's DFU port, the one nearest the MagSafe). Cannot be fixed remotely. No S2R result from these two runs.
 - Cost to the owner: the Mac sat in macOSTest's m1n1 for about 15 min the first time and 2.4 h the second. Both one-shot boot targets were consumed; default and next are Omarchy (`bless.sh list`).
+
+## 2026-11-17 21:26 housekeeping done while the USB link is down
+- Pacman hook `96-deepidle-loader-check` (warn only, never writes the boot chain) for the update-m1n1 overwrite; `bootbin.sh status` shows the warning.
+- Pi: stage 1 upload server is now a systemd user service (enabled, survives Pi reboots); it was down for a minute while I swapped it (first attempt lost the unit file), now active and serving recovery.sh (200).
+- Local commits of the Aura image-99 and PR 268 trees (not pushed).
+- All logged with reversals in `docs/system-changes.md`.
