@@ -29,6 +29,7 @@ status)
     echo "boot.bin        $(sha $E/boot.bin | cut -c1-16) $(is_loader && echo '(one-shot loader)' || echo '(not the loader)')"
     [ -e $E/boot-stock.bin ] && echo "boot-stock.bin  $(sha $E/boot-stock.bin | cut -c1-16)"
     [ -e $E/boot-test.bin ] && echo "boot-test.bin   $(sha $E/boot-test.bin | cut -c1-16)"
+    [ -s $S/NEEDS_REBUILD ] && echo "WARNING: $(cat $S/NEEDS_REBUILD | tr "\n" " ")"
     echo "PMU flag        $(flag_get) (a5 = the next boot is a test boot)"
     echo "booted with     stage 2 $(tr -d '\0' < /proc/device-tree/chosen/asahi,m1n1-stage2-version 2>/dev/null), u-boot $(tr -d '\0' < /proc/device-tree/chosen/u-boot,version 2>/dev/null | cut -c1-40)" ;;
 install)

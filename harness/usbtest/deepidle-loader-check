@@ -1,0 +1,13 @@
+#!/bin/bash
+# GH-5: run by the pacman hook 96-deepidle-loader-check.hook after update-m1n1. Detects that the one-shot test loader
+# in m1n1/boot.bin was replaced by the stock image and says so. It never writes the boot chain (a wrong boot.bin
+# can leave the Mac unbootable without recoveryOS): the rebuild is done by hand (tools/rebuild-loader.py, then
+# bootbin.sh install).
+S=/var/lib/deepidle/bootbin; E=/boot/efi/m1n1
+[ -s $S/loader.sha256 ] || exit 0
+if [ "$(sha256sum $E/boot.bin 2>/dev/null | cut -c1-64)" = "$(cat $S/loader.sha256)" ]; then
+    rm -f $S/NEEDS_REBUILD; exit 0
+fi
+{ date '+%F %T'; echo "update-m1n1 replaced the one-shot loader in $E/boot.bin with the stock image; DeepTest boots and the PR 933 DTB are gone until it is rebuilt"; } > $S/NEEDS_REBUILD
+echo "deepidle: update-m1n1 replaced the DeepTest one-shot loader (see $S/NEEDS_REBUILD). The Mac still boots normally; the S2R harness is off until the loader is rebuilt: tools/rebuild-loader.py, then bootbin.sh install."
+exit 0
