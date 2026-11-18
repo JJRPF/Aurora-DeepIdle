@@ -4581,3 +4581,20 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
   - `0x601b..0x601e`: WD2 current count seconds, WD2 ctl low byte, `psci_dbg[12]` (RVBAR count), AIC wake line (`0xff` none, `1` IRQ 724, `2` IRQ 865)
   - `0x600c/11/14/1f`: left untouched from pre-commit (`00 / 50 / 00 / 00`)
 - Job `harness/usbtest/jobs/r56b-confirm-90s`. Look for: Mac dark ~2.5–3 min; `"R56B resumed"` = full Linux resume; otherwise `"R56B committing"` followed by main boot ~2 min later (with `0x6004=0x22` and `elapsed ~90 s` proving real S2R sleep past WD2). Hold power only if dark > 6 min.
+
+## 2026-11-18 18:00 R56B result (image 103 +90 s alarm + RVBAR telemetry): REAL HARDWARE SLP_DDR SLEEP + 2/2 RVBAR WAKE CONFIRMED; immediate wake traced to bit 54 (NUB.SPMI0Sw3IRQ / unacked SPMI_IRQ_NOTIFY from qs_crumb)
+- Armed `17:51:21`; `R56B axi2af` `17:51:59` (all 22 `figs_1` tunables applied); `R56B sep bound` `17:52:19` (idle after 20 s, `0x1000030f`); `R56B sep asleep` `17:52:26` (`freezer pass rc=0`, `TEST SLEEP type 2: reply tag 0xd data 0x0`); `R56B committing` `17:52:26` (`22:52:26 UTC`, alarm `+90 s`, `deep_steps=191`, `aura ctl 0xc17dcb3f`, fifth word `241`, 131 MMIO ranges, 10 debug pages).
+- **Return timing:** main's kernel started at `17:53:39` (**`+73 s`** after `R56B committing` — identical to R56A's `+73 s` despite moving alarm from `+40 s` to `+90 s`), `usbtest-return` logged at `17:53:48` (`away=147s`, `oneshot_taken=yes`, `bootbin_flag_left=00`).
+- **PMU scratch decode (`raw 0x6000-0x601f: 00 30 00 50 22 00 00 00 fe 00 00 fe 00 00 00 00 00 50 02 01 00 36 01 5a 00 00 00 00 00 01 ff 00`):**
+  - **`0x6004 = 0x22`**: `psci_suspend_rvbar()` stepped cleanly `0x21 -> 0x23 -> 0x24 -> 0x25 -> 0x22` and jumped back into Linux `cpu_resume` via `psci_enter()` (**2/2 reproducible RVBAR wakes!**).
+  - **`0x6008` (`SLP_DDR`, idx 42) = `fe` (`> 0`, `< 1 s`)**, **`0x600b` (`SYS_SLP_DDR`, idx 54) = `fe` (`> 0`, `< 1 s`)**, `0x6007` (`SLP_S2R`) = `00`, `0x6009` (`DEEP_WAIT`) = `00`, `0x600a` (`SYS_S2R_AOP`) = `00`, `0x6012` (`AWAKE`) = `02 s`, `0x6013` (`SYS_AWAKE`) = `01 s` — **FIRST NON-ZERO HARDWARE `SLP_DDR` SLEEP STATE ON THIS T6020 EVER!**
+  - **`0x601b = 00`, `0x601c = 00` (WD2 count = 0, WD2 ctl = 0):** hardware disarmed WD2 because S2R entry completed!
+  - **`0x601d = 01`** (`psci_dbg[12] = 1` RVBAR wake), **`0x601e = ff`** (`line = -1`, AIC lost state).
+  - Pre-commit state preserved intact: `0x600c = 00`, `0x6011 = 50`, `0x6014 = 00`, `0x601f = 00`.
+  - **SMOKING GUN OF THE IMMEDIATE WAKE:** `0x6005..0x6006 = 00 00` (elapsed = `0 s`, `< 1 s`) AND **`0x6015 = 0x36` (decimal 54 = `NUB.SPMI0Sw3IRQ`), `0x6016 = 0x01` (EXACTLY ONE wake source set!)**.
+- **Root cause verified in `spmi-apple-controller.c`, `src/psci.c`, and live MMIO (`0x29e114080 = 0x08000001`):**
+  - `qs_crumb_write()` writes to `nub-spmi0` (`0x29e114004`), reads `rsp` (`0x29e114008`), and **never W1C-acks `SPMI_IRQ_NOTIFY` (`0x29e114080` bit 0, IRQ 256)**.
+  - In DeepTest (`t6020-j414s-psci.dts`), `spmi-apple` unmasks `SPMI_IRQ_NOTIFY` (`0x29e114040` bit 0) at probe, and `PSCI_S2R_SPMINOTIFY` (`psci.c:1760`) writes `0x2000001` to `0x29e114040` right after `qs_crumb(0x16)` without W1C-acking `0x29e114080` first.
+  - Thus `NUB.SPMI0Sw3IRQ` (AP wake bit 54, enabled in macOS's wake mask `macos[1] = 0x005e0900` bit 22) stands asserted HIGH at Commit 1 and immediately wakes the SoC the millisecond it enters `SLP_DDR`.
+  - The identical `+73 s` return in R56A and R56B is ~2 s Linux suspend + immediate `< 1 s` wake + ~60 s SMC wake-without-`waka` AP watchdog while Linux hangs/panics in unported resume + ~11 s boot.
+- Next: Image 104 (`R56C-spmi-ack-80s`, alarm `+80 s` = 20 s past WD2) W1C-acks `SPMI_IRQ_NOTIFY` (`b + 0x80`) in `qs_crumb_write()` and W1C-acks `0x29e114080`/`0x29e154080` before & after `NOTIFY_EN`, plus samples pre-crumb `nub-spmi0` active IRQs into `0x601e` on RVBAR wake (`0x84` = PMU RTC alarm IRQ 2).
