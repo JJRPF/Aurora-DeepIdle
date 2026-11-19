@@ -4721,3 +4721,6 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
 
 ## 2026-11-19 17:30 main's kernel line now has reserve_mem (owner's go)
 - Edited `/etc/default/grub` (the source Omarchy derives Limine's line from; editing `/etc/default/limine` is overwritten), ran `sudo limine-update`: the UKI `omarchy_linux-aurora.efi` and `limine.conf` carry `reserve_mem=1M:2M:oops`. Backups listed in `docs/system-changes.md`. Rebooting main to apply; then read the reserved address from main's dmesg and compare with the test boot's (0x107c5400000 on 7.2.11-psci-efi+).
+
+## 2026-11-19 17:45 main boots with reserve_mem; same address as the test boot
+- Main's kernel line carries `reserve_mem=1M:2M:oops`; loading ramoops on main reports `0x100000@0x107c5400000`, the same address as the test boot. The page is reserved on both, so main will not reuse it. Re-running R57K (console log in RAM); then read it with `read-phys.py` at once.
