@@ -4724,3 +4724,7 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
 
 ## 2026-11-19 17:45 main boots with reserve_mem; same address as the test boot
 - Main's kernel line carries `reserve_mem=1M:2M:oops`; loading ramoops on main reports `0x100000@0x107c5400000`, the same address as the test boot. The page is reserved on both, so main will not reuse it. Re-running R57K (console log in RAM); then read it with `read-phys.py` at once.
+
+## 2026-11-19 17:55 R57K2: reserved page all zeros; control run R57L armed
+- Commit 16:42:xx, back 16:44:21. PMU scratch `0x6005=17 ... 0x6007=16` (fresh, SLP_S2R 22 s), so the sleep and wake happened. The reserved page at 0x107c5400000 (main now reserves it, read at once) is all zeros: no console text, no panic record.
+- Either the SoC reset clears DRAM (iBoot/hardware scrub), or ramoops wrote nothing. R57L control: load ramoops (console), write three markers to /dev/kmsg, `sysrq b` (no sleep), read the page on main. Markers present = DRAM survives a normal reboot and the sleep reset wipes or Linux never logs; absent = this method cannot work here and the crumbs must go to PMU scratch.
