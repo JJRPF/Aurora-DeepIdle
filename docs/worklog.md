@@ -4678,3 +4678,8 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
 - `read-phys.py 0x10790000000` on main: all zeros, no `DBGC` signature and no panic text. ntfy.txt was empty (no pushes retrieved), so I cannot tell whether ramoops loaded in the job.
 - Two readings: (1) DRAM there does not survive the SoC reset or main's boot, or (2) ramoops did not load. A panic is not excluded or confirmed.
 - **R57F** = R57E plus a pattern written through /dev/mem at `0x10790100000` before the sleep. If the pattern is on main afterwards, DRAM survives and ramoops either failed to load or never got a panic (a pure hang). If it is gone, this route is closed and a PMU-scratch crumb from a kernel die/panic notifier is the next idea.
+
+## 2026-11-19 15:50 R57F result (pattern in DRAM above mem=30G): nothing there either; R57G (ramoops with a deliberate panic, no sleep) armed
+- Armed 15:42:35, back 15:45:13. PMU scratch identical to R57E. `0x10790000000` and `0x10790100000` both read all zeros on main, and ntfy.txt is empty again (the job's pushes are not arriving, so the job's own messages are not visible).
+- Not conclusive: the pattern write through /dev/mem was not confirmed (output lost), and main's boot or iBoot may clear that DRAM. The SoC reset after the failed wake may also clear it.
+- **R57G** (no sleep): loads ramoops, writes the pattern, stamps PMU scratch `0x6010 = 5a` if the pattern write worked and `0x6011 = 5a` if ramoops registered, then `sysrq-c` (a real panic, `panic=10` reboots). On main: if the panic text and pattern are in DRAM, the route works on a warm reset and R57E's zeros mean the post-sleep reset clears DRAM (or no panic happened). If not, the route is closed.
