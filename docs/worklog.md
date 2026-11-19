@@ -4737,3 +4737,7 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
 ## 2026-11-19 18:25 PSTORE_CONSOLE kernel built; R57L2 (control) armed
 - `~/Work/src/linux-aurora-pstore` (commit 283e0795 + `CONFIG_PSTORE_CONSOLE=y`) built (Image 33.7 MB, release 7.2.11-psci-efi+). UKI built from it with `aop.sleep_ap_idle=3 reserve_mem=1M:2M:oops`. The previous UKI is kept as `deeptest.efi.plain-3a50d5fe`. Caveat: the Image differs from the Nov 9 one only by this option in principle, but its exact source is a guess (commit 283e0795); the test root's `ramoops.ko` predates this build (no MODVERSIONS, same vermagic).
 - R57L2: the same marker-and-reboot control, now with a console that can log. Expect the markers in the reserved page on main.
+
+## 2026-11-19 18:45 R57L2: the GCC-built PSTORE_CONSOLE kernel did not boot the test; rebuilding with clang
+- R57L2 came back after 78 s with no pushes at all: the test boot did not run. Cause found: the working Image (Nov 9) was built with clang 23.1.4 / LLD (`LLVM=1`), my worktree build used GCC 16.1.1 and the default `.config`. The old config is recoverable from the Image (`scripts/extract-ikconfig`).
+- Fix: `~/Work/src/linux-aurora-pstore` now uses the old Image's own config plus `CONFIG_PSTORE_CONSOLE=y`, `make LLVM=1` (clean tree). Restored the working UKI (old Image + `aop.sleep_ap_idle=3 reserve_mem=1M:2M:oops`) in the meantime. Next: build, make the UKI, repeat R57L2.
