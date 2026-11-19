@@ -2,7 +2,8 @@
 # R57H: R57G with unconditional PMU crumbs (pushes do not arrive from the test boot with the current cmdline).
 # 0x6010: 01 job started, 0x6011: modprobe exit code, 0x6012: number of ramoops/pstore dmesg lines (hex),
 # 0x6013: pattern write result (5a ok, else 0xee), 0x601d: 77 = about to sysrq-c. Then sysrq-c; main reads DRAM at 0x10790000000/0x10790100000.
-N=$(ls /sys/bus/nvmem/devices/spmi_nvmem*/nvmem 2>/dev/null | head -1)
+for i in $(seq 1 60); do N=$(ls /sys/bus/nvmem/devices/spmi_nvmem*/nvmem 2>/dev/null | head -1); [ -n "$N" ] && break; sleep 1; done
+log "R57H nvmem: ${N:-NONE} after $i s"
 stamp() { [ -w "$N" ] && printf "\\x$2" | dd of="$N" bs=1 seek=$(($1)) count=1 conv=notrunc 2>/dev/null; }
 stamp 0x6010 01
 modprobe ramoops mem_address=0x10790000000 mem_size=0x100000 record_size=0x20000 console_size=0 ftrace_size=0 pmsg_size=0 max_reason=2 >/dev/null 2>&1
