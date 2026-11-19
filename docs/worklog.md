@@ -4708,3 +4708,8 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
 - The test boot worked (pushes arrived up to "R57J committing" at 16:15:46, `ramoops: using 0x100000@0x107c5400000`). The Mac was back on main 59 s after the commit, matching nekolyanich's no-wake reset time (commit + 60 s), not the 22-24 s sleep and alarm wake of R57A-D.
 - PMU scratch is the stale value again (no `0x6004=22` RVBAR return), so this run shows no wake. The ramoops page (read at once with `read-phys.py`) is all zeros: no panic record, and either DRAM is scrubbed across the reset or nothing panicked.
 - Open: why this run did not wake like R57D (the cmdline differs: reserve_mem, panic_on_oops, hung_task); whether the alarm armed. Next: re-run R57A exactly on the plain UKI plus `aop.sleep_ap_idle=3` only, to see if the wake returns, then add one change at a time.
+
+## 2026-11-19 16:55 R57A3 (plain UKI + aop.sleep_ap_idle=3): real sleep and wake again; R57K armed
+- Commit at 16:19:58, Mac back on main at 16:20:57 (+59 s). PMU scratch changed from the stale value: `0x6004=22` (Aura RVBAR return), `0x6005/6 = 18 00` (24 s elapsed), `0x6007=17` (SLP_S2R 23 s). So the sleep and RTC wake are reproducible on the plain UKI, as in R57A-D, and Linux then dies.
+- R57J3 (same job plus reserve_mem, ramoops module, panic options) left the scratch stale: no wake. So one of those additions stops the wake, or the job's ramoops part broke earlier than the commit.
+- R57K: reserve_mem only in the UKI, ramoops with `console_size=0x40000` (the kernel console is mirrored into the reserved RAM continuously, so no panic is needed). Read the page with `read-phys.py` at the address in the "R57K ramoops" push.
