@@ -4629,3 +4629,15 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
   2. `smp_psci_s2r_prep_secondaries()` rewrites unlocked secondary RVBARs to `_vectors_start`, resets `spin_table[i]`, and marks `CPU_OFF` secondaries in `psci_cpu_cold[i]` (between `qs_crumb(0x26)` and `qs_crumb(0x27)`).
   3. `smp_psci_cpu_on()` cold-starts `psci_cpu_cold[index]` cores via `CPUSTART+4` and `CPUSTART+8+4*cluster`; `smp_secondary_entry()` uses `psci_enter(target, me->args[0])` when `psci_runtime_quiet()` is set.
 - Job `harness/usbtest/jobs/r57a-resume-25s` (`alarm +25 s`, `PUSH_TRIES=3`): stamps `0x601f=0xaa`, `0x6014=rc`, `0x600c=nproc` into PMU scratch immediately when `echo mem` returns. Look for: Mac dark ~2–2.5 min and automatic return to Omarchy. Hold power only if dark > 6 min.
+
+## 2026-11-18 21:30 R57A result (image 105, +25 s alarm): second real sleep, woke on the alarm; Linux still does not reach userspace
+- Armed `19:42:08`; `R57A axi2af` `19:42:46`; `R57A sep bound` `19:43:06`; `R57A sep asleep` `19:43:13`; `R57A committing` `19:43:13` (`00:43:13 UTC`, alarm `+25 s` = `19:43:38`, same entry word `0xc17dcb3f ... 241`). No "R57A resumed" push.
+- Main's kernel started `19:44:03` (+50 s after the commit push, about 27 s after the alarm), `usbtest-return` `19:44:12` (`away=124s`, `bootbin_flag_left=00`).
+- PMU scratch `00 30 00 30 22 17 00 16 fe 00 16 fe 00 00 00 00 00 50 02 01 00 36 01 5a 00 00 00 00 00 01 01 00`:
+  - `0x6004 = 0x22` (4/4 RVBAR returns). `0x6005/6 = 0x0017` = 23 s elapsed, `SLP_S2R = 0x16` = 22 s, `SYS_S2R_AOP = 0x16` = 22 s. So the SoC slept for the +25 s alarm, not for WD2's 60 s: the sleep length follows the alarm (R56C: 77 s for +80, now 22 s for +25).
+  - Wake source `0x6015/6 = 0x36 / 0x01` (bit 54) again, WD2 `ctl = 00`, `0x601e = 01` (line 724, the alarm).
+  - `0x6003 = 0x30` again: Linux reached `macsmc_reboot_pm_resume_early`.
+  - **`0x601f = 00`, `0x6014 = 00`, `0x600c = 00`**: the userspace marker was NOT written. `echo mem` never returned to the job, so Linux did not get through device resume to userspace. `0x6004` stayed `0x22`, so the new crumbs `0x26/0x27` were overwritten by `0x22` (the order in `psci_resume_kernel` writes `0x22` last); they prove nothing either way.
+- The reset came sooner than in R56C (about 27 s after the wake against 71 s). Not explained: a kernel panic (`panic=10`) earlier than before, or a different stall. Whether the domain restore and the cold secondary start in image 105 changed it is not shown, because there is no log from the woken kernel.
+- Not logged as success: Linux has not resumed to userspace. What is shown is repeatable real sleep and alarm wake, with the length controlled by the alarm.
+- Next: get a view of the woken Linux. Candidates: `panic=0` plus pstore/ramoops, or a kmsg stream to the Pi, or `maxcpus=1` on the DeepTest cmdline to separate secondary bring-up from device resume.
