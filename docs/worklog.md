@@ -4744,3 +4744,8 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
 
 ## 2026-11-19 19:00 clang PSTORE_CONSOLE kernel built (32,410,112 bytes, same size as the Nov 9 Image); R57L2b armed
 - Built with `LLVM=1` from the Image's own config plus `CONFIG_PSTORE_CONSOLE=y`; UKI built from it. R57L2b repeats the marker-and-reboot control.
+
+## 2026-11-19 17:45 R57L2b void: the rebuilt kernel did not boot the test either
+- R57L2b came back after 79 s with no pushes (reports_from_test_boot=0) and the reserved page read back all zeros. So the clang PSTORE_CONSOLE Image does not run the DeepTest, like the GCC build before it.
+- Config diff against the working Nov 9 Image: only the toolchain (clang 23.1.4 -> 23.1.5, rustc 1.99.1 -> 1.100.0) and `CONFIG_PSTORE_CONSOLE=y`. Source is the same commit (283e0795; every local edit is newer than that Image).
+- Control started: same tree with PSTORE_CONSOLE off, new toolchain (`/tmp/claude-1000/ctl-build.log`). If it also fails, the toolchain is the cause (older clang/lld 23.1.4 packages are in the pacman cache; rust 1.99.1 may need to be found); if it boots, the pstore console breaks the test boot.
