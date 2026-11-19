@@ -4641,3 +4641,8 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
 - The reset came sooner than in R56C (about 27 s after the wake against 71 s). Not explained: a kernel panic (`panic=10`) earlier than before, or a different stall. Whether the domain restore and the cold secondary start in image 105 changed it is not shown, because there is no log from the woken kernel.
 - Not logged as success: Linux has not resumed to userspace. What is shown is repeatable real sleep and alarm wake, with the length controlled by the alarm.
 - Next: get a view of the woken Linux. Candidates: `panic=0` plus pstore/ramoops, or a kmsg stream to the Pi, or `maxcpus=1` on the DeepTest cmdline to separate secondary bring-up from device resume.
+
+## 2026-11-19 R57B armed: R57A with the NVMe unbound (Claude resuming after Antigravity's R56/R57 work)
+- Hypothesis: after the real power cut ANS is dead (nekolyanich's ANS lead, comment 6985471641), and the NVMe's resume blocks `dpm_resume`, so `echo mem` never returns and the kernel is reset about 27 s later. The DeepTest root is a RAM overlay, so nothing needs the NVMe. R57B unbinds `nvme-apple` before `echo mem`; everything else is R57A (image 105, entry `0xc17dcb3f ... 241`, alarm +25 s).
+- Look for: `0x601f = aa` in the PMU scratch dump or a "R57B resumed" push = Linux reached userspace after a real sleep. If it still stalls, next unbind candidates: apple-dcp, pcie-apple (Wi-Fi/SD), SIO, then the PMP.
+- Not run: R54A (image 100 commit order). Superseded by the working entry from Antigravity's images; its diff and job are kept in the repo.
