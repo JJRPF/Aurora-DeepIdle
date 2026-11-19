@@ -4703,3 +4703,8 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
 
 ## 2026-11-19 16:30 R57J2: test boot works again (kernel fix confirmed), but the job's gate needs `aop.sleep_ap_idle=3` on the cmdline
 - The test boot now shows `kernel 7.2.11-psci-efi+, cpus 0-9, mem 31677 MB`, stage2 `v0.1.0-56-g86776585` (image 105) and the pushes arrive, so the wrong-kernel diagnosis was right. The job stopped at its own gate: `aop.sleep_ap_idle=3 not on the cmdline`. My rebuild dropped that option (the earlier UKI had it). Rebuilt with `aop.sleep_ap_idle=3` added to the extras (UKI cmdline: `... aop.sleep_ap_idle=3 reserve_mem=1M:2M:oops panic_on_oops=1 hung_task_panic=1 hung_task_timeout_secs=30 softlockup_panic=1`), R57J re-armed as R57J3.
+
+## 2026-11-19 16:40 R57J3: commit ran, reset 59 s later, no wake stamp, reserved RAM empty
+- The test boot worked (pushes arrived up to "R57J committing" at 16:15:46, `ramoops: using 0x100000@0x107c5400000`). The Mac was back on main 59 s after the commit, matching nekolyanich's no-wake reset time (commit + 60 s), not the 22-24 s sleep and alarm wake of R57A-D.
+- PMU scratch is the stale value again (no `0x6004=22` RVBAR return), so this run shows no wake. The ramoops page (read at once with `read-phys.py`) is all zeros: no panic record, and either DRAM is scrubbed across the reset or nothing panicked.
+- Open: why this run did not wake like R57D (the cmdline differs: reserve_mem, panic_on_oops, hung_task); whether the alarm armed. Next: re-run R57A exactly on the plain UKI plus `aop.sleep_ap_idle=3` only, to see if the wake returns, then add one change at a time.
