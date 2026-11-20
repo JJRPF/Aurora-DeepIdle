@@ -1,0 +1,60 @@
+2026-11-20 21:18:49 start; kernel 7.2.11-psci-efi+, cpus 0-9, mem 31677 MB
+2026-11-20 21:18:49 job: # R60D-smckeys: r60a-postwake + every readable SMC key before the sleep, right after the wake and ~1 min later (debugfs macsmc_keys).
+2026-11-20 21:18:49 R57J kernel 7.2.11-psci-efi+; stage2 v0.1.0-73-g6aed97c5; cmdline aop: aop.sleep_ap_idle=3
+2026-11-20 21:18:49 R57J kernel 7.2.11-psci-efi+; stage2 v0.1.0-73-g6aed97c5; cmdline aop: aop.sleep_ap_idle=3
+2026-11-20 21:18:49 axi2af:  0x0:0x00000010>0x00000011 0xc:0x000fffff>0x0000000d 0x10:0x0007ffff>0x0000000c 0x14:0x000005a0>0x00000001 0x18:0x000005a0>0x00000001 0x1c:0x000005a0>0x00000003 0x20:0x000005a0>0x00000003 0x24:0x000005a0>0x00000003 0x28:0x000005a0>0x00000003 0x2c:0x000005a0>0x00000003 0x108:0x00000010>0x00000011 0x10c:0x000fffff>0x0000000d 0x110:0x0007ffff>0x0000000c 0x114:0x000005a0>0x00000001 0x118:0x000005a0>0x00000001 0x11c:0x000005a0>0x00000003 0x120:0x000005a0>0x00000003 0x124:0x000005a0>0x00000003 0x128:0x000005a0>0x00000003 0x12c:0x000005a0>0x00000003 0x400:0x00f00008>0xc0f10010 0xa00:0x00000000>0x01ffffff
+2026-11-20 21:18:49 axi2af:  0x0:0x00000010>0x00000011 0xc:0x000fffff>0x0000000d 0x10:0x0007ffff>0x0000000c 0x14:0x000005a0>0x00000001 0x18:0x000005a0>0x00000001 0x1c:0x000005a0>0x00000003 0x20:0x000005a0>0x00000003 0x24:0x000005a0>0x00000003 0x28:0x000005a0>0x00000003 0x2c:0x000005a0>0x00000003 0x108:0x00000010>0x00000011 0x10c:0x000fffff>0x0000000d 0x110:0x0007ffff>0x0000000c 0x114:0x000005a0>0x00000001 0x118:0x000005a0>0x00000001 0x11c:0x000005a0>0x00000003 0x120:0x000005a0>0x00000003 0x124:0x000005a0>0x00000003 0x128:0x000005a0>0x00000003 0x12c:0x000005a0>0x00000003 0x400:0x00f00008>0xc0f10010 0xa00:0x00000000>0x01ffffff
+2026-11-20 21:18:49 afnc2 words before: 0x1f0000ff 0x1f0000ff 0x1f0000ff 0x1f0000ff ; after: 0x1f0000ff 0x1f0000ff 0x1f0000ff 0x1f0000ff 
+2026-11-20 21:18:49 afnc2 words before: 0x1f0000ff 0x1f0000ff 0x1f0000ff 0x1f0000ff ; after: 0x1f0000ff 0x1f0000ff 0x1f0000ff 0x1f0000ff 
+2026-11-20 21:19:01 push 429: ntfy cap, no more pushes
+2026-11-20 21:19:01 push 429: ntfy cap, no more pushes
+2026-11-20 21:19:21 sep: ps_sep before the driver 0x1f0000ff, idle after 20 s (0 = never): 0x1000030f; rng_current apple-sep -> none; panic=10; the SLEEP pass is next
+2026-11-20 21:19:21 sep: ps_sep before the driver 0x1f0000ff, idle after 20 s (0 = never): 0x1000030f; rng_current apple-sep -> none; panic=10; the SLEEP pass is next
+2026-11-20 21:19:21 push skipped (ntfy cap): R57J sep bound
+2026-11-20 21:19:21 push skipped (ntfy cap): R57J sep bound
+2026-11-20 21:19:28 sep: freezer pass rc=0; ps_sep right after 0x1f0003ff, 2 s later 0x1f0003ff; [   38.440567] apple_sep 396400000.sep: TEST SLEEP type 2: reply tag 0xd data 0x0|; the commit is next (Aura does the outbox and the word)
+2026-11-20 21:19:28 sep: freezer pass rc=0; ps_sep right after 0x1f0003ff, 2 s later 0x1f0003ff; [   38.440567] apple_sep 396400000.sep: TEST SLEEP type 2: reply tag 0xd data 0x0|; the commit is next (Aura does the outbox and the word)
+2026-11-20 21:19:29 push skipped (ntfy cap): R57J sep asleep
+2026-11-20 21:19:29 push skipped (ntfy cap): R57J sep asleep
+2026-11-20 21:19:29 switches: suspend_timeout=120 deep_steps=191 pmp_sleep=Y pmp_cycle=Y test_release_aon=Y test_release_ids=4096 test_pcpm=768 test_sleep_keep=afr,gpio test_dump=Y test_deep_teardown=Y test_sleep_off=Y 
+2026-11-20 21:19:29 switches: suspend_timeout=120 deep_steps=191 pmp_sleep=Y pmp_cycle=Y test_release_aon=Y test_release_ids=4096 test_pcpm=768 test_sleep_keep=afr,gpio test_dump=Y test_deep_teardown=Y test_sleep_off=Y 
+2026-11-20 21:19:29 pmgr counters: SLP_DDR=1:0 SLP_DDR.2=1:0 AWAKE=1:0 AWAKE.2=1:0 SLP_S2R=1:0 SLP_S2R.2=1:0 DEEP_WAIT=1:0 DEEP_WAIT.2=1:0 SYS_AWAKE=1:0 SYS_AWAKE.2=1:0 SYS_S2R_AOP=1:0 SYS_S2R_AOP.2=1:0 SYS_SLP_DDR=1:0 SYS_SLP_DDR.2=1:0 ctl=30001
+2026-11-20 21:19:29 pmgr counters: SLP_DDR=1:0 SLP_DDR.2=1:0 AWAKE=1:0 AWAKE.2=1:0 SLP_S2R=1:0 SLP_S2R.2=1:0 DEEP_WAIT=1:0 DEEP_WAIT.2=1:0 SYS_AWAKE=1:0 SYS_AWAKE.2=1:0 SYS_S2R_AOP=1:0 SYS_S2R_AOP.2=1:0 SYS_SLP_DDR=1:0 SYS_SLP_DDR.2=1:0 ctl=30001
+2026-11-20 21:19:30 before: atc 0x000003ff 0x000003ff 0x000003ff 0x000003ff 0x000002ff 0x000003ff 0x000003ff 0x000003ff ; pmp req 0x0000f000 ack 0x0000f000; usb 3
+2026-11-20 21:19:30 before: atc 0x000003ff 0x000003ff 0x000003ff 0x000003ff 0x000002ff 0x000003ff 0x000003ff 0x000003ff ; pmp req 0x0000f000 ack 0x0000f000; usb 3
+2026-11-20 21:19:30 runtime mmio: 134 ranges, 10 external debug pages
+2026-11-20 21:19:30 runtime mmio: 134 ranges, 10 external debug pages
+2026-11-20 21:19:30 aura ctl: aura ctl at 0x10003efed00: 0xc17dcb3f mask 0x0 cap 0
+2026-11-20 21:19:30 aura ctl: aura ctl at 0x10003efed00: 0xc17dcb3f mask 0x0 cap 0
+2026-11-20 21:19:30 push skipped (ntfy cap): R57N trace
+2026-11-20 21:19:30 push skipped (ntfy cap): R57N trace
+2026-11-20 21:19:31 push skipped (ntfy cap): R57J committing
+2026-11-20 21:19:31 push skipped (ntfy cap): R57J committing
+2026-11-20 21:19:31 gpio ps 0x000000ff
+2026-11-20 21:19:31 gpio ps 0x000000ff
+2026-11-20 21:19:31 push skipped (ntfy cap): dmesg before echo mem
+2026-11-20 21:19:31 push skipped (ntfy cap): dmesg before echo mem
+2026-11-20 21:19:31 echo mem at 21:19:31.638 UTC
+2026-11-20 21:19:31 echo mem at 21:19:31.638 UTC
+/run/usbtest/job/job.sh: line 184: echo: write error: Broken pipe
+/run/usbtest/job/job.sh: line 197: echo: write error: Broken pipe
+2026-11-20 21:21:09 R57J RESUMED INTO THE JOB: rc=0 after 95.8 s, online 0-9
+dbg: 0x10003effb68: 488000038 3c0 1 2d4 2429e4f2 2f00000010 2f00000010 2f00000010 2f00000000 2f00000000 100000000 1 2 2000000 2000000 0 53c17dcb3f 3 1404024f0f000300 1400024f0f0002ff f0002000f000200 2390000021a 0 0
+dbg2: 
+counters: SLP_DDR=1:793360 SLP_DDR.2=1:793360 AWAKE=1:1802097320 AWAKE.2=1:1802097376 SLP_S2R=1:582666688 SLP_S2R.2=1:582666688 DEEP_WAIT=1:0 DEEP_WAIT.2=1:0 SYS_AWAKE=1:1800371624 SYS_AWAKE.2=1:1800371672 SYS_S2R_AOP=1:582668128 SYS_S2R_AOP.2=1:582668128 SYS_SLP_DDR=1:2517912 SYS_SLP_DDR.2=1:2517912 ctl=30001
+atc after: 0x000003ff 0x000003ff 0x000003ff 0x000003ff 0x000002ff 0x000003ff 0x000003ff 0x000003ff 
+pm lines: [   54.668504] sdhci-pci 0000:02:00.0: PM: failed to resume async: error -22|[   54.722790] macsmc-reboot macsmc-reboot: sleep: wake status 00000000 00400000 00000000 00000000 00000000 00000000 000|[   54.744883] dwc3-apple 702280000.usb: TEST: core restarted after deep suspend (role 2): 0|[   54.747758] dwc3-apple b02280000.usb: TEST: core restarted after deep suspend (role 1): 0|[   54.747764] apple_aop 2a6c00000.aop: TEST queues already restarted from syscore resume|[   54.747773] PM: suspend exit|[   56.805744] pcie-apple 580000000.pcie: TEST s2r: port 0 try 1 pwren 1 link a9000200 status 00000001 perstdir 0|[   57.516313] pcie-apple 580000000.pcie: TEST s2r: port 1 try 1 pwren 1 link a9800200 status 00000001 perstdir 0|[   61.277536] pcie-apple 580000000.pcie: TEST s2r: port 0 try 2 pwren 1 link a9000200 status 00000001 perstdir 0|[   61.990864] pcie-apple 580000000.pcie: TEST s2r: port 1 try 2 pwren 1 link a9800200 status 00000001 perstdir 0|[   65.754844] pcie-apple 580000000.pcie: TEST s2r: port 0 try 3 pwren 1 link a9000200 status 00000001 perstdir 0|[   66.465391] pcie-apple 580000000.pcie: TEST s2r: port 1 try 3 pwren 1 link a9800200 status 00000001 perstdir 0|
+2026-11-20 21:21:09 R57J RESUMED INTO THE JOB: rc=0 after 95.8 s, online 0-9
+dbg: 0x10003effb68: 488000038 3c0 1 2d4 2429e4f2 2f00000010 2f00000010 2f00000010 2f00000000 2f00000000 100000000 1 2 2000000 2000000 0 53c17dcb3f 3 1404024f0f000300 1400024f0f0002ff f0002000f000200 2390000021a 0 0
+dbg2: 
+counters: SLP_DDR=1:793360 SLP_DDR.2=1:793360 AWAKE=1:1802097320 AWAKE.2=1:1802097376 SLP_S2R=1:582666688 SLP_S2R.2=1:582666688 DEEP_WAIT=1:0 DEEP_WAIT.2=1:0 SYS_AWAKE=1:1800371624 SYS_AWAKE.2=1:1800371672 SYS_S2R_AOP=1:582668128 SYS_S2R_AOP.2=1:582668128 SYS_SLP_DDR=1:2517912 SYS_SLP_DDR.2=1:2517912 ctl=30001
+atc after: 0x000003ff 0x000003ff 0x000003ff 0x000003ff 0x000002ff 0x000003ff 0x000003ff 0x000003ff 
+pm lines: [   54.668504] sdhci-pci 0000:02:00.0: PM: failed to resume async: error -22|[   54.722790] macsmc-reboot macsmc-reboot: sleep: wake status 00000000 00400000 00000000 00000000 00000000 00000000 000|[   54.744883] dwc3-apple 702280000.usb: TEST: core restarted after deep suspend (role 2): 0|[   54.747758] dwc3-apple b02280000.usb: TEST: core restarted after deep suspend (role 1): 0|[   54.747764] apple_aop 2a6c00000.aop: TEST queues already restarted from syscore resume|[   54.747773] PM: suspend exit|[   56.805744] pcie-apple 580000000.pcie: TEST s2r: port 0 try 1 pwren 1 link a9000200 status 00000001 perstdir 0|[   57.516313] pcie-apple 580000000.pcie: TEST s2r: port 1 try 1 pwren 1 link a9800200 status 00000001 perstdir 0|[   61.277536] pcie-apple 580000000.pcie: TEST s2r: port 0 try 2 pwren 1 link a9000200 status 00000001 perstdir 0|[   61.990864] pcie-apple 580000000.pcie: TEST s2r: port 1 try 2 pwren 1 link a9800200 status 00000001 perstdir 0|[   65.754844] pcie-apple 580000000.pcie: TEST s2r: port 0 try 3 pwren 1 link a9000200 status 00000001 perstdir 0|[   66.465391] pcie-apple 580000000.pcie: TEST s2r: port 1 try 3 pwren 1 link a9800200 status 00000001 perstdir 0|
+/run/usbtest/job/job.sh: line 32: echo: write error: Invalid argument
+2026-11-20 21:21:09 push skipped (ntfy cap): R57J resumed
+2026-11-20 21:21:09 push skipped (ntfy cap): R57J resumed
+2026-11-20 21:21:19 push skipped (ntfy cap): R57J resumed (after Wi-Fi rescan)
+2026-11-20 21:21:19 push skipped (ntfy cap): R57J resumed (after Wi-Fi rescan)
+/run/usbtest/job/job.sh: line 277: echo: write error: Broken pipe
+/run/usbtest/job/job.sh: line 278: echo: write error: Broken pipe
+/run/usbtest/job/job.sh: line 285: [: /sys/bus/nvmem/devices/spmi_nvmem2/nvmem: integer expected
