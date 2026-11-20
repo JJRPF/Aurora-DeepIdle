@@ -4752,3 +4752,7 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
 
 ## 2026-11-19 21:15 control kernel built (new toolchain, console off); R57L2c armed
 - Image finished at 17:42 (my wait loop's pgrep matched itself, so it looked stuck). UKI sha256 07b9f2b9e9180f37. R57L2c runs the same marker-and-reboot job. If it boots (reports), the pstore console option breaks the test boot; if not, the toolchain does.
+
+## 2026-11-19 21:20 R57L2c void too: the control kernel (console off) also did not boot the test
+- Away 156 s, no reports, RAM page empty. So the pstore console is not the cause; the rebuild itself is (clang/LLD 23.1.5 and rustc 1.100.0 instead of 23.1.4 and 1.99.1, or something else in the build).
+- Next: re-arm the plain backup UKI (`deeptest.efi.plain-3a50d5fe`, the Nov 9 Image) with the same job as a sanity check that the harness still works; then rebuild with the old compilers if their packages are available.
