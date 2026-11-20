@@ -4999,3 +4999,10 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
   - Replays that part of probe for port 0: PERST# assert (AP gpio 4 raw 0, port +0x82c bit 0 clear), PWREN off 2 ms and on (smc gpio 13), 150 ms, PERST# release, PORT_STATUS ready, LTSSM start (+0x80), link-up poll.
   - The GPIO descriptors are looked up by chip label, since pcie-apple owns them.
 - Job `r57z-wifikick`: after the wake, diagnostics, then `insmod` (rc → 0x6009, result → 0x600a), PCI remove/rescan of 01:00.x, iwd restart, push (25 tries). R57AQ: boot-test 120 + `r57z-wifikick`.
+
+## 2026-11-20 02:25 R57AQ: resumed again (6 of 6); the Wi-Fi kick module loads but the port never reports ready. R57AR: v2 with the PHY refclk request and read-backs
+- R57AQ (image 120 + `r57z-wifikick`): 0x601f = aa, insmod rc 0, module result 0 (PORT_STATUS never ready, no link). No push.
+- In probe, `apple_pcie_setup_refclk()` runs between PWREN and the PERST# release: PHY lane (DT `phy0` 0x59e00c000) REFCLK0REQ/ACK, REFCLK1REQ/ACK, REFCLKEN. The v1 module skipped it.
+- v2 adds that step and packs read-backs into `result`: bit 0 ready, bit 1 link, bit 2 PWREN reads 1, bit 3 PERST# released, bit 4 refclk ACKs, PORT_STATUS and LINKSTS bytes. The job writes them to 0x600a / 0x6009 / 0x6008.
+- Checked from main: 0x6006..0x600b all take userspace writes. So R57AP's 0x6008 = 0x5c was most likely the real port 1 LINKSTS low byte (bit 0, link up, clear).
+- R57AR: boot-test 120 + `r57z-wifikick` (module v2).

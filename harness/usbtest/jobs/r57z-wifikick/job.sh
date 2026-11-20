@@ -137,8 +137,10 @@ L0=$(dmesg | grep -n 'PM: suspend exit' | tail -1 | cut -d: -f1); L0=${L0:-1}
 C1=$(dmesg | tail -n +$L0 | grep -c brcmf)
 C2=$(dmesg | tail -n +$L0 | grep -ciE 'dart|NO PMD|pcie.*(err|fail|down)|AER')
 pb 0x600b 1
-insmod $J/s2r_wifi_kick.ko; IRC=$?; pb 0x6009 $IRC
-KR=$(cat /sys/module/s2r_wifi_kick/parameters/result 2>/dev/null); pb 0x600a $(( ${KR:-255} & 0xff ))
+insmod $J/s2r_wifi_kick.ko; IRC=$?
+KR=$(cat /sys/module/s2r_wifi_kick/parameters/result 2>/dev/null); KR=${KR:-255}
+pb 0x600a $(( KR & 0xff )); pb 0x6009 $(( (KR >> 8) & 0xff )); pb 0x6008 $(( (KR >> 16) & 0xff ))
+[ $IRC = 0 ] || pb 0x600a 0xee
 for f in /sys/bus/pci/devices/0000:01:00.1 /sys/bus/pci/devices/0000:01:00.0; do [ -e $f/remove ] && echo 1 > $f/remove; done
 sleep 2; echo 1 > /sys/bus/pci/rescan; sleep 8; systemctl restart iwd 2>/dev/null; sleep 5
 pb 0x600b 2
