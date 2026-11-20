@@ -5254,3 +5254,4 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
 - Wi-Fi flags (0x600a) = 0x25: "lost its link", "link still down after resume", no rescan (so no trap), wlan0 present.
 - Correction to the R59K reading: the old code removed and rescanned even when no link came back, so R59K's abort was a config read behind a port whose link was down, not proof that the Wi-Fi link came up. The new rule (rescan only with a link) is the right guard either way.
 - State: sleep, wake, resume to userspace, PMP and NVMe now work across a real S2R power cut. Still missing: Wi-Fi (the port's link does not train), USB (devices gone after the wake), and the boot-chain/main-install integration.
+- R59N (same images): 0x6009 now records USB after the wake: dwc3-apple's TEST deep teardown "core stopped" / "core restarted (role N): 0 or error", phy errors, PD-controller (tipd/cd321x) errors, xhci "HC died", whether any root hub exists, other usb errors.

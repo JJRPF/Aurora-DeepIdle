@@ -216,7 +216,19 @@ echo "$NA" | grep -q "IOP power acknowledgment failed" && RK=$((RK|4)); echo "$N
 echo "$NA" | grep -q "RTKit: syslog message" && RK=$((RK|16)); echo "$NA" | grep -q "reinit with buffers kept: 0" && RK=$((RK|32))  # R59K (was early AP readiness)
 # R59F: bit6 "IOP power ack came after" (the long wait worked), bit7 "TEST s2r: sart power 0x0," (the cut cleared it)
 echo "$NA" | grep -q "IOP power ack came after" && RK=$((RK|64)); echo "$NA" | grep -q "TEST s2r: sart power 0x0," && RK=$((RK|128))
-pb 0x6009 $RK
+# R59N: 0x6009 = USB after the wake (NVMe now works): bit0 "core stopped for deep suspend", bit1 "core restarted after deep
+# suspend (role N): 0", bit2 the same with an error, bit3 an atcphy/phy error line, bit4 a tipd/cd321x/tps6598x error line, bit5
+# "HC died" or xhci error, bit6 a root hub present after the wake, bit7 any other usb "error|fail" line
+UA=$(echo "$DA" | grep -iE "usb|dwc3|xhci|phy|tipd|tps6598|cd321"); UB=0
+echo "$UA" | grep -q "core stopped for deep suspend" && UB=$((UB|1))
+echo "$UA" | grep -qE "core restarted after deep suspend \(role [0-9]+\): 0$" && UB=$((UB|2))
+echo "$UA" | grep -qE "core restarted after deep suspend \(role [0-9]+\): -" && UB=$((UB|4))
+echo "$UA" | grep -iE "atcphy|phy" | grep -qiE "err|fail|timeout" && UB=$((UB|8))
+echo "$UA" | grep -iE "tipd|tps6598|cd321" | grep -qiE "err|fail|timeout" && UB=$((UB|16))
+echo "$UA" | grep -qiE "HC died|xhci.*(err|fail)" && UB=$((UB|32))
+lsusb 2>/dev/null | grep -q "root hub" && UB=$((UB|64))
+echo "$UA" | grep -iE "usb" | grep -qiE "error|fail" && UB=$((UB|128))
+pb 0x6009 $UB
 RS=$(awk '/39b028000/{f=1} /^gpiochip/ && !/39b028000/{f=0} f && /gpio-4 /{print; exit}' $G 2>/dev/null)
 pb 0x600a ${R58S_WF:-0}  # R59M: the pcie-apple S2R flags (r58r-wifi bits) in 0x600a; Aura's "still off" count is known (8)
 # 0x6009: brcmf lines since the resume; 0x600a: DART / PCIe error lines since the resume
