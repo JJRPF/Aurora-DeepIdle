@@ -12,6 +12,8 @@ def rd(a, n):  # byte reads: block reads of this range can fail with EIO
         f.seek(a + i); out += f.read(1)
     return out
 m, n = rd(0x6004, 2)
+print(f'0x6023 apcie re-init: {rd(0x6023, 1)[0]:#04x} (a0 done, a1 started and never finished, af error; image 116+)')
+print(f'0x601f userspace resumed: {rd(0x601f, 1)[0]:#04x} (aa = Linux resumed to userspace)')
 print(f'marker {m:#04x} (0x50 = record), frames {n}')
 if m != 0x50:
     sys.exit('no record')

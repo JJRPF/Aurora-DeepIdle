@@ -4917,3 +4917,15 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
   - records FAR translated with `AT S1E1R` / PAR into a physical address (or the VA if the walk fails), which names the device or memory the kernel touched;
   - keeps ESR in slot 9.
 - R57AI: boot-test 115 + `r57w-panic27`.
+
+## 2026-11-20 00:35 R57AI: the first fault is apple_dart_resume reading PCIe port 1's DART (0x595000000). Image 116 re-inits apcie on the wake
+- R57AI (image 115). The synchronous abort under the SError:
+  - pc **`apple_dart_resume+0x94`**: the inlined `apple_dart_state_retained()`, the DART's first register read after the wake;
+  - lr `pm_generic_runtime_resume+0x28`, then `genpd_runtime_resume+0x210` and `pm_runtime_force_resume+0xb8`;
+  - FAR = physical **0x595000000**.
+- That is `/soc/iommu@595000000` (phandle a6, `apple,t6020-dart`): the DART of PCIe port 1, in front of the GL9755 SD reader. Port 0's DART at 0x594000000 serves the BCM4388 Wi-Fi. All four port DARTs sit in power domain `apcie_gp_sys` (0x290280418).
+- So the woken kernel reads a PCIe DART whose block the real power cut left unpowered or unconfigured, and the access aborts.
+- nekolyanich's notes cover exactly this: "The controller loses all its setup in the power cut. I rerun m1n1's own bring-up of /arm-io/apcie at the wake" (their m1n1 `c75178ba`, Asahi's `pcie_init_controller`; Ante042's m1n1 does the same). The steps are PMGR power-on, the axi2af, common and phy tunables, PHY clock requests, root complex and fuses, and the per-port config and resets.
+- **Image 116** (`568fd45a`, `boot-test.bin.116` sha 0f03ed025f460c80) does that in Aura's RVBAR wake path, before Linux resumes. It adds `pcie_reinit_apcie()` (clears `dirty`/`initialized`, reruns `pcie_init_controller(APCIE, "/arm-io/apcie")`) and mutes the console on the wake path. The result goes to PMU 0x6023: a0 done, a1 started and never finished, af error. The panic recorder stays in, so if it still dies, the next fault is named.
+  - Still missing on the Linux side: the MSI doorbell words and the GL9755 PECONF (nekolyanich, kernel side), so Wi-Fi/SD interrupts may not work after the wake even if the panic is gone.
+- R57AJ: boot-test 116 + `r57w-panic27`. A "R57J resumed" push or 0x601f = aa means Linux reached userspace.
