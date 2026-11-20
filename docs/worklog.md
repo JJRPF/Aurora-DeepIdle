@@ -4963,3 +4963,13 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
   - writes them back after the apcie re-init at the wake, in probe's order with INTMSK last;
   - sets 0x6023 bit 2: a4 = re-init + restore, a6 = also ps_sep on.
 - R57AM: boot-test 119 + `r57w-panic27`. A "R57J resumed" push = the network came back after the wake.
+
+## 2026-11-20 01:30 R57AM: resumed to userspace again (2 of 2), MSI restore ran, still no network. R57AN: post-wake Wi-Fi diagnostics into the PMU
+- R57AM (image 119): 0x601f = aa, `echo mem` rc 0, nproc 10; 0x6023 = a4 (apcie re-init + per-port MSI/RID2SID/INTMSK restore done). There was no push after the wake, and a normal reboot from userspace came at alarm + 121 s. So the resume reproduces, but the network does not come back.
+- Without a network there is no report, so new job `r57x-netdiag` (R57W plus diagnostics) writes after the wake into PMU bytes the reset record leaves alone:
+  - 0x6006 port 0 LINKSTS;
+  - 0x6007 Wi-Fi config-space vendor read live (14e4 / ffff);
+  - 0x6008 wlan0 operstate;
+  - 0x6009 brcmf dmesg lines since the resume, 0x600a DART/PCIe error lines;
+  - 0x600b stage.
+- It pushes with 6 tries. If those fail, it removes and rescans the Wi-Fi's PCI functions, restarts iwd, and pushes again (20 tries). `tools/panic-trace.py` decodes the bytes. R57AN: boot-test 119 + `r57x-netdiag`.
