@@ -147,7 +147,7 @@ sleep 8; systemctl restart iwd 2>/dev/null; sleep 10; WF=$(wf); pb 0x600d $WF; R
 # R58U: device health after the wake into 0x6006 (survives the reset): bit0 NVMe live + 64 KiB direct read of nvme0n1 (read-only),
 # bit1 as many USB devices as before, bit2 internal keyboard input device, bit3 battery capacity readable (SMC), bit4 RTC readable,
 # bit5 no apple_sep error/timeout line after the wake, bit6 no "timed out" line after the wake, bit7 no WARNING/BUG/Oops after the wake
-DA=$(dmesg | tail -n +$(dmesg | grep -n 'PM: suspend exit' | tail -1 | cut -d: -f1))
+DA=$(dmesg | tail -n +$(dmesg | grep -n 'PM: suspend entry (deep)' | tail -1 | cut -d: -f1))  # R58Z: from the deep entry, so the resume-time resets are in
 H=0
 [ "$(cat /sys/class/nvme/nvme0/state 2>/dev/null)" = live ] && timeout 10 dd if=/dev/nvme0n1 of=/dev/null bs=4k count=16 iflag=direct 2>/dev/null && H=$((H|1))
 [ "$(lsusb 2>/dev/null | wc -l)" -ge "${USB0:-99}" ] && H=$((H|2))
