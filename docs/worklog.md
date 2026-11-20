@@ -5012,3 +5012,7 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
 - These test boots also end about 2 min after the wake with an ordinary reboot from userspace (ESR EC 0x15), whatever the job is doing. So something reboots a boot that has no network; not yet identified.
 - Conclusion for now: the core S2R round trip works (6 of 6). Wi-Fi after the wake needs pcie-apple's resume to redo probe's per-port setup, PWREN included, as nekolyanich did in their kernel. That needs a patched kernel, so the next thing to unblock is why patched kernels do not boot the test (R57O..R57U). The panic recorder can now catch an early panic there too, if it records without an RVBAR wake.
 - The test chain stays staged (`boot-test.bin.120`); it is used only when a DeepTest is armed.
+
+## 2026-11-20 01:30 Site percentages updated; second reply to nekolyanich posted
+- `docs/s2r-status.json` and `docs/status.md`: overall 45 → 65, full S2R 10 → 70, devices 20 → 35 (macOS trace 55 → 60 in status.md, to match the JSON). Phase 4 and 5 summaries rewritten for the resume.
+- Posted on #5 with the owner's go: the resume result; the panic recorder and the 40-byte scratch finding; the two faults and their fixes (apcie re-init credited to nekolyanich, Ante042 and Asahi; ps_sep DEV_DISABLE); the Wi-Fi state after the wake. Questions: PWREN/refclk in their pcie-apple resume, the SMC dropping the Wi-Fi rail, ps_sep after a cut.
