@@ -5385,3 +5385,8 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
 - AppleSMC (smc.s) writes MBSE only with `slpw`, `rest`, `offw` and `waka`; its platform sleep action reads MBSE/MBSW (`SMC.MBSE.%02x`) instead of writing. So `slpa` comes from elsewhere on macOS. The 2026-11-13 hypervisor trace of macOS's boot ended with `MBSE = 0x626e6170` (`bnap`) and `NESN` writes; no kernel code writes `bnap`, so it is userspace (powerd via the SMC user client, presumably).
 - MEPS reads `00 04 ..` while Linux runs after a cold boot, so something at boot leaves the SMC in state 4; after our wake it stays at 1.
 - R60F (UKI `deeptest.efi.pmp17`: macsmc-reboot `s2r_wake_bnap` sends MBSE = `bnap` 0 ms after waka and logs MBSE/MEPS 500 ms later; job `r60f-bnap` = r60d-smckeys + the param): does MEPS go back to 4 and do the rails / PCIe endpoints return?
+
+## 2026-11-20 17:00 R60F: the SMC refuses MBSE = bnap after the wake (-EIO); MEPS stays at 1. Waiting on nekolyanich
+- R60F (`20261120-213652-r60f`): resumed, USB/NVMe fine, logs written. "MBSE = bnap (-5); 500 ms later MBSE 00000630 MEPS 000102010004". Pre-sleep MEPS this boot `00 04 00 04 00 04`; after the wake `00 01 02 01 00 04` again, also a minute later. VR3l 1.29 V → ~0. Same D3hot→D0 failures, no link on either port.
+- State of the Wi-Fi line: every root-side piece matches a normal boot; the endpoints are electrically absent; the SMC stays in its sleep power state (MEPS 1) after `waka` and keeps at least VR3l / R8b / P3b off. `slpa` is required (R60E). Neither REG_ON form, nor PWREN cycles, nor `bnap` moves it. Next: nekolyanich's answer on MEPS on their J416s (asked 21:25 UTC), or a macOS hypervisor trace of the SMC traffic across a real wake.
+- Nothing armed; main is unaffected.
