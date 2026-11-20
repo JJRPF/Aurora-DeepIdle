@@ -5242,3 +5242,9 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
   2. The PMP power cycle (SRAM image saved and restored, DART/DAPF/IORVBAR, RTKit reinit/boot): Andreas Fernandez's t6000 method ported.
   3. nvme-apple: idle the ANS for S2R and keep its RTKit buffers (`apple_rtkit_reinit_keep`), cold-start it after the wake (CPU_CONTROL cleared, PMGR reset, IORVBAR), write back the SART power word (+0x13e8), apply the ADT ANS tunables Aura 124 publishes (`ioremap_np`), and allow 25 s for the IOP power ack. All of these follow Andreas Fernandez's t6000 NVMe work.
 - Next: the pcie-apple rescan BUG (Wi-Fi), USB, then repeatability and longer sleeps.
+
+## 2026-11-20 12:05 R59K's PCIe trap re-read: a config read of the Wi-Fi right after its link came up. R59M: wait 200 ms, rescan only with a link
+- `tools/panic-trace.py` symbolizes with `~/Work/src/linux-aurora`'s System.map, not the pstore tree the test kernels now come from, so R59K's names were off. With the right vmlinux: pc = `readl` in `pci_generic_config_read` (drivers/pci/access.c:94), from `pci_bus_generic_read_dev_vendor_id` ← `pci_scan_device` ← `pci_scan_single_device`. FAR 0x580100000 = ECAM bus 1, device 0: the Wi-Fi behind port 0. So with the PMP back, **the Wi-Fi link probably came up**, and the rescan's first vendor-ID read came before the device was ready and aborted. The BRK ESR was a stale value.
+- Patch (0001 regenerated): the S2R work rescans only when at least one port's link came up ("no link came back after resume, not rescanning" otherwise), and waits 200 ms after link up first (PCIe asks for 100 ms).
+- R59M: UKI `deeptest.efi.pmp7` (sha 3439cc4662d7671c), PCIe S2R work on again; 0x600a now holds the job's Wi-Fi flags (bit0 lost link, 1 link up, 2 still down, 3 rescan done, 4 power-on failed, 5 wlan0, 6 vendor 14e4, 7 ready timeout).
+- To do: point panic-trace.py at the right System.map (pstore tree).

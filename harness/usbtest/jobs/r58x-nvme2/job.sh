@@ -218,7 +218,7 @@ echo "$NA" | grep -q "RTKit: syslog message" && RK=$((RK|16)); echo "$NA" | grep
 echo "$NA" | grep -q "IOP power ack came after" && RK=$((RK|64)); echo "$NA" | grep -q "TEST s2r: sart power 0x0," && RK=$((RK|128))
 pb 0x6009 $RK
 RS=$(awk '/39b028000/{f=1} /^gpiochip/ && !/39b028000/{f=0} f && /gpio-4 /{print; exit}' $G 2>/dev/null)
-: # R58Z2: 0x600a is Aura image 123s (domains still off)
+pb 0x600a ${R58S_WF:-0}  # R59M: the pcie-apple S2R flags (r58r-wifi bits) in 0x600a; Aura's "still off" count is known (8)
 # 0x6009: brcmf lines since the resume; 0x600a: DART / PCIe error lines since the resume
 L0=$(dmesg | grep -n 'PM: suspend exit' | tail -1 | cut -d: -f1); L0=${L0:-1}
 C1=$(dmesg | tail -n +$L0 | grep -c brcmf)

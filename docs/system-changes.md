@@ -91,6 +91,7 @@ Filled in below as it happens.
 | R59F: `deeptest.efi.pmp2` (+ nvme SART power restore, RTKit long IOP-ack wait) staged | `~/Work/deepidle-usbtest/deeptest.efi` | as R59E |
 | R59K: `deeptest.efi.pmp5` (+ ANS tunables from Aura 124, ANS idle/keep across S2R) staged | `~/Work/deepidle-usbtest/deeptest.efi` | as R59E |
 | R59L: `deeptest.efi.pmp6` (R59K + pcie_apple.s2r_resume=0) staged | `~/Work/deepidle-usbtest/deeptest.efi` | as R59E |
+| R59M: `deeptest.efi.pmp7` (pcie-apple: rescan only with a link, 200 ms after link up) staged | `~/Work/deepidle-usbtest/deeptest.efi` | as R59E |
 | Test UKI with the empty-body crumb kernel (R58A) | `~/Work/deepidle-usbtest/deeptest.efi` = `deeptest.efi.crumb-empty` (sha 6b7b30dbe27eb809) | `cp ~/Work/deepidle-usbtest/deeptest.efi.plain-3a50d5fe ~/Work/deepidle-usbtest/deeptest.efi` (sha cc2994d12a1553f2), re-arm |
 | pstore worktree `.config`: `CONFIG_MODULE_ALLOW_BTF_MISMATCH=y` (backup `.config.before-btfallow`); test UKI `deeptest.efi.btfallow` staged as `deeptest.efi` (R58B) | `~/Work/src/linux-aurora-pstore`, `~/Work/deepidle-usbtest/` | `cp .config.before-btfallow .config` there; plain UKI back as above |
 | pstore worktree: crumb patch reverted; `pcie-apple.c` S2R resume patch (uncommitted; copy in `patches/s2r-kernel/`); test UKI `deeptest.efi.pcie-s2r` (sha c7f477ffa3800f6a) staged as `deeptest.efi` | `~/Work/src/linux-aurora-pstore`, `~/Work/deepidle-usbtest/` | `git checkout drivers/pci/controller/pcie-apple.c` there; plain UKI back (`deeptest.efi.plain-3a50d5fe`) |
