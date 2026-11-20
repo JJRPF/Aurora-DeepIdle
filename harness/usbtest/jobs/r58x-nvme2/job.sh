@@ -255,4 +255,14 @@ timeout 60 sh -c "echo 34bcc0000.nvme > $D/nvme-apple/bind" 2>/dev/null; sleep 8
 timeout 10 dd if=/dev/nvme0n1 of=/dev/null bs=4k count=16 iflag=direct 2>/dev/null && PM=$((PM|64))
 [ "$(dmesg | grep "nvme" | grep -c "RTKit: Initializing")" -gt "$N0" ] && PM=$((PM|128))
 pb 0x600b $PM
+# R59I: the first 11 characters of the ANS RTKit crash message ("RTKit: Message (id=..): <text>", "panic: " stripped) into the
+# bytes that survive the reset and are free after the wake: 0x6011..0x6019, 0x601d, 0x601e (read back with tools/panic-trace.py MODE=text)
+CM=$(dmesg | grep "nvme" | grep -o "RTKit: Message (id=[0-9a-f]*): .*" | tail -1 | sed 's/^RTKit: Message (id=[0-9a-f]*): //; s/^panic: //')
+if [ -n "$CM" ]; then
+    k=0
+    for o in 0x6011 0x6012 0x6013 0x6014 0x6015 0x6016 0x6017 0x6018 0x6019 0x601d 0x601e; do
+        c=$(printf '%s' "$CM" | cut -c$((k+1)) ); [ -z "$c" ] && c=" "
+        pb $o $(printf '%d' "'$c"); k=$((k+1))
+    done
+fi
 $J/aura-ctl 0 0 0 > /dev/null 2>&1
