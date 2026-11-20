@@ -16,7 +16,7 @@ w() { $J/mmio-read $1 1 2>/dev/null | awk '{print $2}'; }
 atc() { for a in 278 288 298 2a8 228 230 238 240; do printf '%s ' "$(w 0x28e080$a)"; done; }
 V=$(tr -d '\0' < $C/asahi,m1n1-stage2-version)
 log "R57J kernel $(uname -r); stage2 $V; cmdline aop: $(grep -o 'aop.sleep_ap_idle=[0-9]*' /proc/cmdline || echo none)"
-case "$V" in *86776585*|*4ad0e031*|*c9339c54*|*f943b89e*|*3c23b09b*|*7ebd699e*|*eecbb13d*|*3029e360*|*6861c027*|*568fd45a*|*b05607ab*|*60f4cbde*) ;; *) log "stage 2 is not image 105-108: stopping"; return 0 ;; esac
+case "$V" in *86776585*|*4ad0e031*|*c9339c54*|*f943b89e*|*3c23b09b*|*7ebd699e*|*eecbb13d*|*3029e360*|*6861c027*|*568fd45a*|*b05607ab*|*60f4cbde*|*32a2d310*) ;; *) log "stage 2 is not image 105-108: stopping"; return 0 ;; esac
 [ -e $R/wakealarm ] && grep -q deep /sys/power/mem_sleep || { log "no wakealarm or no deep, stopping"; return 0; }
 grep -q 'aop.sleep_ap_idle=3' /proc/cmdline || { log "aop.sleep_ap_idle=3 not on the cmdline: stopping"; return 0; }
 [ -e $M/appledrm/parameters/test_sleep_off ] || { log "appledrm has no test_sleep_off: stopping"; return 0; }

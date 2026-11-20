@@ -14,7 +14,7 @@ def rd(a, n):  # byte reads: block reads of this range can fail with EIO
 m, n = rd(0x6004, 2)
 print(f'0x6023 apcie re-init: {rd(0x6023, 1)[0]:#04x} (a0 done, a1 started and never finished, af error; image 116+)')
 ps = rd(0x600f, 1)[0] << 24 | rd(0x601e, 1)[0] << 8 | rd(0x601d, 1)[0]
-print(f'ps_sep raw at the wake (image 118+): {ps:#010x} (bits 23:16 not kept); 0x6023 = a2 means it came on')
+print(f'ps_sep raw at the wake: {ps & 0xff00ffff:#010x} (bits 15:8 not kept since image 120); 0x601e AP GPIO pins put back: {rd(0x601e, 1)[0]} (ff = no snapshot; image 120+)')
 d = rd(0x6006, 6)
 print(f'netdiag (r57x job): port0 LINKSTS {d[0]:#04x}, vendor code {d[1]} (1=14e4 2=ffff), wlan0 oper {d[2]:#04x} (1 up 2 down 3 dormant; +0x10 after rescan), brcmf lines {d[3]}, dart/pcie err lines {d[4]}, stage {d[5]} (4 pushed, 3 pushed after rescan, 2 rescan tried, 1 diag only)')
 print(f'0x601f userspace resumed: {rd(0x601f, 1)[0]:#04x} (aa = Linux resumed to userspace)')

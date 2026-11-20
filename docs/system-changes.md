@@ -73,3 +73,4 @@ Filled in below as it happens.
 | Aura image 117 (local commit `b05607ab`) | `~/Work/psci-test/boot-test.bin.117` (sha a30910af319fa16c) staged as `boot-test.bin` | as above |
 | Aura image 118 (local commit `60f4cbde`) | `~/Work/psci-test/boot-test.bin.118` (sha 47377cf0c3de6d8b) staged as `boot-test.bin` | as above |
 | Aura image 119 (local commit, see `git log` in `~/Work/src/aura-img99`) | `~/Work/psci-test/boot-test.bin.119` staged as `boot-test.bin` | as above |
+| Aura images 119 (`32a2d310`) and 120 (`b23a4df6`), local commits | `~/Work/psci-test/boot-test.bin.120` (sha f25c84ffa555f34b) staged as `boot-test.bin` | `bootbin.sh test ~/Work/psci-test/boot-test.bin.105`; `git reset --hard 86776585` in `~/Work/src/aura-img99` |

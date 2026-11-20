@@ -4973,3 +4973,16 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
   - 0x6009 brcmf dmesg lines since the resume, 0x600a DART/PCIe error lines;
   - 0x600b stage.
 - It pushes with 6 tries. If those fail, it removes and rescans the Wi-Fi's PCI functions, restarts iwd, and pushes again (20 tries). `tools/panic-trace.py` decodes the bytes. R57AN: boot-test 119 + `r57x-netdiag`.
+
+## 2026-11-20 01:45 R57AN: resumed again (3 of 3); Wi-Fi's PCIe link is down after the wake. Image 120 restores the AP GPIO block (Wi-Fi PERST#)
+- R57AN (image 119 + `r57x-netdiag`): 0x601f = aa again, 0x6023 = a4. Post-wake diagnostics:
+  - port 0 LINKSTS = 0 (link down);
+  - the Wi-Fi function's config space reads ffff;
+  - no brcmf and no DART/PCIe error lines after the resume;
+  - remove + rescan + iwd restart did not bring the push back (stage 2). The wlan0 byte read 0x5c, which I cannot explain yet.
+- So the card is not on the link. In the DT the Wi-Fi port has `reset-gpios = <&pinctrl_ap 4 ACTIVE_LOW>` (AP pinctrl at 0x39b028000) and `pwren-gpios = <&smc_gpio 13>`. The AP GPIO block is reset by the real cut (nekolyanich on t6020, Diljit Singh on T8140, František Balázsy on T6040). PERST# then stays at its reset value and the link cannot train, whatever the controller re-init does.
+- Image 120 (`b23a4df6`, `boot-test.bin.120` sha f25c84ffa555f34b):
+  - at boot, reads the ADT's `/arm-io/gpio0` `no-restore-gpio-pins` (fallback: nekolyanich's j416s list 130/131/135);
+  - at SYSTEM_SUSPEND, snapshots the 255 pins and the +0xc48 word (block mapped in the EFI runtime map);
+  - at the wake, **before** the apcie re-init, writes +0xc48 first, then each changed pin in František's macOS order (config with the old input enable, the input enable, the lock last), skipping locked and no-restore pins. Pins put back → 0x601e.
+- R57AO: boot-test 120 + `r57x-netdiag`.
