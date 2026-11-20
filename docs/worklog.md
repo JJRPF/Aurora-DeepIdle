@@ -4885,3 +4885,13 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
 - Aura's own suspend path does write crumbs from the same EFI context (MMU on, qs_crumb(0x11)), and the SPMI page is in the runtime map. What differs here: the panic has stopped the other CPUs, possibly in the middle of a Linux SPMI transfer.
 - Image 111 (`3c23b09b`, `boot-test.bin.111` sha b93fcdc118d2321d) re-arms WD1 after the header write according to its result. Reset minus alarm minus 27: 5 = it faulted or hung before returning, 10 = the TX FIFO never emptied, 15 = no response, 20 = sent and answered, 25 = crumbs off.
 - R57AE: boot-test 111 + `r57w-panic27`.
+
+## 2026-11-20 01:15 R57AE: the write is answered, but 0x6040 is not scratch. Image 112 writes into 0x6004..0x6027
+- R57AE (image 111): reset at alarm + 47 s = 27 + 20, "sent and answered". So the SPMI write from the reset hook works, yet 0x6040 read zero.
+- Probe from main: writes at 0x6030, 0x6040, 0x6050 and 0x6080 read back 0 straight away. 0x6020..0x6027 take a write, 0x6028.. do not. **The PMU's scratch is only 0x6000..0x6027**, as nekolyanich warned ("my PMU scratchpad turned out not to be free"). 0x6020..0x6027 were restored (0x6024 held 0xff).
+- Image 112 (`7ebd699e`, `boot-test.bin.112` sha 31561cccbdd77f97) puts the record in the real scratch, over the wake telemetry:
+  - 0x6004 = 0x50 (marker, instead of 0x22), 0x6005 = frames.
+  - Up to 9 kernel return addresses as (lr - _text) >> 2, 3 bytes each, at 0x6006/09/0c/11/14/17/1a/20/25.
+  - It leaves 0x6010 (bootbin's test-boot flag), 0x600f, 0x601d..0x601f and 0x6024 alone.
+  - Then WD1 at 2 s.
+- Decoder `tools/panic-trace.py` updated. R57AF: boot-test 112 + `r57w-panic27`.
