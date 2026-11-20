@@ -257,7 +257,10 @@ timeout 10 dd if=/dev/nvme0n1 of=/dev/null bs=4k count=16 iflag=direct 2>/dev/nu
 pb 0x600b $PM
 # R59I: the first 11 characters of the ANS RTKit crash message ("RTKit: Message (id=..): <text>", "panic: " stripped) into the
 # bytes that survive the reset and are free after the wake: 0x6011..0x6019, 0x601d, 0x601e (read back with tools/panic-trace.py MODE=text)
-CM=$(dmesg | grep "nvme" | grep -o "RTKit: Message (id=[0-9a-f]*): .*" | tail -1 | sed 's/^RTKit: Message (id=[0-9a-f]*): //; s/^panic: //')
+CM=$(echo "$DA" | grep "nvme" | grep -o "RTKit: Message (id=[0-9a-f]*): .*" | tail -1 | sed 's/^RTKit: Message (id=[0-9a-f]*): //; s/^panic: //')
+# R59J: else the last ANS RTKit syslog line's text (after "syslog message: <ctx>: "), with a leading '~'; else "none"
+[ -z "$CM" ] && CM=$(echo "$DA" | grep "nvme" | grep -o "RTKit: syslog message: .*" | tail -1 | sed 's/^RTKit: syslog message: [^ ]*: /~/')
+[ -z "$CM" ] && CM="none"
 if [ -n "$CM" ]; then
     k=0
     for o in 0x6011 0x6012 0x6013 0x6014 0x6015 0x6016 0x6017 0x6018 0x6019 0x601d 0x601e; do
