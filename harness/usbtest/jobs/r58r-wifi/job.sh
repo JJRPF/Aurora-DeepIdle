@@ -130,15 +130,16 @@ if [ -w "$N" ]; then
 fi
 # R58R: wait for the pcie-apple S2R work (1.5 s after resume) and its rescan, then summarise into 0x600d (flags) and 0x600e (s waited):
 # bit0 "lost its link" seen, bit1 "link up after resume", bit2 "link down after resume", bit3 rescan done, bit4 power-on failed,
-# bit5 wlan0 present, bit6 config vendor 14e4, bit7 a push to the Pi got through (set later)
+# bit5 wlan0 present, bit6 config vendor 14e4, bit7 "ready wait timeout". R58S: the flags go to 0x6008 (0x600d/e do not survive the reset)
 pb() { [ -w "$N" ] && printf "\\x$(printf '%02x' $(($2 & 0xff)))" | dd of="$N" bs=1 seek=$(($1)) count=1 conv=notrunc 2>/dev/null; }
 wf() { local f=0 d; d=$(dmesg | tail -n +$(dmesg | grep -n 'PM: suspend exit' | tail -1 | cut -d: -f1)); 
   case "$d" in *"lost its link"*) f=$((f|1));; esac; case "$d" in *"link up after resume"*) f=$((f|2));; esac
-  case "$d" in *"link down after resume"*) f=$((f|4));; esac; case "$d" in *"rescanning after the S2R"*) f=$((f|8));; esac
+  case "$d" in *"still down after resume"*) f=$((f|4));; esac; case "$d" in *"rescanning after the S2R"*) f=$((f|8));; esac
   case "$d" in *"power-on after resume failed"*) f=$((f|16));; esac; [ -e /sys/class/net/wlan0 ] && f=$((f|32))
-  [ "$(od -An -tx2 -N2 /sys/bus/pci/devices/0000:01:00.0/config 2>/dev/null | tr -d ' ')" = 14e4 ] && f=$((f|64)); echo $f; }
+  [ "$(od -An -tx2 -N2 /sys/bus/pci/devices/0000:01:00.0/config 2>/dev/null | tr -d ' ')" = 14e4 ] && f=$((f|64))
+  case "$d" in *"ready wait timeout"*) f=$((f|128));; esac; echo $f; }
 for WS in $(seq 1 40); do sleep 1; WF=$(wf); pb 0x600d $WF; pb 0x600e $WS; [ $((WF & 8)) = 8 ] && [ $((WF & 32)) = 32 ] && break; done
-sleep 8; systemctl restart iwd 2>/dev/null; sleep 10; WF=$(wf); pb 0x600d $WF
+sleep 8; systemctl restart iwd 2>/dev/null; sleep 10; WF=$(wf); pb 0x600d $WF; R58S_WF=$WF
 T1=$(date +%s.%N)
 DUR=$(echo "$T1 $T0" | awk '{printf "%.1f", $1-$2}')
 RES="R57J RESUMED INTO THE JOB: rc=$rc after $DUR s, online $(cat /sys/devices/system/cpu/online)
@@ -156,7 +157,7 @@ V=$(od -An -tx2 -N2 /sys/bus/pci/devices/0000:01:00.0/config 2>/dev/null | tr -d
 case "$V" in 14e4) pb 0x6007 1;; ffff) pb 0x6007 2;; "") pb 0x6007 0;; *) pb 0x6007 3;; esac
 # 0x6008: wlan0 operstate: 1 up, 2 down, 3 dormant, 4 other, 0 absent
 OS=$(cat /sys/class/net/wlan0/operstate 2>/dev/null)
-L1=$($J/mmio-read 0x595008208 1 2>/dev/null | awk '{print $2}'); pb 0x6008 $(( ${L1:-0} & 0xff ))
+pb 0x6008 ${R58S_WF:-0}
 mount -t debugfs none /sys/kernel/debug 2>/dev/null
 G=/sys/kernel/debug/gpio
 PW=$(awk '/macsmc/{f=1} f && /gpio-13 /{print; exit}' $G 2>/dev/null)
@@ -170,7 +171,7 @@ C2=$(dmesg | tail -n +$L0 | grep -ciE 'dart|NO PMD|pcie.*(err|fail|down)|AER')
 pb 0x600b 1
 PUSH_TRIES=6
 if push "R57J resumed" "$RES | wifi: link=$LS vendor=$V oper=$OS brcmf=$C1 err=$C2 | $(dmesg | tail -n +$L0 | grep -iE 'brcmf|dart|pcie' | tail -6 | cut -c1-120 | tr '\n' '|')"; then
-    pb 0x600b 4; pb 0x600d $((WF | 128))
+    pb 0x600b 4
 else
     pb 0x600b 2
     sleep 10
