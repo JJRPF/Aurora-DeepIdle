@@ -3,7 +3,7 @@
 0x6004 = 0x50 marker, 0x6005 = frames, 3-byte slots ((lr - _text) >> 2) at 0x6006 0x6009 0x600c 0x6011 0x6014
 0x6017 0x601a 0x6020 0x6025. panic-trace.py [System.map] (default the test kernel's, no KASLR)."""
 import bisect, glob, os, sys
-smap = sys.argv[1] if len(sys.argv) > 1 else os.path.expanduser('~jjr/Work/src/linux-aurora/System.map')
+smap = sys.argv[1] if len(sys.argv) > 1 else os.path.expanduser('~jjr/Work/src/linux-aurora-pstore/System.map')
 nv = sorted(glob.glob('/sys/bus/spmi/devices/0-0b/spmi_nvmem*/nvmem'))[0]
 f = open(nv, 'rb', buffering=0)
 def rd(a, n):  # byte reads: block reads of this range can fail with EIO
