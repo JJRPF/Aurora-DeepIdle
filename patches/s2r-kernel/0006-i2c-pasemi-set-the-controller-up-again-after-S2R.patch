@@ -1,0 +1,74 @@
+diff --git i/drivers/i2c/busses/i2c-pasemi-core.c w/drivers/i2c/busses/i2c-pasemi-core.c
+index f4eca44ed183..e50d14b74e02 100644
+--- i/drivers/i2c/busses/i2c-pasemi-core.c
++++ w/drivers/i2c/busses/i2c-pasemi-core.c
+@@ -450,6 +450,17 @@ int pasemi_i2c_common_probe(struct pasemi_smbus *smbus)
+ }
+ EXPORT_SYMBOL_GPL(pasemi_i2c_common_probe);
+ 
++/*
++ * Set the controller up again after its registers were lost, e.g. after an
++ * S2R power cut on Apple SoCs (the PM core keeps the power domain "on", but
++ * the hardware was off and REG_CTL is back at its reset value).
++ */
++void pasemi_i2c_reinit(struct pasemi_smbus *smbus)
++{
++	pasemi_reset(smbus);
++}
++EXPORT_SYMBOL_GPL(pasemi_i2c_reinit);
++
+ irqreturn_t pasemi_irq_handler(int irq, void *dev_id)
+ {
+ 	struct pasemi_smbus *smbus = dev_id;
+diff --git i/drivers/i2c/busses/i2c-pasemi-core.h w/drivers/i2c/busses/i2c-pasemi-core.h
+index 88821f4e8a9f..2678df6ad433 100644
+--- i/drivers/i2c/busses/i2c-pasemi-core.h
++++ w/drivers/i2c/busses/i2c-pasemi-core.h
+@@ -22,5 +22,6 @@ struct pasemi_smbus {
+ };
+ 
+ int pasemi_i2c_common_probe(struct pasemi_smbus *smbus);
++void pasemi_i2c_reinit(struct pasemi_smbus *smbus);
+ 
+ irqreturn_t pasemi_irq_handler(int irq, void *dev_id);
+diff --git i/drivers/i2c/busses/i2c-pasemi-platform.c w/drivers/i2c/busses/i2c-pasemi-platform.c
+index a486a37d3863..38f0c389ed8d 100644
+--- i/drivers/i2c/busses/i2c-pasemi-platform.c
++++ w/drivers/i2c/busses/i2c-pasemi-platform.c
+@@ -11,6 +11,7 @@
+ #include <linux/kernel.h>
+ #include <linux/module.h>
+ #include <linux/platform_device.h>
++#include <linux/pm.h>
+ #include <linux/types.h>
+ 
+ #include "i2c-pasemi-core.h"
+@@ -91,6 +92,20 @@ static int pasemi_platform_i2c_probe(struct platform_device *pdev)
+ 
+ static void pasemi_platform_i2c_remove(struct platform_device *pdev) { }
+ 
++static int pasemi_platform_i2c_resume_noirq(struct device *dev)
++{
++	struct pasemi_platform_i2c_data *data = dev_get_drvdata(dev);
++
++	/* Before the clients' resume callbacks talk on the bus. */
++	pasemi_i2c_reinit(&data->smbus);
++	dev_info(dev, "TEST s2r: controller set up again after resume\n");
++	return 0;
++}
++
++static const struct dev_pm_ops pasemi_platform_i2c_pm_ops = {
++	NOIRQ_SYSTEM_SLEEP_PM_OPS(NULL, pasemi_platform_i2c_resume_noirq)
++};
++
+ static const struct of_device_id pasemi_platform_i2c_of_match[] = {
+ 	{ .compatible = "apple,t8103-i2c" },
+ 	{ .compatible = "apple,i2c" },
+@@ -102,6 +117,7 @@ static struct platform_driver pasemi_platform_i2c_driver = {
+ 	.driver	= {
+ 		.name			= "i2c-apple",
+ 		.of_match_table		= pasemi_platform_i2c_of_match,
++		.pm			= pm_sleep_ptr(&pasemi_platform_i2c_pm_ops),
+ 	},
+ 	.probe	= pasemi_platform_i2c_probe,
+ 	.remove = pasemi_platform_i2c_remove,
