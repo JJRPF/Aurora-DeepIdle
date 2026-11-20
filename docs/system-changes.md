@@ -67,3 +67,4 @@ Filled in below as it happens.
 | Aura image 112 (local commit `7ebd699e`) | `~/Work/psci-test/boot-test.bin.112` (sha 31561cccbdd77f97) staged as `boot-test.bin` | as above |
 | PMU scratch probe from main (2026-11-20 ~00:00): wrote 0xa5 at 0x6030/40/50/80 (did not stick) and 0x5a to 0x6020..0x602f (0x6020..0x6027 stuck); 0x6020..0x6027 restored to `00000000ff000000` | PMU nvmem | done |
 | Aura image 113 (local commit `eecbb13d`) | `~/Work/psci-test/boot-test.bin.113` (sha 4fda14d179c2a6f0) staged as `boot-test.bin` | as above |
+| Aura image 114 (local commit `3029e360`) | `~/Work/psci-test/boot-test.bin.114` (sha 6185cd11921d9f94) staged as `boot-test.bin` | as above |
