@@ -4803,3 +4803,7 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
 ## 2026-11-19 23:55 Replied to nekolyanich on #5; rebuilding the test-root modules against the patched kernel
 - Posted the reply on #5 (issuecomment-7029199165) as the owner instructed (send without asking): sleep and RTC wake work, no return, reset at commit + 59-70 s (matches their WD2 = 60 s reading), DRAM wiped across the reset (persistent trace page read back zeros), PMU-scratch crumb plan, the test-boot kernel rejection, and which resume pieces we will port and credit.
 - Owner's instruction: rebuild the test root modules against the new kernel, then run a long sleep test or other S2R work. Building `make modules` + `modules_install` into `~/Work/modroot` (old toolchain, patched tree; CONFIG_MODVERSIONS is off, so only vermagic and layout matter, and this may not be the cause), then a new `root.sfs` with those modules.
+
+## 2026-11-20 00:10 R57S void: rebuilt test-root modules do not help; bisecting the patch with an empty crumb body
+- New `root.sfs` (modules from the patched tree, 1917 .ko, sha fbe8001ce47dd690; original saved as `root.sfs.orig-nov15` in `~/Work/deepidle-usbtest/`) + crumb kernel: away 79 s, no pushes, crumbs zero. So the module mismatch hypothesis is wrong (CONFIG_MODVERSIONS is off anyway).
+- Bisect step: same patch with `s2r_crumb()` returning at once (call site and new file kept). If this boots, the nvmem code is the problem; if it fails, merely having the file/call changes something the test boot depends on.
