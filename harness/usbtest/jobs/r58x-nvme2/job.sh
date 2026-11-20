@@ -182,6 +182,9 @@ echo "$DA" | grep -iE 'rtkit' | grep -qiE 'timeout|timed out|fail|error' && NV=$
 [ -e /sys/class/nvme/nvme0/state ] && NV=$((NV|128))
 # R58Y: 0x6009 = low byte of the CPU_CONTROL value the patched driver logs at resume ("TEST s2r: cpu_control 0x.."), ee = no such line
 CC=$(echo "$DA" | grep -o "TEST s2r: cpu_control 0x[0-9a-f]*" | tail -1 | grep -o "0x[0-9a-f]*$"); USB1=$(( ${CC:-0xee} & 0xff ))
+# R59B: the NVMe power chain after the wake, actual-state nibbles (f = on): 0x6009 = ans2<<4 | afnc6_lw0, 0x600b = apcie_st_sys<<4 | apcie_st1_sys
+an() { echo $(( ($($J/mmio-read $1 1 2>/dev/null | awk '{print $2}') >> 4) & 0xf )); }
+R59B_A=$(( ($(an 0x2902801a8) << 4) | $(an 0x290280158) )); R59B_B=$(( ($(an 0x290280408) << 4) | $(an 0x290280410) ))
 T1=$(date +%s.%N)
 DUR=$(echo "$T1 $T0" | awk '{printf "%.1f", $1-$2}')
 RES="R57J RESUMED INTO THE JOB: rc=$rc after $DUR s, online $(cat /sys/devices/system/cpu/online)
@@ -203,7 +206,7 @@ OS=$(cat /sys/class/net/wlan0/operstate 2>/dev/null)
 mount -t debugfs none /sys/kernel/debug 2>/dev/null
 G=/sys/kernel/debug/gpio
 PW=$(awk '/macsmc/{f=1} f && /gpio-13 /{print; exit}' $G 2>/dev/null)
-pb 0x6009 ${USB1:-0}
+pb 0x6009 ${R59B_A:-0}
 RS=$(awk '/39b028000/{f=1} /^gpiochip/ && !/39b028000/{f=0} f && /gpio-4 /{print; exit}' $G 2>/dev/null)
 : # R58Z2: 0x600a is Aura image 123s (domains still off)
 # 0x6009: brcmf lines since the resume; 0x600a: DART / PCIe error lines since the resume
@@ -221,4 +224,5 @@ else
     PUSH_TRIES=20
     push "R57J resumed (after Wi-Fi rescan)" "$RES | before: link=$LS vendor=$V oper=$OS brcmf=$C1 err=$C2; after rescan oper=$OS2 | $(dmesg | tail -n +$L0 | grep -iE 'brcmf|dart|pcie|iwd' | tail -8 | cut -c1-120 | tr '\n' '|')" && pb 0x600b 3
 fi
+pb 0x600b ${R59B_B:-0}  # R59B: replaces the push stage
 $J/aura-ctl 0 0 0 > /dev/null 2>&1
