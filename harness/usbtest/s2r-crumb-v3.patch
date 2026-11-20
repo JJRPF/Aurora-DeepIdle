@@ -1,0 +1,86 @@
+diff --git i/drivers/base/power/Makefile w/drivers/base/power/Makefile
+index 2989e42d0161..af813d3c73f1 100644
+--- i/drivers/base/power/Makefile
++++ w/drivers/base/power/Makefile
+@@ -1,6 +1,6 @@
+ # SPDX-License-Identifier: GPL-2.0
+ obj-$(CONFIG_PM)	+= sysfs.o generic_ops.o common.o qos.o runtime.o wakeirq.o
+-obj-$(CONFIG_PM_SLEEP)	+= main.o wakeup.o wakeup_stats.o
++obj-$(CONFIG_PM_SLEEP)	+= main.o wakeup.o wakeup_stats.o s2r_crumb.o
+ obj-$(CONFIG_PM_TRACE_RTC)	+= trace.o
+ obj-$(CONFIG_HAVE_CLK)	+= clock_ops.o
+ obj-$(CONFIG_PM_QOS_KUNIT_TEST) += qos-test.o
+diff --git i/drivers/base/power/main.c w/drivers/base/power/main.c
+index 4ed2e9b7e99b..2af0f4dbf8b4 100644
+--- i/drivers/base/power/main.c
++++ w/drivers/base/power/main.c
+@@ -494,6 +494,8 @@ static void dpm_show_time(ktime_t starttime, pm_message_t state, int error,
+ 		  usecs / USEC_PER_MSEC, usecs % USEC_PER_MSEC);
+ }
+ 
++void s2r_crumb(struct device *dev, pm_message_t state, const char *info);
++
+ static int dpm_run_callback(pm_callback_t cb, struct device *dev,
+ 			    pm_message_t state, const char *info)
+ {
+@@ -506,6 +508,7 @@ static int dpm_run_callback(pm_callback_t cb, struct device *dev,
+ 	calltime = initcall_debug_start(dev, cb);
+ 
+ 	pm_dev_dbg(dev, state, info);
++	s2r_crumb(dev, state, info);
+ 	trace_device_pm_callback_start(dev, info, state.event);
+ 	error = cb(dev);
+ 	trace_device_pm_callback_end(dev, error);
+diff --git i/drivers/base/power/s2r_crumb.c w/drivers/base/power/s2r_crumb.c
+new file mode 100644
+index 000000000000..1c9c023b3002
+--- /dev/null
++++ w/drivers/base/power/s2r_crumb.c
+@@ -0,0 +1,47 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * GH-5 debug: write the device PM callback in progress to the PMU's scratch (it survives a reset; DRAM does not).
++ * 0x601d callback counter, 0x6020 event, 0x6021 phase letter, 0x6022/0x6023/0x6025/0x6026/0x6027 the first five
++ * characters of the device name (0x6024 is left alone). Only the PMU's nvmem (SPMI 0-0b) is used.
++ */
++#include <linux/device.h>
++#include <linux/pm.h>
++#include <linux/string.h>
++#include <linux/err.h>
++#include <linux/nvmem-consumer.h>
++
++static struct nvmem_device *s2r_crumb_nvmem;
++static u8 s2r_crumb_count;
++
++static int s2r_crumb_match(struct device *dev, const void *data)
++{
++	return !strncmp(dev_name(dev), "spmi_nvmem", 10) && dev->parent &&
++	       !strcmp(dev_name(dev->parent), "0-0b");
++}
++
++void s2r_crumb(struct device *dev, pm_message_t state, const char *info)
++{
++	const char *n = dev_name(dev);
++	u8 a[4] = { }, b[3] = { };
++	int i;
++
++	if (!s2r_crumb_nvmem) {
++		s2r_crumb_nvmem = nvmem_device_find(NULL, s2r_crumb_match);
++		if (IS_ERR(s2r_crumb_nvmem))
++			s2r_crumb_nvmem = NULL;
++		if (!s2r_crumb_nvmem)
++			return;
++	}
++	a[0] = state.event & 0xff;
++	a[1] = info ? info[0] : '?';
++	for (i = 0; n && n[i] && i < 5; i++) {
++		if (i < 2)
++			a[2 + i] = n[i];
++		else
++			b[i - 2] = n[i];
++	}
++	s2r_crumb_count++;
++	nvmem_device_write(s2r_crumb_nvmem, 0x601d, 1, &s2r_crumb_count);
++	nvmem_device_write(s2r_crumb_nvmem, 0x6020, 4, a);
++	nvmem_device_write(s2r_crumb_nvmem, 0x6025, 3, b);
++}

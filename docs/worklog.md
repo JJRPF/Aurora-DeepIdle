@@ -5060,3 +5060,9 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
 - R58F (original UKI cc2994d12a1553f2 + image 121): same as R58C..E. No crumb, reset 90 s after the alarm (0x6282e5). So it is not the kernel or the PCIe patch.
 - Image 121 differs from 120 only in the SYSTEM_RESET recorder, which does not run during a sleep. The PMU nvmem cells the kernel reads (0x6001 boot-stage, 0x6002 boot-error/panic counts, 0x6003 boot-error-stage, 0x600f bit 3 shutdown flag) are not bytes the recorder writes.
 - R58G: `boot-test.bin.120` + the plain UKI + `r57y-netdiag2`, the setup of R57AL..R57AR. If that fails too, something outside the test chain changed since R57AR.
+
+## 2026-11-20 09:20 R58G: even R57AR's exact setup no longer sleeps. Something outside the test chain changed. R58H: device-PM crumbs
+- R58G (image 120 + plain UKI + `r57y-netdiag2`, the setup that resumed 6 of 6 overnight): same failure as R58C..F. No Aura crumb, reset about 91 s after a fresh alarm (0x628406).
+- So since R57AR (01:05) something persistent outside the test chain changed. Not the Logi Bolt receiver (present in every boot last night, successful runs included). Remaining candidates: the battery is now Full on AC (it was charging overnight), USB-C partners on ports 0-2, or PMU scratch state left by R58A/R58B (the 0x51 record, 0x601f = bb).
+- Patched kernels boot now, so device-PM crumbs: `s2r-crumb-v3.patch` writes every `dpm_run_callback` to PMU scratch (0x601d counter, 0x6020 event, 0x6021 phase letter, five name characters at 0x6022/23/25/26/27; only the PMU's nvmem, SPMI 0-0b). Those bytes were cleared from main before the run.
+- R58H: crumb kernel (bf173c95 + BTF option + crumbs) + image 120 + `r57y-netdiag2`.
