@@ -1,11 +1,15 @@
 diff --git i/drivers/power/reset/macsmc-reboot.c w/drivers/power/reset/macsmc-reboot.c
-index fe9eac92b17b..8cae25a0b734 100644
+index fe9eac92b17b..53fd8a3df029 100644
 --- i/drivers/power/reset/macsmc-reboot.c
 +++ w/drivers/power/reset/macsmc-reboot.c
-@@ -467,6 +467,15 @@ static void macsmc_reboot_ps_dump(struct device *dev, const char *when)
+@@ -467,6 +467,19 @@ static void macsmc_reboot_ps_dump(struct device *dev, const char *when)
  	kfree(buf);
  }
  
++static bool s2r_regon_cycle;
++module_param(s2r_regon_cycle, bool, 0644);
++MODULE_PARM_DESC(s2r_regon_cycle, "GH-5 TEST: cycle the radio REG_ON with macOS's gP0d command after the wake");
++
 +/* GH-5 R59X: the Wi-Fi REG_ON/PWREN line (SMC gpio 13, key gP0d) as the SMC reports it; -1 on error */
 +static int macsmc_reboot_wlan_reg_on(struct macsmc_reboot *reboot)
 +{
@@ -18,7 +22,7 @@ index fe9eac92b17b..8cae25a0b734 100644
  static int macsmc_reboot_pm_prepare(struct device *dev)
  {
  	struct macsmc_reboot *reboot = dev_get_drvdata(dev);
-@@ -520,9 +529,14 @@ static int macsmc_reboot_pm_suspend_late(struct device *dev)
+@@ -520,9 +533,14 @@ static int macsmc_reboot_pm_suspend_late(struct device *dev)
  		dev_info(dev, "sleep: PMP requests released before slpa (%d)\n", ret);
  	}
  	if (reboot->sleep_steps & MACSMC_SLEEP_SLPA) {
@@ -33,7 +37,7 @@ index fe9eac92b17b..8cae25a0b734 100644
  	}
  	return 0;
  }
-@@ -549,11 +563,13 @@ static int macsmc_reboot_pm_resume_early(struct device *dev)
+@@ -549,11 +567,27 @@ static int macsmc_reboot_pm_resume_early(struct device *dev)
  	if (!reboot->slpa_sent)
  		return 0;
  	reboot->slpa_sent = false;
@@ -44,6 +48,20 @@ index fe9eac92b17b..8cae25a0b734 100644
  	dev_info(dev, "sleep: wake MBSE %08x (%d), MBSW %8phN (%d); MBSE = waka (%d)\n",
  		 mbse, r1, mbsw, r2, ret);
 +	dev_info(dev, "TEST s2r: gP0d after waka %d\n", macsmc_reboot_wlan_reg_on(reboot));
++	if (READ_ONCE(s2r_regon_cycle)) {
++		/*
++		 * GH-5 R60C: macOS drives the radio's REG_ON with the ADT function-reg_on, pKW4 gP0d 0x00800000,
++		 * whose handler puts the on/off value in the low 16 bits: gP0d = 0x00800000 | v. Linux's gpio
++		 * driver writes CMD_OUTPUT | v (0x01000000 | v) instead. Cycle it the macOS way after the wake.
++		 */
++		int r0 = apple_smc_write_u32(reboot->smc, SMC_KEY(gP0d), 0x00800000);
++
++		msleep(100);
++		ret = apple_smc_write_u32(reboot->smc, SMC_KEY(gP0d), 0x00800001);
++		msleep(200);
++		dev_info(dev, "TEST s2r: REG_ON cycled the macOS way (%d, %d), gP0d now %d\n", r0, ret,
++			 macsmc_reboot_wlan_reg_on(reboot));
++	}
  	return 0;
  }
  
