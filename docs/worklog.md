@@ -4874,3 +4874,8 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
 - R57AB pushes: stage 2 `v0.1.0-57-g4ad0e031-dirty` (image 108), SMBIOS firmware `2026.07-g7a366a32dc83-dirty U-Boot` (the hook build), `efi: EFI v2.11 by Das U-Boot`, `RTPROP=0x107c956d040`, efivars present. 0x6040 still zero after its `systemctl reboot`.
 - A plain reboot runs `device_shutdown()` and macsmc-reboot's RESTART_PREPARE step (SMC `rest`) before `machine_restart()`. Either can leave the SPMI controller unusable, or cut power, before ResetSystem, so the two plain-reboot controls are not a clean test of the hook. A panic's `emergency_restart()` skips both. The panic path has not yet run with the U-Boot that advertises ResetSystem (R57AA stopped at the gate).
 - R57AC: boot-test 109 + `r57w-panic27` (gate fixed), alarm +30 s, panic=27.
+
+## 2026-11-20 00:50 R57AC: fifth panic after the wake, still no header; image 110 makes the hook visible in the reset time
+- R57AC (boot-test 109, panic path): real sleep 28 s, reset stamp = alarm + 27 s (0x620ab0 / 0x620acb), 0x6040 zero. So even on the panic path, with U-Boot advertising ResetSystem, nothing lands in the PMU. The hook is either not reached, or the SPMI write fails in that context.
+- Image 110 (`f943b89e`, `boot-test.bin.110` sha cd07e8aa503e17f0): on SYSTEM_RESET Aura arms WD1 for 5 s, writes the record and spins instead of returning. Reset stamp at alarm + 32 s = the hook runs (so the SPMI write is what fails); still alarm + 27 s = the hook is never reached (the kernel or U-Boot side).
+- R57AD: boot-test 110 + `r57w-panic27`.
