@@ -1,13 +1,29 @@
 diff --git i/drivers/nvme/host/apple.c w/drivers/nvme/host/apple.c
-index 6d342ee36a9f..504eebcad906 100644
+index 6d342ee36a9f..3c21d8462059 100644
 --- i/drivers/nvme/host/apple.c
 +++ w/drivers/nvme/host/apple.c
-@@ -207,6 +207,13 @@ struct apple_nvme {
+@@ -37,6 +37,7 @@
+ #include <linux/pm_domain.h>
+ #include <linux/soc/apple/rtkit.h>
+ #include <linux/soc/apple/sart.h>
++#include <linux/suspend.h>
+ #include <linux/reset.h>
+ #include <linux/time64.h>
+ 
+@@ -202,11 +203,21 @@ struct apple_nvme_hw {
+ 	unsigned long quirks;
+ };
+ 
++static bool s2r_ans_idle = true; /* GH-5: S2R suspend idles the ANS instead of shutting it down */
++
+ struct apple_nvme {
+ 	struct device *dev;
  	/* TEST (GH-8): the ANS wrapper's IO RVBAR, saved at suspend, restored before RUN if it changed */
  	void __iomem *iorvbar;
  	u64 iorvbar_saved;
 +	bool s2r_force_cold; /* GH-5: next reset after a system resume starts the ANS cold */
 +	bool s2r_cold; /* GH-5: this reset is that cold start */
++	bool s2r_idle_kept; /* GH-5: idled (0x201) for S2R with its RTKit buffers kept, as Andreas Fernandez does */
 +	u32 sart_power_boot; /* GH-5: ANS +0x13e8 after the first good boot (Andreas Fernandez's t6000 ANS restore) */
 +	/* GH-5: the ADT ANS AXI2AF / storage-lane tunables Aura publishes in /chosen/aurora,ans-tunables */
 +	int s2r_tun_n;
@@ -16,7 +32,7 @@ index 6d342ee36a9f..504eebcad906 100644
  	struct kref ref;
  	/* Serializes the post-M4 controller disable with reset and teardown. */
  	struct mutex disable_lock;
-@@ -1563,6 +1570,56 @@ static void apple_nvme_wait_freeze(struct apple_nvme *anv)
+@@ -1563,6 +1574,57 @@ static void apple_nvme_wait_freeze(struct apple_nvme *anv)
  	}
  }
  
@@ -48,6 +64,7 @@ index 6d342ee36a9f..504eebcad906 100644
 +}
 +
 +static bool s2r_ans_tunables = true;
++module_param_named(s2r_ans_idle, s2r_ans_idle, bool, 0644);
 +module_param(s2r_ans_tunables, bool, 0644);
 +
 +static void apple_nvme_s2r_tunables(struct apple_nvme *anv)
@@ -73,7 +90,7 @@ index 6d342ee36a9f..504eebcad906 100644
  static void apple_nvme_reset_work(struct work_struct *work)
  {
  	unsigned int nr_io_queues = 1;
-@@ -1655,6 +1712,18 @@ static void apple_nvme_reset_work(struct work_struct *work)
+@@ -1655,6 +1717,18 @@ static void apple_nvme_reset_work(struct work_struct *work)
  		writel(0, anv->mmio_coproc + APPLE_ANS_COPROC_CPU_CONTROL);
  	}
  
@@ -92,7 +109,22 @@ index 6d342ee36a9f..504eebcad906 100644
  	/*
  	 * Only do the soft-reset if the CPU is not running, which means either we
  	 * or the previous stage shut it down cleanly.
-@@ -1692,10 +1761,22 @@ static void apple_nvme_reset_work(struct work_struct *work)
+@@ -1683,7 +1757,13 @@ static void apple_nvme_reset_work(struct work_struct *work)
+ 		if (ret)
+ 			goto out;
+ 
+-		ret = apple_rtkit_reinit(anv->rtk);
++		if (anv->s2r_idle_kept) {
++			anv->s2r_idle_kept = false;
++			ret = apple_rtkit_reinit_keep(anv->rtk);
++			dev_info(anv->dev, "TEST s2r: RTKit reinit with buffers kept: %d\n", ret);
++		} else {
++			ret = apple_rtkit_reinit(anv->rtk);
++		}
+ 		if (ret)
+ 			goto out;
+ 
+@@ -1692,10 +1772,22 @@ static void apple_nvme_reset_work(struct work_struct *work)
  			goto out;
  
  		apple_nvme_iorvbar_restore(anv);
@@ -115,7 +147,7 @@ index 6d342ee36a9f..504eebcad906 100644
  	} else {
  		ret = apple_rtkit_wake(anv->rtk);
  	}
-@@ -1915,6 +1996,10 @@ static void apple_nvme_reset_work(struct work_struct *work)
+@@ -1915,6 +2007,10 @@ static void apple_nvme_reset_work(struct work_struct *work)
  	nvme_start_ctrl(&anv->ctrl);
  
  	dev_dbg(anv->dev, "ANS boot and NVMe init completed.");
@@ -126,7 +158,7 @@ index 6d342ee36a9f..504eebcad906 100644
  	return;
  
  out_remove_sq:
-@@ -2347,6 +2432,7 @@ static struct apple_nvme *apple_nvme_alloc(struct platform_device *pdev)
+@@ -2347,6 +2443,7 @@ static struct apple_nvme *apple_nvme_alloc(struct platform_device *pdev)
  	}
  
  	INIT_WORK(&anv->ctrl.reset_work, apple_nvme_reset_work);
@@ -134,7 +166,7 @@ index 6d342ee36a9f..504eebcad906 100644
  	if (iorvbar_phys) {
  		anv->iorvbar = devm_ioremap(dev, iorvbar_phys, 8);
  		if (anv->iorvbar)
-@@ -2581,6 +2667,7 @@ static int apple_nvme_resume(struct device *dev)
+@@ -2581,6 +2678,7 @@ static int apple_nvme_resume(struct device *dev)
  		WRITE_ONCE(anv->suspended, false);
  		return nvme_try_sched_reset(&anv->ctrl);
  	}
@@ -142,3 +174,22 @@ index 6d342ee36a9f..504eebcad906 100644
  	return nvme_reset_ctrl(&anv->ctrl);
  }
  
+@@ -2632,7 +2730,17 @@ static int apple_nvme_suspend(struct device *dev)
+ 	}
+ 
+ 	if (apple_rtkit_is_running(anv->rtk)) {
+-		ret = apple_rtkit_shutdown(anv->rtk);
++		if (s2r_ans_idle && pm_suspend_target_state == PM_SUSPEND_MEM) {
++			/* GH-5: idle, state and buffers kept, so the ANS resumes from its saved context after the cut */
++			ret = apple_rtkit_idle(anv->rtk);
++			if (!ret) {
++				apple_rtkit_detach_keep(anv->rtk);
++				anv->s2r_idle_kept = true;
++			}
++			dev_info(anv->dev, "TEST s2r: ANS idled for S2R: %d\n", ret);
++		} else {
++			ret = apple_rtkit_shutdown(anv->rtk);
++		}
+ 
+ 		writel(0, anv->mmio_coproc + APPLE_ANS_COPROC_CPU_CONTROL);
+ 	}

@@ -213,7 +213,7 @@ PW=$(awk '/macsmc/{f=1} f && /gpio-13 /{print; exit}' $G 2>/dev/null)
 NA=$(echo "$DA" | grep -i "nvme"); RK=0
 echo "$NA" | grep -q "RTKit: Initializing" && RK=$((RK|1)); echo "$NA" | grep -q "endpoint discovery failed" && RK=$((RK|2))
 echo "$NA" | grep -q "IOP power acknowledgment failed" && RK=$((RK|4)); echo "$NA" | grep -q "co-processor has crashed" && RK=$((RK|8))
-echo "$NA" | grep -q "RTKit: syslog message" && RK=$((RK|16)); echo "$NA" | grep -q "early AP readiness failed" && RK=$((RK|32))
+echo "$NA" | grep -q "RTKit: syslog message" && RK=$((RK|16)); echo "$NA" | grep -q "reinit with buffers kept: 0" && RK=$((RK|32))  # R59K (was early AP readiness)
 # R59F: bit6 "IOP power ack came after" (the long wait worked), bit7 "TEST s2r: sart power 0x0," (the cut cleared it)
 echo "$NA" | grep -q "IOP power ack came after" && RK=$((RK|64)); echo "$NA" | grep -q "TEST s2r: sart power 0x0," && RK=$((RK|128))
 pb 0x6009 $RK

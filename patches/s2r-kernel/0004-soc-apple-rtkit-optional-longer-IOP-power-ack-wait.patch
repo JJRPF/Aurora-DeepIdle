@@ -12,7 +12,7 @@ index 417d4550ef3a..6a619c4c0b07 100644
  	const struct apple_rtkit_ops *ops;
  	struct device *dev;
 diff --git i/drivers/soc/apple/rtkit.c w/drivers/soc/apple/rtkit.c
-index 6da0e4cbada7..9933b74ef969 100644
+index 6da0e4cbada7..7aab784a692c 100644
 --- i/drivers/soc/apple/rtkit.c
 +++ w/drivers/soc/apple/rtkit.c
 @@ -1388,6 +1388,14 @@ static int apple_rtkit_boot_common(struct apple_rtkit *rtk, bool early_ap_power)
@@ -30,10 +30,57 @@ index 6da0e4cbada7..9933b74ef969 100644
  	if (ret) {
  		dev_err(rtk->dev, "RTKit: IOP power acknowledgment failed: %d\n", ret);
  		return ret;
-@@ -1397,6 +1405,13 @@ static int apple_rtkit_boot_common(struct apple_rtkit *rtk, bool early_ap_power)
+@@ -1397,6 +1405,60 @@ static int apple_rtkit_boot_common(struct apple_rtkit *rtk, bool early_ap_power)
  		apple_rtkit_set_ap_power_state(rtk, APPLE_RTKIT_PWR_STATE_ON);
  }
  
++/*
++ * GH-5, from Andreas Fernandez's t6000 S2R work: like apple_rtkit_reinit(), but for a co-processor that was put to
++ * idle and resumes from its saved context. It keeps the shared buffers it was given, so they must stay mapped; only
++ * the mailbox and the power handshake restart.
++ */
++int apple_rtkit_reinit_keep(struct apple_rtkit *rtk)
++{
++	unsigned long flags;
++	int ret;
++
++	apple_rtkit_detach_rx(rtk);
++	flush_workqueue(rtk->wq);
++
++	bitmap_zero(rtk->endpoints, APPLE_RTKIT_MAX_ENDPOINTS);
++	set_bit(APPLE_RTKIT_EP_MGMT, rtk->endpoints);
++
++	reinit_completion(&rtk->epmap_completion);
++	reinit_completion(&rtk->iop_pwr_ack_completion);
++	reinit_completion(&rtk->ap_pwr_ack_completion);
++
++	rtk->crashed = false;
++	rtk->iop_power_state = APPLE_RTKIT_PWR_STATE_OFF;
++	rtk->ap_power_state = APPLE_RTKIT_PWR_STATE_OFF;
++	kfifo_reset(&rtk->sync_ack_fifo);
++
++	spin_lock_irqsave(&rtk->mbox->rx_lock, flags);
++	WRITE_ONCE(rtk->shutting_down, false);
++	rtk->mbox->rx = apple_rtkit_rx;
++	spin_unlock_irqrestore(&rtk->mbox->rx_lock, flags);
++
++	ret = apple_mbox_start(rtk->mbox);
++	if (ret) {
++		apple_rtkit_detach_rx(rtk);
++		flush_workqueue(rtk->wq);
++	}
++	return ret;
++}
++EXPORT_SYMBOL_GPL(apple_rtkit_reinit_keep);
++
++/* Stop receiving before an idled co-processor sleeps; its buffers stay put */
++void apple_rtkit_detach_keep(struct apple_rtkit *rtk)
++{
++	apple_rtkit_detach_rx(rtk);
++	flush_workqueue(rtk->wq);
++}
++EXPORT_SYMBOL_GPL(apple_rtkit_detach_keep);
++
 +/* GH-5: let the next boot wait up to @seconds more for the IOP power ack (0 = the normal wait) */
 +void apple_rtkit_set_iop_ack_wait(struct apple_rtkit *rtk, unsigned int seconds)
 +{
@@ -45,14 +92,16 @@ index 6da0e4cbada7..9933b74ef969 100644
  {
  	return apple_rtkit_boot_common(rtk, false);
 diff --git i/include/linux/soc/apple/rtkit.h w/include/linux/soc/apple/rtkit.h
-index 64d574550f01..33a0399dc95b 100644
+index 64d574550f01..2d138bdf65a4 100644
 --- i/include/linux/soc/apple/rtkit.h
 +++ w/include/linux/soc/apple/rtkit.h
-@@ -160,6 +160,7 @@ int apple_rtkit_reinit(struct apple_rtkit *rtk);
+@@ -160,6 +160,9 @@ int apple_rtkit_reinit(struct apple_rtkit *rtk);
   * co-processor has been started.
   */
  int apple_rtkit_boot(struct apple_rtkit *rtk);
 +void apple_rtkit_set_iop_ack_wait(struct apple_rtkit *rtk, unsigned int seconds);
++int apple_rtkit_reinit_keep(struct apple_rtkit *rtk);
++void apple_rtkit_detach_keep(struct apple_rtkit *rtk);
  
  /*
   * Mark an instance created with apple_rtkit_init() as running without a
