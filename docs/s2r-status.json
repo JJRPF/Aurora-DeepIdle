@@ -340,6 +340,7 @@
     { "what": "macOS 15.7.1", "value": "0.24 W", "detail": "5.9 h, 98.7% of it in S2R" }
   ],
   "findings": [
+    {"title": "R59V-R59W: the Wi-Fi slot is powered and out of reset after the wake, but never links", "body": "Slot power and the reset line both read correct after the wake, and the PCIe port is ready, yet the Wi-Fi chip is never detected. Next lead: the clock-request pin mux, which Linux does not put back after the power cut."},
     {"title": "R59U: USB works after a real S2R power cut", "body": "With three fixes (I2C controller re-init, Type-C PHY restore, and the M2 Pro dummy-PHY bit) every health check passes after the wake: NVMe, USB, keyboard, battery/SMC, RTC and SEP. Wi-Fi is the last device missing."},
     {"title": "R59T: the Type-C PHY loses a bit iBoot set, which the driver never sets on M2 Pro", "body": "The PHY handshake only works while a dummy-PHY enable bit is set. iBoot sets it, a power cut clears it, and the driver only restores it on M3-class chips. One port on main already has it cleared without any sleep, so this is a general bug. R59U tests the fix: treat the M2 Pro like M3 here."},
     {"title": "R59S: USB now stops at the Type-C PHY handshake", "body": "With the I2C fix the next failure after the wake is the PHY waiting for the USB controller to acknowledge a handshake. R59T records the registers at that moment to see whether the controller is still held in reset or lost its clock."},
