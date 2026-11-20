@@ -1,5 +1,5 @@
 diff --git i/drivers/pci/controller/pcie-apple.c w/drivers/pci/controller/pcie-apple.c
-index 805ff1a8d084..7c662bd5453a 100644
+index 805ff1a8d084..7aaea80a14af 100644
 --- i/drivers/pci/controller/pcie-apple.c
 +++ w/drivers/pci/controller/pcie-apple.c
 @@ -64,6 +64,10 @@ static bool s2idle_keep_link = true;
@@ -229,7 +229,7 @@ index 805ff1a8d084..7c662bd5453a 100644
  	pcie->reset_on_resume = false;
  	pcie->link_kept = apple_pcie_keep_link(pcie);
  	if (!pcie->link_kept)
-@@ -3588,9 +3635,144 @@ static int apple_pcie_resume_noirq(struct device *dev)
+@@ -3588,9 +3635,151 @@ static int apple_pcie_resume_noirq(struct device *dev)
  	return ret;
  }
  
@@ -260,6 +260,7 @@ index 805ff1a8d084..7c662bd5453a 100644
 +	struct pci_dev *pdev = NULL, *child, *tmp;
 +	bool redone = false;
 +	unsigned int attempt;
++	int perst_dir = -1;
 +	u32 stat;
 +	int ret;
 +
@@ -278,6 +279,12 @@ index 805ff1a8d084..7c662bd5453a 100644
 +			 apple_pcie_port_readl(port, PORT_LINKSTS));
 +		if (!port->perst)
 +			continue;
++		/*
++		 * GH-5 R59W: gpiolib's set_value only flips the data bit. If the power cut put PERST#'s pin back to an
++		 * input (its reset state), it is never driven again. Record what is found and make it an output (asserted).
++		 */
++		perst_dir = gpiod_get_direction(port->perst);
++		gpiod_direction_output(port->perst, 1);
 +		/*
 +		 * GH-5 R58T: the SMC may have cut the slot's rail in S2R while gpiolib still has PWREN high, and t602x
 +		 * has no pwren_off_ms, so power_on would only write 1 again. Hold PERST# and drop PWREN long enough for
@@ -312,9 +319,9 @@ index 805ff1a8d084..7c662bd5453a 100644
 +		dev_info(dev, "port %pOF link %s after resume (%#x)\n", port->np,
 +			 ret ? "still down" : "up", stat);
 +		/* GH-5 R59V: one line per try for the job: attempt, PWREN read back, link status, port status */
-+		dev_info(dev, "TEST s2r: port %u try %u pwren %d link %08x status %08x\n", port->idx, attempt,
++		dev_info(dev, "TEST s2r: port %u try %u pwren %d link %08x status %08x perstdir %d\n", port->idx, attempt,
 +			 port->pwren ? gpiod_get_value_cansleep(port->pwren) : -1,
-+			 apple_pcie_port_readl(port, PORT_LINKSTS), apple_pcie_port_readl(port, PORT_STATUS));
++			 apple_pcie_port_readl(port, PORT_LINKSTS), apple_pcie_port_readl(port, PORT_STATUS), perst_dir);
 +		redone = true;
 +		if (!ret)
 +			any_up = true;
