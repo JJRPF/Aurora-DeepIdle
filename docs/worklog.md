@@ -5248,3 +5248,9 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
 - Patch (0001 regenerated): the S2R work rescans only when at least one port's link came up ("no link came back after resume, not rescanning" otherwise), and waits 200 ms after link up first (PCIe asks for 100 ms).
 - R59M: UKI `deeptest.efi.pmp7` (sha 3439cc4662d7671c), PCIe S2R work on again; 0x600a now holds the job's Wi-Fi flags (bit0 lost link, 1 link up, 2 still down, 3 rescan done, 4 power-on failed, 5 wlan0, 6 vendor 14e4, 7 ready timeout).
 - To do: point panic-trace.py at the right System.map (pstore tree).
+
+## 2026-11-20 12:10 R59M: NVMe works again (2 of 2), no PCIe trap; the Wi-Fi link still does not train
+- R59M (pcie-apple: rescan only when a link came back, 200 ms after link up): resume 22 of 22, clean reboot (EC 0x15, 0 frames). **0x6006 = 0xfd: NVMe live and readable again** (R59L and R59M: 2 of 2), keyboard/SMC/RTC/SEP fine, no warnings; USB still short. PMP restarted (0x600b = 0x61).
+- Wi-Fi flags (0x600a) = 0x25: "lost its link", "link still down after resume", no rescan (so no trap), wlan0 present.
+- Correction to the R59K reading: the old code removed and rescanned even when no link came back, so R59K's abort was a config read behind a port whose link was down, not proof that the Wi-Fi link came up. The new rule (rescan only with a link) is the right guard either way.
+- State: sleep, wake, resume to userspace, PMP and NVMe now work across a real S2R power cut. Still missing: Wi-Fi (the port's link does not train), USB (devices gone after the wake), and the boot-chain/main-install integration.
