@@ -5038,3 +5038,11 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
   - New normal-phase `.resume`: for each port whose link went down, redo power-on (PWREN off/on, refclk, PERST#), the clock gates, the interrupt and MSI setup and RID2SID; start the LTSSM and poll for link up; restore INTMSK; then `pci_restore_state()` for the devices below the host (their noirq restore ran against a dead link). Module parameter `pcie_apple.s2r_resume` (default on). Normal phase because the SMC, which drives PWREN, needs interrupts.
   - Credit: nekolyanich ("redo probe's whole per-port setup").
 - R58C: UKI `deeptest.efi.pcie-s2r` (sha c7f477ffa3800f6a) + image 121 + `r57y-netdiag2` (sleep, Wi-Fi diagnostics, rescan fallback, pushes).
+
+## 2026-11-20 08:30 R58C: woke, but Linux did not reach userspace (hang, no record). R58D: the port redo moved to a work item plus remove/rescan
+- R58C: the wake happened (Aura's telemetry and 0x6023 = a4 are this run's), but 0x601f still held R58B's bb (the job never stamped aa), no push, and the reset record was R58B's, unchanged. So it was a hang, not a panic. The new synchronous `.resume` is the suspect: most likely PWREN through the SMC GPIO blocks, because the SMC does not take commands yet at that point of this sleep flow.
+- Rework (`deeptest.efi.pcie-s2r2`): `.resume` only queues a work item (system_long_wq).
+  - After `pcie_apple.s2r_resume_delay_ms` (1500), the work redoes each lost port's power-on, clock gates, interrupt and MSI setup and LTSSM start, and polls for link up.
+  - Then, under `pci_lock_rescan_remove`, it removes the devices on the host's root bus and `pci_rescan_bus()`, so brcmfmac and the SD reader probe afresh as at boot.
+  - The PCI core's add path rewrites RID2SID, so no manual RID2SID restore.
+- R58D: same job `r57y-netdiag2`.
