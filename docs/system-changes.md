@@ -70,3 +70,4 @@ Filled in below as it happens.
 | Aura image 114 (local commit `3029e360`) | `~/Work/psci-test/boot-test.bin.114` (sha 6185cd11921d9f94) staged as `boot-test.bin` | as above |
 | Aura image 115 (local commit `6861c027`) | `~/Work/psci-test/boot-test.bin.115` (sha 7116346f78da906c) staged as `boot-test.bin` | as above |
 | Aura image 116 (local commit `568fd45a`) | `~/Work/psci-test/boot-test.bin.116` (sha 0f03ed025f460c80) staged as `boot-test.bin` | as above |
+| Aura image 117 (local commit `b05607ab`) | `~/Work/psci-test/boot-test.bin.117` (sha a30910af319fa16c) staged as `boot-test.bin` | as above |
