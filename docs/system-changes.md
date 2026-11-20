@@ -57,3 +57,5 @@ Filled in below as it happens.
 | Test UKI | `~/Work/deepidle-usbtest/deeptest.efi` (restored to the normal one 2026-11-20) | `deeptest.efi.plain-3a50d5fe` is the normal copy |
 | `harness/usbtest/build-uki.sh` got `MODROOT` | repo | `git revert` the commit |
 | PMU scratch 0x6040..0x604f used for crumbs (still zero) | PMU nvmem | nothing to undo |
+| Aura image 106 (local commit, never pushed) | `~/Work/src/aura-img99` branch `gh5-img99-local` (image 105 = `86776585`); `~/Work/psci-test/boot-test.bin.106` (sha 89adeffaaa9f292d) staged as `boot-test.bin`; image 105's `aura.bin` kept as `~/Work/psci-test/aura.bin.105` | `git reset --hard 86776585` in `~/Work/src/aura-img99`; `sudo bash harness/usbtest/bootbin.sh test ~/Work/psci-test/boot-test.bin.105` |
+| PMU scratch 0x6040..0x60bf written by image 106 after a panic following an RVBAR wake | PMU nvmem | nothing to undo (scratch) |
