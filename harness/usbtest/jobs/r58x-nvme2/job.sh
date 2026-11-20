@@ -37,7 +37,7 @@ w() { $J/mmio-read $1 1 2>/dev/null | awk '{print $2}'; }
 atc() { for a in 278 288 298 2a8 228 230 238 240; do printf '%s ' "$(w 0x28e080$a)"; done; }
 V=$(tr -d '\0' < $C/asahi,m1n1-stage2-version)
 log "R57J kernel $(uname -r); stage2 $V; cmdline aop: $(grep -o 'aop.sleep_ap_idle=[0-9]*' /proc/cmdline || echo none)"
-case "$V" in *86776585*|*4ad0e031*|*c9339c54*|*f943b89e*|*3c23b09b*|*7ebd699e*|*eecbb13d*|*3029e360*|*6861c027*|*568fd45a*|*b05607ab*|*60f4cbde*|*32a2d310*|*b23a4df6*|*3aa5ddf2*|*c700f8bf*) ;; *) log "stage 2 is not image 105-108: stopping"; return 0 ;; esac
+case "$V" in *86776585*|*4ad0e031*|*c9339c54*|*f943b89e*|*3c23b09b*|*7ebd699e*|*eecbb13d*|*3029e360*|*6861c027*|*568fd45a*|*b05607ab*|*60f4cbde*|*32a2d310*|*b23a4df6*|*3aa5ddf2*|*c700f8bf*|*41dea591*) ;; *) log "stage 2 is not image 105-108: stopping"; return 0 ;; esac
 [ -e $R/wakealarm ] && grep -q deep /sys/power/mem_sleep || { log "no wakealarm or no deep, stopping"; return 0; }
 grep -q 'aop.sleep_ap_idle=3' /proc/cmdline || { log "aop.sleep_ap_idle=3 not on the cmdline: stopping"; return 0; }
 [ -e $M/appledrm/parameters/test_sleep_off ] || { log "appledrm has no test_sleep_off: stopping"; return 0; }
@@ -199,13 +199,13 @@ V=$(od -An -tx2 -N2 /sys/bus/pci/devices/0000:01:00.0/config 2>/dev/null | tr -d
 pb 0x6007 $NV
 # 0x6008: wlan0 operstate: 1 up, 2 down, 3 dormant, 4 other, 0 absent
 OS=$(cat /sys/class/net/wlan0/operstate 2>/dev/null)
-pb 0x6008 ${R58S_WF:-0}
+: # R58Z2: 0x6008 is Aura image 123s (domains re-powered)
 mount -t debugfs none /sys/kernel/debug 2>/dev/null
 G=/sys/kernel/debug/gpio
 PW=$(awk '/macsmc/{f=1} f && /gpio-13 /{print; exit}' $G 2>/dev/null)
 pb 0x6009 ${USB1:-0}
 RS=$(awk '/39b028000/{f=1} /^gpiochip/ && !/39b028000/{f=0} f && /gpio-4 /{print; exit}' $G 2>/dev/null)
-pb 0x600a ${USB0:-0}
+: # R58Z2: 0x600a is Aura image 123s (domains still off)
 # 0x6009: brcmf lines since the resume; 0x600a: DART / PCIe error lines since the resume
 L0=$(dmesg | grep -n 'PM: suspend exit' | tail -1 | cut -d: -f1); L0=${L0:-1}
 C1=$(dmesg | tail -n +$L0 | grep -c brcmf)
