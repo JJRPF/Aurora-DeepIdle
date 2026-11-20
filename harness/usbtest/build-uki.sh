@@ -1,6 +1,7 @@
 #!/bin/bash
 # GH-5: builds the DeepTest UKI (kernel + the usbtest initramfs + cmdline).
 #   sudo bash build-uki.sh [<kernel image> [<kernel release> [<out.efi> [extra cmdline...]]]]
+# MODROOT=<dir with lib/modules/<release>> builds the initramfs from those modules instead of /usr/lib/modules (needed for a kernel built from a patched tree).
 # Defaults: main's stock linux-aurora kernel. The UKI needs nothing from the USB drive.
 set -eu
 [ "$(id -u)" = 0 ] || { echo "run with sudo"; exit 1; }
@@ -21,7 +22,7 @@ FILES=()
 HOOKS=(base udev asahi modconf block usbtest)
 COMPRESSION="zstd"
 EOF
-mkinitcpio -c "$T/mkinitcpio.conf" -k "$KREL" -g "$T/initramfs.img" 2>&1 | grep -iE "error|usbtest|successful" || true
+mkinitcpio ${MODROOT:+-r "$MODROOT"} -c "$T/mkinitcpio.conf" -k "$KREL" -g "$T/initramfs.img" 2>&1 | grep -iE "error|usbtest|successful" || true
 [ -s "$T/initramfs.img" ] || { echo "initramfs build failed"; exit 1; }
 CMD="root=LABEL=OMARCHY_BOOT usbtest=1 rootdelay=20 loglevel=6 panic=10 net.ifnames=0 zswap.enabled=0 user4k=on $EXTRA"
 mkdir -p "$(dirname "$OUT")"

@@ -45,3 +45,15 @@ Filled in below as it happens.
 | 2026-11-19 | `~/.local/state/deepidle/pi-ssh` points at the Pi's dd-wrt address 192.168.5.111 (the Pi left 192.168.1.112) | `~/.local/state/deepidle/pi-ssh` | change the address back to 192.168.1.112 once the Pi is on LiveFreeOrDie again |
 | 2026-11-19 | DeepTest UKI rebuilt with extra cmdline `aop.sleep_ap_idle=3` (needed by the S2R jobs; R57E-R57J3 also used reserve_mem and panic options). Only DeepTest boots use it | `/home/jjr/Work/deepidle-usbtest/deeptest.efi`, `/boot/efi/EFI/Linux/deeptest.efi` | `sudo bash harness/usbtest/build-uki.sh /home/jjr/Work/src/linux-aurora/arch/arm64/boot/Image 7.2.11-psci-efi+` (no extras); the next `arm.sh` reinstalls it |
 | 2026-11-19 | `reserve_mem=1M:2M:oops` added to main's kernel line (owner's go), so main's kernel leaves that RAM page alone and a crash log from a test boot can be read | `/etc/default/grub` line 6 (GRUB_CMDLINE_LINUX), which regenerates `/etc/default/limine`, `/boot/efi/limine.conf`, `/boot/efi/EFI/Linux/omarchy_linux-aurora.efi`. Backups: `/etc/default/grub.bak-gh5`, `/etc/default/limine.bak-gh5`, `/boot/efi/limine.conf.bak-gh5`, `/boot/efi/EFI/Linux/omarchy_linux-aurora.efi.bak-gh5` | Restore `/etc/default/grub` from the backup (or delete `reserve_mem=1M:2M:oops `), run `sudo limine-update`, then delete the four `.bak-gh5` files |
+
+## Added 2026-11-19/20 (GH-5, R57L-R57U)
+| What | Where | How to reverse |
+|---|---|---|
+| `reserve_mem=1M:2M:oops` on main's kernel line (owner OK'd) | `/etc/default/grub` line 6; backups `*.bak-gh5` | restore the backup, run `sudo limine-update`, delete the `.bak-gh5` files |
+| Kernel source worktree for debug builds (code only, patch uncommitted; the patch is saved as `harness/usbtest/s2r-crumb.patch`) | `~/Work/src/linux-aurora-pstore` (git worktree of `~/Work/src/linux-aurora`) | `git -C ~/Work/src/linux-aurora worktree remove --force ~/Work/src/linux-aurora-pstore` |
+| Old clang/rustc extracted from the pacman cache | `~/Work/toolchain-old` | delete the folder |
+| Modules built from the patched tree (for the test root and initramfs) | `~/Work/modroot` | delete the folder |
+| Test root rebuilt with those modules; original kept | `~/Work/deepidle-usbtest/root.sfs` (new, sha fbe8001ce47dd690), `root.sfs.orig-nov15` (original) and its `.sha256`; copy in `/boot/deeptest/` | copy `root.sfs.orig-nov15` (+ `.sha256`) back over `root.sfs`, re-arm once so `/boot/deeptest` is refreshed |
+| Test UKI | `~/Work/deepidle-usbtest/deeptest.efi` (restored to the normal one 2026-11-20) | `deeptest.efi.plain-3a50d5fe` is the normal copy |
+| `harness/usbtest/build-uki.sh` got `MODROOT` | repo | `git revert` the commit |
+| PMU scratch 0x6040..0x604f used for crumbs (still zero) | PMU nvmem | nothing to undo |
