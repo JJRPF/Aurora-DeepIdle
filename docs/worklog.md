@@ -4879,3 +4879,9 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
 - R57AC (boot-test 109, panic path): real sleep 28 s, reset stamp = alarm + 27 s (0x620ab0 / 0x620acb), 0x6040 zero. So even on the panic path, with U-Boot advertising ResetSystem, nothing lands in the PMU. The hook is either not reached, or the SPMI write fails in that context.
 - Image 110 (`f943b89e`, `boot-test.bin.110` sha cd07e8aa503e17f0): on SYSTEM_RESET Aura arms WD1 for 5 s, writes the record and spins instead of returning. Reset stamp at alarm + 32 s = the hook runs (so the SPMI write is what fails); still alarm + 27 s = the hook is never reached (the kernel or U-Boot side).
 - R57AD: boot-test 110 + `r57w-panic27`.
+
+## 2026-11-20 01:00 R57AD: the hook IS reached (reset at alarm + 32 s); the SPMI write is what fails. Image 111 times the write's outcome
+- R57AD (image 110): reset stamp = alarm + 32 s (0x620b92 / 0x620bb2), the panic's 27 s plus image 110's 5 s WD1. So the chain from a kernel panic through EFI ResetSystem, U-Boot and Aura's handler works. 0x6040 is still zero, so the PMU write from that context fails, or faults, or hangs.
+- Aura's own suspend path does write crumbs from the same EFI context (MMU on, qs_crumb(0x11)), and the SPMI page is in the runtime map. What differs here: the panic has stopped the other CPUs, possibly in the middle of a Linux SPMI transfer.
+- Image 111 (`3c23b09b`, `boot-test.bin.111` sha b93fcdc118d2321d) re-arms WD1 after the header write according to its result. Reset minus alarm minus 27: 5 = it faulted or hung before returning, 10 = the TX FIFO never emptied, 15 = no response, 20 = sent and answered, 25 = crumbs off.
+- R57AE: boot-test 111 + `r57w-panic27`.
