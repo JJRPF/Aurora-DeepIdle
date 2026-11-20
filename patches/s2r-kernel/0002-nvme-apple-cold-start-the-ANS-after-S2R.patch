@@ -1,16 +1,27 @@
 diff --git i/drivers/nvme/host/apple.c w/drivers/nvme/host/apple.c
-index 6d342ee36a9f..f9d02f1d37b4 100644
+index 6d342ee36a9f..f6b0909521fc 100644
 --- i/drivers/nvme/host/apple.c
 +++ w/drivers/nvme/host/apple.c
-@@ -207,6 +207,7 @@ struct apple_nvme {
+@@ -207,6 +207,9 @@ struct apple_nvme {
  	/* TEST (GH-8): the ANS wrapper's IO RVBAR, saved at suspend, restored before RUN if it changed */
  	void __iomem *iorvbar;
  	u64 iorvbar_saved;
 +	bool s2r_force_cold; /* GH-5: next reset after a system resume starts the ANS cold */
++	bool s2r_cold; /* GH-5: this reset is that cold start */
++	u32 sart_power_boot; /* GH-5: ANS +0x13e8 after the first good boot (Andreas Fernandez's t6000 ANS restore) */
  	struct kref ref;
  	/* Serializes the post-M4 controller disable with reset and teardown. */
  	struct mutex disable_lock;
-@@ -1655,6 +1656,17 @@ static void apple_nvme_reset_work(struct work_struct *work)
+@@ -1563,6 +1566,8 @@ static void apple_nvme_wait_freeze(struct apple_nvme *anv)
+ 	}
+ }
+ 
++#define APPLE_ANS_SART_POWER	0x13e8
++
+ static void apple_nvme_reset_work(struct work_struct *work)
+ {
+ 	unsigned int nr_io_queues = 1;
+@@ -1655,6 +1660,18 @@ static void apple_nvme_reset_work(struct work_struct *work)
  		writel(0, anv->mmio_coproc + APPLE_ANS_COPROC_CPU_CONTROL);
  	}
  
@@ -23,12 +34,46 @@ index 6d342ee36a9f..f9d02f1d37b4 100644
 +			 readl(anv->mmio_coproc + APPLE_ANS_COPROC_CPU_CONTROL));
 +		writel(0, anv->mmio_coproc + APPLE_ANS_COPROC_CPU_CONTROL);
 +		anv->s2r_force_cold = false;
++		anv->s2r_cold = true;
 +	}
 +
  	/*
  	 * Only do the soft-reset if the CPU is not running, which means either we
  	 * or the previous stage shut it down cleanly.
-@@ -2581,6 +2593,7 @@ static int apple_nvme_resume(struct device *dev)
+@@ -1692,10 +1709,21 @@ static void apple_nvme_reset_work(struct work_struct *work)
+ 			goto out;
+ 
+ 		apple_nvme_iorvbar_restore(anv);
++		if (anv->s2r_cold) {
++			/* GH-5: the power cut reset what the first good boot had (Andreas Fernandez's t6000 restore) */
++			u32 sp = readl(anv->mmio_nvme + APPLE_ANS_SART_POWER);
++
++			if (anv->sart_power_boot && sp != anv->sart_power_boot)
++				writel(anv->sart_power_boot, anv->mmio_nvme + APPLE_ANS_SART_POWER);
++			dev_info(anv->dev, "TEST s2r: sart power %#x, boot value %#x\n", sp, anv->sart_power_boot);
++			apple_rtkit_set_iop_ack_wait(anv->rtk, 25);
++		}
+ 		writel(APPLE_ANS_COPROC_CPU_CONTROL_RUN,
+ 		       anv->mmio_coproc + APPLE_ANS_COPROC_CPU_CONTROL);
+ 
+ 		ret = apple_rtkit_boot(anv->rtk);
++		apple_rtkit_set_iop_ack_wait(anv->rtk, 0);
++		anv->s2r_cold = false;
+ 	} else {
+ 		ret = apple_rtkit_wake(anv->rtk);
+ 	}
+@@ -1915,6 +1943,10 @@ static void apple_nvme_reset_work(struct work_struct *work)
+ 	nvme_start_ctrl(&anv->ctrl);
+ 
+ 	dev_dbg(anv->dev, "ANS boot and NVMe init completed.");
++	if (!anv->sart_power_boot && !anv->hw->needs_ioq_registers) {
++		anv->sart_power_boot = readl(anv->mmio_nvme + APPLE_ANS_SART_POWER);
++		dev_info(anv->dev, "TEST s2r: saved sart power %#x\n", anv->sart_power_boot);
++	}
+ 	return;
+ 
+ out_remove_sq:
+@@ -2581,6 +2613,7 @@ static int apple_nvme_resume(struct device *dev)
  		WRITE_ONCE(anv->suspended, false);
  		return nvme_try_sched_reset(&anv->ctrl);
  	}
