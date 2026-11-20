@@ -232,5 +232,23 @@ else
     PUSH_TRIES=20
     push "R57J resumed (after Wi-Fi rescan)" "$RES | before: link=$LS vendor=$V oper=$OS brcmf=$C1 err=$C2; after rescan oper=$OS2 | $(dmesg | tail -n +$L0 | grep -iE 'brcmf|dart|pcie|iwd' | tail -8 | cut -c1-120 | tr '\n' '|')" && pb 0x600b 3
 fi
-pb 0x600b ${R59B_B:-0}  # R59B: replaces the push stage
+# R59D: 0x600b = the PMP after the wake and a recovery try. bit0 apple_pmp "RTKit: Initializing" after the deep entry, bit1 "PMP firmware
+# and endpoint ready" after it, bit2 "PMP firmware crashed", bit3 a PMP request "did not complete" or "Unexpected PMP device-state reply",
+# then: unbind + bind apple_pmp, unbind + bind nvme-apple: bit4 a new "endpoint ready" after the rebind, bit5 nvme0 live afterwards,
+# bit6 a 64 KiB direct read of nvme0n1 works afterwards, bit7 the nvme rebind printed "RTKit: Initializing" again
+PA=$(echo "$DA" | grep "apple_pmp"); PM=0
+echo "$PA" | grep -q "RTKit: Initializing" && PM=$((PM|1)); echo "$PA" | grep -q "endpoint ready" && PM=$((PM|2))
+echo "$PA" | grep -q "firmware crashed" && PM=$((PM|4)); echo "$PA" | grep -qE "did not complete|Unexpected PMP device-state" && PM=$((PM|8))
+pb 0x600b $PM
+R0=$(dmesg | grep -c "PMP firmware and endpoint ready"); N0=$(dmesg | grep "nvme" | grep -c "RTKit: Initializing")
+D=/sys/bus/platform/drivers
+timeout 20 sh -c "echo 28e700000.pmp > $D/apple_pmp/unbind" 2>/dev/null; sleep 1
+timeout 20 sh -c "echo 28e700000.pmp > $D/apple_pmp/bind" 2>/dev/null; sleep 3
+[ "$(dmesg | grep -c "PMP firmware and endpoint ready")" -gt "$R0" ] && PM=$((PM|16)); pb 0x600b $PM
+timeout 30 sh -c "echo 34bcc0000.nvme > $D/nvme-apple/unbind" 2>/dev/null; sleep 1
+timeout 60 sh -c "echo 34bcc0000.nvme > $D/nvme-apple/bind" 2>/dev/null; sleep 8
+[ "$(cat /sys/class/nvme/nvme0/state 2>/dev/null)" = live ] && PM=$((PM|32))
+timeout 10 dd if=/dev/nvme0n1 of=/dev/null bs=4k count=16 iflag=direct 2>/dev/null && PM=$((PM|64))
+[ "$(dmesg | grep "nvme" | grep -c "RTKit: Initializing")" -gt "$N0" ] && PM=$((PM|128))
+pb 0x600b $PM
 $J/aura-ctl 0 0 0 > /dev/null 2>&1
