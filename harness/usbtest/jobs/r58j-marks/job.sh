@@ -14,8 +14,11 @@
 # main boot ~+95..+110 s without 0x601f=aa = still stalled in kernel resume after 0x6004=0x26/27/22. Hold power only if dark > 6 min.
 J=/run/usbtest/job; C=/proc/device-tree/chosen; R=/sys/class/rtc/rtc0; M=/sys/module
 NTFY_DEAD=0
+log() { echo "$(date '+%F %T') $*" | tee -a /run/usbtest/run.log; echo "usbtest-run: $*" > /dev/kmsg; curl -sS -m 2 -o /dev/null -H "Title: log" --data-binary "$*" http://192.168.5.111:8765/ 2>/dev/null; }
 push() {  # R58J: one try per message while the network is up; HTTP 429 (daily cap) stops all further pushes
     local i c
+    # R58N: the LAN log sink on the Pi first (main reads it with pi-ssh), then ntfy.sh unless capped
+    curl -sS -m 4 -o /dev/null -H "Title: $1" --data-binary "$2" http://192.168.5.111:8765/ 2>/dev/null
     [ $NTFY_DEAD = 1 ] && { log "push skipped (ntfy cap): $1"; return 1; }
     for i in $(seq 1 20); do
         c=$(curl -sS -m 10 -o /dev/null -w "%{http_code}" -H "Title: $1" -H "Tags: test_tube" -d "$2" "https://ntfy.sh/$TOPIC" 2>/dev/null)
@@ -113,6 +116,7 @@ push "R57N trace" "instance: $([ -d $TR ] && echo yes || echo NO) on=$(cat $TR/t
 echo 0 > $R/wakealarm 2>/dev/null; echo +30 > $R/wakealarm
 push "R57J committing" "suspend at $(date -u +%T) UTC, alarm +30 s, panic=$(cat /proc/sys/kernel/panic). $S | $CTL | mmio $NR ranges, $ED debug pages"
 N0=$(ls /sys/bus/nvmem/devices/spmi_nvmem*/nvmem 2>/dev/null | head -1); [ -n "$N0" ] && printf '\x00' | dd of=$N0 bs=1 seek=$((0x6004)) conv=notrunc status=none
+push "dmesg before echo mem" "$(dmesg | tail -60)"
 T0=$(date +%s.%N)
 log "echo mem at $(date -u +%T.%N | cut -c1-12) UTC"
 echo mem > /sys/power/state; rc=$?
