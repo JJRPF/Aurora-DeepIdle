@@ -1,27 +1,73 @@
 diff --git i/drivers/nvme/host/apple.c w/drivers/nvme/host/apple.c
-index 6d342ee36a9f..f6b0909521fc 100644
+index 6d342ee36a9f..f6dd3fa956f2 100644
 --- i/drivers/nvme/host/apple.c
 +++ w/drivers/nvme/host/apple.c
-@@ -207,6 +207,9 @@ struct apple_nvme {
+@@ -207,6 +207,13 @@ struct apple_nvme {
  	/* TEST (GH-8): the ANS wrapper's IO RVBAR, saved at suspend, restored before RUN if it changed */
  	void __iomem *iorvbar;
  	u64 iorvbar_saved;
 +	bool s2r_force_cold; /* GH-5: next reset after a system resume starts the ANS cold */
 +	bool s2r_cold; /* GH-5: this reset is that cold start */
 +	u32 sart_power_boot; /* GH-5: ANS +0x13e8 after the first good boot (Andreas Fernandez's t6000 ANS restore) */
++	/* GH-5: the ADT ANS AXI2AF / storage-lane tunables Aura publishes in /chosen/aurora,ans-tunables */
++	int s2r_tun_n;
++	void __iomem *s2r_tun_reg[64];
++	u32 s2r_tun_mask[64], s2r_tun_val[64];
  	struct kref ref;
  	/* Serializes the post-M4 controller disable with reset and teardown. */
  	struct mutex disable_lock;
-@@ -1563,6 +1566,8 @@ static void apple_nvme_wait_freeze(struct apple_nvme *anv)
+@@ -1563,6 +1570,50 @@ static void apple_nvme_wait_freeze(struct apple_nvme *anv)
  	}
  }
  
 +#define APPLE_ANS_SART_POWER	0x13e8
 +
++/* GH-5: map the tunables Aura took from the ADT (Andreas Fernandez applies the t6000 ones after an S2R cut) */
++static void apple_nvme_s2r_tunables_init(struct apple_nvme *anv)
++{
++	struct device_node *ch = of_find_node_by_path("/chosen");
++	const __be32 *p;
++	int len, i;
++
++	p = ch ? of_get_property(ch, "aurora,ans-tunables", &len) : NULL;
++	of_node_put(ch);
++	if (!p)
++		return;
++	for (i = 0; i < len / 16 && anv->s2r_tun_n < ARRAY_SIZE(anv->s2r_tun_reg); i++, p += 4) {
++		u64 a = ((u64)be32_to_cpu(p[0]) << 32) | be32_to_cpu(p[1]);
++		void __iomem *r = devm_ioremap(anv->dev, a, 4);
++
++		if (!r)
++			continue;
++		anv->s2r_tun_reg[anv->s2r_tun_n] = r;
++		anv->s2r_tun_mask[anv->s2r_tun_n] = be32_to_cpu(p[2]);
++		anv->s2r_tun_val[anv->s2r_tun_n] = be32_to_cpu(p[3]);
++		anv->s2r_tun_n++;
++	}
++	dev_info(anv->dev, "TEST s2r: %d ANS tunable writes from the ADT\n", anv->s2r_tun_n);
++}
++
++static void apple_nvme_s2r_tunables(struct apple_nvme *anv)
++{
++	int i, changed = 0;
++
++	for (i = 0; i < anv->s2r_tun_n; i++) {
++		u32 v = readl(anv->s2r_tun_reg[i]);
++		u32 w = (v & ~anv->s2r_tun_mask[i]) | (anv->s2r_tun_val[i] & anv->s2r_tun_mask[i]);
++
++		if (w != v) {
++			writel(w, anv->s2r_tun_reg[i]);
++			changed++;
++		}
++	}
++	dev_info(anv->dev, "TEST s2r: ANS tunables %d of %d rewritten\n", changed, anv->s2r_tun_n);
++}
++
++
  static void apple_nvme_reset_work(struct work_struct *work)
  {
  	unsigned int nr_io_queues = 1;
-@@ -1655,6 +1660,18 @@ static void apple_nvme_reset_work(struct work_struct *work)
+@@ -1655,6 +1706,18 @@ static void apple_nvme_reset_work(struct work_struct *work)
  		writel(0, anv->mmio_coproc + APPLE_ANS_COPROC_CPU_CONTROL);
  	}
  
@@ -40,7 +86,7 @@ index 6d342ee36a9f..f6b0909521fc 100644
  	/*
  	 * Only do the soft-reset if the CPU is not running, which means either we
  	 * or the previous stage shut it down cleanly.
-@@ -1692,10 +1709,21 @@ static void apple_nvme_reset_work(struct work_struct *work)
+@@ -1692,10 +1755,22 @@ static void apple_nvme_reset_work(struct work_struct *work)
  			goto out;
  
  		apple_nvme_iorvbar_restore(anv);
@@ -52,6 +98,7 @@ index 6d342ee36a9f..f6b0909521fc 100644
 +				writel(anv->sart_power_boot, anv->mmio_nvme + APPLE_ANS_SART_POWER);
 +			dev_info(anv->dev, "TEST s2r: sart power %#x, boot value %#x\n", sp, anv->sart_power_boot);
 +			apple_rtkit_set_iop_ack_wait(anv->rtk, 25);
++			apple_nvme_s2r_tunables(anv);
 +		}
  		writel(APPLE_ANS_COPROC_CPU_CONTROL_RUN,
  		       anv->mmio_coproc + APPLE_ANS_COPROC_CPU_CONTROL);
@@ -62,7 +109,7 @@ index 6d342ee36a9f..f6b0909521fc 100644
  	} else {
  		ret = apple_rtkit_wake(anv->rtk);
  	}
-@@ -1915,6 +1943,10 @@ static void apple_nvme_reset_work(struct work_struct *work)
+@@ -1915,6 +1990,10 @@ static void apple_nvme_reset_work(struct work_struct *work)
  	nvme_start_ctrl(&anv->ctrl);
  
  	dev_dbg(anv->dev, "ANS boot and NVMe init completed.");
@@ -73,7 +120,15 @@ index 6d342ee36a9f..f6b0909521fc 100644
  	return;
  
  out_remove_sq:
-@@ -2581,6 +2613,7 @@ static int apple_nvme_resume(struct device *dev)
+@@ -2347,6 +2426,7 @@ static struct apple_nvme *apple_nvme_alloc(struct platform_device *pdev)
+ 	}
+ 
+ 	INIT_WORK(&anv->ctrl.reset_work, apple_nvme_reset_work);
++	apple_nvme_s2r_tunables_init(anv);
+ 	if (iorvbar_phys) {
+ 		anv->iorvbar = devm_ioremap(dev, iorvbar_phys, 8);
+ 		if (anv->iorvbar)
+@@ -2581,6 +2661,7 @@ static int apple_nvme_resume(struct device *dev)
  		WRITE_ONCE(anv->suspended, false);
  		return nvme_try_sched_reset(&anv->ctrl);
  	}

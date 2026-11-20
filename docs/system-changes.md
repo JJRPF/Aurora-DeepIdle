@@ -77,6 +77,7 @@ Filled in below as it happens.
 | Aura image 121 (`3aa5ddf2`) | `~/Work/psci-test/boot-test.bin.121` (sha f102a62464012325) staged as `boot-test.bin` | as above |
 | Aura image 122 (`c700f8bf`) | `~/Work/psci-test/boot-test.bin.122` (sha 0772790522ce5615) staged as `boot-test.bin` | as above |
 | Aura image 123 (`41dea591`) | `~/Work/psci-test/boot-test.bin.123` (sha a7d529dd258c27d5) staged as `boot-test.bin` | as above |
+| Aura image 124 (`6aed97c5`) | `~/Work/psci-test/boot-test.bin.124` (sha 4f4406618dc4c948) staged as `boot-test.bin` | as above |
 | R58J UKI `deeptest.efi.marks` (sha 6d4a4304d2ff3cf5): crumb kernel + `suspend_enter()` marks | `~/Work/deepidle-usbtest/deeptest.efi` | `cp deeptest.efi.plain-3a50d5fe deeptest.efi` |
 | R58K UKI `deeptest.efi.syscore`: R58J + a crumb per syscore suspend callback | `~/Work/deepidle-usbtest/deeptest.efi` | `cp deeptest.efi.plain-3a50d5fe deeptest.efi` |
 | R58L UKI `deeptest.efi.aic`: R58K + progress crumbs in aic_syscore_suspend | `~/Work/deepidle-usbtest/deeptest.efi` | `cp deeptest.efi.plain-3a50d5fe deeptest.efi` |

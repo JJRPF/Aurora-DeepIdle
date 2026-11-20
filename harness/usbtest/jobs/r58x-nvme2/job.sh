@@ -37,7 +37,7 @@ w() { $J/mmio-read $1 1 2>/dev/null | awk '{print $2}'; }
 atc() { for a in 278 288 298 2a8 228 230 238 240; do printf '%s ' "$(w 0x28e080$a)"; done; }
 V=$(tr -d '\0' < $C/asahi,m1n1-stage2-version)
 log "R57J kernel $(uname -r); stage2 $V; cmdline aop: $(grep -o 'aop.sleep_ap_idle=[0-9]*' /proc/cmdline || echo none)"
-case "$V" in *86776585*|*4ad0e031*|*c9339c54*|*f943b89e*|*3c23b09b*|*7ebd699e*|*eecbb13d*|*3029e360*|*6861c027*|*568fd45a*|*b05607ab*|*60f4cbde*|*32a2d310*|*b23a4df6*|*3aa5ddf2*|*c700f8bf*|*41dea591*) ;; *) log "stage 2 is not image 105-108: stopping"; return 0 ;; esac
+case "$V" in *86776585*|*4ad0e031*|*c9339c54*|*f943b89e*|*3c23b09b*|*7ebd699e*|*eecbb13d*|*3029e360*|*6861c027*|*568fd45a*|*b05607ab*|*60f4cbde*|*32a2d310*|*b23a4df6*|*3aa5ddf2*|*c700f8bf*|*41dea591*|*6aed97c5*) ;; *) log "stage 2 is not image 105-108: stopping"; return 0 ;; esac
 [ -e $R/wakealarm ] && grep -q deep /sys/power/mem_sleep || { log "no wakealarm or no deep, stopping"; return 0; }
 grep -q 'aop.sleep_ap_idle=3' /proc/cmdline || { log "aop.sleep_ap_idle=3 not on the cmdline: stopping"; return 0; }
 [ -e $M/appledrm/parameters/test_sleep_off ] || { log "appledrm has no test_sleep_off: stopping"; return 0; }
@@ -176,8 +176,9 @@ echo "$DA" | grep -q 'RTKit has crashed' && NV=$((NV|1))
 echo "$DA" | grep -q 'ANS did not boot' && NV=$((NV|2))
 echo "$DA" | grep -q 'ANS did not initialize' && NV=$((NV|4))
 echo "$DA" | grep -q 'Reset failure status' && NV=$((NV|8))
-echo "$DA" | grep -q 'TEST iorvbar: was' && NV=$((NV|16))
-echo "$DA" | grep -q 'TEST iorvbar: kept' && NV=$((NV|32))
+# R59G: bit4 = ANS tunables rewritten (N > 0), bit5 = none published by Aura
+echo "$DA" | grep -qE 'ANS tunables [1-9][0-9]* of' && NV=$((NV|16))
+dmesg | grep -qE 'TEST s2r: [1-9][0-9]* ANS tunable writes' || NV=$((NV|32))
 echo "$DA" | grep -iE 'rtkit' | grep -qiE 'timeout|timed out|fail|error' && NV=$((NV|64))
 [ -e /sys/class/nvme/nvme0/state ] && NV=$((NV|128))
 # R58Y: 0x6009 = low byte of the CPU_CONTROL value the patched driver logs at resume ("TEST s2r: cpu_control 0x.."), ee = no such line
