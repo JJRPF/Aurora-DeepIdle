@@ -4770,3 +4770,8 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
 
 ## 2026-11-19 21:40 R57L5 void: the console-on kernel (old toolchain) did not boot the test; retrying once
 - Away 79 s (same as R57L2b, the other console-on kernel), ntfy empty, RAM page empty. Old toolchain + console off boots (R57L4); old toolchain + console on does not; new toolchain fails with the console on or off. Retrying the same UKI once to rule out a flake before suspecting the option itself.
+
+## 2026-11-19 21:50 console kernel fails to boot the test three times; switching to a DPM watchdog build, R57M armed
+- R57L5 and R57L5b (old toolchain, only `CONFIG_PSTORE_CONSOLE=y` differs from the working config, verified by config diff) both returned after 79 s with no pushes at all (the first push comes before ramoops loads), so that option stops the test kernel early for a reason I could not see. Dropped the console approach.
+- New build (old toolchain, original config + `CONFIG_DPM_WATCHDOG=y`, timeout 30 s, warning 15 s). If a device's resume callback hangs after the real wake, the watchdog panics before the hardware watchdog resets the Mac (about commit + 60 s), and the panic dump with the stack goes to the reserved RAM page, which does not need the console. R57M runs the sleep job `r57k-console` (ramoops with max_reason=2); afterwards read the page with read-phys.py.
+- If the page has a panic dump: decode the stack with the psci-efi+ symbols. If it is empty again, the hang is outside the device resume callbacks (noirq/early phase or syscore) and the next step is PMU scratch crumbs from a kernel patch.
