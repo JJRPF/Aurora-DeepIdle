@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "updated": "2026-11-20",
-  "overall": 45,
+  "overall": 65,
   "overall_note": "Risk-weighted guess with a wide error bar. The page prefers the live figure in `docs/status.md` when it can read one.",
   "machine": "14-inch MacBook Pro, M2 Pro (`T6020`, `apple,j414s`), Aurora Silicon Linux",
   "goal": {
@@ -104,10 +104,13 @@
       "trail": "Devices",
       "name": "Devices survive power loss",
       "short": "PMP, NVMe, PCIe, SMC, DCP",
-      "state": "started",
-      "pct": 20,
-      "summary": "Each device has to come back after its power is really removed. The SMC handshake is mapped and NVMe already survives Phase 2’s suspends. The PMP wake is unsolved, and DCP is the long pole.",
+      "state": "active",
+      "pct": 35,
+      "summary": "Each device has to come back after its power is really removed. After real S2R wakes (R57AL to R57AR) the kernel's resume completes: the internal PCIe controller (re-init at the wake, nekolyanich's fix) and the SEP (its power domain restored) come back far enough for Linux to resume. Wi-Fi does not: its link stays down and its power enable reads low after the wake. NVMe (ANS) and the display (DCP) are untested after a real cut.",
       "done": [
+        "Internal PCIe after a real cut: the /arm-io/apcie bring-up rerun at the wake (nekolyanich's fix) and the per-port MSI setup restored; its DART no longer aborts (R57AJ to R57AL)",
+        "SEP after a real cut: ps_sep restored at the wake (the cut leaves DEV_DISABLE set); its DART no longer aborts (R57AL)",
+        "AP GPIO block snapshot and restore in macOS's order (after František Balázsy, Diljit Singh and nekolyanich): 7 pins put back on this Mac (R57AO)",
         "SMC: `WKTP` and `slpw` are harmless; `slpa` takes the storage away, so it goes last",
         "PMP: RTKit IDLE acks in about 400 us",
         "NVMe: `saveCtx` shutdown and resume, every Phase 2 cycle",
@@ -115,6 +118,8 @@
         "SEP: SLEEP acknowledged and the enclave gated as macOS has it (R18K)"
       ],
       "next": [
+        "Wi-Fi: a pcie-apple resume that redoes probe's per-port setup, PWREN included (needs a patched kernel)",
+        "NVMe (ANS) and DCP after a real cut",
         "PMP: macOS’s DART off/on and outbox steps around RUN, no reset",
         "PCIe L2 entry and D3cold resume (no remove/rescan)",
         "DCP: full shutdown and restart of its firmware"
@@ -127,9 +132,11 @@
       "name": "Full S2R",
       "short": "The SoC powers down, DRAM in self-refresh",
       "state": "active",
-      "pct": 10,
-      "summary": "Aura’s `SYSTEM_SUSPEND` does every macOS sleep-entry step found so far, in macOS’s order, and the SoC acts on the commit (the PMGR’s S2R timer) but never finishes powering down: the timer resets the Mac about 75 s after the commit, in every run from R10 (2026-11-07) to R22B (2026-11-11). At the commit every core is in its final deep sleep, both P clusters read off, and every power word macOS has off is off: USB-C, PCIe, the AON-side words, `pmp`, and the secure enclave asleep and gated. Closed since without a change: the SPMI notify enable, cluster APSC off late (R20c), each core’s debug power request (R21, already 0), and the wake alarm (R22B: moving it does not move the reset, so it is not a failed wake). R23 to R24B (an observer core kept awake past the commit) looked from outside: the boot cluster’s power word changes within 16 ms of the boot core’s last instruction, but that word turned out not to be proof. The stronger sign is whether a sleeping core’s debug block still answers: the first P cluster’s does not (really off), the second P cluster’s and the E cluster’s do. So some cores may never power down at the commit. The next run names them.",
+      "pct": 70,
+      "summary": "Working on the test boot: a real SLP_S2R sleep, the RTC alarm wake through RVBAR, and Linux resumes to userspace with all 10 CPUs (echo mem returns 0), 6 of 6 runs in a row (R57AL to R57AR, 2026-11-20). The kernel used to panic within a second of the wake; a panic recorder (Aura walks the kernel's stack on its EFI reset and leaves the result in PMU scratch) named the faults, the PCIe and SEP DARTs, and both are fixed in Aura's wake path. Not yet: Wi-Fi and the other devices after the wake, longer sleeps and drain measurements, and running it on the normal install.",
       "done": [
+        "R57AL: Linux resumes to userspace after a real S2R sleep, reproduced 6 of 6 through R57AR",
+        "Panic recorder: kernel panic, EFI ResetSystem in U-Boot, Aura's PSCI handler walks the frame records and pt_regs and translates FAR into the PMU's 40-byte scratch; it found apple_dart_resume faulting on the PCIe and SEP DARTs (R57AF to R57AK)",
         "The PMGR, SMC and PMP sleep actions read from the macOS 13.5 kernelcache",
         "Test kernel flag `macsmc_reboot.deep_steps`: `slpw` in prepare, `slpa` in suspend_late, `waka` on wake",
         "First `slpa` inside a real suspend (image 48, all CPUs, 2026-11-04 21:32): the cycle came back, but the storage controller never powered up again (`IOP power acknowledgment failed: -62`, `ANS did not boot`). No watchdog fired; the owner reset the Mac by hand. Scrub clean",
