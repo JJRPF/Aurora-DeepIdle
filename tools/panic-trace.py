@@ -19,6 +19,23 @@ d = rd(0x6006, 6)
 print(f'netdiag: port0 LINKSTS {d[0]:#04x}, wifi vendor code {d[1]} (1=14e4 2=ffff); r57x: wlan0 oper {d[2]:#04x}, brcmf {d[3]}, err {d[4]}; r57y: port1 LINKSTS {d[2]:#04x}, PWREN {d[3]} (1 hi 0 lo), AP gpio-4 PERST# {d[4]} (1 hi 0 lo); r57z v2: kick result {d[4]:#04x} (bit0 ready, 1 link, 2 PWREN=1, 3 PERST# released, 4 refclk ack; ee insmod failed), PORT_STATUS {d[3]:#04x}, LINKSTS {d[2]:#04x}; stage {d[5]} (4 pushed, 3 after rescan, 2 rescan/kick tried, 1 diag only)')
 print(f'0x601f userspace resumed: {rd(0x601f, 1)[0]:#04x} (aa = Linux resumed to userspace)')
 print(f'marker {m:#04x} (0x50 = record), frames {n}')
+if m == 0x51:
+    # image 121: a reset with no RVBAR wake: ESR in slot 9, then up to 8 kernel frames (restart frames skipped)
+    syms = []
+    for l in open(smap):
+        a, t, sy = l.split()[:3]
+        if t in 'tTwW':
+            syms.append((int(a, 16), sy))
+    syms.sort(); keys = [x[0] for x in syms]
+    slots = [0x6006, 0x6009, 0x600c, 0x6011, 0x6014, 0x6017, 0x601a, 0x6020, 0x6025]
+    e = int.from_bytes(rd(slots[8], 3), 'little')
+    print(f'boot reset record (no wake): ESR EC {e >> 18:#x} (0x15 = reboot syscall, 0x2f = SError) ISS {e & 0x3ffff:#07x}')
+    for i in range(min(n, 8)):
+        v = int.from_bytes(rd(slots[i], 3), 'little')
+        a = 0xffff800080000000 + 4 * v
+        j = bisect.bisect_right(keys, a) - 1
+        print(f'{i} {a:#x} {syms[j][1]}+{a - syms[j][0]:#x}' if j >= 0 and v != 0xffffff else f'{i} {a:#x} ?')
+    sys.exit(0)
 if m != 0x50:
     sys.exit('no record')
 syms = []
