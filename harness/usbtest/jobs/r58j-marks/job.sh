@@ -95,7 +95,7 @@ echo 27 > /proc/sys/kernel/panic
 S="$(set1 $M/apple_wdt/parameters/suspend_timeout 120)"
 S="$S$(set1 $M/macsmc_reboot/parameters/deep_steps 191)$(set1 $M/macsmc/parameters/pmp_sleep 1)"
 S="$S$(set1 $M/pmp_report/parameters/test_release_aon 1)$(set1 $M/pmp_report/parameters/test_release_ids 0x1000)"
-S="$S$(set1 $M/pmp_report/parameters/test_pcpm 0x300)$(set1 $M/pmgr_pwrstate/parameters/test_sleep_keep afr)"
+S="$S$(set1 $M/pmp_report/parameters/test_pcpm 0x300)$(set1 $M/pmgr_pwrstate/parameters/test_sleep_keep afr,gpio)"
 S="$S$(set1 $M/pm_genpd/parameters/test_dump Y)$(set1 $M/dwc3_apple/parameters/test_deep_teardown 1)"
 S="$S$(set1 $M/appledrm/parameters/test_sleep_off 1)"
 log "switches: $S"
@@ -116,7 +116,7 @@ push "R57N trace" "instance: $([ -d $TR ] && echo yes || echo NO) on=$(cat $TR/t
 echo 0 > $R/wakealarm 2>/dev/null; echo +30 > $R/wakealarm
 push "R57J committing" "suspend at $(date -u +%T) UTC, alarm +30 s, panic=$(cat /proc/sys/kernel/panic). $S | $CTL | mmio $NR ranges, $ED debug pages"
 N0=$(ls /sys/bus/nvmem/devices/spmi_nvmem*/nvmem 2>/dev/null | head -1); [ -n "$N0" ] && printf '\x00' | dd of=$N0 bs=1 seek=$((0x6004)) conv=notrunc status=none
-push "dmesg before echo mem" "$(dmesg | tail -60)"
+log "gpio ps $(w 0x28e080120)"; push "dmesg before echo mem" "$(dmesg | tail -60)"
 T0=$(date +%s.%N)
 log "echo mem at $(date -u +%T.%N | cut -c1-12) UTC"
 echo mem > /sys/power/state; rc=$?
