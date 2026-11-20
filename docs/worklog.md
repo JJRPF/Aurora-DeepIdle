@@ -4986,3 +4986,8 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
   - at SYSTEM_SUSPEND, snapshots the 255 pins and the +0xc48 word (block mapped in the EFI runtime map);
   - at the wake, **before** the apcie re-init, writes +0xc48 first, then each changed pin in František's macOS order (config with the old input enable, the input enable, the lock last), skipping locked and no-restore pins. Pins put back → 0x601e.
 - R57AO: boot-test 120 + `r57x-netdiag`.
+
+## 2026-11-20 01:55 R57AO: resumed again (4 of 4); the AP GPIO block mostly survives here (7 pins put back), Wi-Fi link still down. R57AP: PWREN/PERST#/port 1 diagnostics
+- R57AO (image 120 + `r57x-netdiag`): 0x601f = aa, 0x6023 = a4, 0x601e = 7 (only 7 AP pins had changed, unlike nekolyanich's 176). Port 0 LINKSTS 0, the Wi-Fi config space reads ffff, the rescan did not help.
+- Next suspects: the Wi-Fi's **PWREN, SMC GPIO 13**. The SMC may drop the WLAN rail in S2R, and only pcie-apple's probe raises it again (its internal-PCIe resume does nothing, and the driver has `suppress_bind_attrs`, so it cannot be rebound from userspace). Also PERST# (AP gpio-4).
+- New job `r57y-netdiag2`: after the wake it writes 0x6008 = port 1 (SD) LINKSTS, 0x6009 = PWREN as debugfs reports it (1 hi / 0 lo), and 0x600a = AP gpio-4 (PERST#). On main both read `out hi`. R57AP: boot-test 120 + `r57y-netdiag2`.
