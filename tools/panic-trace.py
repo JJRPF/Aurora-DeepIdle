@@ -13,7 +13,8 @@ def rd(a, n):  # byte reads: block reads of this range can fail with EIO
     return out
 m, n = rd(0x6004, 2)
 print(f'0x6023 apcie re-init: {rd(0x6023, 1)[0]:#04x} (a0 done, a1 started and never finished, af error; image 116+)')
-print(f'0x601d ps_sep at wake: {rd(0x601d, 1)[0]:#04x} (cN = on, actual N; bN = timeout; image 117+)')
+ps = rd(0x600f, 1)[0] << 24 | rd(0x601e, 1)[0] << 8 | rd(0x601d, 1)[0]
+print(f'ps_sep raw at the wake (image 118+): {ps:#010x} (bits 23:16 not kept); 0x6023 = a2 means it came on')
 print(f'0x601f userspace resumed: {rd(0x601f, 1)[0]:#04x} (aa = Linux resumed to userspace)')
 print(f'marker {m:#04x} (0x50 = record), frames {n}')
 if m != 0x50:
