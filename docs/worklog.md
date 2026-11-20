@@ -4760,3 +4760,6 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
 ## 2026-11-19 21:30 R57L3 sanity: the original Nov 9 kernel boots the test and reports; the rebuilds do not
 - With `deeptest.efi.plain-3a50d5fe` the same job reports normally (R57J axi2af … R57L marker pushes in ntfy.txt), so the harness is fine. Both rebuilt kernels (GCC; clang 23.1.5 + rustc 1.100.0, with or without the pstore console) fail to run the test.
 - Next: rebuild with the old toolchain (clang/LLD/LLVM 23.1.4, rustc 1.99.1), extracted from the pacman cache into `~/Work/toolchain-old` and used through PATH/LD_LIBRARY_PATH, so the system packages are not downgraded. The plain UKI is back in place as `deeptest.efi`.
+
+## 2026-11-19 21:45 old-toolchain kernel built (clang/LLD 23.1.4, rustc 1.99.1, original config, no console); R57L4 armed
+- Built in the pstore worktree with the toolchain from `~/Work/toolchain-old` (extracted from the pacman cache, system untouched). Same size as the Nov 9 Image (differs byte-wise: build paths/ids). UKI sha256 17f88f4cc3703792. If R57L4 reports, the new compilers were the problem; then the console-on build follows with this toolchain.
