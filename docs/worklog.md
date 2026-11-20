@@ -4862,3 +4862,10 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
 - Cause: U-Boot sets `EFI_RT_SUPPORTED_RESET_SYSTEM` in its RT properties table only with `CONFIG_EFI_HAVE_RUNTIME_RESET`, whose Kconfig `depends` leaves Apple out. Linux's `efi_reboot()` checks that bit first and returns, so ResetSystem is never called.
 - Boot-test 109 = image 108 + U-Boot with `EFI_HAVE_RUNTIME_RESET` for `ARCH_APPLE` (patch `patches/psci-efi/u-boot/0004-*`). The hook now skips EFI_RESET_SHUTDOWN, so a poweroff is unchanged. sha 6297b4ff93e8035a.
 - R57AA: boot-test 109 + `r57w-panic27`. Expect the 0x6040 header with the RVBAR count 1 and the frames; decode with `tools/panic-trace.py`.
+
+## 2026-11-20 00:25 R57AA did not sleep (version gate); its plain reboot left no header either; R57AB EFI diagnostic
+- R57AA (boot-test 109): the job stopped at its gate "stage 2 is not image 105". The gate matches `86776585` in the Aura tag. Images 106 and 107 were built before their commit and still carried that tag; image 108 reports `v0.1.0-57-g4ad0e031-dirty`. So no sleep ran. The gate now also accepts `4ad0e031` and `c9339c54`.
+- The plain `systemctl reboot` at the end of R57Z and R57AA left 0x6040 zero, even with image 108 (header on every SYSTEM_RESET) and, in R57AA, U-Boot advertising ResetSystem.
+  - Either the test boot does not run the rebuilt U-Boot, or the kernel still skips ResetSystem, or the hook's call into Aura or its SPMI write fails.
+  - The reset stamp (alarm register stale) does not help here.
+- R57AB (`r57ab-efidiag`, no sleep): pushes the kernel's EFI and PSCI dmesg lines (`RTPROP=`), the SMBIOS firmware version (which U-Boot) and the stage 2 tag, then reboots normally (header expected at 0x6040).
