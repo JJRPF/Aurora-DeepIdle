@@ -1,8 +1,66 @@
 diff --git i/drivers/power/reset/macsmc-reboot.c w/drivers/power/reset/macsmc-reboot.c
-index fe9eac92b17b..53fd8a3df029 100644
+index fe9eac92b17b..7a14f1312904 100644
 --- i/drivers/power/reset/macsmc-reboot.c
 +++ w/drivers/power/reset/macsmc-reboot.c
-@@ -467,6 +467,19 @@ static void macsmc_reboot_ps_dump(struct device *dev, const char *when)
+@@ -4,7 +4,9 @@
+  * Copyright The Asahi Linux Contributors
+  */
+ 
++#include <linux/debugfs.h>
+ #include <linux/delay.h>
++#include <linux/seq_file.h>
+ #include <linux/io.h>
+ #include <linux/mfd/core.h>
+ #include <linux/mfd/macsmc.h>
+@@ -325,6 +327,39 @@ static void macsmc_reboot_pm_unregister(void *data)
+ 	unregister_pm_notifier(&reboot->pm_notify);
+ }
+ 
++/* GH-5 R60D TEST: every readable SMC key with its type and value, for a before/after-sleep comparison */
++static int macsmc_reboot_keys_show(struct seq_file *m, void *unused)
++{
++	struct apple_smc *smc = m->private;
++	u8 buf[32];
++	int i;
++
++	for (i = 0; i < smc->key_count; i++) {
++		struct apple_smc_key_info info;
++		smc_key key;
++		int ret;
++
++		if (apple_smc_get_key_by_index(smc, i, &key) < 0)
++			continue;
++		if (apple_smc_get_key_info(smc, key, &info) < 0) {
++			seq_printf(m, "%p4ch ? info error\n", &key);
++			continue;
++		}
++		if (!(info.flags & 0x80) || info.size == 0 || info.size > sizeof(buf)) {
++			seq_printf(m, "%p4ch %p4ch f%02x s%u -\n", &key, &info.type_code, info.flags, info.size);
++			continue;
++		}
++		ret = apple_smc_read(smc, key, buf, info.size);
++		if (ret < 0)
++			seq_printf(m, "%p4ch %p4ch f%02x s%u err %d\n", &key, &info.type_code, info.flags, info.size, ret);
++		else
++			seq_printf(m, "%p4ch %p4ch f%02x s%u %*phN\n", &key, &info.type_code, info.flags, info.size,
++				   info.size, buf);
++	}
++	return 0;
++}
++DEFINE_SHOW_ATTRIBUTE(macsmc_reboot_keys);
++
+ static int macsmc_reboot_probe(struct platform_device *pdev)
+ {
+ 	struct apple_smc *smc = dev_get_drvdata(pdev->dev.parent);
+@@ -405,6 +440,7 @@ static int macsmc_reboot_probe(struct platform_device *pdev)
+ 	ret = register_pm_notifier(&reboot->pm_notify);
+ 	if (ret)
+ 		return dev_err_probe(&pdev->dev, ret, "Failed to register PM notifier\n");
++	debugfs_create_file("macsmc_keys", 0400, NULL, smc, &macsmc_reboot_keys_fops);	/* GH-5 TEST */
+ 	ret = devm_add_action_or_reset(&pdev->dev, macsmc_reboot_pm_unregister, reboot);
+ 	if (ret)
+ 		return ret;
+@@ -467,6 +503,19 @@ static void macsmc_reboot_ps_dump(struct device *dev, const char *when)
  	kfree(buf);
  }
  
@@ -22,7 +80,7 @@ index fe9eac92b17b..53fd8a3df029 100644
  static int macsmc_reboot_pm_prepare(struct device *dev)
  {
  	struct macsmc_reboot *reboot = dev_get_drvdata(dev);
-@@ -520,9 +533,14 @@ static int macsmc_reboot_pm_suspend_late(struct device *dev)
+@@ -520,9 +569,14 @@ static int macsmc_reboot_pm_suspend_late(struct device *dev)
  		dev_info(dev, "sleep: PMP requests released before slpa (%d)\n", ret);
  	}
  	if (reboot->sleep_steps & MACSMC_SLEEP_SLPA) {
@@ -37,7 +95,7 @@ index fe9eac92b17b..53fd8a3df029 100644
  	}
  	return 0;
  }
-@@ -549,11 +567,27 @@ static int macsmc_reboot_pm_resume_early(struct device *dev)
+@@ -549,11 +603,27 @@ static int macsmc_reboot_pm_resume_early(struct device *dev)
  	if (!reboot->slpa_sent)
  		return 0;
  	reboot->slpa_sent = false;
