@@ -340,6 +340,7 @@
     { "what": "macOS 15.7.1", "value": "0.24 W", "detail": "5.9 h, 98.7% of it in S2R" }
   ],
   "findings": [
+    {"title": "R60A: first full log from after a wake: Wi-Fi, Bluetooth and the SD reader are all gone", "body": "With the post-wake log written to /boot, the full kernel log shows all three PCIe devices (Wi-Fi, its Bluetooth function, the SD card reader) unreachable after the wake. A before/after dump of the power-management chip shows a few settings the sleep changed and nothing restores. R60B puts them back."},
     {"title": "R59Y: the PCIe port never sees the Wi-Fi chip", "body": "After the wake the port's link state machine stays in receiver detection: electrically, the Wi-Fi chip is not on the link. R59Z checks the port's own PHY against a normal boot and tries a full one-second power cycle of the chip."},
     {"title": "R59X: the Wi-Fi radio stays powered through the sleep", "body": "The radio's power/enable line (REG_ON) reads high before, during and after the sleep, and its reset and clock-request pins match a normal boot. Yet the PCIe link to the Wi-Fi chip never comes up. R59Y reads the link state machine to see how far it gets."},
     {"title": "R59V-R59W: the Wi-Fi slot is powered and out of reset after the wake, but never links", "body": "Slot power and the reset line both read correct after the wake, and the PCIe port is ready, yet the Wi-Fi chip is never detected. Next lead: the clock-request pin mux, which Linux does not put back after the power cut."},
