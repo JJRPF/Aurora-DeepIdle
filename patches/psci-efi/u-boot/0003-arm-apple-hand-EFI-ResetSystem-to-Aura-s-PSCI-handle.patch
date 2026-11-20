@@ -1,0 +1,50 @@
+From 7a366a32dc83e6cfc8a6b24a6e65b7a2659e0bce Mon Sep 17 00:00:00 2001
+From: Justin Pfister <git@jjrpf.com>
+Date: Thu, 19 Nov 2026 23:30:07 -0500
+Subject: [PATCH] arm: apple: hand EFI ResetSystem to Aura's PSCI handler as
+ SYSTEM_RESET (Aurora-DeepIdle GH-5 debug)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ arch/arm/mach-apple/board.c | 18 ++++++++++++++++++
+ 1 file changed, 18 insertions(+)
+
+diff --git a/arch/arm/mach-apple/board.c b/arch/arm/mach-apple/board.c
+index ed1ed5344d3..1d67f5f6529 100644
+--- a/arch/arm/mach-apple/board.c
++++ b/arch/arm/mach-apple/board.c
+@@ -1752,6 +1752,22 @@ static const efi_guid_t linux_efi_arm_psci_handler_table_guid =
+ /* Aura's image range, kept to re-apply it after the DT reserved ranges are carved out */
+ static u64 psci_code_base, psci_code_size;
+ 
++/*
++ * Aurora-DeepIdle GH-5 (debug): Linux's arm64 machine_restart() calls EFI ResetSystem first, before any restart
++ * handler (macsmc-reboot's SMC restart wins over PSCI's). Hand that call to Aura's handler as PSCI SYSTEM_RESET so
++ * Aura can record the restart (image 106: a panic's stack after an S2R wake), then return as the old placeholder
++ * did, and let Linux's restart handlers reset the Mac. The EFI runtime map is 1:1, so the table's pointer is valid.
++ */
++static __efi_runtime_data unsigned long (*psci_rt_handler)(unsigned long, unsigned long, unsigned long,
++							      unsigned long);
++
++void __efi_runtime EFIAPI efi_reset_system(enum efi_reset_type reset_type, efi_status_t reset_status,
++					   unsigned long data_size, void *reset_data)
++{
++	if (psci_rt_handler)
++		psci_rt_handler(0x84000009, 0, 0, 0);
++}
++
+ void efi_platform_after_dt_rsv(void)
+ {
+ 	if (!psci_code_size)
+@@ -1796,6 +1812,8 @@ efi_status_t efi_platform_register(void)
+ 					 FIELD_PREP(EFI_MEMORY_ISA_MASK, MAIR_DEVICE_nGnRnE));
+ 	}
+ 
++	/* struct efi_psci_table: u32 version, u32 num_features, handler */
++	psci_rt_handler = *(void **)(uintptr_t)(table + 8);
+ 	log_info("PSCI-via-EFI: table at 0x%llx, %d MMIO ranges\n", table, i / 2);
+ 	return efi_install_configuration_table(&linux_efi_arm_psci_handler_table_guid,
+ 					       (void *)(uintptr_t)table);
+-- 
+2.56.1
+
