@@ -5021,3 +5021,11 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
 - Plan: (1) patched test kernels; (2) Wi-Fi after the wake in pcie-apple's resume; (3) the other devices after a real cut; (4) the reboot about 2 min after the wake; (5) long sleeps and drain; (6) the main install.
 - Image 121 (`3aa5ddf2`, `boot-test.bin.121` sha f102a62464012325): the reset recorder also fires without an RVBAR wake. Marker 0x51, ESR in slot 9, then 8 kernel frames (restart frames skipped, pt_regs crossed). So a failing test boot now tells a deliberate reboot (EC 0x15, e.g. the initramfs' `usbtest_fail` → `reboot -f`), a panic (a stack) and a hang (no record) apart.
 - R58A: the known-failing empty-body crumb kernel (pstore worktree, as in R57T) in a UKI with the same cmdline as the working one (`deeptest.efi.crumb-empty`, sha 6b7b30dbe27eb809), plus job `r58a-hello`: 0x601f = bb as soon as the job starts, then a push. 0x601f = bb would mean the kernel and root booted and only the network failed.
+
+## 2026-11-20 08:00 R58A: the patched kernel hangs with no record. Cause found: BTF mismatch refuses every module. R58B: same kernel with MODULE_ALLOW_BTF_MISMATCH
+- R58A (image 121 + the empty-body crumb kernel + `r58a-hello`): back after 79 s, no push, no 0x601f = bb, and **no reset record** (the scratch still holds R57AR's). So it was neither a panic nor a deliberate reboot: a hang, ended by the watchdog the initramfs starts.
+- Cause: the test kernel has `CONFIG_DEBUG_INFO_BTF_MODULES=y` and `CONFIG_MODULE_ALLOW_BTF_MISMATCH` off. A module whose BTF does not match the running vmlinux is refused, and any change to the Image changes its BTF. The initramfs needs `nvme-apple`, `loop`, `squashfs` and `overlay` (all `=m`), so it never reaches the root and the watchdog resets.
+  - This explains all nine patched-kernel failures (R57O..R57U).
+  - It also explains R57V: the plain kernel with a root whose modules came from another build.
+  - And R57P: the same-source rebuild has byte-identical BTF.
+- R58B: the same crumb-empty patch, rebuilt with `CONFIG_MODULE_ALLOW_BTF_MISMATCH=y` (one config line, no other change), UKI `deeptest.efi.btfallow`, original root, job `r58a-hello`.
