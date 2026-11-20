@@ -23,11 +23,15 @@ for l in open(smap):
 syms.sort(); keys = [s[0] for s in syms]
 slots = [0x6006, 0x6009, 0x600c, 0x6011, 0x6014, 0x6017, 0x601a, 0x6020, 0x6025]
 SKIP = int(os.environ.get('SKIP', '8'))  # image 113 skips 8 frames and keeps ESR in slot 9 (SKIP=0 for image 112)
-PTREGS = os.environ.get('MODE', '114') == '114'  # image 114: slot 0 = interrupted pc, 1 = its lr, then frames
+MODE = os.environ.get('MODE', '115')
+PTREGS = MODE in ('114', '115')
+if MODE == '115':
+    pa = int.from_bytes(rd(slots[6], 3) + rd(slots[7], 3), 'little')
+    print(f'FAR: {pa:#014x} ' + ('(VA: AT failed)' if pa & (1 << 47) else '(physical)'))  # image 114: slot 0 = interrupted pc, 1 = its lr, then frames
 if SKIP:
     e = int.from_bytes(rd(slots[8], 3), 'little')
     print(f'ESR: EC {e >> 18:#x} ISS {e & 0x3ffff:#07x} (EC 0x2f = SError; ISS bit 24 not kept)')
-for i in range(min(n, 8 if SKIP else 9)):
+for i in range(min(n, 6 if MODE == '115' else 8 if SKIP else 9)):
     v = int.from_bytes(rd(slots[i], 3), 'little')
     a = 0xffff800080000000 + 4 * v
     j = bisect.bisect_right(keys, a) - 1

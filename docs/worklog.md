@@ -4909,3 +4909,11 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
 - R57AG (image 113): 4 frames after the 8 skipped: `arm64_serror_panic+0x6c`, `is_valid_bugaddr+0x0` (the address after a noreturn call, in do_serror), `_text+0x154` (vector), **`el1h_64_error+0x6c`**. So the SError arrived while the CPU was in EL1 (kernel) code. ESR: EC 0x2f (SError), low ISS 0. Only 18 ISS bits are kept, so the IDS bit was lost; an IMPDEF syndrome is likely.
 - The walk stopped because the exception entry ends the chain with a `frame_record_meta` (fp = lr = 0, type FRAME_META_TYPE_PT_REGS = 2) at pt_regs + 296 (`S_STACKFRAME`). The interrupted state is in that pt_regs: pc at +256, x30 at +240, x29 at +232.
 - Image 114 (`3029e360`, `boot-test.bin.114` sha 6185cd11921d9f94): skips frames up to that record (checked by its type field), then records the interrupted pc, its lr and up to 6 frames from its x29; ESR stays in slot 9. SError is asynchronous, so the pc is where the CPU was when the abort arrived, at or shortly after the access that caused it. R57AH: boot-test 114 + `r57w-panic27`.
+
+## 2026-11-20 00:25 R57AH: the SError hit inside el1_abort, so a synchronous abort came first. Image 115 goes one level deeper and records FAR
+- R57AH (image 114): the interrupted pc was **`el1_abort+0x40`** (lr `el1_abort+0x24`), above `el1h_64_sync+0x6c`. So the kernel was already handling a synchronous abort from EL1 (a data abort: a bad or faulting access in kernel code) when the SError arrived. The first fault is the synchronous one, and its pt_regs sits one level further down.
+- Image 115 (`6861c027`, `boot-test.bin.115` sha 7116346f78da906c):
+  - crosses both pt_regs and records the faulting pc, its lr and 4 frames;
+  - records FAR translated with `AT S1E1R` / PAR into a physical address (or the VA if the walk fails), which names the device or memory the kernel touched;
+  - keeps ESR in slot 9.
+- R57AI: boot-test 115 + `r57w-panic27`.
