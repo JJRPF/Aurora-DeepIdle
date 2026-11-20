@@ -4763,3 +4763,7 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
 
 ## 2026-11-19 21:45 old-toolchain kernel built (clang/LLD 23.1.4, rustc 1.99.1, original config, no console); R57L4 armed
 - Built in the pstore worktree with the toolchain from `~/Work/toolchain-old` (extracted from the pacman cache, system untouched). Same size as the Nov 9 Image (differs byte-wise: build paths/ids). UKI sha256 17f88f4cc3703792. If R57L4 reports, the new compilers were the problem; then the console-on build follows with this toolchain.
+
+## 2026-11-19 21:35 R57L4: the old-toolchain kernel boots the test; console-on build armed as R57L5
+- R57L4 (original config, clang/LLD 23.1.4, rustc 1.99.1) reported normally (R57J pushes, marker, reboot). So the new compilers (clang 23.1.5 / rustc 1.100.0) were what stopped the rebuilt kernels from booting the test, not the pstore console and not the GCC-vs-clang choice alone. Note for the future: keep `~/Work/toolchain-old` (extracted packages, used via PATH, LD_LIBRARY_PATH and RUST_LIB_SRC) for kernel builds.
+- Rebuilt with `CONFIG_PSTORE_CONSOLE=y` on the old toolchain (3 min). R57L5 repeats the marker-and-reboot control; then read the page with read-phys.py.
