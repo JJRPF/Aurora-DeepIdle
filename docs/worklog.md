@@ -4749,3 +4749,6 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
 - R57L2b came back after 79 s with no pushes (reports_from_test_boot=0) and the reserved page read back all zeros. So the clang PSTORE_CONSOLE Image does not run the DeepTest, like the GCC build before it.
 - Config diff against the working Nov 9 Image: only the toolchain (clang 23.1.4 -> 23.1.5, rustc 1.99.1 -> 1.100.0) and `CONFIG_PSTORE_CONSOLE=y`. Source is the same commit (283e0795; every local edit is newer than that Image).
 - Control started: same tree with PSTORE_CONSOLE off, new toolchain (`/tmp/claude-1000/ctl-build.log`). If it also fails, the toolchain is the cause (older clang/lld 23.1.4 packages are in the pacman cache; rust 1.99.1 may need to be found); if it boots, the pstore console breaks the test boot.
+
+## 2026-11-19 21:15 control kernel built (new toolchain, console off); R57L2c armed
+- Image finished at 17:42 (my wait loop's pgrep matched itself, so it looked stuck). UKI sha256 07b9f2b9e9180f37. R57L2c runs the same marker-and-reboot job. If it boots (reports), the pstore console option breaks the test boot; if not, the toolchain does.
