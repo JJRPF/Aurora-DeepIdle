@@ -5029,3 +5029,12 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
   - It also explains R57V: the plain kernel with a root whose modules came from another build.
   - And R57P: the same-source rebuild has byte-identical BTF.
 - R58B: the same crumb-empty patch, rebuilt with `CONFIG_MODULE_ALLOW_BTF_MISMATCH=y` (one config line, no other change), UKI `deeptest.efi.btfallow`, original root, job `r58a-hello`.
+
+## 2026-11-20 08:15 R58B: PATCHED KERNELS BOOT (blocker 1 solved). Step 2: pcie-apple S2R resume, R58C
+- R58B: the crumb-empty kernel rebuilt with `CONFIG_MODULE_ALLOW_BTF_MISMATCH=y` booted the test. Job stamp 0x601f = bb, push "R58A hello" arrived (kernel build #5). The reset record at its end is a plain `reboot` syscall (`kernel_restart` ← `__arm64_sys_reboot`, ESR EC 0x3c from the debugger path). **So the patched-kernel blocker was the module BTF check.** Every test kernel from now on is built with that option and keeps the original modules and root.
+- Step 2 patch (`patches/s2r-kernel/0001-pcie-apple-redo-conventional-port-setup-after-S2R.patch`, pstore worktree, crumb patch reverted):
+  - `apple_pcie_setup_link()` keeps PERST#/aux PERST#/PWREN in the port, and the slot power-up moves to `apple_pcie_port_power_on()`; the MSI words move to `apple_pcie_port_program_msi()`.
+  - `suspend_noirq` (conventional controller) saves INTMSK and the RID2SID entries.
+  - New normal-phase `.resume`: for each port whose link went down, redo power-on (PWREN off/on, refclk, PERST#), the clock gates, the interrupt and MSI setup and RID2SID; start the LTSSM and poll for link up; restore INTMSK; then `pci_restore_state()` for the devices below the host (their noirq restore ran against a dead link). Module parameter `pcie_apple.s2r_resume` (default on). Normal phase because the SMC, which drives PWREN, needs interrupts.
+  - Credit: nekolyanich ("redo probe's whole per-port setup").
+- R58C: UKI `deeptest.efi.pcie-s2r` (sha c7f477ffa3800f6a) + image 121 + `r57y-netdiag2` (sleep, Wi-Fi diagnostics, rescan fallback, pushes).
