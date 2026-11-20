@@ -4939,3 +4939,18 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
 - R57AK (image 117): apcie a0 again, but 0x601d = b0, so ps_sep's actual state stayed 0 after 100 ms. The fault is the same, the SEP DART at 0x394ac0000 (`apple_dart_resume+0x94`).
 - The DT marks the SEP domain (`power-controller@c00`, label sep) `apple,always-on` with no parent. In normal running the job sees it at 0x1000030f once idle: AUTO_ENABLE (bit 28), target f, actual 0, WAS_PWR/CLKGATED. So the hardware power-gates it itself and wakes it on access. The cut most likely resets that register, which clears AUTO_ENABLE, so the DART access no longer wakes the domain.
 - Image 118 (`60f4cbde`, `boot-test.bin.118` sha 47377cf0c3de6d8b): saves ps_sep at SYSTEM_SUSPEND (cleaned to the PoC) and writes it back at the wake (RESET cleared, target f), then polls. The raw value found after the cut goes to 0x601d (bits 7:0), 0x601e (15:8) and 0x600f (31:24); 0x6023 = a2 if it came on. R57AL: boot-test 118 + `r57w-panic27`.
+
+## 2026-11-20 01:05 R57AL: LINUX RESUMED TO USERSPACE after a real S2R sleep (first time on this Mac)
+- R57AL (image 118 = image 116's apcie re-init + ps_sep restored from its SYSTEM_SUSPEND value, on Aura's RVBAR wake path):
+  - **PMU 0x601f = aa**: the job's stamp written right after `echo mem` returns. 0x6014 = 00 (`echo mem` exit code 0), 0x600c = 0a (`nproc` = 10: all CPUs back).
+  - Real sleep 27 s (0x6007 = 0x1b), alarm wake.
+  - No push after the wake: Wi-Fi does not come back (see below). The job retried its pushes, ended, and the test boot rebooted normally. The reset stamp is at alarm + 121 s, and Aura's reset record has frames 0 and ESR EC 0x15 (an SVC, i.e. a reboot from userspace, not a panic).
+  - ps_sep after the cut read **0x1000070f**: AUTO_ENABLE and target f kept, but **DEV_DISABLE (bit 10) set**, actual 0. Writing back the saved value (no DEV_DISABLE) is what unblocked the SEP DART. 0x6023 = a0: the actual state did not reach f in the 100 ms poll (it is in auto mode), but the kernel's DART access then worked.
+- The two Aura fixes that got the kernel through its resume:
+  1. **the /arm-io/apcie bring-up rerun at the wake**: nekolyanich's fix (their m1n1 `c75178ba`; Ante042's m1n1 does the same; Asahi's function);
+  2. **ps_sep restored** (DEV_DISABLE cleared) before Linux resumes.
+- Found with the panic recorder: kernel panic → EFI ResetSystem (U-Boot hook) → Aura walks the kernel's frame records and pt_regs, translates FAR, and writes it all to the PMU's 40-byte scratch.
+- Next: get the network back after the wake so the job can report and stay up.
+  - PCIe endpoints need the per-port MSI words, RID2SID and INTMSK that Linux's probe wrote (nekolyanich: "redo probe's whole per-port setup").
+  - Aura can save those at SYSTEM_SUSPEND and write them back after its re-init, without a kernel change.
+  - Then the GPIO block (nekolyanich, Diljit, František) and the GL9755 PECONF.
