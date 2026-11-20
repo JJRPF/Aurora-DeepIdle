@@ -1,0 +1,58 @@
+diff --git i/drivers/base/power/main.c w/drivers/base/power/main.c
+index 4ed2e9b7e99b..cb6cb2b963ac 100644
+--- i/drivers/base/power/main.c
++++ w/drivers/base/power/main.c
+@@ -37,6 +37,7 @@
+ #include <linux/thermal.h>
+ #include <linux/timer.h>
+ #include <linux/nmi.h>
++#include <linux/nvmem-consumer.h>
+ 
+ #include "../base.h"
+ #include "power.h"
+@@ -494,6 +495,37 @@ static void dpm_show_time(ktime_t starttime, pm_message_t state, int error,
+ 		  usecs / USEC_PER_MSEC, usecs % USEC_PER_MSEC);
+ }
+ 
++/*
++ * TEST (GH-5): leave a crumb in the PMU scratch bytes (they survive the reset) with the device whose PM
++ * callback is about to run, so a hang after the S2R wake can be located from the next boot:
++ * 0x6040: event (0x02 suspend, 0x10 resume), 0x6041: first letter of the phase text, 0x6042..0x604f: device name.
++ */
++static struct nvmem_device *s2r_crumb_nvmem;
++
++static int s2r_crumb_match(struct device *dev, const void *data)
++{
++	return !strncmp(dev_name(dev), "spmi_nvmem", 10);
++}
++
++static void s2r_crumb(struct device *dev, pm_message_t state, const char *info)
++{
++	u8 buf[16] = { };
++	const char *n = dev_name(dev);
++
++	if (!s2r_crumb_nvmem) {
++		s2r_crumb_nvmem = nvmem_device_find(NULL, s2r_crumb_match);
++		if (IS_ERR(s2r_crumb_nvmem))
++			s2r_crumb_nvmem = NULL;
++		if (!s2r_crumb_nvmem)
++			return;
++	}
++	buf[0] = state.event & 0xff;
++	buf[1] = info ? info[0] : '?';
++	if (n)
++		strscpy((char *)&buf[2], n, 14);
++	nvmem_device_write(s2r_crumb_nvmem, 0x6040, sizeof(buf), buf);
++}
++
+ static int dpm_run_callback(pm_callback_t cb, struct device *dev,
+ 			    pm_message_t state, const char *info)
+ {
+@@ -506,6 +538,7 @@ static int dpm_run_callback(pm_callback_t cb, struct device *dev,
+ 	calltime = initcall_debug_start(dev, cb);
+ 
+ 	pm_dev_dbg(dev, state, info);
++	s2r_crumb(dev, state, info);
+ 	trace_device_pm_callback_start(dev, info, state.event);
+ 	error = cb(dev);
+ 	trace_device_pm_callback_end(dev, error);

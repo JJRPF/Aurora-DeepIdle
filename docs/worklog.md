@@ -4786,3 +4786,7 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
 
 ## 2026-11-19 22:40 R57O void: the crumb kernel did not boot the test; retrying once
 - Away 79 s, ntfy empty, PMU 0x6040..0x604f still zero (0x6003 now 0x2f, 0x6007 unchanged 0x17, so no sleep ran). Same failure signature as the config-changed kernels, but this one has the original config and only a code patch in `drivers/base/power/main.c`, so the modules-mismatch hypothesis does not explain it. Retrying the same UKI once to rule out a flake; if it fails again, compare the L4 Image and the crumb Image (size, `.config`, vermagic) to find what the test boot rejects.
+
+## 2026-11-19 22:55 R57O void twice; control build of the unpatched tree to find what the test boot rejects
+- R57O-crumbs-b: away 79 s again, ntfy empty, crumbs zero, 0x6007 unchanged. Not a flake. The Image's release string (`7.2.11-psci-efi+`), vermagic and compiler match the working Nov 9 Image, so module naming is not the cause. The patch is saved as `harness/usbtest/s2r-crumb.patch` (apply to commit 283e0795).
+- Control: rebuilding the pstore worktree with the patch reverted (old toolchain, original config) and testing it with the no-sleep marker job (`r57l-ramctl`). If the control boots, the patch itself is the problem; if it fails, the rebuilt worktree differs from the L4 build in some way (build number, `.version`, tree state) and the test only accepts that one build.
