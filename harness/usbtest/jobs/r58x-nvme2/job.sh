@@ -180,6 +180,8 @@ echo "$DA" | grep -q 'TEST iorvbar: was' && NV=$((NV|16))
 echo "$DA" | grep -q 'TEST iorvbar: kept' && NV=$((NV|32))
 echo "$DA" | grep -iE 'rtkit' | grep -qiE 'timeout|timed out|fail|error' && NV=$((NV|64))
 [ -e /sys/class/nvme/nvme0/state ] && NV=$((NV|128))
+# R58Y: 0x6009 = low byte of the CPU_CONTROL value the patched driver logs at resume ("TEST s2r: cpu_control 0x.."), ee = no such line
+CC=$(echo "$DA" | grep -o "TEST s2r: cpu_control 0x[0-9a-f]*" | tail -1 | grep -o "0x[0-9a-f]*$"); USB1=$(( ${CC:-0xee} & 0xff ))
 T1=$(date +%s.%N)
 DUR=$(echo "$T1 $T0" | awk '{printf "%.1f", $1-$2}')
 RES="R57J RESUMED INTO THE JOB: rc=$rc after $DUR s, online $(cat /sys/devices/system/cpu/online)

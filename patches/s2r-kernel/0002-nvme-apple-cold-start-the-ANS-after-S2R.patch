@@ -1,0 +1,38 @@
+diff --git i/drivers/nvme/host/apple.c w/drivers/nvme/host/apple.c
+index 6d342ee36a9f..f9d02f1d37b4 100644
+--- i/drivers/nvme/host/apple.c
++++ w/drivers/nvme/host/apple.c
+@@ -207,6 +207,7 @@ struct apple_nvme {
+ 	/* TEST (GH-8): the ANS wrapper's IO RVBAR, saved at suspend, restored before RUN if it changed */
+ 	void __iomem *iorvbar;
+ 	u64 iorvbar_saved;
++	bool s2r_force_cold; /* GH-5: next reset after a system resume starts the ANS cold */
+ 	struct kref ref;
+ 	/* Serializes the post-M4 controller disable with reset and teardown. */
+ 	struct mutex disable_lock;
+@@ -1655,6 +1656,17 @@ static void apple_nvme_reset_work(struct work_struct *work)
+ 		writel(0, anv->mmio_coproc + APPLE_ANS_COPROC_CPU_CONTROL);
+ 	}
+ 
++	/*
++	 * GH-5: after S2R the SoC lost power, so whatever CPU_CONTROL reads now, the ANS is not running the
++	 * session we shut down in suspend. Start it cold: reset, RTKit reinit, IORVBAR restore, RUN, boot.
++	 */
++	if (anv->s2r_force_cold && !anv->hw->needs_ioq_registers) {
++		dev_info(anv->dev, "TEST s2r: cpu_control %#x at resume, forcing a cold start\n",
++			 readl(anv->mmio_coproc + APPLE_ANS_COPROC_CPU_CONTROL));
++		writel(0, anv->mmio_coproc + APPLE_ANS_COPROC_CPU_CONTROL);
++		anv->s2r_force_cold = false;
++	}
++
+ 	/*
+ 	 * Only do the soft-reset if the CPU is not running, which means either we
+ 	 * or the previous stage shut it down cleanly.
+@@ -2581,6 +2593,7 @@ static int apple_nvme_resume(struct device *dev)
+ 		WRITE_ONCE(anv->suspended, false);
+ 		return nvme_try_sched_reset(&anv->ctrl);
+ 	}
++	anv->s2r_force_cold = true;
+ 	return nvme_reset_ctrl(&anv->ctrl);
+ }
+ 
