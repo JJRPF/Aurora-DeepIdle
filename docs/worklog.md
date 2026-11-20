@@ -4856,3 +4856,9 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
 - So one of these fails: (a) the ResetSystem → Aura path is not reached at all; (b) Aura's RVBAR-count gate reads 0 in that context; (c) the SPMI write is lost after the panic (the bus may be held by a stopped CPU).
 - Image 108 (`c9339c54`, `boot-test.bin.108` sha 250acbde02d02489, still with the U-Boot hook) writes the header (0x6040 = 50, 00, cpu, RVBAR count) on every SYSTEM_RESET and walks the stack only after a wake.
 - R57Z = control: job `r57l-ramctl` (no sleep, ends in `sysrq b`). A header with RVBAR count 0 = the path works on a plain reset; then rerun the sleep job.
+
+## 2026-11-20 00:10 R57Z control: no header on a plain reboot either; U-Boot never advertised ResetSystem. Boot-test 109, R57AA armed
+- R57Z (image 108, `r57l-ramctl`): the job stopped at its own "stage 2 is not image 105" check and the boot rebooted normally; 0x6040 still zero. So even a plain reboot does not reach Aura through U-Boot.
+- Cause: U-Boot sets `EFI_RT_SUPPORTED_RESET_SYSTEM` in its RT properties table only with `CONFIG_EFI_HAVE_RUNTIME_RESET`, whose Kconfig `depends` leaves Apple out. Linux's `efi_reboot()` checks that bit first and returns, so ResetSystem is never called.
+- Boot-test 109 = image 108 + U-Boot with `EFI_HAVE_RUNTIME_RESET` for `ARCH_APPLE` (patch `patches/psci-efi/u-boot/0004-*`). The hook now skips EFI_RESET_SHUTDOWN, so a poweroff is unchanged. sha 6297b4ff93e8035a.
+- R57AA: boot-test 109 + `r57w-panic27`. Expect the 0x6040 header with the RVBAR count 1 and the frames; decode with `tools/panic-trace.py`.

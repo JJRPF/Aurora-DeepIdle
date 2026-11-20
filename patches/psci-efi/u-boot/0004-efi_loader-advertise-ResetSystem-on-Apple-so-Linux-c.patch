@@ -1,0 +1,41 @@
+From d3fa480cc47b1200bfe9b345b25a257abdb36e1e Mon Sep 17 00:00:00 2001
+From: Justin Pfister <git@jjrpf.com>
+Date: Thu, 19 Nov 2026 23:36:47 -0500
+Subject: [PATCH] efi_loader: advertise ResetSystem on Apple so Linux calls it
+ (GH-5 debug hook); skip the hook for shutdown
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ arch/arm/mach-apple/board.c | 2 +-
+ lib/efi_loader/Kconfig      | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/arch/arm/mach-apple/board.c b/arch/arm/mach-apple/board.c
+index 1d67f5f6529..df3678fe9ee 100644
+--- a/arch/arm/mach-apple/board.c
++++ b/arch/arm/mach-apple/board.c
+@@ -1764,7 +1764,7 @@ static __efi_runtime_data unsigned long (*psci_rt_handler)(unsigned long, unsign
+ void __efi_runtime EFIAPI efi_reset_system(enum efi_reset_type reset_type, efi_status_t reset_status,
+ 					   unsigned long data_size, void *reset_data)
+ {
+-	if (psci_rt_handler)
++	if (psci_rt_handler && reset_type != EFI_RESET_SHUTDOWN)
+ 		psci_rt_handler(0x84000009, 0, 0, 0);
+ }
+ 
+diff --git a/lib/efi_loader/Kconfig b/lib/efi_loader/Kconfig
+index 4cb13ae7c8a..b5cc203da64 100644
+--- a/lib/efi_loader/Kconfig
++++ b/lib/efi_loader/Kconfig
+@@ -105,7 +105,7 @@ config EFI_HAVE_RUNTIME_RESET
+ 	bool "Reset runtime service"
+ 	default y
+ 	depends on ARCH_BCM283X || FSL_LAYERSCAPE || PSCI_RESET || \
+-		   SANDBOX || SYSRESET_SBI || SYSRESET_X86
++		   SANDBOX || SYSRESET_SBI || SYSRESET_X86 || ARCH_APPLE
+ 
+ endmenu
+ 
+-- 
+2.56.1
+
