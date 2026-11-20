@@ -4954,3 +4954,12 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
   - PCIe endpoints need the per-port MSI words, RID2SID and INTMSK that Linux's probe wrote (nekolyanich: "redo probe's whole per-port setup").
   - Aura can save those at SYSTEM_SUSPEND and write them back after its re-init, without a kernel change.
   - Then the GPIO block (nekolyanich, Diljit, František) and the GL9755 PECONF.
+
+## 2026-11-20 01:20 Image 119: PCIe per-port MSI setup saved and restored by Aura (for Wi-Fi after the wake); R57AM armed
+- Our `pcie-apple.c` restores per-port state only for tunneled (USB4) controllers; `apple_pcie_resume_noirq` returns at once for the internal one. So after the cut nothing writes back what probe set: MSIADDR (+0x16c) 0xfffff000, MSIADDR_HI (+0x170), MSIMAP[32] (+0x3800), RID2SID (+0x3000), MSICFG (+0x124) 1, INTMSK (+0x104). Read live on main: port 0 (Wi-Fi, 0x594008000) RID2SID 0x80010100/0x80010101, port 1 (SD, 0x595008000) 0x80010200. Without them an endpoint's MSI goes to the DART instead of the doorbell (nekolyanich: "NO PMD FOR IOVA at 0xfffff000").
+- Image 119:
+  - maps ports 0/1 into the EFI runtime map;
+  - saves those registers at SYSTEM_SUSPEND;
+  - writes them back after the apcie re-init at the wake, in probe's order with INTMSK last;
+  - sets 0x6023 bit 2: a4 = re-init + restore, a6 = also ps_sep on.
+- R57AM: boot-test 119 + `r57w-panic27`. A "R57J resumed" push = the network came back after the wake.
