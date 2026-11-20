@@ -4991,3 +4991,11 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
 - R57AO (image 120 + `r57x-netdiag`): 0x601f = aa, 0x6023 = a4, 0x601e = 7 (only 7 AP pins had changed, unlike nekolyanich's 176). Port 0 LINKSTS 0, the Wi-Fi config space reads ffff, the rescan did not help.
 - Next suspects: the Wi-Fi's **PWREN, SMC GPIO 13**. The SMC may drop the WLAN rail in S2R, and only pcie-apple's probe raises it again (its internal-PCIe resume does nothing, and the driver has `suppress_bind_attrs`, so it cannot be rebound from userspace). Also PERST# (AP gpio-4).
 - New job `r57y-netdiag2`: after the wake it writes 0x6008 = port 1 (SD) LINKSTS, 0x6009 = PWREN as debugfs reports it (1 hi / 0 lo), and 0x600a = AP gpio-4 (PERST#). On main both read `out hi`. R57AP: boot-test 120 + `r57y-netdiag2`.
+
+## 2026-11-20 02:10 R57AP: after the wake the Wi-Fi's PWREN (SMC gpio 13) is LOW. R57AQ: a test module re-powers and retrains the slot
+- R57AP (image 120 + `r57y-netdiag2`): resumed again (5 of 5). After the wake debugfs shows **PWREN (smc gpio-13) lo** and PERST# (AP gpio-4) lo; on main both read hi. Port 0 link down, config space ffff. (The 0x6008 byte reads 0x5c in both runs, which looks stale and is not trusted.)
+- So the SMC drops the WLAN rail in S2R, and pcie-apple only raises PWREN and trains the slot at probe (`apple_pcie_setup_port`). Nothing does that on resume, and the driver cannot be rebound (`suppress_bind_attrs`).
+- Test module `harness/usbtest/kmod/s2r_wifi_kick` (out of tree, built against the unmodified test-kernel tree with the old toolchain; vermagic `7.2.11-psci-efi+`; no module signing).
+  - Replays that part of probe for port 0: PERST# assert (AP gpio 4 raw 0, port +0x82c bit 0 clear), PWREN off 2 ms and on (smc gpio 13), 150 ms, PERST# release, PORT_STATUS ready, LTSSM start (+0x80), link-up poll.
+  - The GPIO descriptors are looked up by chip label, since pcie-apple owns them.
+- Job `r57z-wifikick`: after the wake, diagnostics, then `insmod` (rc → 0x6009, result → 0x600a), PCI remove/rescan of 01:00.x, iwd restart, push (25 tries). R57AQ: boot-test 120 + `r57z-wifikick`.

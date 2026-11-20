@@ -16,7 +16,7 @@ print(f'0x6023 apcie re-init: {rd(0x6023, 1)[0]:#04x} (a0 done, a1 started and n
 ps = rd(0x600f, 1)[0] << 24 | rd(0x601e, 1)[0] << 8 | rd(0x601d, 1)[0]
 print(f'ps_sep raw at the wake: {ps & 0xff00ffff:#010x} (bits 15:8 not kept since image 120); 0x601e AP GPIO pins put back: {rd(0x601e, 1)[0]} (ff = no snapshot; image 120+)')
 d = rd(0x6006, 6)
-print(f'netdiag: port0 LINKSTS {d[0]:#04x}, wifi vendor code {d[1]} (1=14e4 2=ffff); r57x: wlan0 oper {d[2]:#04x}, brcmf {d[3]}, err {d[4]}; r57y: port1 LINKSTS {d[2]:#04x}, PWREN {d[3]} (1 hi 0 lo), AP gpio-4 PERST# {d[4]} (1 hi 0 lo); stage {d[5]} (4 pushed, 3 after rescan, 2 rescan tried, 1 diag only)')
+print(f'netdiag: port0 LINKSTS {d[0]:#04x}, wifi vendor code {d[1]} (1=14e4 2=ffff); r57x: wlan0 oper {d[2]:#04x}, brcmf {d[3]}, err {d[4]}; r57y: port1 LINKSTS {d[2]:#04x}, PWREN {d[3]} (1 hi 0 lo), AP gpio-4 PERST# {d[4]} (1 hi 0 lo); r57z: insmod rc {d[3]}, kick result {d[4]} (bit0 ready, bit1 link up, 255 none); stage {d[5]} (4 pushed, 3 after rescan, 2 rescan/kick tried, 1 diag only)')
 print(f'0x601f userspace resumed: {rd(0x601f, 1)[0]:#04x} (aa = Linux resumed to userspace)')
 print(f'marker {m:#04x} (0x50 = record), frames {n}')
 if m != 0x50:
