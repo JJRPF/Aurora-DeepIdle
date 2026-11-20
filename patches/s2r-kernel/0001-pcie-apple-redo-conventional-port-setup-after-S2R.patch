@@ -1,5 +1,5 @@
 diff --git i/drivers/pci/controller/pcie-apple.c w/drivers/pci/controller/pcie-apple.c
-index 805ff1a8d084..9a19bbae9b43 100644
+index 805ff1a8d084..b4b250121664 100644
 --- i/drivers/pci/controller/pcie-apple.c
 +++ w/drivers/pci/controller/pcie-apple.c
 @@ -64,6 +64,10 @@ static bool s2idle_keep_link = true;
@@ -229,7 +229,7 @@ index 805ff1a8d084..9a19bbae9b43 100644
  	pcie->reset_on_resume = false;
  	pcie->link_kept = apple_pcie_keep_link(pcie);
  	if (!pcie->link_kept)
-@@ -3588,9 +3635,103 @@ static int apple_pcie_resume_noirq(struct device *dev)
+@@ -3588,9 +3635,116 @@ static int apple_pcie_resume_noirq(struct device *dev)
  	return ret;
  }
  
@@ -240,6 +240,9 @@ index 805ff1a8d084..9a19bbae9b43 100644
 + * then put the config space of the devices below back, since their noirq restore ran against a dead link.
 + * Idea and result on t602x: nekolyanich ("redo probe's whole per-port setup").
 + */
++static unsigned int s2r_pwren_off_ms = 200;
++module_param(s2r_pwren_off_ms, uint, 0644);
++MODULE_PARM_DESC(s2r_pwren_off_ms, "GH-5: ms with PWREN low before the port power-on after an S2R power cut (0 = no cycle)");
 +static unsigned int s2r_resume_delay_ms = 1500;
 +module_param(s2r_resume_delay_ms, uint, 0644);
 +MODULE_PARM_DESC(s2r_resume_delay_ms, "Delay before a lost conventional port is set up again after resume");
@@ -264,6 +267,16 @@ index 805ff1a8d084..9a19bbae9b43 100644
 +			 apple_pcie_port_readl(port, PORT_LINKSTS));
 +		if (!port->perst)
 +			continue;
++		/*
++		 * GH-5 R58T: the SMC may have cut the slot's rail in S2R while gpiolib still has PWREN high, and t602x
++		 * has no pwren_off_ms, so power_on would only write 1 again. Hold PERST# and drop PWREN long enough for
++		 * the rail to discharge before power_on brings it back.
++		 */
++		if (port->pwren && s2r_pwren_off_ms) {
++			gpiod_set_value_cansleep(port->perst, 1);
++			gpiod_set_value_cansleep(port->pwren, 0);
++			msleep(s2r_pwren_off_ms);
++		}
 +		ret = apple_pcie_port_power_on(pcie, port);
 +		if (ret) {
 +			dev_err(dev, "port %pOF power-on after resume failed: %d\n", port->np, ret);
