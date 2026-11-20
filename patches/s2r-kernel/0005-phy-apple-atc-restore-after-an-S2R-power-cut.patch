@@ -1,5 +1,5 @@
 diff --git i/drivers/phy/apple/atc.c w/drivers/phy/apple/atc.c
-index 34bdee648798..d748f0b6af17 100644
+index 34bdee648798..0907a3e525a4 100644
 --- i/drivers/phy/apple/atc.c
 +++ w/drivers/phy/apple/atc.c
 @@ -39,6 +39,7 @@
@@ -10,7 +10,20 @@ index 34bdee648798..d748f0b6af17 100644
  #include <linux/types.h>
  #include <linux/usb.h>
  #include <linux/usb/hcd.h>
-@@ -5441,7 +5442,26 @@ static int atcphy_resume(struct device *dev)
+@@ -1195,6 +1196,12 @@ static int atcphy_pipehandler_lock(struct apple_atcphy *atcphy)
+ 			reg, atcphy->mode, atcphy->pipe_state, atcphy->mode_dirty);
+ 		clear32(atcphy->regs.pipehandler + PIPEHANDLER_LOCK_REQ, 1);
+ 		dev_warn(atcphy->dev, "Pipehandler lock not acked.\n");
++		/* GH-5 TEST: the state the S2R job records after the wake */
++		dev_warn(atcphy->dev,
++			 "TEST s2r: lock nak aon=%08x mux=%08x req=%08x ack=%08x mode=%u pipe=%u host=%u\n",
++			 readl(atcphy->regs.pipehandler + PIPEHANDLER_AON_GEN),
++			 readl(atcphy->regs.pipehandler + PIPEHANDLER_MUX_CTRL), requested, reg,
++			 atcphy->mode, atcphy->pipe_state, atcphy->host_active);
+ 	}
+ 
+ 	return ret;
+@@ -5441,7 +5448,26 @@ static int atcphy_resume(struct device *dev)
  	return 0;
  }
  

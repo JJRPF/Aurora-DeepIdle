@@ -340,6 +340,7 @@
     { "what": "macOS 15.7.1", "value": "0.24 W", "detail": "5.9 h, 98.7% of it in S2R" }
   ],
   "findings": [
+    {"title": "R59S: USB now stops at the Type-C PHY handshake", "body": "With the I2C fix the next failure after the wake is the PHY waiting for the USB controller to acknowledge a handshake. R59T records the registers at that moment to see whether the controller is still held in reset or lost its clock."},
     {"title": "R59R: the Type-C controllers answer again after the wake", "body": "Re-initialising the Apple I2C controller on resume removed the PD-controller errors. USB is still down: the next error is in the Type-C PHY, being narrowed down in R59S."},
     {"title": "R59Q: USB after the wake fails at the PD controllers' I2C bus", "body": "The first USB error after the wake is the Type-C PD controller timing out on I2C (-ETIME). The Apple I2C driver has no resume callback, so after the power cut its controller is never set up again. R59R tests a fix that re-initialises it on resume."},
     {"title": "R59P: a 5-minute sleep comes back too", "body": "A 5-minute S2R sleep resumes like the 30 s ones: userspace, PMP restart and NVMe all back, clean reboot, nothing fired during the cut. USB and Wi-Fi still missing after the wake."},
