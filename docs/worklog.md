@@ -4895,3 +4895,12 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
   - It leaves 0x6010 (bootbin's test-boot flag), 0x600f, 0x601d..0x601f and 0x6024 alone.
   - Then WD1 at 2 s.
 - Decoder `tools/panic-trace.py` updated. R57AF: boot-test 112 + `r57w-panic27`.
+
+## 2026-11-20 00:05 R57AF: first stack record from the woken kernel. It is an SError panic (arm64_serror_panic)
+- R57AF (image 112): real sleep, alarm wake, panic, and the record landed. PMU 0x6004 = 0x50, 9 frames, decoded with `tools/panic-trace.py` against the test kernel's System.map:
+  - 0 `__efi_rt_asm_wrapper+0x50`, 1 `virt_efi_reset_system+0x7c`, 2 `_text+0x380`, 3 `machine_restart+0x38`, 4 `emergency_restart+0x2c`, 5 `_text+0x214`, 6 `_text+0x380`
+  - 7 `check_panic_on_warn+0x0` (the return address just past a noreturn call: panic)
+  - **8 `arm64_serror_panic+0x6c`**
+- **So within a second of the real S2R wake the kernel takes an SError**, an asynchronous external abort: a load or store to a device that is not powered or clocked, or that refuses the access. That is consistent with the wake leaving blocks unpowered that the kernel's resume touches. One candidate is the AP GPIO block nekolyanich and František describe (it resets on a real cut). Others are whatever Aura's `psci_quiesce_undo` does not bring back.
+- The `_text+0x...` frames are in the vectors and entry stubs, and the capture worked end to end. That took: kernel panic → EFI ResetSystem (U-Boot, now advertised for Apple) → Aura's PSCI handler on the panicking stack → frame walk → the PMU's 40-byte scratch.
+- Image 113 (`eecbb13d`, `boot-test.bin.113` sha 4fda14d179c2a6f0): skips the 8 known frames, records the next 8 (do_serror, the exception entry and the interrupted code), and puts ESR (EC + low ISS) in slot 9. R57AG: boot-test 113 + `r57w-panic27`.
