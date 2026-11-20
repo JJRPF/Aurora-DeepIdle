@@ -4756,3 +4756,7 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
 ## 2026-11-19 21:20 R57L2c void too: the control kernel (console off) also did not boot the test
 - Away 156 s, no reports, RAM page empty. So the pstore console is not the cause; the rebuild itself is (clang/LLD 23.1.5 and rustc 1.100.0 instead of 23.1.4 and 1.99.1, or something else in the build).
 - Next: re-arm the plain backup UKI (`deeptest.efi.plain-3a50d5fe`, the Nov 9 Image) with the same job as a sanity check that the harness still works; then rebuild with the old compilers if their packages are available.
+
+## 2026-11-19 21:30 R57L3 sanity: the original Nov 9 kernel boots the test and reports; the rebuilds do not
+- With `deeptest.efi.plain-3a50d5fe` the same job reports normally (R57J axi2af … R57L marker pushes in ntfy.txt), so the harness is fine. Both rebuilt kernels (GCC; clang 23.1.5 + rustc 1.100.0, with or without the pstore console) fail to run the test.
+- Next: rebuild with the old toolchain (clang/LLD/LLVM 23.1.4, rustc 1.99.1), extracted from the pacman cache into `~/Work/toolchain-old` and used through PATH/LD_LIBRARY_PATH, so the system packages are not downgraded. The plain UKI is back in place as `deeptest.efi`.
