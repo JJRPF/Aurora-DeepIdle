@@ -1,6 +1,7 @@
 #!/bin/bash
 # GH-5: builds the DeepTest UKI (kernel + the usbtest initramfs + cmdline).
 #   sudo bash build-uki.sh [<kernel image> [<kernel release> [<out.efi> [extra cmdline...]]]]
+# EXTRA_MODULES="a b" adds modules to the initramfs (GH-5: patched apple-pmp/macsmc loaded from there).
 # MODROOT=<dir with lib/modules/<release>> builds the initramfs from those modules instead of /usr/lib/modules (needed for a kernel built from a patched tree).
 # Defaults: main's stock linux-aurora kernel. The UKI needs nothing from the USB drive.
 set -eu
@@ -16,7 +17,7 @@ install -Dm644 "$H/initcpio/install/usbtest" /etc/initcpio/install/usbtest
 install -Dm644 "$H/initcpio/hooks/usbtest" /etc/initcpio/hooks/usbtest
 T=$(mktemp -d)
 cat > "$T/mkinitcpio.conf" <<EOF
-MODULES=(nvme-apple apple-sart apple-dart dwc3-apple dwc3 phy-apple-atc tps6598x typec uas usb-storage xhci-plat-hcd)
+MODULES=(nvme-apple apple-sart apple-dart dwc3-apple dwc3 phy-apple-atc tps6598x typec uas usb-storage xhci-plat-hcd ${EXTRA_MODULES:-})
 BINARIES=()
 FILES=()
 HOOKS=(base udev asahi modconf block usbtest)
