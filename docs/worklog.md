@@ -5347,3 +5347,8 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
   - just before the real `echo mem`: the PMU's whole register file (`spmi_nvmem2`, 64 KiB over SPMI), the gpio debugfs and `lspci -vv`, into RAM (`/run/postwake`);
   - at the end: the PMU again, the full dmesg, gpio, lspci, /proc/interrupts, cmdline, pcie-apple params and the job's run.log; then mounts OMARCHY_BOOT (ext4) rw, copies all of it to `/boot/deeptest/postwake/<time>-r60a/`, syncs and unmounts. 0x6012 bit 6 = written and unmounted.
 - The PMU before/after comparison comes from the same boot (Wi-Fi working before the sleep), so main's PMU is never read in bulk (blind reads can clear event registers).
+
+## 2026-11-20 15:55 R60A: no post-wake files: the initramfs sets OMARCHY_BOOT read-only. R60A-2 lifts that for the write only
+- R60A: resumed (aa), clean reboot, health 0xff (USB 7 of 7), NVMe live (16 of 16); Wi-Fi as before (3 tries, no link; port 0 PHY as on main). 0x6012 bit 6 clear and no `/boot/deeptest/postwake/`: the write did not happen.
+- Cause: the usbtest initramfs hook runs `blockdev --setro` on the source device (a deliberate guard), so the rw mount is refused.
+- R60A-2 (same job, fixed): `blockdev --setrw` only right before the mount, `--setro` again after the unmount; mount errors go to `mount.err` in the RAM copy.

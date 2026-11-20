@@ -338,11 +338,14 @@ dmesg > $PWD_/dmesg.txt; cat /sys/kernel/debug/gpio > $PWD_/gpio-post.txt 2>/dev
 cp /run/usbtest/run.log $PWD_/ 2>/dev/null; cat /proc/interrupts > $PWD_/interrupts.txt; cat /proc/cmdline > $PWD_/cmdline.txt
 for f in /sys/module/pcie_apple/parameters/*; do echo "$f $(cat $f 2>/dev/null)"; done > $PWD_/pcie-params.txt
 BD=$(blkid -L OMARCHY_BOOT 2>/dev/null); WOK=0
-if [ -n "$BD" ] && mkdir -p /mnt/pwboot && mount -t ext4 -o rw,noatime "$BD" /mnt/pwboot; then
+# R60A-2: the initramfs sets the device read-only (blockdev --setro) as a guard; lift it only for this write, then set it back
+[ -n "$BD" ] && blockdev --setrw "$BD" 2>>$PWD_/mount.err
+if [ -n "$BD" ] && mkdir -p /mnt/pwboot && mount -t ext4 -o rw,noatime "$BD" /mnt/pwboot 2>>$PWD_/mount.err; then
     OUT=/mnt/pwboot/deeptest/postwake/$(date +%Y%m%d-%H%M%S)-r60a
     mkdir -p "$OUT" && cp -a $PWD_/. "$OUT"/ && sync && WOK=1
     umount /mnt/pwboot || WOK=0
 fi
+[ -n "$BD" ] && blockdev --setro "$BD" 2>/dev/null
 [ $WOK = 1 ] && pb 0x6012 $((PB | 64))
 log "postwake: device ${BD:-none}, written=$WOK"
 $J/aura-ctl 0 0 0 > /dev/null 2>&1
