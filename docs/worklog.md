@@ -5055,3 +5055,8 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
 ## 2026-11-20 08:55 R58E control fails the same way, so the PCIe patch is not the cause. R58F: plain kernel + image 121
 - R58E (rebuilt kernel at bf173c955a60 + BTF option, no PCIe patch): same result as R58C/R58D. Pushes up to "committing", no wake, 0x6004 untouched (Aura's suspend path never wrote a crumb), reset 91 s after a fresh alarm (0x6281d5). Either the rebuilt kernel no longer reaches SYSTEM_SUSPEND, or image 121 changed something (R57AR, the last good sleep, used image 120).
 - R58F: the original plain UKI (cc2994d12a1553f2) with image 121 and the same job.
+
+## 2026-11-20 09:05 R58F: the plain kernel with image 121 fails to sleep too. R58G: exact R57AR setup (image 120 + plain kernel)
+- R58F (original UKI cc2994d12a1553f2 + image 121): same as R58C..E. No crumb, reset 90 s after the alarm (0x6282e5). So it is not the kernel or the PCIe patch.
+- Image 121 differs from 120 only in the SYSTEM_RESET recorder, which does not run during a sleep. The PMU nvmem cells the kernel reads (0x6001 boot-stage, 0x6002 boot-error/panic counts, 0x6003 boot-error-stage, 0x600f bit 3 shutdown flag) are not bytes the recorder writes.
+- R58G: `boot-test.bin.120` + the plain UKI + `r57y-netdiag2`, the setup of R57AL..R57AR. If that fails too, something outside the test chain changed since R57AR.
