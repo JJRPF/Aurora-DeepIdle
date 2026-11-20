@@ -5233,3 +5233,12 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
 ## 2026-11-20 11:55 R59K: back to userspace, then a BUG trap in the pcie-apple S2R rescan. R59L: the same without the PCIe work
 - R59K (ANS idle/keep): 0x601f = aa (resume 20 of 20), but back after 162 s with a reset record holding **6 frames**: ESR `BRK #0x800` (BUG/WARN trap), pc `pci_generic_config_write+0x54`, from `pci_bus_generic_read_dev_vendor_id` / `pci_scan_single_device`, FAR 0x580100000 (the PCIe config window). That is the pcie-apple S2R work's rescan, about 1.5 s after the wake, tripping a BUG. The frame slots overwrote the job's NVMe bytes, so this run says nothing about the ANS.
 - R59L: `deeptest.efi.pmp6` = the same with `pcie_apple.s2r_resume=0` on the command line, to read the ANS result alone. The rescan trap is the next item for Wi-Fi.
+
+## 2026-11-20 12:00 R59L: NVMe works after a real S2R power cut
+- R59L (R59K without the pcie-apple S2R rescan): resume 21 of 21, clean reboot. **0x6006 = 0xfd: NVMe live and a 64 KiB direct read of nvme0n1 works**; keyboard, SMC battery, RTC and SEP OK, no "timed out", no WARNING/BUG/Oops after the wake. Only bit1 (USB device count) is still missing.
+- 0x6009 = 0xb1: "sart power 0x0" (restored), **"RTKit reinit with buffers kept: 0"**, HELLO, syslog, and no "IOP power acknowledgment failed" and no crash. 0x6007 = 0xb0: nvme0 present, ANS tunables rewritten (bit5 is a false alarm: the probe line had scrolled out of the dmesg buffer). PMP stopped, SRAM saved, restarted (0x600b = 0x61). Aura re-powered 19 domains. The ANS's last syslog text: "~ boot\0ode" (probably "… boot mode …").
+- What it took, on top of resume itself (Aura RVBAR path, apcie re-init, ps_sep restore, GPIO snapshot with the gpio domain kept on):
+  1. Aura image 123: put back every PMGR power domain that was on at SYSTEM_SUSPEND.
+  2. The PMP power cycle (SRAM image saved and restored, DART/DAPF/IORVBAR, RTKit reinit/boot): Andreas Fernandez's t6000 method ported.
+  3. nvme-apple: idle the ANS for S2R and keep its RTKit buffers (`apple_rtkit_reinit_keep`), cold-start it after the wake (CPU_CONTROL cleared, PMGR reset, IORVBAR), write back the SART power word (+0x13e8), apply the ADT ANS tunables Aura 124 publishes (`ioremap_np`), and allow 25 s for the IOP power ack. All of these follow Andreas Fernandez's t6000 NVMe work.
+- Next: the pcie-apple rescan BUG (Wi-Fi), USB, then repeatability and longer sleeps.
