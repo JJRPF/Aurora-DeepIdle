@@ -5046,3 +5046,8 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
   - Then, under `pci_lock_rescan_remove`, it removes the devices on the host's root bus and `pci_rescan_bus()`, so brcmfmac and the SD reader probe afresh as at boot.
   - The PCI core's add path rewrites RID2SID, so no manual RID2SID restore.
 - R58D: same job `r57y-netdiag2`.
+
+## 2026-11-20 08:45 R58C/R58D never slept; R58E control (rebuilt kernel + BTF option, no PCIe patch)
+- Correction: R58C and R58D did not wake and hang. **They never entered the sleep**. 0x6004 still held R58B's 0x51 (Aura's suspend path writes crumbs there and the RVBAR path writes 0x22, and neither did). The reset came 91 s after the alarm, about 120 s after the commit push: the WD1 that apple_wdt arms at suspend (`suspend_timeout=120`). So Linux hung in device suspend before PSCI SYSTEM_SUSPEND. The bytes I read as wake telemetry were left over.
+- The pstore worktree was at 283e0795, two commits behind the tree of the working Image (`bf173c955a60`, the T602x RTC alarm commits). Those are modules and DTS, so they should not matter for the Image, but the worktree is now on `bf173c955a60` to remove the doubt. Its .config differs from the working one only by `MODULE_ALLOW_BTF_MISMATCH`.
+- R58E control: that tree with no PCIe patch (`deeptest.efi.ctl-btf`, sha f9af45fa5e7290e8), sleep job `r57y-netdiag2`. If it sleeps and resumes like R57AL..R57AR, the patch is what stops the suspend; if not, the rebuilt kernel or the BTF option is.
