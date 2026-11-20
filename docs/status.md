@@ -1,4 +1,4 @@
-# Where the work stands (2026-11-18, 18:12, after run R56C — FIRST REAL 77 s SLP_S2R SLEEP & WAKE INTO LINUX!)
+# Where the work stands (2026-11-20, 01:15, after run R57AR — LINUX RESUMES TO USERSPACE AFTER A REAL S2R SLEEP, 6 of 6)
 
 This is the summary of the whole effort: what was measured, what was built,
 what works, what does not, and what comes next. Each section points to the
@@ -19,6 +19,25 @@ There are two goals:
   which needs real suspend to RAM (S2R).
 
 ## The short version
+
+## Latest (2026-11-20): Linux resumes from real S2R
+
+* **Six real S2R round trips in a row (R57AL to R57AR):** real SLP_S2R sleep (27 s), RTC alarm wake, the kernel's resume
+  completes and `echo mem` returns 0 with all 10 CPUs online (PMU stamps written by the test job).
+* **What it took (all in Aura's wake path, before Linux resumes, no kernel change):**
+  1. rerun the internal PCIe (`/arm-io/apcie`) bring-up: nekolyanich's fix (Ante042's m1n1 does the same; the
+     function is Asahi's). Without it the kernel's first PCIe DART access aborts;
+  2. restore the SEP power domain (`ps_sep`): the cut leaves it with DEV_DISABLE set, and the SEP DART access aborts;
+  3. also in place: per-port PCIe MSI/RID2SID/INTMSK restore and the AP GPIO block restore (macOS order, after
+     František Balázsy, Diljit Singh and nekolyanich).
+* **How the faults were found:** a panic recorder. The kernel's panic restart goes through EFI ResetSystem (U-Boot, now
+  advertised on Apple), U-Boot hands it to Aura's PSCI handler, and Aura walks the kernel's frame records and
+  pt_regs on the panicking stack, translates FAR and leaves the result in the PMU's 40-byte scratch (0x6000..0x6027),
+  the only memory that survives the reset. `tools/panic-trace.py` decodes it on main.
+* **Still broken after the wake: Wi-Fi.** The port 0 link stays down (in L2), and the Wi-Fi PWREN (SMC gpio 13) reads
+  low. A test module that replays pcie-apple's slot power-up does not bring it back. The fix belongs in pcie-apple's
+  resume (nekolyanich: "redo probe's whole per-port setup"), which needs a patched kernel, and patched kernels still
+  do not boot the test (the open R57O..R57U blocker).
 
 * **Awake idle: three changes are proven on this machine.**
 

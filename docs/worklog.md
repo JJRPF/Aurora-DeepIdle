@@ -5006,3 +5006,9 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
 - v2 adds that step and packs read-backs into `result`: bit 0 ready, bit 1 link, bit 2 PWREN reads 1, bit 3 PERST# released, bit 4 refclk ACKs, PORT_STATUS and LINKSTS bytes. The job writes them to 0x600a / 0x6009 / 0x6008.
 - Checked from main: 0x6006..0x600b all take userspace writes. So R57AP's 0x6008 = 0x5c was most likely the real port 1 LINKSTS low byte (bit 0, link up, clear).
 - R57AR: boot-test 120 + `r57z-wifikick` (module v2).
+
+## 2026-11-20 01:15 R57AR: resumed again (6 of 6); kick v2 shows nothing takes (no PWREN read-back, no refclk ACK, port not RUN, link in L2). Pausing the Wi-Fi line here
+- R57AR (module v2): 0x601f = aa. Result 0x5c0000: PORT_STATUS 0, LINKSTS 0x5c (bit 6 = L2, bit 2 busy), PWREN does not read back 1, PERST# not released, no PHY refclk ACK. So after the wake the port 0 block is not in the state Aura's re-init left it in (re-init saw RUN). Something on the Linux side, probably genpd power-cycling the apcie domains on resume, resets it after Aura. Nothing in the module's sequence takes.
+- These test boots also end about 2 min after the wake with an ordinary reboot from userspace (ESR EC 0x15), whatever the job is doing. So something reboots a boot that has no network; not yet identified.
+- Conclusion for now: the core S2R round trip works (6 of 6). Wi-Fi after the wake needs pcie-apple's resume to redo probe's per-port setup, PWREN included, as nekolyanich did in their kernel. That needs a patched kernel, so the next thing to unblock is why patched kernels do not boot the test (R57O..R57U). The panic recorder can now catch an early panic there too, if it records without an RVBAR wake.
+- The test chain stays staged (`boot-test.bin.120`); it is used only when a DeepTest is armed.
