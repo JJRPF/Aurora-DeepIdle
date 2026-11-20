@@ -5173,3 +5173,9 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
 - R59A (image 123): resume 12 of 12 (the restore does no harm). **0x6008 = 21** domains were off after the cut and were put back to ACTIVE; **0x600a = 8** stayed off after 6 passes. NVMe 0x6007 = 0x6a (ANS still no HELLO), health 0xfc.
 - The NVMe chain from genpd (main): `afnc6_lw0` → `ans2` (PMGR 0x2902801a8; holds the ANS mailbox 347408000 and the SART) → `apcie_st_sys` (0x290280408) → `apcie_st1_sys` (0x290280410); nvme is attached to all three. Note: ps_ans2 is at 0x2902801a8, not the 0x28e0801a8 an old note used.
 - R59B: same images; the job reads those four power states right after `echo mem` returns: 0x6009 = ans2<<4 | afnc6_lw0, 0x600b = apcie_st_sys<<4 | apcie_st1_sys (actual nibbles, f = on).
+
+## 2026-11-20 10:45 R59B: the NVMe power chain is up after the wake. R59C: which RTKit stage the ANS fails at
+- R59B: resume 13 of 13. 0x6009 = 0xff: `ans2` and `afnc6_lw0` are on. 0x600b = 0x00: `apcie_st_sys` / `apcie_st1_sys` read actual 0, but on main, with NVMe working, they read `0x1000030f` too (target on, actual 0: hardware auto-gated), so that is normal. The 8 domains image 123 leaves "off" are probably such auto-gated ones. So the ANS's power is not what is missing.
+- `waka` goes to the SMC in macsmc-reboot's `resume_early`, before NVMe's resume, and the SMC answers after the wake (battery readable).
+- Old `slpa` runs (11-04/05) failed at "RTKit: IOP power acknowledgment failed": the firmware answered HELLO, then never acked its power-on, read then as storage (NAND) power held off by the SMC.
+- R59C: same images; 0x6009 now records the RTKit stage from the nvme lines after the deep entry: bit0 HELLO ("RTKit: Initializing"), 1 endpoint discovery failed, 2 IOP power ack failed, 3 crashed, 4 firmware syslog seen, 5 early AP readiness failed, 6 the cold-start line, 7 two or more HELLOs.

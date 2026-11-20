@@ -206,7 +206,15 @@ OS=$(cat /sys/class/net/wlan0/operstate 2>/dev/null)
 mount -t debugfs none /sys/kernel/debug 2>/dev/null
 G=/sys/kernel/debug/gpio
 PW=$(awk '/macsmc/{f=1} f && /gpio-13 /{print; exit}' $G 2>/dev/null)
-pb 0x6009 ${R59B_A:-0}
+# R59C: 0x6009 = the ANS RTKit stage after the wake (nvme-apple lines only): bit0 "RTKit: Initializing" (HELLO answered),
+# bit1 "endpoint discovery failed", bit2 "IOP power acknowledgment failed", bit3 "co-processor has crashed", bit4 an RTKit syslog line,
+# bit5 "early AP readiness failed", bit6 "TEST s2r: cpu_control", bit7 two or more "RTKit: Initializing"
+NA=$(echo "$DA" | grep -i "nvme"); RK=0
+echo "$NA" | grep -q "RTKit: Initializing" && RK=$((RK|1)); echo "$NA" | grep -q "endpoint discovery failed" && RK=$((RK|2))
+echo "$NA" | grep -q "IOP power acknowledgment failed" && RK=$((RK|4)); echo "$NA" | grep -q "co-processor has crashed" && RK=$((RK|8))
+echo "$NA" | grep -q "RTKit: syslog message" && RK=$((RK|16)); echo "$NA" | grep -q "early AP readiness failed" && RK=$((RK|32))
+echo "$NA" | grep -q "TEST s2r: cpu_control" && RK=$((RK|64)); [ "$(echo "$NA" | grep -c "RTKit: Initializing")" -ge 2 ] && RK=$((RK|128))
+pb 0x6009 $RK
 RS=$(awk '/39b028000/{f=1} /^gpiochip/ && !/39b028000/{f=0} f && /gpio-4 /{print; exit}' $G 2>/dev/null)
 : # R58Z2: 0x600a is Aura image 123s (domains still off)
 # 0x6009: brcmf lines since the resume; 0x600a: DART / PCIe error lines since the resume
