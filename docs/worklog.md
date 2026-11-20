@@ -5210,3 +5210,7 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
 - Aura image 124 (`6aed97c5`): at kboot it reads the ADT `/arm-io/ans` node and publishes `afc-aiu-ans-dual-tunables` (reg[4]) and `storage-lane-common-tunables` (reg[5]) as `/chosen/aurora,ans-tunables` = <addr_hi addr_lo mask value> per 32-bit write, plus `aurora,ans-tunable-props` (every *tunable* property name of the node). `boot-test.bin.124` (sha 4f4406618dc4c948) staged.
 - nvme-apple maps those at probe ("TEST s2r: N ANS tunable writes from the ADT") and applies them on the post-S2R cold start after reset deassert, before RUN ("ANS tunables X of N rewritten").
 - R59G: UKI `deeptest.efi.pmp3` + image 124; 0x6007 bit4 = tunables rewritten, bit5 = none published.
+
+## 2026-11-20 11:35 R59G: a kernel BUG/WARN trap right after the wake (no resume). R59H: the tunables mapped non-posted
+- R59G (image 124 + `deeptest.efi.pmp3`): back after only 152 s, 0x601f = 00 (no return to userspace), 0x6003 = 0x30. The reset record: marker 0x50, 0 frames, **ESR EC 0x3c ISS 0x800 = `BRK #0x800`, the arm64 BUG()/WARN trap**, so the kernel panicked during the resume. The one new piece on that path is the ANS tunable writes, and their registers were mapped with `devm_ioremap()` (posted) where Apple device registers need `ioremap_np()`.
+- R59H: the tunables are mapped with `ioremap_np()`, and `nvme_apple.s2r_ans_tunables` (default on) can switch them off. UKI `deeptest.efi.pmp4`. If R59H still panics, the next run turns the tunables off to bisect.
