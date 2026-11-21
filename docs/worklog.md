@@ -5416,3 +5416,6 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
 ## 2026-11-20 22:12 Main restarted by the owner (no test armed)
 - `last/summary` is still R60F's; nothing was armed (owner's instruction: no reboots while they need the laptop). No reply on the issue yet (last comment ours, 21:25 UTC).
 - Ready, waiting for the owner's go-ahead: R60G (`r60g-pmvc`, UKI `deeptest.efi.pmp18`), then the same on the rebased kernel (`deeptest.efi.s2r1`). Both need the Aura proxy plugged in.
+
+## 2026-11-20 22:20 Owner's go-ahead (phone POC may go offline, Aura proxy back). R60G armed
+- Scratch 0x6004..0x601f cleared from main (0x6010 kept), `deeptest.efi.pmp18` staged, job `r60g-pmvc`, label R60G-pmvc.
