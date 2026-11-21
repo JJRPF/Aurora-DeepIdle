@@ -1010,6 +1010,10 @@
   ],
   "findings": [
     {
+      "title": "R60H armed: SD reader power off across the sleep (Andreas Fernandez's t600x recipe)",
+      "body": "Andreas's M1 Pro S2R, where Wi-Fi comes back, switches the SD reader's power (SMC GPIO) off just before the final sleep command and on again first thing at the wake, and sets pmVC = 0x100. We never did either. R60H does both on the M2 Pro (gP16)."
+    },
+    {
       "title": "R60G: pmVC around the sleep changes nothing; the rail readings were not the cause",
       "body": "pmVC (macOS's toggle_vdd_cio) was accepted before slpa and after waka, but the SMC still stays in power state 1 and Wi-Fi, Bluetooth and the SD reader stay absent. The supply readings that looked like dropped rails move with load (one read 0 V before the sleep and 1.29 V after the wake), so that explanation is withdrawn."
     },
