@@ -5412,3 +5412,7 @@ Consequence: the next DeepTest needs `bootbin.sh install` again (the loader the 
 - Series in the repo: `patches/s2r-kernel/series-omacom-0428c9ac/` (87 patches + README with the base and `git am` line).
 - Order when the laptop is free: R60G on the old kernel (pmp18) first, as planned, then a repeat on s2r1 to check the rebased kernel behaves the same.
 - The other fork, `aurora-silicon/linux` (T6050 sleep, i2c-pasemi runtime PM), is not what Omarchy packages; its pieces get picked as needed.
+
+## 2026-11-20 22:12 Main restarted by the owner (no test armed)
+- `last/summary` is still R60F's; nothing was armed (owner's instruction: no reboots while they need the laptop). No reply on the issue yet (last comment ours, 21:25 UTC).
+- Ready, waiting for the owner's go-ahead: R60G (`r60g-pmvc`, UKI `deeptest.efi.pmp18`), then the same on the rebased kernel (`deeptest.efi.s2r1`). Both need the Aura proxy plugged in.
