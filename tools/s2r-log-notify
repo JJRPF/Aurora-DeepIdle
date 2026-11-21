@@ -1,0 +1,6 @@
+#!/bin/bash
+# GH-5: routine progress notes go to the private log topic (~/.config/deepidle/ntfy-log-topic), not the owner's
+# main agent-notify thread. For things the owner has to see or do, use plain `agent-notify send`.
+#   s2r-log-notify -m "..." [other agent-notify send options]
+T=$(cat ~/.config/deepidle/ntfy-log-topic 2>/dev/null)
+exec agent-notify send ${T:+--topic "$T"} --phone-only "$@"

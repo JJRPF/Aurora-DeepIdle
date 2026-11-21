@@ -27,6 +27,9 @@ fi
 # 2. the image in /boot: present and intact, job in place
 [ -s "$W/root.sfs" ] && [ -s "$W/deeptest.efi" ] || die "build the image and the UKI first (build-root.sh, build-uki.sh)"
 if [ -n "$JOB" ]; then [ -f "$JOB/job.sh" ] || die "no job.sh in $JOB"; chmod +x "$JOB/job.sh"; bash "$H/write-image.sh" job "$JOB"; else bash "$H/write-image.sh" nojob; fi
+# Internal log topic (owner, 2026-11-21): the test boot's pushes go to a separate private ntfy topic, not the main one
+LOGT=/home/jjr/.config/deepidle/ntfy-log-topic
+[ -s $LOGT ] && [ -d /boot/deeptest/job ] && { install -m 644 $LOGT /boot/deeptest/job/topic; sync; }
 rm -f /boot/deeptest/failtest
 case "$FAILTEST" in "") ;; missing|hang) echo "$FAILTEST" > /boot/deeptest/failtest; sync ;; *) die "--failtest missing|hang" ;; esac
 # 3. the UKI on the ESP and its Limine entry

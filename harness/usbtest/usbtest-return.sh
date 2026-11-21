@@ -16,7 +16,9 @@ if [ -e $VAR ]; then TOOK=no; chattr -i $VAR 2>/dev/null; rm -f $VAR; fi
 NV=$(ls /sys/bus/spmi/devices/0-0b/spmi_nvmem*/nvmem 2>/dev/null | head -1); FLAG=$(dd if=$NV bs=1 skip=$((0x6010)) count=1 2>/dev/null | xxd -p)
 [ "$FLAG" = 00 ] || printf '\x00' | dd of=$NV bs=1 seek=$((0x6010)) count=1 conv=notrunc 2>/dev/null
 { cat $S/armed; echo "returned=$(date -Is) away=$(( $(date +%s) - epoch ))s oneshot_taken=$TOOK bootbin_flag_left=$FLAG kernel=$(uname -r) stage2=$(tr -d '\0' < /proc/device-tree/chosen/asahi,m1n1-stage2-version 2>/dev/null)"; } > $R/summary
-TOPIC=$(sudo -u jjr python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~jjr/.config/agent-notify/config.json")))["ntfy_topic"])' 2>/dev/null || echo agent-notify)
+# The test boot pushes to the private log topic when one is configured (arm.sh puts it in the job), else the main one
+LOGT=$(cat /home/jjr/.config/deepidle/ntfy-log-topic 2>/dev/null)
+TOPIC=${LOGT:-$(sudo -u jjr python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~jjr/.config/agent-notify/config.json")))["ntfy_topic"])' 2>/dev/null || echo agent-notify)}
 for i in $(seq 1 30); do
     curl -fsS -m 15 "https://ntfy.sh/$TOPIC/json?poll=1&since=$epoch" > $R/ntfy.json 2>/dev/null && break; sleep 4
 done
@@ -31,5 +33,5 @@ DEV=$(blkid -L DEEPTEST_BOOT 2>/dev/null) && { M=$(mktemp -d); mount -o ro "$DEV
 SAW=$(grep -c "DeepTest" $R/ntfy.txt 2>/dev/null || echo 0)
 echo "reports_from_test_boot=$SAW" >> $R/summary
 mv $S/armed $R/armed; ln -sfn $R $S/last
-sudo -u jjr /home/jjr/.local/bin/agent-notify send -t "Back on main after DeepTest '$label'" -m "$(tail -2 $R/summary | tr '\n' ' ') results: $R" >/dev/null 2>&1
+sudo -u jjr /home/jjr/.local/bin/agent-notify send ${LOGT:+--topic "$LOGT"} -t "Back on main after DeepTest '$label'" -m "$(tail -2 $R/summary | tr '\n' ' ') results: $R" >/dev/null 2>&1
 exit 0
