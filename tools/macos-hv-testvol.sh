@@ -15,20 +15,21 @@ set -euo pipefail
 # M1/M2 (DJ's advice, 2026-11-21); HV_GUEST=13.7.8 is the newest Ventura Apple still serves.
 # HV_PKG=<path> uses an InstallAssistant.pkg already on disk (e.g. a USB drive) instead of downloading.
 # HV_NAME=<volume> overrides the volume name (default macOSTest, macOS135 for 13.5).
-# Apple's software update catalog entries (the pkg, its size and SHA-1 as listed there), used when
-# softwareupdate no longer lists the version.
+# Apple's software update catalog entries (the pkg and its size), used when softwareupdate no longer lists
+# the version. PKG_SHA1 is the whole file's SHA-1 where we measured it (the catalog's Digest is not that);
+# every pkg is also checked for Apple's signature before it is installed.
 WANT=${HV_GUEST:-14.8.9}
 case "$WANT" in
 14.8.9) # product 140-88558, build 23J631
     APPNAME="Install macOS Sonoma.app"
     PKG_URL=https://swcdn.apple.com/content/downloads/13/30/140-88558-A_TN3FIE7J63/p61cqj3ktmcqilz3q64ls4ekp1os9c8qbp/InstallAssistant.pkg
     PKG_SIZE=13654790295
-    PKG_SHA1=10632733f9b4ab1397fffc98b53e6790e4c2c1b0 ;;
+    PKG_SHA1= ;;  # the catalog's Digest is not the file's SHA-1; size + Apple signature only
 13.7.8) # product 093-22004, build 22H730
     APPNAME="Install macOS Ventura.app"
     PKG_URL=https://swcdn.apple.com/content/downloads/09/46/093-22004-A_QNZEDC334I/phigx2zvoggml6sh79my4y51fnvgy8hix4/InstallAssistant.pkg
     PKG_SIZE=12205110942
-    PKG_SHA1=072098c6b951701714537d333f8e7dded6d64390 ;;
+    PKG_SHA1=1ddaf5f11f2fafc57168df540b4000a8a5d3be6a ;;  # whole file, measured 2026-11-21 (Apple signature and every stored file checked)
 13.5) # product 032-69593, build 22G74. Apple removed it from its CDN (403 since 2026); archive.org keeps a copy
     # (install-assistant_20240930; size and SHA-1 from its metadata, Apple's package signature checked on Linux)
     APPNAME="Install macOS Ventura.app"
@@ -102,7 +103,7 @@ else
         echo "== using $HV_PKG"
         [ "$(stat -f %z "$HV_PKG")" = "$PKG_SIZE" ] || { echo "size mismatch: $HV_PKG is not $PKG_SIZE bytes"; exit 1; }
         echo "== checking SHA-1 (a few minutes from a USB drive)"
-        [ "$(shasum -a 1 "$HV_PKG" | cut -d' ' -f1)" = "$PKG_SHA1" ] || { echo "SHA-1 mismatch: not the expected $WANT installer"; exit 1; }
+        [ -z "$PKG_SHA1" ] || [ "$(shasum -a 1 "$HV_PKG" | cut -d' ' -f1)" = "$PKG_SHA1" ] || { echo "SHA-1 mismatch: not the expected $WANT installer"; exit 1; }
         pkgutil --check-signature "$HV_PKG" | grep -q "Apple Root CA" || { echo "the package is not signed by Apple: stopping"; exit 1; }
         sudo installer -pkg "$HV_PKG" -target /
     elif grep -q "Version: $WANT," <<< "$list"; then
@@ -115,7 +116,7 @@ else
         curl -fL -C - "$PKG_URL" -o "$pkg"
         [ "$(stat -f %z "$pkg")" = "$PKG_SIZE" ] || { echo "size mismatch: not $PKG_SIZE bytes; delete $pkg and retry"; exit 1; }
         echo "== checking SHA-1"
-        [ "$(shasum -a 1 "$pkg" | cut -d' ' -f1)" = "$PKG_SHA1" ] || { echo "SHA-1 mismatch; delete $pkg and retry"; exit 1; }
+        [ -z "$PKG_SHA1" ] || [ "$(shasum -a 1 "$pkg" | cut -d' ' -f1)" = "$PKG_SHA1" ] || { echo "SHA-1 mismatch; delete $pkg and retry"; exit 1; }
         pkgutil --check-signature "$pkg" | grep -q "Apple Root CA" || { echo "the package is not signed by Apple: stopping"; exit 1; }
         sudo installer -pkg "$pkg" -target /
         rm -f "$pkg"
