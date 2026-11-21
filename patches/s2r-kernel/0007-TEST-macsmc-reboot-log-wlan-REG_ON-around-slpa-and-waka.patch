@@ -1,5 +1,5 @@
 diff --git i/drivers/power/reset/macsmc-reboot.c w/drivers/power/reset/macsmc-reboot.c
-index fe9eac92b17b..08d202745292 100644
+index fe9eac92b17b..9485b9825f1f 100644
 --- i/drivers/power/reset/macsmc-reboot.c
 +++ w/drivers/power/reset/macsmc-reboot.c
 @@ -4,7 +4,9 @@
@@ -60,13 +60,34 @@ index fe9eac92b17b..08d202745292 100644
  	ret = devm_add_action_or_reset(&pdev->dev, macsmc_reboot_pm_unregister, reboot);
  	if (ret)
  		return ret;
-@@ -467,6 +503,23 @@ static void macsmc_reboot_ps_dump(struct device *dev, const char *when)
+@@ -467,6 +503,44 @@ static void macsmc_reboot_ps_dump(struct device *dev, const char *when)
  	kfree(buf);
  }
  
 +static bool s2r_wake_bnap;
 +module_param(s2r_wake_bnap, bool, 0644);
 +MODULE_PARM_DESC(s2r_wake_bnap, "GH-5 TEST: send MBSE = bnap after waka");
++
++/*
++ * GH-5 R60G: macOS's PMGR writes pmVC (function-toggle_vdd_cio: 0x100, or 0x300 on T6022, | a mask of
++ * CIO requesters) and Aurora's T6050 sleep, from a trace of macOS, sends it 35 ms before slpa and 58 ms
++ * after waka. We never wrote it: on the J414s it reads 0 and MEPS stays in its sleep state after waka.
++ * 0 = off; otherwise the value written at both points.
++ */
++static unsigned int s2r_pmvc;
++module_param(s2r_pmvc, uint, 0644);
++MODULE_PARM_DESC(s2r_pmvc, "GH-5 TEST: pmVC value sent 35 ms before slpa and 58 ms after waka (0 = off)");
++
++static void macsmc_reboot_log_pmvc(struct device *dev, struct macsmc_reboot *reboot, const char *when)
++{
++	u8 meps[6] = {};
++	u32 pmvc = 0, mbse = 0;
++	int r1 = apple_smc_read_u32(reboot->smc, SMC_KEY(pmVC), &pmvc);
++	int r2 = apple_smc_read(reboot->smc, SMC_KEY(MEPS), meps, sizeof(meps));
++
++	apple_smc_read_u32(reboot->smc, SMC_KEY(MBSE), &mbse);
++	dev_info(dev, "TEST s2r: %s: pmVC %08x (%d) MEPS %6phN (%d) MBSE %08x\n", when, pmvc, r1, meps, r2, mbse);
++}
 +
 +static bool s2r_regon_cycle;
 +module_param(s2r_regon_cycle, bool, 0644);
@@ -84,12 +105,20 @@ index fe9eac92b17b..08d202745292 100644
  static int macsmc_reboot_pm_prepare(struct device *dev)
  {
  	struct macsmc_reboot *reboot = dev_get_drvdata(dev);
-@@ -520,9 +573,14 @@ static int macsmc_reboot_pm_suspend_late(struct device *dev)
+@@ -520,9 +594,22 @@ static int macsmc_reboot_pm_suspend_late(struct device *dev)
  		dev_info(dev, "sleep: PMP requests released before slpa (%d)\n", ret);
  	}
  	if (reboot->sleep_steps & MACSMC_SLEEP_SLPA) {
 +		int reg_on_before = macsmc_reboot_wlan_reg_on(reboot);
++		unsigned int pmvc = READ_ONCE(s2r_pmvc);
 +
++		if (pmvc) {
++			macsmc_reboot_log_pmvc(dev, reboot, "before pmVC");
++			ret = apple_smc_write_u32(reboot->smc, SMC_KEY(pmVC), pmvc);
++			dev_info(dev, "TEST s2r: pmVC = %#x before slpa (%d)\n", pmvc, ret);
++			msleep(35);
++			macsmc_reboot_log_pmvc(dev, reboot, "35 ms after pmVC");
++		}
  		ret = apple_smc_write_u32(reboot->smc, SMC_KEY(MBSE), SMC_KEY(slpa));
  		reboot->slpa_sent = ret >= 0;
  		dev_info(dev, "sleep: MBSE = slpa (%d)\n", ret);
@@ -99,7 +128,7 @@ index fe9eac92b17b..08d202745292 100644
  	}
  	return 0;
  }
-@@ -549,11 +607,41 @@ static int macsmc_reboot_pm_resume_early(struct device *dev)
+@@ -549,11 +636,52 @@ static int macsmc_reboot_pm_resume_early(struct device *dev)
  	if (!reboot->slpa_sent)
  		return 0;
  	reboot->slpa_sent = false;
@@ -110,6 +139,17 @@ index fe9eac92b17b..08d202745292 100644
  	dev_info(dev, "sleep: wake MBSE %08x (%d), MBSW %8phN (%d); MBSE = waka (%d)\n",
  		 mbse, r1, mbsw, r2, ret);
 +	dev_info(dev, "TEST s2r: gP0d after waka %d\n", macsmc_reboot_wlan_reg_on(reboot));
++	if (READ_ONCE(s2r_pmvc)) {
++		unsigned int pmvc = READ_ONCE(s2r_pmvc);
++
++		macsmc_reboot_log_pmvc(dev, reboot, "at waka");
++		msleep(58);
++		ret = apple_smc_write_u32(reboot->smc, SMC_KEY(pmVC), pmvc);
++		dev_info(dev, "TEST s2r: pmVC = %#x 58 ms after waka (%d)\n", pmvc, ret);
++		macsmc_reboot_log_pmvc(dev, reboot, "right after pmVC");
++		msleep(500);
++		macsmc_reboot_log_pmvc(dev, reboot, "500 ms after pmVC");
++	}
 +	if (READ_ONCE(s2r_wake_bnap)) {
 +		/*
 +		 * GH-5 R60F: the SMC stays in a sleep power state after waka (MEPS 04 -> 01). macOS sends
