@@ -5518,3 +5518,4 @@ Armed R60H 23:52
 
 ## 2026-11-21 16:55 Reproduction guide for others (Naeem first)
 - Owner: yes to a reproduction guide. `docs/s2r-repro.md`: what works and what doesn't, the pieces (kernel on omacom/linux-aurora `49a8c150d6be`, Aura on omacom/m1n1 `bf6a6417`), build, one test run with the job's parameters, what to look for. Exports in `patches/s2r-repro/`: the kernel diff (51 files, incl. the uncommitted test changes), `kernel.config`, the Aura diff (27 files, images up to 125). Both checked with `git apply --check` on clean checkouts of those commits.
+- Owner: note that the tests run in a minimal Linux boot (initramfs + squashfs from /boot, root/home never mounted), not full Omarchy, for filesystem safety. Added to the guide's caveats.

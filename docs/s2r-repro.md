@@ -6,6 +6,7 @@ This is how we get a real suspend-to-RAM (SLP_S2R power cut, RTC alarm wake thro
 
 - It has only ever run on one J414s (T6020). Many register addresses in the Aura and kernel changes are T6020-specific. On another SoC (M1 or M2, T8103/T8112/T600x) most of them will be wrong. Treat those parts as a map of *what* has to happen, not *where*.
 - Everything here is test code with test parameters, not something to run as a daily kernel.
+- **Our tests never run the full desktop install.** Each test boots a minimal Linux: the test kernel plus a small initramfs that runs the job, from a squashfs image kept on the normal install's /boot. That /boot partition is only read, with the block device set read-only as a guard; it is made writable only briefly after the wake, to save the logs, then unmounted. The root and home filesystems are never mounted. This is for filesystem safety: a failed wake or a reset mid-sleep can't leave a mounted root or home filesystem half-written. So "back to userspace" here means the initramfs userspace, not a full desktop session, and suspend with a full desktop (GPU, display, all drivers loaded) is untested.
 - We keep the normal boot untouched. The test chain is only used for one boot, through a one-shot flag; any crash, watchdog or reset lands back on the normal install.
 
 ## What works and what doesn't
