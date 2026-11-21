@@ -1,12 +1,14 @@
 #!/bin/bash
-# Build hv-testvol-recovery.sh: Aura as the custom boot object of the macOSTest volume (14.8.9),
-# run by the owner in macOSTest's paired recoveryOS. Embeds aura.bin with its sha256.
+# Build hv-testvol-recovery.sh: Aura as the custom boot object of a hypervisor guest volume
+# (default macOSTest, 14.8.9; HV_NAME / HV_GUEST pick another, e.g. HV_NAME=macOS135 HV_GUEST=13.5),
+# run by the owner in that volume's paired recoveryOS. Embeds aura.bin with its sha256.
 #   make-recovery.sh <aura.bin> <out.sh>
 # recoveryOS has no base64, so the script downloads aura.bin (checked by size and the best digest recoveryOS has)
 # from the URL given as its argument or $AURA_URL: serve <aura.bin> next to the script, then in
 # recoveryOS: curl -fsSL http://<host>/hv-testvol-recovery.sh | sh -s -- http://<host>/aura.bin
 set -eu
 IMG=$1 OUT=$2
+VNAME=${HV_NAME:-macOSTest} VWANT=${HV_GUEST:-14.8.9}
 SHA=$(sha256sum "$IMG" | cut -d' ' -f1)
 MD5=$(md5sum "$IMG" | cut -d' ' -f1)
 CK=$(cksum "$IMG" | cut -d' ' -f1)
@@ -15,9 +17,9 @@ DESC=$(git -C "$(dirname "$IMG")/.." describe --always --dirty 2>/dev/null || ec
 {
 cat <<EOF
 #!/bin/sh
-# Aura as the custom boot object of the "macOSTest" volume, for the hypervisor sleep trace
+# Aura as the custom boot object of the "$VNAME" volume, for the hypervisor sleep trace
 # (Aurora-DeepIdle docs/s2r-plan.md Phase 3; the steps of Asahi's m1n1-hypervisor guide).
-# Run in macOSTest's own (paired) recoveryOS. It only ever targets macOSTest with macOS 14.8.9;
+# Run in $VNAME's own (paired) recoveryOS. It only ever targets $VNAME with macOS $VWANT;
 # Macintosh HD and the Linux entry (omarchy) are never touched. Aura $DESC, sha256 $SHA.
 set -e
 # recoveryOS ships a small toolset (no base64, no shasum or openssl): report the state of every tool
@@ -33,8 +35,8 @@ for t in shasum openssl md5 cksum; do
 done
 echo "image check: \$SUM"
 [ -z "\$miss" ] || { echo "recoveryOS lacks:\$miss"; echo "Stopping, nothing changed. Send these lines back."; exit 1; }
-NAME=macOSTest
-WANT=14.8.9
+NAME=$VNAME
+WANT=$VWANT
 V="/Volumes/\$NAME"
 P="\$V/System/Library/CoreServices/SystemVersion.plist"
 [ -f "\$P" ] || { echo "\$NAME is not mounted. Open Disk Utility, mount \$NAME, then run this again."; exit 1; }
@@ -97,7 +99,7 @@ bputil -d -v "\$VGID" > /tmp/bp-after.txt 2>&1 || true
 grep -i "custom\|kernel\|ctrr\|sip\|ssv" /tmp/bp-after.txt || true
 echo
 echo "Done. Set the startup disk back to Linux: Apple menu > Startup Disk, choose omarchy, Restart."
-echo "Claude boots macOSTest once from Linux for each hypervisor run (asahi-bless --next)."
+echo "Claude boots $VNAME once from Linux for each hypervisor run (asahi-bless --next)."
 EOF
 } > "$OUT"
 echo "$OUT: $(wc -c < "$OUT") bytes, sha256 $(sha256sum "$OUT" | cut -c1-16), aura $SHA"

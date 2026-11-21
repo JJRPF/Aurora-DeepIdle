@@ -1,5 +1,5 @@
 #!/bin/bash
-# A separate macOS 14.8.x volume for the Aura hypervisor sleep trace (docs/s2r-plan.md, Phase 3).
+# A separate macOS volume (14.8.9, 13.7.8 or 13.5) for the Aura hypervisor sleep trace (docs/s2r-plan.md, Phase 3).
 # Asahi's m1n1-hypervisor guide pins 14.8.3 for the M1-M3 series; Apple's catalog no longer offers
 # it (checked 2026-10-24: only 14.8.7, 14.8.8, 14.8.9), so the guest is 14.8.9, the same Sonoma XNU
 # line. macOS 15 and later need SPTM, which Aura does not load. The everyday macOS and Linux stay.
@@ -11,8 +11,10 @@
 #   curl -fsSL .../tools/macos-hv-testvol.sh | bash -s -- setup
 set -euo pipefail
 
-NAME=macOSTest
-# Guest version: 14.8.9 by default; HV_GUEST=13.7.8 picks the Ventura fallback (never tried as a guest).
+# Guest version: 14.8.9 by default; HV_GUEST=13.5 is the guest Asahi's m1n1-hypervisor guide pins for
+# M1/M2 (DJ's advice, 2026-11-21); HV_GUEST=13.7.8 is the newest Ventura Apple still serves.
+# HV_PKG=<path> uses an InstallAssistant.pkg already on disk (e.g. a USB drive) instead of downloading.
+# HV_NAME=<volume> overrides the volume name (default macOSTest, macOS135 for 13.5).
 # Apple's software update catalog entries (the pkg, its size and SHA-1 as listed there), used when
 # softwareupdate no longer lists the version.
 WANT=${HV_GUEST:-14.8.9}
@@ -27,8 +29,15 @@ case "$WANT" in
     PKG_URL=https://swcdn.apple.com/content/downloads/09/46/093-22004-A_QNZEDC334I/phigx2zvoggml6sh79my4y51fnvgy8hix4/InstallAssistant.pkg
     PKG_SIZE=12205110942
     PKG_SHA1=072098c6b951701714537d333f8e7dded6d64390 ;;
-*) echo "HV_GUEST must be 14.8.9 or 13.7.8"; exit 1 ;;
+13.5) # product 032-69593, build 22G74. Apple removed it from its CDN (403 since 2026); archive.org keeps a copy
+    # (install-assistant_20240930; size and SHA-1 from its metadata, Apple's package signature checked on Linux)
+    APPNAME="Install macOS Ventura.app"
+    PKG_URL=https://archive.org/download/install-assistant_20240930/InstallAssistant.pkg
+    PKG_SIZE=11934300398
+    PKG_SHA1=9ceeac3a75aaf3d6e477990caaf2c695f31624e2 ;;
+*) echo "HV_GUEST must be 14.8.9, 13.7.8 or 13.5"; exit 1 ;;
 esac
+case "$WANT" in 13.5) NAME=${HV_NAME:-macOS135} ;; *) NAME=${HV_NAME:-macOSTest} ;; esac
 BRANCH=main
 RAW=https://raw.githubusercontent.com/JJRPF/Aurora-DeepIdle/$BRANCH/tools
 
@@ -88,7 +97,15 @@ elif [ -d "$APP" ]; then
 else
     echo "== looking for the $WANT full installer"
     list=$(softwareupdate --list-full-installers 2>&1 || true)
-    if grep -q "Version: $WANT," <<< "$list"; then
+    if [ -n "${HV_PKG:-}" ]; then
+        [ -f "$HV_PKG" ] || { echo "HV_PKG=$HV_PKG: no such file"; exit 1; }
+        echo "== using $HV_PKG"
+        [ "$(stat -f %z "$HV_PKG")" = "$PKG_SIZE" ] || { echo "size mismatch: $HV_PKG is not $PKG_SIZE bytes"; exit 1; }
+        echo "== checking SHA-1 (a few minutes from a USB drive)"
+        [ "$(shasum -a 1 "$HV_PKG" | cut -d' ' -f1)" = "$PKG_SHA1" ] || { echo "SHA-1 mismatch: not the expected $WANT installer"; exit 1; }
+        pkgutil --check-signature "$HV_PKG" | grep -q "Apple Root CA" || { echo "the package is not signed by Apple: stopping"; exit 1; }
+        sudo installer -pkg "$HV_PKG" -target /
+    elif grep -q "Version: $WANT," <<< "$list"; then
         echo "== downloading $WANT (about 14 GB)"
         sudo softwareupdate --fetch-full-installer --full-installer-version $WANT
     else
@@ -99,6 +116,7 @@ else
         [ "$(stat -f %z "$pkg")" = "$PKG_SIZE" ] || { echo "size mismatch: not $PKG_SIZE bytes; delete $pkg and retry"; exit 1; }
         echo "== checking SHA-1"
         [ "$(shasum -a 1 "$pkg" | cut -d' ' -f1)" = "$PKG_SHA1" ] || { echo "SHA-1 mismatch; delete $pkg and retry"; exit 1; }
+        pkgutil --check-signature "$pkg" | grep -q "Apple Root CA" || { echo "the package is not signed by Apple: stopping"; exit 1; }
         sudo installer -pkg "$pkg" -target /
         rm -f "$pkg"
     fi
