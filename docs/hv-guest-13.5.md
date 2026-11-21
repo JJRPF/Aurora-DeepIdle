@@ -8,7 +8,7 @@ macOSTest (14.8.9) stays as it is. 13.5 goes on a new volume, **macOS135**, in t
 
 - macOS 13.5 (22G74) `InstallAssistant.pkg`, 11,934,300,398 bytes, SHA-1 `9ceeac3a75aaf3d6e477990caaf2c695f31624e2`.
 - Apple took 13.5 off its CDN (the old swcdn links return 403), so it comes from archive.org (`install-assistant_20240930`). On Linux I checked the size and SHA-1 against archive.org's metadata, and that the package is signed by Apple (the xar signature chains to Apple Root CA). The script below checks the size, SHA-1 and Apple signature again on the Mac before installing.
-- Linux copy: `~/Work/macos-installers/13.5-22G74/InstallAssistant.pkg`.
+- Linux copy: `~/Work/macos-installers/13.5-22G74/InstallAssistant.pkg` (downloaded and fully checked 2026-11-21: SHA-1, Apple signature, every stored file against the signed TOC).
 - Fallback: macOS 13.7.8 (22H730), straight from Apple, in `~/Work/macos-installers/13.7.8-22H730/`. nekolyanich runs 13.7.8 under their hypervisor and it sleeps and wakes there.
 
 ## Steps
