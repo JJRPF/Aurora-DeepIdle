@@ -5457,3 +5457,7 @@ Armed R60H 23:52
 - R60J (`20261121-051258-r60j`): away 456 s, resumed to userspace, NVMe/USB fine. Without bit 8 MBSE read 0x0730 before slpa (low byte = boot_stage 0x30), at the wake 0x00010630 as before; **MEPS `000400040001` → `000102010004`** again, the SMC's "PMU DVC Status" line again, both ports in Detect over 3 tries. So the 0x50 stage is not needed for the sleep or the wake, and is not what keeps the SMC in state 1.
 - The 16-byte-block PMU dumps worked: first pre/post diff in the same boot (0x0000..0x2fff, 32 bytes): **0x200 / 0x1300 0x20 → 0x08**, 0x2505 0x20 → 0, 0x2705 0x80 → 0, bit 4 of 0x2500/02/03 and 0x314, and three more bit-0 clears, **0x1b34 / 0x1b48 / 0x1b4d 0x81 → 0x80**; the rest are RTC/alarm (0x1401, 0x1408/09, 0x14c2), 0x1022/23/2c, 0x10af, 0x11b2/b3/bc, 0x11e0..e2, 0x1304 and the 0x20..0x2c status bytes. The R60D/R60I picture, now without the cold-boot stand-in.
 - Hard block unchanged: waiting on nekolyanich and Andreas (issue #5). Nothing armed.
+
+## 2026-11-21 00:40 Status page fixed; still waiting on issue #5
+- The page's overall figure is read from `docs/status.md` ("about N% of the way to working S2R"), not from the JSON: now 75 % in both. The page had no credits renderer: added in JJRPF/jjrpf.com#4 (Credits at the end of the Overview tab, built-in snapshot refreshed), merged by the owner 05:34 UTC.
+- No reply on issue #5 yet; nothing armed. This resume was the R60J boot's (already logged).
