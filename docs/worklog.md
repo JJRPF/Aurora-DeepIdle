@@ -5461,3 +5461,10 @@ Armed R60H 23:52
 ## 2026-11-21 00:40 Status page fixed; still waiting on issue #5
 - The page's overall figure is read from `docs/status.md` ("about N% of the way to working S2R"), not from the JSON: now 75 % in both. The page had no credits renderer: added in JJRPF/jjrpf.com#4 (Credits at the end of the Overview tab, built-in snapshot refreshed), merged by the owner 05:34 UTC.
 - No reply on issue #5 yet; nothing armed. This resume was the R60J boot's (already logged).
+
+## 2026-11-21 12:50 R60K armed: Andreas Fernandez's apcie quiesce handshake (image 125)
+- No replies on #5 since our 05:04 UTC question. Owner: good to reboot.
+- Checked Andreas Fernandez's (Ante042) t600x-s2r-reference again (`drivers/soc/apple/s2r.c`, `S2R-T600X-NOTES.md`), the setup where Wi-Fi comes back. One step there we never did on J414s: macOS quiesceHW step 24b, a handshake on the apcie block, `0x58c008014` = 1, then `0x58c0082bc` = 1, 2, 4 before the sleep, the saved values written back at the wake (82bc first). It was the open row in the 2026-11-07 mapping table (`pmgr[56]`, "PCIe moved"). Our HV macOS trace cannot show it: that guest booted with `apcie=0xfffffffe`.
+- Mapping (a guess, to be checked by the run): T6000 `0x58c0xxxxx` -> T6020 `0x59c0xxxxx`, the block macOS writes `+0x400` of on T6020 too. So `0x59c008014` and `0x59c0082bc`.
+- Aura image 125 (`789eb68f` in `~/Work/src/aura-img99`, on 124), `psci_ctl[5]` bit 8: the words are used only if the ADT's pmgr reg list covers them; at SYSTEM_SUSPEND, after `psci_quiesce_pcie_rc()` and before the PCIe domains go off, save both, write the handshake; at the RVBAR wake, after `qs_ps_restore()` and the GPIO restore, before `pcie_reinit_apcie()`, write them back. The 16 KB page `0x59c008000` is added to the runtime MMIO map. Crumbs: 0x6025 bit0 range ok, bit1 done, bit2 restored; 0x6026 saved, 0x6027 read at the wake (8014 bits 3:0, 82bc bits 7:4). `boot-test.bin.125` sha 332116a83bf0799b staged; UKI pmp19 unchanged.
+- Job `r60k-apq` = r60j-nostage, aura-ctl fifth word 241 -> 497, 0x6025..27 cleared before `echo mem` and pushed after the wake ("R60K apq").
