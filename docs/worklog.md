@@ -5507,3 +5507,8 @@ Armed R60H 23:52
 - UKI `deeptest.efi.pmp20` (sha fadd11a8f84762a8) staged as `deeptest.efi` (and on the ESP): pstore kernel + test params `macsmc_reboot.smc_write` (`KEY=value`, logs before/after/MEPS) and `pcie_apple.s2r_redo` (rerun the S2R relink work). Diff (against the tree's HEAD, so with the earlier uncommitted test changes) in `patches/s2r-kernel/0008-...patch`.
 - Job `r60l-pmvcmask` = r60k-apq with the fifth word back to 241 (no handshake; image 125 otherwise = 124). After the wake and the first relink: s2r_attempts 1, delay 0, then pmVC = 0x1ff, 0x1fff, 0x10f, 0x180, 0x0, 0x101 in turn, each followed by `s2r_redo` and a LINKSTS read of ports 0/1; stops at the first link up. `/run/postwake/pmvc.txt`; 0x6025 = index of the value that worked (0 none).
 - First arm went out with pmp19 (a failed cp); re-armed after staging pmp20 as root, ESP copy checked (fadd11a8f84762a8).
+
+## 2026-11-21 16:30 R60L result: no pmVC value brings the links back
+- R60L (`20261121-211956-r60l`, in `docs/postwake/`): away 563 s, resumed, logs written; the new `smc_write` param was there, so UKI pmp20 ran (the summary's `uki=` is the hash at the first arm, pmp19).
+- `pmVC` = 0x1ff, 0x1fff, 0x10f, 0x180, 0x0, 0x101 after the wake: every write rc 0 and read back, MEPS `000102010004` after each. After each, `s2r_redo` relinked both ports: port 0 LINKSTS 0xa8000200, port 1 0xa9800200 every time (Detect). So the VDD_CIO requester mask is not what keeps the slots down, and pmVC does not move the SMC's power state.
+- Left on our side: nothing cheap. The lead is a trace of macOS bringing the slots up: DJ's suggestion, a macOS 13.5 guest under the m1n1 hypervisor with PCIe on (asked the owner 2026-11-21 16:20). Nothing armed.

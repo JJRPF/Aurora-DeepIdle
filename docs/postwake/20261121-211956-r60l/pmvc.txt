@@ -1,0 +1,6 @@
+1 pmVC=0x1ff port0 0xa8000200 port1 0xa9800200 macsmc-reboot macsmc-reboot: TEST smc_write: pmVC = 0x1ff (0): before 0x100 (0), after 0x1ff (0), MEPS 000102010004
+2 pmVC=0x1fff port0 0xa8000200 port1 0xa9800200 macsmc-reboot macsmc-reboot: TEST smc_write: pmVC = 0x1fff (0): before 0x1ff (0), after 0x1fff (0), MEPS 000102010004
+3 pmVC=0x10f port0 0xa8000200 port1 0xa9800200 macsmc-reboot macsmc-reboot: TEST smc_write: pmVC = 0x10f (0): before 0x1fff (0), after 0x10f (0), MEPS 000102010004
+4 pmVC=0x180 port0 0xa8000200 port1 0xa9800200 macsmc-reboot macsmc-reboot: TEST smc_write: pmVC = 0x180 (0): before 0x10f (0), after 0x180 (0), MEPS 000102010004
+5 pmVC=0x0 port0 0xa8000200 port1 0xa9800200 macsmc-reboot macsmc-reboot: TEST smc_write: pmVC = 0x0 (0): before 0x180 (0), after 0x0 (0), MEPS 000102010004
+6 pmVC=0x101 port0 0xa8000200 port1 0xa9800200 macsmc-reboot macsmc-reboot: TEST smc_write: pmVC = 0x101 (0): before 0x0 (0), after 0x101 (0), MEPS 000102010004
