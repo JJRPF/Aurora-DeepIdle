@@ -5537,3 +5537,9 @@ Armed R60H 23:52
 - Next (R60M): r60l without the pmVC loop, `brcmfmac` / `hci_bcm4377` / `sdhci-pci` unbound right before `echo mem`, config vendor/device of 01:00.0/01:00.1/02:00.0 read right after `echo mem` returns and after the relink (`/run/postwake/cfg.txt`). If they answer, our endpoint drivers' suspend path is what cuts them; if not, the DCP restart is the next suspect. Arm after the 13.5 download finishes (a reboot would cut it).
 - 13.5 pkg complete (8 parallel ranges, joined): 11,934,300,398 B, SHA-1 9ceeac3a... = archive.org's, `xar-sigcheck.py --full`: Apple signature OK, all 5 stored files match the signed TOC, PackageInfo 22.6.74 (22G74). Ready at `~/Work/macos-installers/13.5-22G74/InstallAssistant.pkg` for the owner's USB drive.
 - R60M armed (UKI pmp20, boot-test.bin 125, fifth word 241).
+
+## 2026-11-21 18:15 R60M result: with the endpoint drivers unbound, Wi-Fi/BT/SD still read ffff after the wake
+- R60M (`20261121-230852-r60m`, in `docs/postwake/`): away 501 s, resumed (rc 0, CPUs 0-9), logs written. Before: 01:00.0 14e4:4434 brcmfmac, 01:00.1 14e4:5f72 hci_bcm4377, 02:00.0 17a0:9755 sdhci-pci; all three unbound before `echo mem` (config still read fine). Right after `echo mem` returned and after the relink: **ffffffff** for all three. Port 0 LINKSTS 0xa8000200, port 1 0xa8800200 (Detect).
+- So the endpoint drivers' suspend path is not what cuts them. Unlike nekolyanich's J416s, where they answer config reads after the native wake (no drivers bound).
+- VR3l 1.2918 V before, 0.0049 V at the wake. The test boot does not load the DCP driver (no DCP probe in its dmesg), so nothing could restart the DCP after the cut; VR3l still drops. Whether VR3l (or 0x2505) feeds the Wi-Fi/SD slots is open.
+- Next: ask nekolyanich whether his answering endpoints were with or without his DCP restart; the macOS 13.5 trace (owner's drive) is the main path.
