@@ -5512,3 +5512,6 @@ Armed R60H 23:52
 - R60L (`20261121-211956-r60l`, in `docs/postwake/`): away 563 s, resumed, logs written; the new `smc_write` param was there, so UKI pmp20 ran (the summary's `uki=` is the hash at the first arm, pmp19).
 - `pmVC` = 0x1ff, 0x1fff, 0x10f, 0x180, 0x0, 0x101 after the wake: every write rc 0 and read back, MEPS `000102010004` after each. After each, `s2r_redo` relinked both ports: port 0 LINKSTS 0xa8000200, port 1 0xa9800200 every time (Detect). So the VDD_CIO requester mask is not what keeps the slots down, and pmVC does not move the SMC's power state.
 - Left on our side: nothing cheap. The lead is a trace of macOS bringing the slots up: DJ's suggestion, a macOS 13.5 guest under the m1n1 hypervisor with PCIe on (asked the owner 2026-11-21 16:20). Nothing armed.
+
+## 2026-11-21 16:45 Naeem Malik's reply (Discord DM, via the owner)
+- "No way! This is huge bro ... I'll try this now. Thank you!" No answer on the Wi-Fi/SD rails yet; he is going to try S2R on his own machine. A second machine hitting (or not hitting) the same Wi-Fi/SD failure would tell us whether it is our setup or the platform.
