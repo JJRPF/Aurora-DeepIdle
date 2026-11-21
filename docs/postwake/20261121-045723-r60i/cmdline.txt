@@ -1,0 +1,1 @@
+root=LABEL=OMARCHY_BOOT usbtest=1 rootdelay=20 loglevel=6 panic=10 net.ifnames=0 zswap.enabled=0 user4k=on aop.sleep_ap_idle=3 reserve_mem=1M:2M:oops nvme_apple.iorvbar_phys=0x347050000 pcie_apple.s2r_pwren_off_ms=0

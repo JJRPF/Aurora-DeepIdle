@@ -1010,6 +1010,10 @@
   ],
   "findings": [
     {
+      "title": "R60I: the PCIe controller comes back exactly; Wi-Fi's power doesn't",
+      "body": "Every PCIe controller, port and PHY register reads the same before the sleep and after the wake, so the controller side is fully restored. The Wi-Fi module and SD reader stay unpowered because the SMC and PMU stay in a sleep power state after the wake, which we can't change from Linux. We've asked nekolyanich and Andreas Fernandez what their machines show."
+    },
+    {
       "title": "R60H: SD reader power cut across the sleep, no change",
       "body": "The SD power was switched off before the sleep and back on at the wake as planned, and the SMC sequence now matches Andreas Fernandez's M1 Pro one. Wi-Fi and the SD reader still don't show up on PCIe. Since both fail the same way, R60I compares the PCIe controller's registers before the sleep and after the wake."
     },
