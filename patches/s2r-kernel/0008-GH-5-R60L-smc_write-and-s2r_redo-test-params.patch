@@ -1,0 +1,679 @@
+diff --git i/drivers/pci/controller/pcie-apple.c w/drivers/pci/controller/pcie-apple.c
+index 805ff1a8d084..6fa9a94c6bb8 100644
+--- i/drivers/pci/controller/pcie-apple.c
++++ w/drivers/pci/controller/pcie-apple.c
+@@ -64,6 +64,10 @@ static bool s2idle_keep_link = true;
+ module_param(s2idle_keep_link, bool, 0644);
+ MODULE_PARM_DESC(s2idle_keep_link, "Keep tunneled links up through suspend-to-idle");
+ 
++static bool s2r_resume = true;
++module_param(s2r_resume, bool, 0644);
++MODULE_PARM_DESC(s2r_resume, "Redo a conventional port's setup at resume when its link went down in suspend (real S2R power cut)");
++
+ static int link_up_timeout = 500;
+ module_param(link_up_timeout, int, 0644);
+ MODULE_PARM_DESC(link_up_timeout, "PCIe link training timeout in milliseconds");
+@@ -318,6 +322,7 @@ static const struct hw_info t8122_pciec_hw = {
+ struct apple_pcie {
+ 	struct mutex		lock;
+ 	struct device		*dev;
++	struct work_struct	s2r_work;	/* GH-5 */
+ 	void __iomem            *base;
+ 	void __iomem		*fabric_base;
+ 	void __iomem		*debug_base;
+@@ -373,6 +378,10 @@ struct apple_pcie_port {
+ 	bool			needs_stop;
+ 	bool			link_failed;
+ 	bool			irq_disabled;
++	/* GH-5: what a real S2R power cut loses, kept to redo the port's setup at resume */
++	struct gpio_desc	*perst, *pwren, *aux_perst[3];
++	u32			num_aux_perst;
++	u32			s2r_intmask;
+ };
+ 
+ static void rmw_set(u32 set, void __iomem *addr)
+@@ -670,11 +679,37 @@ static void apple_port_irq_handler(struct irq_desc *desc)
+ 	chained_irq_exit(chip, desc);
+ }
+ 
++/* The port's MSI doorbell, map and config words (probe, and resume after a real S2R power cut: GH-5) */
++static void apple_pcie_port_program_msi(struct apple_pcie_port *port)
++{
++	struct apple_pcie *pcie = port->pcie;
++	u32 val = 0;
++
++	/* Configure MSI base address */
++	BUILD_BUG_ON(upper_32_bits(DOORBELL_ADDR));
++	apple_pcie_port_writel(port, lower_32_bits(DOORBELL_ADDR),
++				 pcie->hw->port_msiaddr);
++	if (pcie->hw->port_msiaddr_hi)
++		apple_pcie_port_writel(port, 0, pcie->hw->port_msiaddr_hi);
++
++	/* Enable MSIs, shared between all ports */
++	if (pcie->hw->port_msimap) {
++		for (int i = 0; i < pcie->nvecs; i++)
++			apple_pcie_port_writel(port,
++				FIELD_PREP(PORT_MSIMAP_TARGET, pcie->msi_vector_base + i) |
++				PORT_MSIMAP_ENABLE,
++				pcie->hw->port_msimap + 4 * i);
++	} else {
++		apple_pcie_port_writel(port, 0, PORT_MSIBASE);
++		val = ilog2(pcie->nvecs) << PORT_MSICFG_L2MSINUM_SHIFT;
++	}
++
++	apple_pcie_port_writel(port, val | PORT_MSICFG_EN, PORT_MSICFG);
++}
++
+ static int apple_pcie_port_setup_irq(struct apple_pcie_port *port)
+ {
+ 	struct fwnode_handle *fwnode = &port->np->fwnode;
+-	struct apple_pcie *pcie = port->pcie;
+-	u32 val = 0;
+ 
+ 	/* FIXME: consider moving each interrupt under each port */
+ 	port->irq = irq_of_parse_and_map(to_of_node(dev_fwnode(port->pcie->dev)),
+@@ -704,26 +739,7 @@ static int apple_pcie_port_setup_irq(struct apple_pcie_port *port)
+ 	irq_set_status_flags(port->irq, IRQ_DISABLE_UNLAZY);
+ 	irq_set_chained_handler_and_data(port->irq, apple_port_irq_handler, port);
+ 
+-	/* Configure MSI base address */
+-	BUILD_BUG_ON(upper_32_bits(DOORBELL_ADDR));
+-	apple_pcie_port_writel(port, lower_32_bits(DOORBELL_ADDR),
+-				 pcie->hw->port_msiaddr);
+-	if (pcie->hw->port_msiaddr_hi)
+-		apple_pcie_port_writel(port, 0, pcie->hw->port_msiaddr_hi);
+-
+-	/* Enable MSIs, shared between all ports */
+-	if (pcie->hw->port_msimap) {
+-		for (int i = 0; i < pcie->nvecs; i++)
+-			apple_pcie_port_writel(port,
+-				FIELD_PREP(PORT_MSIMAP_TARGET, pcie->msi_vector_base + i) |
+-				PORT_MSIMAP_ENABLE,
+-				pcie->hw->port_msimap + 4 * i);
+-	} else {
+-		apple_pcie_port_writel(port, 0, PORT_MSIBASE);
+-		val = ilog2(pcie->nvecs) << PORT_MSICFG_L2MSINUM_SHIFT;
+-	}
+-
+-	apple_pcie_port_writel(port, val | PORT_MSICFG_EN, PORT_MSICFG);
++	apple_pcie_port_program_msi(port);
+ 	return 0;
+ }
+ 
+@@ -1466,6 +1482,25 @@ static u32 apple_pcie_rid2sid_write(struct apple_pcie_port *port,
+ 	return apple_pcie_port_readl(port, offset);
+ }
+ 
++static int apple_pcie_port_power_on(struct apple_pcie *pcie, struct apple_pcie_port *port);
++static void apple_pcie_s2r_work(struct work_struct *work);
++/* GH-5 R60L TEST: echo 1 > s2r_redo runs the post-resume relink of the internal PCIe again */
++static struct apple_pcie *apple_pcie_s2r_inst;
++
++static int s2r_redo_set(const char *val, const struct kernel_param *kp)
++{
++	struct apple_pcie *pcie = READ_ONCE(apple_pcie_s2r_inst);
++
++	if (!pcie)
++		return -ENODEV;
++	queue_work(system_long_wq, &pcie->s2r_work);
++	return 0;
++}
++
++static const struct kernel_param_ops s2r_redo_ops = { .set = s2r_redo_set };
++module_param_cb(s2r_redo, &s2r_redo_ops, NULL, 0200);
++MODULE_PARM_DESC(s2r_redo, "GH-5 TEST: run the S2R relink work again");
++
+ static int apple_pcie_setup_link(struct apple_pcie *pcie,
+ 				 struct apple_pcie_port *port,
+ 				 struct device_node *np)
+@@ -1474,8 +1509,6 @@ static int apple_pcie_setup_link(struct apple_pcie *pcie,
+ 	struct gpio_desc *aux_reset[MAX_AUX_PERST] = { NULL };
+ 	u32 num_aux_resets = 0;
+ 	struct gpio_desc *reset, *pwren = NULL;
+-	u32 stat;
+-	int ret;
+ 
+ 	/*
+ 	 * Assert PERST# and configure the pin as output.
+@@ -1513,24 +1546,42 @@ static int apple_pcie_setup_link(struct apple_pcie *pcie,
+ 			return PTR_ERR(pwren);
+ 	}
+ 
++	port->perst = reset;
++	port->pwren = pwren;
++	port->num_aux_perst = num_aux_resets;
++	for (u32 idx = 0; idx < num_aux_resets; idx++)
++		port->aux_perst[idx] = aux_reset[idx];
++
++	return apple_pcie_port_power_on(pcie, port);
++}
++
++/*
++ * Power the slot, assert and release PERST# around the reference clock setup and wait for the port to be ready.
++ * Used by probe and, after a real S2R power cut, by resume (GH-5).
++ */
++static int apple_pcie_port_power_on(struct apple_pcie *pcie, struct apple_pcie_port *port)
++{
++	u32 stat;
++	int ret;
++
+ 	rmw_set(PORT_APPCLK_EN, port->base + PORT_APPCLK);
+ 
+ 	/* Assert PERST# before setting up the clock */
+-	gpiod_set_value_cansleep(reset, 1);
+-	for (u32 idx = 0; idx < num_aux_resets; idx++)
+-		gpiod_set_value_cansleep(aux_reset[idx], 1);
++	gpiod_set_value_cansleep(port->perst, 1);
++	for (u32 idx = 0; idx < port->num_aux_perst; idx++)
++		gpiod_set_value_cansleep(port->aux_perst[idx], 1);
+ 
+ 	/* Power-cycle devices which cannot inherit their firmware state. */
+ 	if (pcie->hw->pwren_off_ms) {
+-		if (!pwren)
++		if (!port->pwren)
+ 			return -EINVAL;
+ 		rmw_clear(PORT_PERST_OFF, port->base + pcie->hw->port_perst);
+-		ret = gpiod_set_value_cansleep(pwren, 0);
++		ret = gpiod_set_value_cansleep(port->pwren, 0);
+ 		if (ret)
+ 			return ret;
+ 		msleep(pcie->hw->pwren_off_ms);
+ 	}
+-	ret = gpiod_set_value_cansleep(pwren, 1);
++	ret = gpiod_set_value_cansleep(port->pwren, 1);
+ 	if (ret)
+ 		return ret;
+ 
+@@ -1544,18 +1595,18 @@ static int apple_pcie_setup_link(struct apple_pcie *pcie,
+ 	 * The minimal Tperst-clk value is 100us (PCIe CEM r5.0, 2.9.2)
+ 	 * If powering up, the minimal Tpvperl is 100ms
+ 	 */
+-	if (pwren)
++	if (port->pwren)
+ 		msleep(pcie->hw->pwren_on_ms ?: 100);
+ 	else
+ 		usleep_range(100, 200);
+ 
+ 	/* Deassert PERST# */
+ 	rmw_set(PORT_PERST_OFF, port->base + pcie->hw->port_perst);
+-	ret = gpiod_set_value_cansleep(reset, 0);
++	ret = gpiod_set_value_cansleep(port->perst, 0);
+ 	if (ret)
+ 		return ret;
+-	for (u32 idx = 0; idx < num_aux_resets; idx++)
+-		gpiod_set_value_cansleep(aux_reset[idx], 0);
++	for (u32 idx = 0; idx < port->num_aux_perst; idx++)
++		gpiod_set_value_cansleep(port->aux_perst[idx], 0);
+ 
+ 	/* Wait for 100ms after PERST# deassertion (PCIe r5.0, 6.6.1) */
+ 	msleep(100);
+@@ -1563,7 +1614,7 @@ static int apple_pcie_setup_link(struct apple_pcie *pcie,
+ 	ret = readl_relaxed_poll_timeout(port->base + PORT_STATUS, stat,
+ 					 stat & PORT_STATUS_READY, 100, 250000);
+ 	if (ret < 0) {
+-		dev_err(pcie->dev, "port %pOF ready wait timeout\n", np);
++		dev_err(pcie->dev, "port %pOF ready wait timeout\n", port->np);
+ 		return ret;
+ 	}
+ 
+@@ -2790,6 +2841,9 @@ static int apple_pcie_probe(struct platform_device *pdev)
+ 
+ 	mutex_init(&pcie->lock);
+ 	INIT_LIST_HEAD(&pcie->ports);
++	INIT_WORK(&pcie->s2r_work, apple_pcie_s2r_work);
++	if (!pcie->hw->tunneled)
++		WRITE_ONCE(apple_pcie_s2r_inst, pcie); /* GH-5 R60L */
+ 
+ 	/* Resolve PM dependencies before publishing the PCI hierarchy. */
+ 	if (pcie->hw->tunneled) {
+@@ -3465,8 +3519,19 @@ static int apple_pcie_suspend_noirq(struct device *dev)
+ {
+ 	struct apple_pcie *pcie = apple_pcie_lookup(dev);
+ 
+-	if (!pcie->hw->tunneled)
++	if (!pcie->hw->tunneled) {
++		struct apple_pcie_port *port;
++		int i;
++
++		/* GH-5: what a real S2R power cut takes from a conventional port */
++		list_for_each_entry(port, &pcie->ports, entry) {
++			port->s2r_intmask = apple_pcie_port_readl(port, PORT_INTMSK);
++			for_each_set_bit(i, port->sid_map, port->sid_map_sz)
++				port->saved_rid2sid[i] =
++					apple_pcie_port_readl(port, port_rid2sid_offset(port, i));
++		}
+ 		return 0;
++	}
+ 	pcie->reset_on_resume = false;
+ 	pcie->link_kept = apple_pcie_keep_link(pcie);
+ 	if (!pcie->link_kept)
+@@ -3588,9 +3653,151 @@ static int apple_pcie_resume_noirq(struct device *dev)
+ 	return ret;
+ }
+ 
++/*
++ * GH-5: after a real suspend-to-RAM power cut a conventional port comes back with its slot unpowered (the SMC drops
++ * PWREN), its link down and its MSI and RID2SID setup gone; only probe sets those up. Redo that part of probe here,
++ * in the normal resume phase (the SMC, which drives PWREN, needs interrupts), before the endpoints' drivers resume,
++ * then put the config space of the devices below back, since their noirq restore ran against a dead link.
++ * Idea and result on t602x: nekolyanich ("redo probe's whole per-port setup").
++ */
++static unsigned int s2r_pwren_off_ms = 200;
++module_param(s2r_pwren_off_ms, uint, 0644);
++MODULE_PARM_DESC(s2r_pwren_off_ms, "GH-5: ms with PWREN low before the port power-on after an S2R power cut (0 = no cycle)");
++static unsigned int s2r_attempts = 3;
++module_param(s2r_attempts, uint, 0644);
++MODULE_PARM_DESC(s2r_attempts, "GH-5: how many times to redo a lost port's setup after resume, 3 s apart");
++static unsigned int s2r_resume_delay_ms = 1500;
++module_param(s2r_resume_delay_ms, uint, 0644);
++MODULE_PARM_DESC(s2r_resume_delay_ms, "Delay before a lost conventional port is set up again after resume");
++
++static void apple_pcie_s2r_work(struct work_struct *work)
++{
++	bool any_up = false;
++	struct apple_pcie *pcie = container_of(work, struct apple_pcie, s2r_work);
++	struct device *dev = pcie->dev;
++	struct apple_pcie_port *port;
++	struct pci_bus *root = NULL;
++	struct pci_dev *pdev = NULL, *child, *tmp;
++	bool redone = false;
++	unsigned int attempt;
++	int perst_dir = -1;
++	u32 stat;
++	int ret;
++
++	msleep(s2r_resume_delay_ms);
++	for (attempt = 1; attempt <= s2r_attempts; attempt++) {
++	if (attempt > 1) {
++		if (any_up)
++			break;
++		msleep(3000);
++	}
++	list_for_each_entry(port, &pcie->ports, entry) {
++		if (apple_pcie_port_readl(port, PORT_LINKSTS) & PORT_LINKSTS_UP)
++			continue;
++		dev_info(dev, "port %pOF lost its link in suspend (status %#x, link %#x): redoing its setup\n",
++			 port->np, apple_pcie_port_readl(port, PORT_STATUS),
++			 apple_pcie_port_readl(port, PORT_LINKSTS));
++		if (!port->perst)
++			continue;
++		/*
++		 * GH-5 R59W: gpiolib's set_value only flips the data bit. If the power cut put PERST#'s pin back to an
++		 * input (its reset state), it is never driven again. Record what is found and make it an output (asserted).
++		 */
++		perst_dir = gpiod_get_direction(port->perst);
++		gpiod_direction_output(port->perst, 1);
++		/*
++		 * GH-5 R58T: the SMC may have cut the slot's rail in S2R while gpiolib still has PWREN high, and t602x
++		 * has no pwren_off_ms, so power_on would only write 1 again. Hold PERST# and drop PWREN long enough for
++		 * the rail to discharge before power_on brings it back.
++		 */
++		if (port->pwren && s2r_pwren_off_ms) {
++			gpiod_set_value_cansleep(port->perst, 1);
++			gpiod_set_value_cansleep(port->pwren, 0);
++			msleep(s2r_pwren_off_ms);
++		}
++		ret = apple_pcie_port_power_on(pcie, port);
++		if (ret) {
++			dev_err(dev, "port %pOF power-on after resume failed: %d\n", port->np, ret);
++			continue;
++		}
++		if (!pcie->hw->retain_clocks) {
++			if (pcie->hw->port_refclk)
++				rmw_clear(PORT_REFCLK_CGDIS, port->base + pcie->hw->port_refclk);
++			else if (port->phy)
++				rmw_set(PHY_LANE_CFG_REFCLKCGEN, port->phy + PHY_LANE_CFG);
++			rmw_clear(PORT_APPCLK_CGDIS, port->base + PORT_APPCLK);
++		}
++		apple_pcie_port_writel(port, ~0, PORT_INTMSK);
++		apple_pcie_port_writel(port, ~0, PORT_INTSTAT);
++		apple_pcie_port_writel(port, ~0, PORT_LINKCMDSTS);
++		apple_pcie_port_program_msi(port);
++		apple_pcie_port_writel(port, PORT_LTSSMCTL_START, PORT_LTSSMCTL);
++		ret = readl_relaxed_poll_timeout(port->base + PORT_LINKSTS, stat,
++						 stat & PORT_LINKSTS_UP, 1000,
++						 link_up_timeout * 1000);
++		apple_pcie_port_writel(port, port->s2r_intmask, PORT_INTMSK);
++		dev_info(dev, "port %pOF link %s after resume (%#x)\n", port->np,
++			 ret ? "still down" : "up", stat);
++		/* GH-5 R59V: one line per try for the job: attempt, PWREN read back, link status, port status */
++		dev_info(dev, "TEST s2r: port %u try %u pwren %d link %08x status %08x perstdir %d\n", port->idx, attempt,
++			 port->pwren ? gpiod_get_value_cansleep(port->pwren) : -1,
++			 apple_pcie_port_readl(port, PORT_LINKSTS), apple_pcie_port_readl(port, PORT_STATUS), perst_dir);
++		redone = true;
++		if (!ret)
++			any_up = true;
++	}
++	}
++	if (!redone)
++		return;
++	/*
++	 * GH-5 R59M: the R59K rescan aborted reading the Wi-Fi's vendor ID right after its link came up (a config read
++	 * before the device is ready is fatal here). PCIe asks for 100 ms after link up; give it 200 ms, and do not
++	 * rescan at all when no link came back.
++	 */
++	if (!any_up) {
++		dev_info(dev, "no link came back after resume, not rescanning\n");
++		return;
++	}
++	msleep(200);
++	/* The devices below went through resume against a dead link: take them away and enumerate them afresh. */
++	pci_lock_rescan_remove();
++	for_each_pci_dev(pdev) {
++		struct pci_host_bridge *hb = pci_find_host_bridge(pdev->bus);
++
++		if (hb && hb->dev.parent == dev) {
++			root = hb->bus;
++			pci_dev_put(pdev);
++			break;
++		}
++	}
++	if (root) {
++		list_for_each_entry_safe_reverse(child, tmp, &root->devices, bus_list)
++			pci_stop_and_remove_bus_device(child);
++		dev_info(dev, "rescanning after the S2R power cut: %u devices\n", pci_rescan_bus(root));
++	}
++	pci_unlock_rescan_remove();
++}
++
++/*
++ * GH-5: after a real suspend-to-RAM power cut a conventional port comes back with its slot unpowered (the SMC drops
++ * PWREN), its link down and its MSI setup gone; only probe sets those up. Redo that part of probe from a work item
++ * (the SMC, which drives PWREN, may not take commands yet while devices resume), then enumerate the devices below
++ * afresh. Idea and result on t602x: nekolyanich ("redo probe's whole per-port setup").
++ */
++static int apple_pcie_resume(struct device *dev)
++{
++	struct apple_pcie *pcie = apple_pcie_lookup(dev);
++
++	if (pcie->hw->tunneled || !s2r_resume)
++		return 0;
++	queue_work(system_long_wq, &pcie->s2r_work);
++	return 0;
++}
++
+ static const struct dev_pm_ops apple_pcie_pm_ops = {
+ 	.suspend_noirq = apple_pcie_suspend_noirq,
+ 	.resume_noirq = apple_pcie_resume_noirq,
++	.resume = apple_pcie_resume,
+ };
+ 
+ static const struct of_device_id apple_pcie_of_match[] = {
+diff --git i/drivers/power/reset/macsmc-reboot.c w/drivers/power/reset/macsmc-reboot.c
+index fe9eac92b17b..a7538a95e2f4 100644
+--- i/drivers/power/reset/macsmc-reboot.c
++++ w/drivers/power/reset/macsmc-reboot.c
+@@ -4,7 +4,10 @@
+  * Copyright The Asahi Linux Contributors
+  */
+ 
++#include <linux/debugfs.h>
+ #include <linux/delay.h>
++#include <linux/hex.h>
++#include <linux/seq_file.h>
+ #include <linux/io.h>
+ #include <linux/mfd/core.h>
+ #include <linux/mfd/macsmc.h>
+@@ -51,6 +54,7 @@ struct macsmc_reboot {
+ 		struct nvmem_cell *nvm_cells[ARRAY_SIZE(nvmem_names)];
+ 	};
+ 
++
+ 	/* s2idle handshake steps in force for the current suspend, and whether slpa went out */
+ 	unsigned int sleep_steps;
+ 	bool slpa_sent;
+@@ -61,6 +65,8 @@ struct macsmc_reboot {
+ 	u32 saved_mask[WAKEMASK_WORDS];
+ };
+ 
++static struct macsmc_reboot *macsmc_reboot_inst; /* GH-5 R60L: smc_write */
++
+ /*
+  * s2idle handshake with the SMC, the steps macOS 13.5 takes for system sleep (AppleSMC and
+  * AppleSMCPMU): WKTP = 2 when the SMC device powers down, MBSE = slpw as the system leaves
+@@ -325,6 +331,39 @@ static void macsmc_reboot_pm_unregister(void *data)
+ 	unregister_pm_notifier(&reboot->pm_notify);
+ }
+ 
++/* GH-5 R60D TEST: every readable SMC key with its type and value, for a before/after-sleep comparison */
++static int macsmc_reboot_keys_show(struct seq_file *m, void *unused)
++{
++	struct apple_smc *smc = m->private;
++	u8 buf[32];
++	int i;
++
++	for (i = 0; i < smc->key_count; i++) {
++		struct apple_smc_key_info info;
++		smc_key key;
++		int ret;
++
++		if (apple_smc_get_key_by_index(smc, i, &key) < 0)
++			continue;
++		if (apple_smc_get_key_info(smc, key, &info) < 0) {
++			seq_printf(m, "%p4ch ? info error\n", &key);
++			continue;
++		}
++		if (!(info.flags & 0x80) || info.size == 0 || info.size > sizeof(buf)) {
++			seq_printf(m, "%p4ch %p4ch f%02x s%u -\n", &key, &info.type_code, info.flags, info.size);
++			continue;
++		}
++		ret = apple_smc_read(smc, key, buf, info.size);
++		if (ret < 0)
++			seq_printf(m, "%p4ch %p4ch f%02x s%u err %d\n", &key, &info.type_code, info.flags, info.size, ret);
++		else
++			seq_printf(m, "%p4ch %p4ch f%02x s%u %*phN\n", &key, &info.type_code, info.flags, info.size,
++				   info.size, buf);
++	}
++	return 0;
++}
++DEFINE_SHOW_ATTRIBUTE(macsmc_reboot_keys);
++
+ static int macsmc_reboot_probe(struct platform_device *pdev)
+ {
+ 	struct apple_smc *smc = dev_get_drvdata(pdev->dev.parent);
+@@ -347,6 +386,7 @@ static int macsmc_reboot_probe(struct platform_device *pdev)
+ 	reboot->smc = smc;
+ 
+ 	platform_set_drvdata(pdev, reboot);
++	WRITE_ONCE(macsmc_reboot_inst, reboot); /* GH-5 R60L */
+ 
+ 	for (i = 0; i < ARRAY_SIZE(nvmem_names); i++) {
+ 		struct nvmem_cell *cell;
+@@ -405,6 +445,7 @@ static int macsmc_reboot_probe(struct platform_device *pdev)
+ 	ret = register_pm_notifier(&reboot->pm_notify);
+ 	if (ret)
+ 		return dev_err_probe(&pdev->dev, ret, "Failed to register PM notifier\n");
++	debugfs_create_file("macsmc_keys", 0400, NULL, smc, &macsmc_reboot_keys_fops);	/* GH-5 TEST */
+ 	ret = devm_add_action_or_reset(&pdev->dev, macsmc_reboot_pm_unregister, reboot);
+ 	if (ret)
+ 		return ret;
+@@ -467,6 +508,111 @@ static void macsmc_reboot_ps_dump(struct device *dev, const char *when)
+ 	kfree(buf);
+ }
+ 
++static bool s2r_wake_bnap;
++module_param(s2r_wake_bnap, bool, 0644);
++MODULE_PARM_DESC(s2r_wake_bnap, "GH-5 TEST: send MBSE = bnap after waka");
++
++/*
++ * GH-5 R60G: macOS's PMGR writes pmVC (function-toggle_vdd_cio: 0x100, or 0x300 on T6022, | a mask of
++ * CIO requesters) and Aurora's T6050 sleep, from a trace of macOS, sends it 35 ms before slpa and 58 ms
++ * after waka. We never wrote it: on the J414s it reads 0 and MEPS stays in its sleep state after waka.
++ * 0 = off; otherwise the value written at both points.
++ */
++static unsigned int s2r_pmvc;
++module_param(s2r_pmvc, uint, 0644);
++MODULE_PARM_DESC(s2r_pmvc, "GH-5 TEST: pmVC value sent 35 ms before slpa and 58 ms after waka (0 = off)");
++
++/*
++ * GH-5 R60L TEST: write a u32 SMC key from userspace, e.g. "pmVC=0x1ff", logs the value before, the write's
++ * return and the value after (with MEPS). For trying pmVC masks after the wake without a new kernel.
++ */
++static int smc_write_set(const char *val, const struct kernel_param *kp)
++{
++	struct macsmc_reboot *reboot = READ_ONCE(macsmc_reboot_inst);
++	char k[5] = {};
++	u32 v, before = 0, after = 0;
++	u8 meps[6] = {};
++	int ret, r0, r1;
++
++	if (!reboot)
++		return -ENODEV;
++	if (strlen(val) < 6 || val[4] != '=')
++		return -EINVAL;
++	memcpy(k, val, 4);
++	ret = kstrtou32(val + 5, 0, &v);
++	if (ret)
++		return ret;
++	smc_key key = __SMC_KEY(k[0], k[1], k[2], k[3]);
++	r0 = apple_smc_read_u32(reboot->smc, key, &before);
++	ret = apple_smc_write_u32(reboot->smc, key, v);
++	msleep(50);
++	r1 = apple_smc_read_u32(reboot->smc, key, &after);
++	apple_smc_read(reboot->smc, SMC_KEY(MEPS), meps, sizeof(meps));
++	dev_info(reboot->dev, "TEST smc_write: %s = %#x (%d): before %#x (%d), after %#x (%d), MEPS %6phN\n",
++		 k, v, ret, before, r0, after, r1, meps);
++	return ret < 0 ? ret : 0;
++}
++
++static const struct kernel_param_ops smc_write_ops = { .set = smc_write_set };
++module_param_cb(smc_write, &smc_write_ops, NULL, 0200);
++MODULE_PARM_DESC(smc_write, "GH-5 TEST: write a u32 SMC key, KEY=value");
++
++static void macsmc_reboot_log_pmvc(struct device *dev, struct macsmc_reboot *reboot, const char *when)
++{
++	u8 meps[6] = {};
++	u32 pmvc = 0, mbse = 0;
++	int r1 = apple_smc_read_u32(reboot->smc, SMC_KEY(pmVC), &pmvc);
++	int r2 = apple_smc_read(reboot->smc, SMC_KEY(MEPS), meps, sizeof(meps));
++
++	apple_smc_read_u32(reboot->smc, SMC_KEY(MBSE), &mbse);
++	dev_info(dev, "TEST s2r: %s: pmVC %08x (%d) MEPS %6phN (%d) MBSE %08x\n", when, pmvc, r1, meps, r2, mbse);
++}
++
++/*
++ * GH-5 R60H: Andreas Fernandez's t600x S2R (Wi-Fi returns there) drives the SMC GPIO of the SD reader's power
++ * (gP1a on J314s) to 0, macOS's off command, just before slpa, and back on (CMD_OUTPUT | 1) right after the AP is
++ * powered at the wake, before MBSE/MBSW and waka. On the J414s the ADT pcie-sdreader function-sd_pwr_en is gP16.
++ * Bit mask of SMC GPIO numbers (bit 0x16 = gP16); 0 = off.
++ */
++static unsigned long s2r_gpio_off;
++module_param(s2r_gpio_off, ulong, 0644);
++MODULE_PARM_DESC(s2r_gpio_off, "GH-5 TEST: SMC GPIO pins (bit n = gPnn) written 0 before slpa and on again at the wake");
++static unsigned long s2r_gpio_lowered;
++
++static void macsmc_reboot_s2r_gpio(struct device *dev, struct macsmc_reboot *reboot, bool off)
++{
++	unsigned long pins = off ? READ_ONCE(s2r_gpio_off) : s2r_gpio_lowered;
++	unsigned int i;
++
++	for_each_set_bit(i, &pins, 32) {
++		smc_key key = __SMC_KEY('g', 'P', hex_asc_hi(i), hex_asc_lo(i));
++		u32 before = 0, after = 0;
++		int r0 = apple_smc_rw_u32(reboot->smc, key, 1 << 24, &before);
++		int ret = apple_smc_write_u32(reboot->smc, key, off ? 0 : (1 << 24) | 1);
++		int r1 = apple_smc_rw_u32(reboot->smc, key, 1 << 24, &after);
++
++		if (off && ret >= 0)
++			__set_bit(i, &s2r_gpio_lowered);
++		dev_info(dev, "TEST s2r: SMC gP%02x %s (%d): read %#x (%d) -> %#x (%d)\n", i, off ? "= 0 before slpa" :
++			 "on again at the wake", ret, before, r0, after, r1);
++	}
++	if (!off)
++		s2r_gpio_lowered = 0;
++}
++
++static bool s2r_regon_cycle;
++module_param(s2r_regon_cycle, bool, 0644);
++MODULE_PARM_DESC(s2r_regon_cycle, "GH-5 TEST: cycle the radio REG_ON with macOS's gP0d command after the wake");
++
++/* GH-5 R59X: the Wi-Fi REG_ON/PWREN line (SMC gpio 13, key gP0d) as the SMC reports it; -1 on error */
++static int macsmc_reboot_wlan_reg_on(struct macsmc_reboot *reboot)
++{
++	u32 val = 0;
++	int ret = apple_smc_rw_u32(reboot->smc, SMC_KEY(gP0d), 1 << 24, &val);
++
++	return ret < 0 ? -1 : !!val;
++}
++
+ static int macsmc_reboot_pm_prepare(struct device *dev)
+ {
+ 	struct macsmc_reboot *reboot = dev_get_drvdata(dev);
+@@ -520,9 +666,23 @@ static int macsmc_reboot_pm_suspend_late(struct device *dev)
+ 		dev_info(dev, "sleep: PMP requests released before slpa (%d)\n", ret);
+ 	}
+ 	if (reboot->sleep_steps & MACSMC_SLEEP_SLPA) {
++		int reg_on_before = macsmc_reboot_wlan_reg_on(reboot);
++		unsigned int pmvc = READ_ONCE(s2r_pmvc);
++
++		if (pmvc) {
++			macsmc_reboot_log_pmvc(dev, reboot, "before pmVC");
++			ret = apple_smc_write_u32(reboot->smc, SMC_KEY(pmVC), pmvc);
++			dev_info(dev, "TEST s2r: pmVC = %#x before slpa (%d)\n", pmvc, ret);
++			msleep(35);
++			macsmc_reboot_log_pmvc(dev, reboot, "35 ms after pmVC");
++		}
++		macsmc_reboot_s2r_gpio(dev, reboot, true);
+ 		ret = apple_smc_write_u32(reboot->smc, SMC_KEY(MBSE), SMC_KEY(slpa));
+ 		reboot->slpa_sent = ret >= 0;
+ 		dev_info(dev, "sleep: MBSE = slpa (%d)\n", ret);
++		dev_info(dev, "TEST s2r: gP0d before %d, after slpa %d\n", reg_on_before, macsmc_reboot_wlan_reg_on(reboot));
++		msleep(100);
++		dev_info(dev, "TEST s2r: gP0d 100ms after slpa %d\n", macsmc_reboot_wlan_reg_on(reboot));
+ 	}
+ 	return 0;
+ }
+@@ -549,11 +709,53 @@ static int macsmc_reboot_pm_resume_early(struct device *dev)
+ 	if (!reboot->slpa_sent)
+ 		return 0;
+ 	reboot->slpa_sent = false;
++	macsmc_reboot_s2r_gpio(dev, reboot, false);
++	dev_info(dev, "TEST s2r: gP0d at the wake before waka %d\n", macsmc_reboot_wlan_reg_on(reboot));
+ 	r1 = apple_smc_read_u32(reboot->smc, SMC_KEY(MBSE), &mbse);
+ 	r2 = apple_smc_read(reboot->smc, SMC_KEY(MBSW), mbsw, sizeof(mbsw));
+ 	ret = apple_smc_write_u32(reboot->smc, SMC_KEY(MBSE), SMC_KEY(waka));
+ 	dev_info(dev, "sleep: wake MBSE %08x (%d), MBSW %8phN (%d); MBSE = waka (%d)\n",
+ 		 mbse, r1, mbsw, r2, ret);
++	dev_info(dev, "TEST s2r: gP0d after waka %d\n", macsmc_reboot_wlan_reg_on(reboot));
++	if (READ_ONCE(s2r_pmvc)) {
++		unsigned int pmvc = READ_ONCE(s2r_pmvc);
++
++		macsmc_reboot_log_pmvc(dev, reboot, "at waka");
++		msleep(58);
++		ret = apple_smc_write_u32(reboot->smc, SMC_KEY(pmVC), pmvc);
++		dev_info(dev, "TEST s2r: pmVC = %#x 58 ms after waka (%d)\n", pmvc, ret);
++		macsmc_reboot_log_pmvc(dev, reboot, "right after pmVC");
++		msleep(500);
++		macsmc_reboot_log_pmvc(dev, reboot, "500 ms after pmVC");
++	}
++	if (READ_ONCE(s2r_wake_bnap)) {
++		/*
++		 * GH-5 R60F: the SMC stays in a sleep power state after waka (MEPS 04 -> 01). macOS sends
++		 * MBSE = 'bnap' from userspace during boot (hypervisor trace 2026-11-13); try it after waka.
++		 */
++		u8 meps[6] = {};
++		u32 m2 = 0;
++		int r3 = apple_smc_write_u32(reboot->smc, SMC_KEY(MBSE), SMC_KEY(bnap));
++
++		msleep(500);
++		apple_smc_read_u32(reboot->smc, SMC_KEY(MBSE), &m2);
++		apple_smc_read(reboot->smc, SMC_KEY(MEPS), meps, sizeof(meps));
++		dev_info(dev, "TEST s2r: MBSE = bnap (%d); 500 ms later MBSE %08x MEPS %6phN\n", r3, m2, meps);
++	}
++	if (READ_ONCE(s2r_regon_cycle)) {
++		/*
++		 * GH-5 R60C: macOS drives the radio's REG_ON with the ADT function-reg_on, pKW4 gP0d 0x00800000,
++		 * whose handler puts the on/off value in the low 16 bits: gP0d = 0x00800000 | v. Linux's gpio
++		 * driver writes CMD_OUTPUT | v (0x01000000 | v) instead. Cycle it the macOS way after the wake.
++		 */
++		int r0 = apple_smc_write_u32(reboot->smc, SMC_KEY(gP0d), 0x00800000);
++
++		msleep(100);
++		ret = apple_smc_write_u32(reboot->smc, SMC_KEY(gP0d), 0x00800001);
++		msleep(200);
++		dev_info(dev, "TEST s2r: REG_ON cycled the macOS way (%d, %d), gP0d now %d\n", r0, ret,
++			 macsmc_reboot_wlan_reg_on(reboot));
++	}
+ 	return 0;
+ }
+ 

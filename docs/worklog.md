@@ -5502,3 +5502,8 @@ Armed R60H 23:52
 - Fits our history: our HV guest is macOS 14.8.9 (MacOSTest), which only boots with `apcie=0xfffffffe` (PCIe off; with PCIe on it hung 2 min 20 s in, run "defargs" 2026-11-13), so we have never traced macOS bringing Wi-Fi/SD up. Asahi's hypervisor guide pins 13.5 as the M1/M2 guest. A 13.5 guest with PCIe on would show what macOS writes (SMC keys, PMU, apcie) to power the Wi-Fi/SD slots at boot, which is what our post-cut wake has to redo; and, if it sleeps, the entry with PCIe on.
 - Needs the owner: a macOS 13.5 (22G74) install on a volume (erase MacOSTest, or a new one), done from macOS. Asked.
 - Meanwhile R60L (pmVC masks after the wake): kernel Image + modules building.
+
+## 2026-11-21 16:20 R60L armed: pmVC masks after the wake, relink after each
+- UKI `deeptest.efi.pmp20` (sha fadd11a8f84762a8) staged as `deeptest.efi` (and on the ESP): pstore kernel + test params `macsmc_reboot.smc_write` (`KEY=value`, logs before/after/MEPS) and `pcie_apple.s2r_redo` (rerun the S2R relink work). Diff (against the tree's HEAD, so with the earlier uncommitted test changes) in `patches/s2r-kernel/0008-...patch`.
+- Job `r60l-pmvcmask` = r60k-apq with the fifth word back to 241 (no handshake; image 125 otherwise = 124). After the wake and the first relink: s2r_attempts 1, delay 0, then pmVC = 0x1ff, 0x1fff, 0x10f, 0x180, 0x0, 0x101 in turn, each followed by `s2r_redo` and a LINKSTS read of ports 0/1; stops at the first link up. `/run/postwake/pmvc.txt`; 0x6025 = index of the value that worked (0 none).
+- First arm went out with pmp19 (a failed cp); re-armed after staging pmp20 as root, ESP copy checked (fadd11a8f84762a8).
