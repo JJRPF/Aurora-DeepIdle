@@ -1,4 +1,4 @@
-# Where the work stands (2026-11-20, 01:15, after run R57AR — LINUX RESUMES TO USERSPACE AFTER A REAL S2R SLEEP, 6 of 6)
+# Where the work stands (2026-11-21, 00:30, after run R60I — REAL S2R WORKS EXCEPT WI-FI AND THE SD READER)
 
 This is the summary of the whole effort: what was measured, what was built,
 what works, what does not, and what comes next. Each section points to the
@@ -19,6 +19,20 @@ There are two goals:
   which needs real suspend to RAM (S2R).
 
 ## The short version
+
+## Latest (2026-11-21): everything but Wi-Fi and the SD reader comes back
+
+* **Real S2R round trips in every run since R57AL**, including a 5-minute sleep (R59P). After the wake NVMe, USB,
+  the SMC, the RTC, the SEP, the keyboard and the PMP work. Patched kernels now boot the test (the R57O..R57U
+  blocker was a module BTF mismatch, fixed with `CONFIG_MODULE_ALLOW_BTF_MISMATCH`), and the kernel series is rebased onto linux-aurora `0428c9ac`.
+* **Wi-Fi/Bluetooth and the SD reader stay unpowered.** Both PCIe ports stay in Detect. R60I dumped the root complex,
+  both ports and the PHYs before the sleep and after the wake: every register is restored, so the controller is not
+  the problem. The SMC stays in its sleep power state after `waka` (`MEPS` 1 instead of 4), and the PMU's enable
+  bits for those rails stay cleared. Linux can't write them (the PMU only takes writes in its scratch).
+* **Tried, no change:** REG_ON in both command forms, a PWREN cycle, `MBSE = bnap`, `pmVC` (0x107, 0x100), and
+  Andreas Fernandez's full M1 Pro SMC sequence including the SD power cut around `slpa` (R60A..R60H).
+* **Waiting on:** nekolyanich and Andreas Fernandez, asked on issue #5 what their SMC and PMU read after a wake.
+* **Credits** for everyone whose code and help this uses are in the README.
 
 ## Latest (2026-11-20): Linux resumes from real S2R
 

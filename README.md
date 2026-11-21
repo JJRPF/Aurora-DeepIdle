@@ -270,9 +270,18 @@ those as root once installed; read its README first.
 
 ## Credits
 
-The M1 Pro deep sleep that we compare against is Andreas Fernandez's (Ante042). Suspend-to-RAM groundwork on
-Apple silicon is by DJ and Naeem Malik; the Aura port of the PMP tunable headroom (aurora-silicon/m1n1#63 and
-aura#268) is muness's. Their code and notes keep their authorship wherever we use them.
+This work stands on other people's code, notes and answers. Where we use their code it keeps their authorship.
+
+- **Andreas Fernandez (Ante042)**: His M1 Pro (T6000) suspend-to-RAM branch and notes, `t600x-s2r-reference`, are the reference we compare every step against: the SMC sequence (pmVC, WKTP, SD power around `slpa`), the NVMe/ANS cold start after the wake, the core sleep overrides and the thin stage 1.
+- **DJ (DjDeveloperr, Diljit Singh)**: Suspend-to-RAM groundwork on Apple silicon and the T6050/T8140 sleep work in aurora-silicon/linux: macOS traces of the sleep commit, the radio and SD reader handling, and the AP GPIO restore order.
+- **Naeem Malik (malik-na)**: S2R research on the M1 (m1-power-lab), the answer that iBoot arms the wake path for a raw image, and the brcmfmac D3 fixes now in linux-aurora.
+- **nekolyanich**: Native S2R on the M2 Pro J416s and detailed answers on issue #5: the apcie re-init at the wake, the PCIe resume order, ps_sep, RVBAR locking.
+- **František Balázsy (fbalazsy)**: The T6040 AP GPIO restore order (each pin's config, then its input enable, the lock last) that Aura's wake path uses, and the warning about an interrupt storm from a reset GPIO block.
+- **muness**: The PMP tunable headroom in m1n1 and Aura (aurora-silicon/m1n1#63, aura#268); our daily boot.bin is that build.
+- **Erik Bourget, Jens Axboe, Ryan Murray and the other aurora-silicon authors**: The T6050 sleep driver, pcie-apple's sleep paths, macsmc's sleep policy, i2c-pasemi runtime PM and the M4 Pro (T6040) sleep PR in aurora-silicon/linux, which we read and borrow from.
+- **Asahi Linux**: m1n1, the hypervisor we traced macOS with, and the drivers everything here builds on.
+
+The same list is kept in `docs/s2r-status.json` (`credits`) for the status page.
 
 ## License
 

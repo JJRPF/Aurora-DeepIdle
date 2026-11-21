@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "updated": "2026-11-20",
+  "updated": "2026-11-21",
   "overall": 85,
   "overall_note": "Risk-weighted guess with a wide error bar. The page prefers the live figure in `docs/status.md` when it can read one.",
   "machine": "14-inch MacBook Pro, M2 Pro (`T6020`, `apple,j414s`), Aurora Silicon Linux",
@@ -103,11 +103,17 @@
       "id": 4,
       "trail": "Devices",
       "name": "Devices survive power loss",
-      "short": "PMP, NVMe, PCIe, SMC, DCP",
+      "short": "NVMe, USB, SMC, SEP, PCIe, Wi-Fi",
       "state": "active",
-      "pct": 35,
-      "summary": "Each device has to come back after its power is really removed. After real S2R wakes (R57AL to R57AR) the kernel's resume completes: the internal PCIe controller (re-init at the wake, nekolyanich's fix) and the SEP (its power domain restored) come back far enough for Linux to resume. Wi-Fi does not: its link stays down and its power enable reads low after the wake. NVMe (ANS) and the display (DCP) are untested after a real cut.",
+      "pct": 65,
+      "summary": "Each device has to come back after its power is really removed. After a real S2R wake, NVMe (the ANS cold-started with its buffers kept), USB, the SMC, the RTC, the SEP, the keyboard and the PMP all work again, every run since R59L. The internal PCIe controller is restored word for word (R60I). Wi-Fi/Bluetooth and the SD reader do not come back: their link stays in Detect because the endpoints have no power, and the SMC and PMU stay in a sleep power state (SMC `MEPS` 1) after `waka`. Nothing we can write from Linux moves them; we have asked nekolyanich and Andreas Fernandez what their machines show.",
       "done": [
+        "NVMe after a real cut: the ANS idled with its RTKit buffers kept, cold-started after the wake with the ADT tunables Aura publishes; 5 of 5 since R59L (after Andreas Fernandez's t6000 NVMe work)",
+        "USB after a real cut: the dwc3 cores restarted, the i2c-pasemi controller set up again (R59R onwards)",
+        "SMC, RTC, keyboard and SEP after a real cut, every run since R57AL",
+        "PMP stopped and saved before the sleep and restarted after it (R59P)",
+        "Internal PCIe controller: re-init at the wake (nekolyanich's fix), per-port MSI/RID2SID/INTMSK, then the ports relinked; every RC, port and PHY register reads as before the sleep (R60I)",
+        "Andreas Fernandez's t600x SMC sequence reproduced in full (pmVC 0x100, WKTP 2, SD power off before `slpa` and on at the wake): accepted, no change for Wi-Fi (R60G, R60H)",
         "Internal PCIe after a real cut: the /arm-io/apcie bring-up rerun at the wake (nekolyanich's fix) and the per-port MSI setup restored; its DART no longer aborts (R57AJ to R57AL)",
         "SEP after a real cut: ps_sep restored at the wake (the cut leaves DEV_DISABLE set); its DART no longer aborts (R57AL)",
         "AP GPIO block snapshot and restore in macOS's order (after František Balázsy, Diljit Singh and nekolyanich): 7 pins put back on this Mac (R57AO)",
@@ -118,11 +124,9 @@
         "SEP: SLEEP acknowledged and the enclave gated as macOS has it (R18K)"
       ],
       "next": [
-        "Wi-Fi: a pcie-apple resume that redoes probe's per-port setup, PWREN included (needs a patched kernel)",
-        "NVMe (ANS) and DCP after a real cut",
-        "PMP: macOS’s DART off/on and outbox steps around RUN, no reset",
-        "PCIe L2 entry and D3cold resume (no remove/rescan)",
-        "DCP: full shutdown and restart of its firmware"
+        "Wi-Fi/BT and the SD reader: get the SMC/PMU out of their sleep power state after `waka` (answers asked for on issue #5)",
+        "DCP (display) after a real cut",
+        "20 cycles per device with the power really removed"
       ],
       "gate": "Each device passes 20 cycles with its power actually removed."
     },
@@ -132,9 +136,11 @@
       "name": "Full S2R",
       "short": "The SoC powers down, DRAM in self-refresh",
       "state": "active",
-      "pct": 70,
-      "summary": "Working on the test boot: a real SLP_S2R sleep, the RTC alarm wake through RVBAR, and Linux resumes to userspace with all 10 CPUs (echo mem returns 0), 6 of 6 runs in a row (R57AL to R57AR, 2026-11-20). The kernel used to panic within a second of the wake; a panic recorder (Aura walks the kernel's stack on its EFI reset and leaves the result in PMU scratch) named the faults, the PCIe and SEP DARTs, and both are fixed in Aura's wake path. Not yet: Wi-Fi and the other devices after the wake, longer sleeps and drain measurements, and running it on the normal install.",
+      "pct": 80,
+      "summary": "Works on the test boot: a real SLP_S2R sleep (PMGR `SLP_S2R` counter), the RTC alarm wake through RVBAR, and Linux back in userspace with all 10 CPUs, every run since R57AL, including a 5-minute sleep (R59P). NVMe, USB, the SMC and the SEP come back. Not yet: Wi-Fi and the SD reader, the display after a cut, drain measured over hours, and running it on the normal install (Aura and U-Boot in the main boot chain need the owner's go-ahead).",
       "done": [
+        "R59P: a 5-minute S2R sleep, resumed to userspace with NVMe live and a clean reboot after (2026-11-20)",
+        "R57AL: Linux resumes to userspace after a real S2R sleep, reproduced in every run since",
         "R57AL: Linux resumes to userspace after a real S2R sleep, reproduced 6 of 6 through R57AR",
         "Panic recorder: kernel panic, EFI ResetSystem in U-Boot, Aura's PSCI handler walks the frame records and pt_regs and translates FAR into the PMU's 40-byte scratch; it found apple_dart_resume faulting on the PCIe and SEP DARTs (R57AF to R57AK)",
         "The PMGR, SMC and PMP sleep actions read from the macOS 13.5 kernelcache",
@@ -172,8 +178,9 @@
         "2026-11-11, R20b, R20c, R21, R22B (images 70 to 72): APSC off late, EDPRCR cleared on every core, the alarm moved to +70 s: the same reset at the same time"
       ],
       "next": [
-        "Run R25A (image 75): each core’s final sleep loop counts if it ever returns, so a core that never powers down is named, with whether an interrupt is pending on it",
-        "If cores are spinning: find what wakes or holds them (a pending interrupt, or the cluster’s own power-down request); if none are: use the observer to read the PMGR’s sleep-state counters after the commit"
+        "Wi-Fi and the SD reader after the wake (phase 4)",
+        "Drain over a whole night, and 20 cycles in a row",
+        "The kernel patches cleaned (TEST code out) and moved onto the rebased linux-aurora base"
       ],
       "gate": "20 of 20 cycles; lid, key, keyboard and alarm wakes; about 0.3 W on battery."
     },
@@ -217,21 +224,21 @@
     },
     {
       "name": "SMC handshake",
-      "state": "tested",
-      "known": "`WKTP` and `slpw` are harmless. `slpa` makes the SMC cut the storage controller’s (ANS) power: in five runs inside a real suspend with all CPUs off (2026-11-04 and 05) the Mac resumed on the alarm and the ANS never booted again. On its own `slpa` does not start the SoC’s sleep (PMGR counters: `AWAKE` throughout). The dead-man switch’s reboot brings the disk back every time. `SetAPPower` IDLE to the SMC is acked and safe.",
-      "next": "The SoC sleep after `slpa` (runs C, G, H); the ANS's power-on ack should follow a real S2R wake"
+      "state": "works",
+      "known": "`slpw`, `slpa` and `waka` in the macOS order, with `WKTP`, `pmVC` and AP power IDLE/ON. After a real S2R wake the SMC answers keys and events. It stays in its sleep power state (`MEPS` 1) after `waka`, which is what keeps the Wi-Fi and SD rails off.",
+      "next": "Find what returns `MEPS` to 4 after `waka`"
     },
     {
       "name": "PMP",
-      "state": "partial",
+      "state": "works",
       "known": "IDLE works in s2idle (acks in about 400 us) and now after `slpa` too (run C again, 2026-11-05 21:22: accepted, no crash; the 16:01 crash was the test kernel’s double `SetAPPower`). The wake from IDLE fails without a power cycle (-62). The display requests are released for sleep in normal suspends; once the PMP is IDLE the release is refused (`-EALREADY`), so it has to move before `slpa`. A PMGR reset of `ps_pmp` crashes the SoC. Since 2026-11-06 the test kernel can withdraw every request (the displays and ISP_SYS) just before `slpa`, while the PMP still acks (`deep_steps` 32, run Q: 0xf000 to 0, back after the wake); in C, I, J and L the noirq release came after the IDLE and was refused.",
-      "next": "Its wake after a real S2R (run L first)"
+      "next": "Repeatability"
     },
     {
       "name": "AOP",
-      "state": "partial",
-      "known": "macOS tells the AOP the AP is asleep (RTKit `SetAPPower` 0x201) and leaves it running; before that `AppleSPU::_stopQueue` stops each endpoint's queue (`0xa4`, ack `0x87`), and `_startQueue` starts it on wake (`0xa3`, ack `0x86`). Sent alone, the 0x201 crashed the AOP in its ring writer. The test kernel now does the whole handshake, with the 0x201 before `slpa` as macOS. The queues must run again before the secondary CPUs come back (stopped, every incoming core hung in the kernel's secondary entry), so they restart from syscore resume. 4 of 4 suspend cycles with all 10 CPUs back, the sensors live (2026-11-06 00:00). In run J (2026-11-06 15:18, with `slpa`, the PMP's IDLE and the whole quiesce) the queues stopped 12 of 12 and the 0x201 was acked; the S2R timer still reset at 86 s.",
-      "next": "Nothing new until the S2R entry completes"
+      "state": "works",
+      "known": "The macOS handshake (queues stopped, `SetAPPower` 0x201) before the sleep, `SetAPPower` ON and the queues started again from syscore resume, before the secondaries come back; works in every real S2R wake.",
+      "next": "Nothing pending"
     },
     {
       "name": "Secondary CPUs",
@@ -241,15 +248,15 @@
     },
     {
       "name": "PMGR quiesce, S2R timer",
-      "state": "partial",
-      "known": "The S2R timer (1 to MPMGR_AON + 0x4000) works from Aura: it resets the SoC about 60 s after the write unless the S2R entry completes. With `slpa`, every core powered down macOS’s way and all of `quiesceHW` but the cluster power-off (image 53, runs G and H), it still resets at about 85 s after `echo mem`. Adding the PMP’s IDLE in the same sleep (run I) changes nothing. The last `quiesceHW` step, the soc-cluster power-off (`enableCluster`: the ADT's `soc-clusters` at `0x28e088000`), is image 54's aura-ctl 16: unattended on 2026-11-06 the ANE and AVE clusters powered fully off and the P-core and display clusters stayed pending; all 10 CPUs came back. Run J (2026-11-06 15:18, owner-attended) did every macOS step found so far in one sleep (`slpa`, the PMP's IDLE, the AOP handshake, the whole `quiesceHW` with the clusters, every core down): reset 86 s after `echo mem`, the timer again. Every timer run (D to J) left the PMGR's AP wake mask at Linux's all-zero value, i.e. every wake source enabled; macOS enables 22. Runs L and M (J with macOS's wake mask, 2026-11-06) ended in the 120 s dog, but a check run with a mask of 0 did too: the mask step in `suspend_late` breaks the suspend by itself, so L and M most likely never reached `slpa` or the timer. The mask step works since 2026-11-06 16:04 (`ioremap_np`; the earlier posted mapping stalled the bus), and macOS's own mask lets the PMU alarm wake Aura's deep WFI with the SoC up. Run L again with the mask really set (2026-11-06 16:11): the timer's reset at 86 s, as J. Run N (2026-11-06 16:31: L with the PMP's requests at 0 before `slpa`, as macOS): 86 s again. Run R (2026-11-06 16:41, image 55: also each secondary's PMGR stop request, the last step in macOS's trace): 86 s again. 2026-11-07 to 11 (runs R10 to R22B, crumbs kept in the PMU’s scratch bytes across the reset): every core reaches its final deep sleep, both P clusters read off, every power word macOS has off is off, the enclave is gated; the reset still comes about 75 s after the commit and does not follow the wake alarm.",
-      "next": "Observer runs: confirm every cluster is off after the commit, then read the PMGR’s state at that point"
+      "state": "works",
+      "known": "Aura's commit puts the SoC into SLP_S2R (the PMGR counter counts it) and the RTC alarm wakes it through RVBAR, every run since R57AL. The long hunt (the 75-86 s resets, runs D to R22B) ended once the remaining entry state was in place.",
+      "next": "Long sleeps and repeatability"
     },
     {
       "name": "Devices",
-      "state": "open",
-      "known": "s2idle only. DCP cannot resume from power loss today.",
-      "next": "Phase 4, in the traced order"
+      "state": "partial",
+      "known": "After a real cut: NVMe, USB, SMC, RTC, SEP, keyboard and PMP work. Wi-Fi/BT and the SD reader stay unpowered. The display is untested.",
+      "next": "Phase 4"
     }
   ],
   "images": [
@@ -1588,14 +1595,10 @@
     "Test GRUB entries use `panic=0`, so a panic hangs and the watchdog stamps tell where it died."
   ],
   "unknowns": [
-    "What completes the SoC’s sleep entry. `slpa` alone does not start it; the PMGR’s S2R timer, which Aura now writes with all of macOS’s known entry state in place, is acted on but ends in a reset about 75 s later instead of a sleep. And what restarts the AP on wake, through which RVBAR.",
-    "What the reconfig engine runs on `SLP_S2R`, and what each quiesce action writes.",
-    "Whether a DCP with nothing attached can be shut down and restarted.",
-    "What the PMP’s VLPM tunables control.",
-    "Why an inline `dsb sy; isb; wfi` in `SYSTEM_SUSPEND` never woke when `deep_wfi()` does.",
-    "Whether the PMP accepts IDLE after `slpa` once it is sent once (run C again), and whether it needs its display requests released first",
-    "What the ANS waits for after `slpa`: it answers HELLO but never acks IOP power-on (likely the storage power the SMC only restores in a real S2R wake)",
-    "Whether iBoot arms the wake path (reconfig engine, boot CPU RVBAR) for a raw image on T6020 as it does for a kernelcache (answered yes on the M1 by Naeem Malik, not checked here)."
+    "What returns the SMC to its awake power state (`MEPS` 4) after `waka`. On this Mac it stays at 1 with the PMU in what looks like its sleep state, and the Wi-Fi/BT and SD reader rails stay off. macOS's SMC and PMU drivers send nothing else that we can find.",
+    "Whether the display (DCP) can be shut down and restarted across a real cut.",
+    "Drain in real S2R over a whole night.",
+    "What the PMP's VLPM tunables control."
   ],
   "upstream": [
     {
@@ -1617,6 +1620,40 @@
     {
       "name": "Ante042/linux t600x-s2r-reference",
       "what": "M1 Pro (T6000) deep sleep reference by Andreas Fernandez; our comparison and question are posted on his notes commit"
+    }
+  ],
+  "credits": [
+    {
+      "who": "Andreas Fernandez (Ante042)",
+      "how": "His M1 Pro (T6000) suspend-to-RAM branch and notes, `t600x-s2r-reference`, are the reference we compare every step against: the SMC sequence (pmVC, WKTP, SD power around `slpa`), the NVMe/ANS cold start after the wake, the core sleep overrides and the thin stage 1."
+    },
+    {
+      "who": "DJ (DjDeveloperr, Diljit Singh)",
+      "how": "Suspend-to-RAM groundwork on Apple silicon and the T6050/T8140 sleep work in aurora-silicon/linux: macOS traces of the sleep commit, the radio and SD reader handling, and the AP GPIO restore order."
+    },
+    {
+      "who": "Naeem Malik (malik-na)",
+      "how": "S2R research on the M1 (m1-power-lab), the answer that iBoot arms the wake path for a raw image, and the brcmfmac D3 fixes now in linux-aurora."
+    },
+    {
+      "who": "nekolyanich",
+      "how": "Native S2R on the M2 Pro J416s and detailed answers on issue #5: the apcie re-init at the wake, the PCIe resume order, ps_sep, RVBAR locking."
+    },
+    {
+      "who": "František Balázsy (fbalazsy)",
+      "how": "The T6040 AP GPIO restore order (each pin's config, then its input enable, the lock last) that Aura's wake path uses, and the warning about an interrupt storm from a reset GPIO block."
+    },
+    {
+      "who": "muness",
+      "how": "The PMP tunable headroom in m1n1 and Aura (aurora-silicon/m1n1#63, aura#268); our daily boot.bin is that build."
+    },
+    {
+      "who": "Erik Bourget, Jens Axboe, Ryan Murray and the other aurora-silicon authors",
+      "how": "The T6050 sleep driver, pcie-apple's sleep paths, macsmc's sleep policy, i2c-pasemi runtime PM and the M4 Pro (T6040) sleep PR in aurora-silicon/linux, which we read and borrow from."
+    },
+    {
+      "who": "Asahi Linux",
+      "how": "m1n1, the hypervisor we traced macOS with, and the drivers everything here builds on."
     }
   ]
 }
