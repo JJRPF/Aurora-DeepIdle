@@ -5515,3 +5515,6 @@ Armed R60H 23:52
 
 ## 2026-11-21 16:45 Naeem Malik's reply (Discord DM, via the owner)
 - "No way! This is huge bro ... I'll try this now. Thank you!" No answer on the Wi-Fi/SD rails yet; he is going to try S2R on his own machine. A second machine hitting (or not hitting) the same Wi-Fi/SD failure would tell us whether it is our setup or the platform.
+
+## 2026-11-21 16:55 Reproduction guide for others (Naeem first)
+- Owner: yes to a reproduction guide. `docs/s2r-repro.md`: what works and what doesn't, the pieces (kernel on omacom/linux-aurora `49a8c150d6be`, Aura on omacom/m1n1 `bf6a6417`), build, one test run with the job's parameters, what to look for. Exports in `patches/s2r-repro/`: the kernel diff (51 files, incl. the uncommitted test changes), `kernel.config`, the Aura diff (27 files, images up to 125). Both checked with `git apply --check` on clean checkouts of those commits.
