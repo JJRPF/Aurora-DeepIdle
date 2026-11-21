@@ -1,0 +1,1873 @@
+From c6a8d7114203aa72fc5beda876c7bc23ada39dfc Mon Sep 17 00:00:00 2001
+From: Justin Pfister <git@jjrpf.com>
+Date: Fri, 20 Nov 2026 20:27:27 -0500
+Subject: [PATCH 87/87] TEST: GH-5 S2R working set (patches/s2r-kernel
+ 0001-0007 in Aurora-DeepIdle)
+
+PCIe port redo after the cut, NVMe/ANS cold start, PMP power cycle (Ante042's method),
+RTKit longer IOP ack wait, ATC PHY restore and t6020 park_dummy_phy, i2c-pasemi resume,
+macsmc-reboot test logs and knobs (REG_ON, bnap, pmVC, SMC key dump).
+---
+ drivers/i2c/busses/i2c-pasemi-core.c     |  11 +
+ drivers/i2c/busses/i2c-pasemi-core.h     |   1 +
+ drivers/i2c/busses/i2c-pasemi-platform.c |  16 +
+ drivers/mfd/macsmc.c                     |  12 +-
+ drivers/nvme/host/apple.c                | 112 ++++-
+ drivers/pci/controller/pcie-apple.c      | 261 ++++++++--
+ drivers/phy/apple/atc.c                  |  47 +-
+ drivers/power/reset/macsmc-reboot.c      | 128 +++++
+ drivers/soc/apple/pmp-export.c           | 605 ++++++++++++++++++++++-
+ drivers/soc/apple/pmp.rs                 |  69 ++-
+ drivers/soc/apple/rtkit-internal.h       |   2 +
+ drivers/soc/apple/rtkit.c                |  62 +++
+ include/linux/soc/apple/pmp.h            |   2 +
+ include/linux/soc/apple/rtkit.h          |   3 +
+ rust/kernel/soc/apple/rtkit.rs           |   7 +
+ 15 files changed, 1289 insertions(+), 49 deletions(-)
+
+diff --git a/drivers/i2c/busses/i2c-pasemi-core.c b/drivers/i2c/busses/i2c-pasemi-core.c
+index f4eca44ed183..e50d14b74e02 100644
+--- a/drivers/i2c/busses/i2c-pasemi-core.c
++++ b/drivers/i2c/busses/i2c-pasemi-core.c
+@@ -450,6 +450,17 @@ int pasemi_i2c_common_probe(struct pasemi_smbus *smbus)
+ }
+ EXPORT_SYMBOL_GPL(pasemi_i2c_common_probe);
+ 
++/*
++ * Set the controller up again after its registers were lost, e.g. after an
++ * S2R power cut on Apple SoCs (the PM core keeps the power domain "on", but
++ * the hardware was off and REG_CTL is back at its reset value).
++ */
++void pasemi_i2c_reinit(struct pasemi_smbus *smbus)
++{
++	pasemi_reset(smbus);
++}
++EXPORT_SYMBOL_GPL(pasemi_i2c_reinit);
++
+ irqreturn_t pasemi_irq_handler(int irq, void *dev_id)
+ {
+ 	struct pasemi_smbus *smbus = dev_id;
+diff --git a/drivers/i2c/busses/i2c-pasemi-core.h b/drivers/i2c/busses/i2c-pasemi-core.h
+index 88821f4e8a9f..2678df6ad433 100644
+--- a/drivers/i2c/busses/i2c-pasemi-core.h
++++ b/drivers/i2c/busses/i2c-pasemi-core.h
+@@ -22,5 +22,6 @@ struct pasemi_smbus {
+ };
+ 
+ int pasemi_i2c_common_probe(struct pasemi_smbus *smbus);
++void pasemi_i2c_reinit(struct pasemi_smbus *smbus);
+ 
+ irqreturn_t pasemi_irq_handler(int irq, void *dev_id);
+diff --git a/drivers/i2c/busses/i2c-pasemi-platform.c b/drivers/i2c/busses/i2c-pasemi-platform.c
+index a486a37d3863..38f0c389ed8d 100644
+--- a/drivers/i2c/busses/i2c-pasemi-platform.c
++++ b/drivers/i2c/busses/i2c-pasemi-platform.c
+@@ -11,6 +11,7 @@
+ #include <linux/kernel.h>
+ #include <linux/module.h>
+ #include <linux/platform_device.h>
++#include <linux/pm.h>
+ #include <linux/types.h>
+ 
+ #include "i2c-pasemi-core.h"
+@@ -91,6 +92,20 @@ static int pasemi_platform_i2c_probe(struct platform_device *pdev)
+ 
+ static void pasemi_platform_i2c_remove(struct platform_device *pdev) { }
+ 
++static int pasemi_platform_i2c_resume_noirq(struct device *dev)
++{
++	struct pasemi_platform_i2c_data *data = dev_get_drvdata(dev);
++
++	/* Before the clients' resume callbacks talk on the bus. */
++	pasemi_i2c_reinit(&data->smbus);
++	dev_info(dev, "TEST s2r: controller set up again after resume\n");
++	return 0;
++}
++
++static const struct dev_pm_ops pasemi_platform_i2c_pm_ops = {
++	NOIRQ_SYSTEM_SLEEP_PM_OPS(NULL, pasemi_platform_i2c_resume_noirq)
++};
++
+ static const struct of_device_id pasemi_platform_i2c_of_match[] = {
+ 	{ .compatible = "apple,t8103-i2c" },
+ 	{ .compatible = "apple,i2c" },
+@@ -102,6 +117,7 @@ static struct platform_driver pasemi_platform_i2c_driver = {
+ 	.driver	= {
+ 		.name			= "i2c-apple",
+ 		.of_match_table		= pasemi_platform_i2c_of_match,
++		.pm			= pm_sleep_ptr(&pasemi_platform_i2c_pm_ops),
+ 	},
+ 	.probe	= pasemi_platform_i2c_probe,
+ 	.remove = pasemi_platform_i2c_remove,
+diff --git a/drivers/mfd/macsmc.c b/drivers/mfd/macsmc.c
+index 687788e3309c..b5ecfb7164e3 100644
+--- a/drivers/mfd/macsmc.c
++++ b/drivers/mfd/macsmc.c
+@@ -554,6 +554,10 @@ static bool pmp_sleep;
+ module_param(pmp_sleep, bool, 0644);
+ MODULE_PARM_DESC(pmp_sleep, "PMP SetAPPower/SetIOPPower IDLE after the SMC's SetAPPower IDLE in system suspend");
+ static bool pmp_slept;
++/* GH-5: with pmp_sleep, stop the PMP and save its SRAM for a sleep with a power cut, and restart it on wake */
++static bool pmp_cycle;
++module_param(pmp_cycle, bool, 0644);
++MODULE_PARM_DESC(pmp_cycle, "With pmp_sleep: power-cycle the PMP (SRAM saved and restored) around a suspend to RAM with a power cut");
+ int apple_pmp_report_test_pcpm_release(void);
+ 
+ static int apple_smc_suspend_late(struct device *dev)
+@@ -566,9 +570,9 @@ static int apple_smc_suspend_late(struct device *dev)
+ 	ret = apple_rtkit_set_ap_power(smc->rtk, 0x201);
+ 	dev_info(dev, "SetAPPower IDLE: %d\n", ret);
+ 	if (pmp_sleep && pm_suspend_target_state == PM_SUSPEND_MEM) {
+-		ret = apple_pmp_sleep(true);
++		ret = pmp_cycle ? apple_pmp_power_cycle(true) : apple_pmp_sleep(true);
+ 		pmp_slept = !ret;
+-		dev_info(dev, "sleep: PMP SetAPPower/SetIOPPower IDLE: %d\n", ret);
++		dev_info(dev, "sleep: PMP %s: %d\n", pmp_cycle ? "stopped, SRAM saved" : "SetAPPower/SetIOPPower IDLE", ret);
+ 		/* TEST: macOS's trace step 6, the CPU complexes' requests withdrawn last */
+ 		ret = apple_pmp_report_test_pcpm_release();
+ 		if (ret)
+@@ -588,8 +592,8 @@ static int apple_smc_resume_early(struct device *dev)
+ 	dev_info(dev, "SetAPPower ON: %d\n", ret);
+ 	if (pmp_slept) {
+ 		pmp_slept = false;
+-		ret = apple_pmp_sleep(false);
+-		dev_info(dev, "sleep: PMP wake: %d\n", ret);
++		ret = pmp_cycle ? apple_pmp_power_cycle(false) : apple_pmp_sleep(false);
++		dev_info(dev, "sleep: PMP %s: %d\n", pmp_cycle ? "restarted" : "wake", ret);
+ 	}
+ 	return 0;
+ }
+diff --git a/drivers/nvme/host/apple.c b/drivers/nvme/host/apple.c
+index 6d342ee36a9f..3c21d8462059 100644
+--- a/drivers/nvme/host/apple.c
++++ b/drivers/nvme/host/apple.c
+@@ -37,6 +37,7 @@
+ #include <linux/pm_domain.h>
+ #include <linux/soc/apple/rtkit.h>
+ #include <linux/soc/apple/sart.h>
++#include <linux/suspend.h>
+ #include <linux/reset.h>
+ #include <linux/time64.h>
+ 
+@@ -202,11 +203,21 @@ struct apple_nvme_hw {
+ 	unsigned long quirks;
+ };
+ 
++static bool s2r_ans_idle = true; /* GH-5: S2R suspend idles the ANS instead of shutting it down */
++
+ struct apple_nvme {
+ 	struct device *dev;
+ 	/* TEST (GH-8): the ANS wrapper's IO RVBAR, saved at suspend, restored before RUN if it changed */
+ 	void __iomem *iorvbar;
+ 	u64 iorvbar_saved;
++	bool s2r_force_cold; /* GH-5: next reset after a system resume starts the ANS cold */
++	bool s2r_cold; /* GH-5: this reset is that cold start */
++	bool s2r_idle_kept; /* GH-5: idled (0x201) for S2R with its RTKit buffers kept, as Andreas Fernandez does */
++	u32 sart_power_boot; /* GH-5: ANS +0x13e8 after the first good boot (Andreas Fernandez's t6000 ANS restore) */
++	/* GH-5: the ADT ANS AXI2AF / storage-lane tunables Aura publishes in /chosen/aurora,ans-tunables */
++	int s2r_tun_n;
++	void __iomem *s2r_tun_reg[64];
++	u32 s2r_tun_mask[64], s2r_tun_val[64];
+ 	struct kref ref;
+ 	/* Serializes the post-M4 controller disable with reset and teardown. */
+ 	struct mutex disable_lock;
+@@ -1563,6 +1574,57 @@ static void apple_nvme_wait_freeze(struct apple_nvme *anv)
+ 	}
+ }
+ 
++#define APPLE_ANS_SART_POWER	0x13e8
++
++/* GH-5: map the tunables Aura took from the ADT (Andreas Fernandez applies the t6000 ones after an S2R cut) */
++static void apple_nvme_s2r_tunables_init(struct apple_nvme *anv)
++{
++	struct device_node *ch = of_find_node_by_path("/chosen");
++	const __be32 *p;
++	int len, i;
++
++	p = ch ? of_get_property(ch, "aurora,ans-tunables", &len) : NULL;
++	of_node_put(ch);
++	if (!p)
++		return;
++	for (i = 0; i < len / 16 && anv->s2r_tun_n < ARRAY_SIZE(anv->s2r_tun_reg); i++, p += 4) {
++		u64 a = ((u64)be32_to_cpu(p[0]) << 32) | be32_to_cpu(p[1]);
++		void __iomem *r = ioremap_np(a, 4); /* Apple device registers need nGnRnE; not unmapped (test) */
++
++		if (!r)
++			continue;
++		anv->s2r_tun_reg[anv->s2r_tun_n] = r;
++		anv->s2r_tun_mask[anv->s2r_tun_n] = be32_to_cpu(p[2]);
++		anv->s2r_tun_val[anv->s2r_tun_n] = be32_to_cpu(p[3]);
++		anv->s2r_tun_n++;
++	}
++	dev_info(anv->dev, "TEST s2r: %d ANS tunable writes from the ADT\n", anv->s2r_tun_n);
++}
++
++static bool s2r_ans_tunables = true;
++module_param_named(s2r_ans_idle, s2r_ans_idle, bool, 0644);
++module_param(s2r_ans_tunables, bool, 0644);
++
++static void apple_nvme_s2r_tunables(struct apple_nvme *anv)
++{
++	int i, changed = 0;
++
++	if (!s2r_ans_tunables)
++		return;
++
++	for (i = 0; i < anv->s2r_tun_n; i++) {
++		u32 v = readl(anv->s2r_tun_reg[i]);
++		u32 w = (v & ~anv->s2r_tun_mask[i]) | (anv->s2r_tun_val[i] & anv->s2r_tun_mask[i]);
++
++		if (w != v) {
++			writel(w, anv->s2r_tun_reg[i]);
++			changed++;
++		}
++	}
++	dev_info(anv->dev, "TEST s2r: ANS tunables %d of %d rewritten\n", changed, anv->s2r_tun_n);
++}
++
++
+ static void apple_nvme_reset_work(struct work_struct *work)
+ {
+ 	unsigned int nr_io_queues = 1;
+@@ -1655,6 +1717,18 @@ static void apple_nvme_reset_work(struct work_struct *work)
+ 		writel(0, anv->mmio_coproc + APPLE_ANS_COPROC_CPU_CONTROL);
+ 	}
+ 
++	/*
++	 * GH-5: after S2R the SoC lost power, so whatever CPU_CONTROL reads now, the ANS is not running the
++	 * session we shut down in suspend. Start it cold: reset, RTKit reinit, IORVBAR restore, RUN, boot.
++	 */
++	if (anv->s2r_force_cold && !anv->hw->needs_ioq_registers) {
++		dev_info(anv->dev, "TEST s2r: cpu_control %#x at resume, forcing a cold start\n",
++			 readl(anv->mmio_coproc + APPLE_ANS_COPROC_CPU_CONTROL));
++		writel(0, anv->mmio_coproc + APPLE_ANS_COPROC_CPU_CONTROL);
++		anv->s2r_force_cold = false;
++		anv->s2r_cold = true;
++	}
++
+ 	/*
+ 	 * Only do the soft-reset if the CPU is not running, which means either we
+ 	 * or the previous stage shut it down cleanly.
+@@ -1683,7 +1757,13 @@ static void apple_nvme_reset_work(struct work_struct *work)
+ 		if (ret)
+ 			goto out;
+ 
+-		ret = apple_rtkit_reinit(anv->rtk);
++		if (anv->s2r_idle_kept) {
++			anv->s2r_idle_kept = false;
++			ret = apple_rtkit_reinit_keep(anv->rtk);
++			dev_info(anv->dev, "TEST s2r: RTKit reinit with buffers kept: %d\n", ret);
++		} else {
++			ret = apple_rtkit_reinit(anv->rtk);
++		}
+ 		if (ret)
+ 			goto out;
+ 
+@@ -1692,10 +1772,22 @@ static void apple_nvme_reset_work(struct work_struct *work)
+ 			goto out;
+ 
+ 		apple_nvme_iorvbar_restore(anv);
++		if (anv->s2r_cold) {
++			/* GH-5: the power cut reset what the first good boot had (Andreas Fernandez's t6000 restore) */
++			u32 sp = readl(anv->mmio_nvme + APPLE_ANS_SART_POWER);
++
++			if (anv->sart_power_boot && sp != anv->sart_power_boot)
++				writel(anv->sart_power_boot, anv->mmio_nvme + APPLE_ANS_SART_POWER);
++			dev_info(anv->dev, "TEST s2r: sart power %#x, boot value %#x\n", sp, anv->sart_power_boot);
++			apple_rtkit_set_iop_ack_wait(anv->rtk, 25);
++			apple_nvme_s2r_tunables(anv);
++		}
+ 		writel(APPLE_ANS_COPROC_CPU_CONTROL_RUN,
+ 		       anv->mmio_coproc + APPLE_ANS_COPROC_CPU_CONTROL);
+ 
+ 		ret = apple_rtkit_boot(anv->rtk);
++		apple_rtkit_set_iop_ack_wait(anv->rtk, 0);
++		anv->s2r_cold = false;
+ 	} else {
+ 		ret = apple_rtkit_wake(anv->rtk);
+ 	}
+@@ -1915,6 +2007,10 @@ static void apple_nvme_reset_work(struct work_struct *work)
+ 	nvme_start_ctrl(&anv->ctrl);
+ 
+ 	dev_dbg(anv->dev, "ANS boot and NVMe init completed.");
++	if (!anv->sart_power_boot && !anv->hw->needs_ioq_registers) {
++		anv->sart_power_boot = readl(anv->mmio_nvme + APPLE_ANS_SART_POWER);
++		dev_info(anv->dev, "TEST s2r: saved sart power %#x\n", anv->sart_power_boot);
++	}
+ 	return;
+ 
+ out_remove_sq:
+@@ -2347,6 +2443,7 @@ static struct apple_nvme *apple_nvme_alloc(struct platform_device *pdev)
+ 	}
+ 
+ 	INIT_WORK(&anv->ctrl.reset_work, apple_nvme_reset_work);
++	apple_nvme_s2r_tunables_init(anv);
+ 	if (iorvbar_phys) {
+ 		anv->iorvbar = devm_ioremap(dev, iorvbar_phys, 8);
+ 		if (anv->iorvbar)
+@@ -2581,6 +2678,7 @@ static int apple_nvme_resume(struct device *dev)
+ 		WRITE_ONCE(anv->suspended, false);
+ 		return nvme_try_sched_reset(&anv->ctrl);
+ 	}
++	anv->s2r_force_cold = true;
+ 	return nvme_reset_ctrl(&anv->ctrl);
+ }
+ 
+@@ -2632,7 +2730,17 @@ static int apple_nvme_suspend(struct device *dev)
+ 	}
+ 
+ 	if (apple_rtkit_is_running(anv->rtk)) {
+-		ret = apple_rtkit_shutdown(anv->rtk);
++		if (s2r_ans_idle && pm_suspend_target_state == PM_SUSPEND_MEM) {
++			/* GH-5: idle, state and buffers kept, so the ANS resumes from its saved context after the cut */
++			ret = apple_rtkit_idle(anv->rtk);
++			if (!ret) {
++				apple_rtkit_detach_keep(anv->rtk);
++				anv->s2r_idle_kept = true;
++			}
++			dev_info(anv->dev, "TEST s2r: ANS idled for S2R: %d\n", ret);
++		} else {
++			ret = apple_rtkit_shutdown(anv->rtk);
++		}
+ 
+ 		writel(0, anv->mmio_coproc + APPLE_ANS_COPROC_CPU_CONTROL);
+ 	}
+diff --git a/drivers/pci/controller/pcie-apple.c b/drivers/pci/controller/pcie-apple.c
+index 805ff1a8d084..7aaea80a14af 100644
+--- a/drivers/pci/controller/pcie-apple.c
++++ b/drivers/pci/controller/pcie-apple.c
+@@ -64,6 +64,10 @@ static bool s2idle_keep_link = true;
+ module_param(s2idle_keep_link, bool, 0644);
+ MODULE_PARM_DESC(s2idle_keep_link, "Keep tunneled links up through suspend-to-idle");
+ 
++static bool s2r_resume = true;
++module_param(s2r_resume, bool, 0644);
++MODULE_PARM_DESC(s2r_resume, "Redo a conventional port's setup at resume when its link went down in suspend (real S2R power cut)");
++
+ static int link_up_timeout = 500;
+ module_param(link_up_timeout, int, 0644);
+ MODULE_PARM_DESC(link_up_timeout, "PCIe link training timeout in milliseconds");
+@@ -318,6 +322,7 @@ static const struct hw_info t8122_pciec_hw = {
+ struct apple_pcie {
+ 	struct mutex		lock;
+ 	struct device		*dev;
++	struct work_struct	s2r_work;	/* GH-5 */
+ 	void __iomem            *base;
+ 	void __iomem		*fabric_base;
+ 	void __iomem		*debug_base;
+@@ -373,6 +378,10 @@ struct apple_pcie_port {
+ 	bool			needs_stop;
+ 	bool			link_failed;
+ 	bool			irq_disabled;
++	/* GH-5: what a real S2R power cut loses, kept to redo the port's setup at resume */
++	struct gpio_desc	*perst, *pwren, *aux_perst[3];
++	u32			num_aux_perst;
++	u32			s2r_intmask;
+ };
+ 
+ static void rmw_set(u32 set, void __iomem *addr)
+@@ -670,11 +679,37 @@ static void apple_port_irq_handler(struct irq_desc *desc)
+ 	chained_irq_exit(chip, desc);
+ }
+ 
++/* The port's MSI doorbell, map and config words (probe, and resume after a real S2R power cut: GH-5) */
++static void apple_pcie_port_program_msi(struct apple_pcie_port *port)
++{
++	struct apple_pcie *pcie = port->pcie;
++	u32 val = 0;
++
++	/* Configure MSI base address */
++	BUILD_BUG_ON(upper_32_bits(DOORBELL_ADDR));
++	apple_pcie_port_writel(port, lower_32_bits(DOORBELL_ADDR),
++				 pcie->hw->port_msiaddr);
++	if (pcie->hw->port_msiaddr_hi)
++		apple_pcie_port_writel(port, 0, pcie->hw->port_msiaddr_hi);
++
++	/* Enable MSIs, shared between all ports */
++	if (pcie->hw->port_msimap) {
++		for (int i = 0; i < pcie->nvecs; i++)
++			apple_pcie_port_writel(port,
++				FIELD_PREP(PORT_MSIMAP_TARGET, pcie->msi_vector_base + i) |
++				PORT_MSIMAP_ENABLE,
++				pcie->hw->port_msimap + 4 * i);
++	} else {
++		apple_pcie_port_writel(port, 0, PORT_MSIBASE);
++		val = ilog2(pcie->nvecs) << PORT_MSICFG_L2MSINUM_SHIFT;
++	}
++
++	apple_pcie_port_writel(port, val | PORT_MSICFG_EN, PORT_MSICFG);
++}
++
+ static int apple_pcie_port_setup_irq(struct apple_pcie_port *port)
+ {
+ 	struct fwnode_handle *fwnode = &port->np->fwnode;
+-	struct apple_pcie *pcie = port->pcie;
+-	u32 val = 0;
+ 
+ 	/* FIXME: consider moving each interrupt under each port */
+ 	port->irq = irq_of_parse_and_map(to_of_node(dev_fwnode(port->pcie->dev)),
+@@ -704,26 +739,7 @@ static int apple_pcie_port_setup_irq(struct apple_pcie_port *port)
+ 	irq_set_status_flags(port->irq, IRQ_DISABLE_UNLAZY);
+ 	irq_set_chained_handler_and_data(port->irq, apple_port_irq_handler, port);
+ 
+-	/* Configure MSI base address */
+-	BUILD_BUG_ON(upper_32_bits(DOORBELL_ADDR));
+-	apple_pcie_port_writel(port, lower_32_bits(DOORBELL_ADDR),
+-				 pcie->hw->port_msiaddr);
+-	if (pcie->hw->port_msiaddr_hi)
+-		apple_pcie_port_writel(port, 0, pcie->hw->port_msiaddr_hi);
+-
+-	/* Enable MSIs, shared between all ports */
+-	if (pcie->hw->port_msimap) {
+-		for (int i = 0; i < pcie->nvecs; i++)
+-			apple_pcie_port_writel(port,
+-				FIELD_PREP(PORT_MSIMAP_TARGET, pcie->msi_vector_base + i) |
+-				PORT_MSIMAP_ENABLE,
+-				pcie->hw->port_msimap + 4 * i);
+-	} else {
+-		apple_pcie_port_writel(port, 0, PORT_MSIBASE);
+-		val = ilog2(pcie->nvecs) << PORT_MSICFG_L2MSINUM_SHIFT;
+-	}
+-
+-	apple_pcie_port_writel(port, val | PORT_MSICFG_EN, PORT_MSICFG);
++	apple_pcie_port_program_msi(port);
+ 	return 0;
+ }
+ 
+@@ -1466,6 +1482,9 @@ static u32 apple_pcie_rid2sid_write(struct apple_pcie_port *port,
+ 	return apple_pcie_port_readl(port, offset);
+ }
+ 
++static int apple_pcie_port_power_on(struct apple_pcie *pcie, struct apple_pcie_port *port);
++static void apple_pcie_s2r_work(struct work_struct *work);
++
+ static int apple_pcie_setup_link(struct apple_pcie *pcie,
+ 				 struct apple_pcie_port *port,
+ 				 struct device_node *np)
+@@ -1474,8 +1493,6 @@ static int apple_pcie_setup_link(struct apple_pcie *pcie,
+ 	struct gpio_desc *aux_reset[MAX_AUX_PERST] = { NULL };
+ 	u32 num_aux_resets = 0;
+ 	struct gpio_desc *reset, *pwren = NULL;
+-	u32 stat;
+-	int ret;
+ 
+ 	/*
+ 	 * Assert PERST# and configure the pin as output.
+@@ -1513,24 +1530,42 @@ static int apple_pcie_setup_link(struct apple_pcie *pcie,
+ 			return PTR_ERR(pwren);
+ 	}
+ 
++	port->perst = reset;
++	port->pwren = pwren;
++	port->num_aux_perst = num_aux_resets;
++	for (u32 idx = 0; idx < num_aux_resets; idx++)
++		port->aux_perst[idx] = aux_reset[idx];
++
++	return apple_pcie_port_power_on(pcie, port);
++}
++
++/*
++ * Power the slot, assert and release PERST# around the reference clock setup and wait for the port to be ready.
++ * Used by probe and, after a real S2R power cut, by resume (GH-5).
++ */
++static int apple_pcie_port_power_on(struct apple_pcie *pcie, struct apple_pcie_port *port)
++{
++	u32 stat;
++	int ret;
++
+ 	rmw_set(PORT_APPCLK_EN, port->base + PORT_APPCLK);
+ 
+ 	/* Assert PERST# before setting up the clock */
+-	gpiod_set_value_cansleep(reset, 1);
+-	for (u32 idx = 0; idx < num_aux_resets; idx++)
+-		gpiod_set_value_cansleep(aux_reset[idx], 1);
++	gpiod_set_value_cansleep(port->perst, 1);
++	for (u32 idx = 0; idx < port->num_aux_perst; idx++)
++		gpiod_set_value_cansleep(port->aux_perst[idx], 1);
+ 
+ 	/* Power-cycle devices which cannot inherit their firmware state. */
+ 	if (pcie->hw->pwren_off_ms) {
+-		if (!pwren)
++		if (!port->pwren)
+ 			return -EINVAL;
+ 		rmw_clear(PORT_PERST_OFF, port->base + pcie->hw->port_perst);
+-		ret = gpiod_set_value_cansleep(pwren, 0);
++		ret = gpiod_set_value_cansleep(port->pwren, 0);
+ 		if (ret)
+ 			return ret;
+ 		msleep(pcie->hw->pwren_off_ms);
+ 	}
+-	ret = gpiod_set_value_cansleep(pwren, 1);
++	ret = gpiod_set_value_cansleep(port->pwren, 1);
+ 	if (ret)
+ 		return ret;
+ 
+@@ -1544,18 +1579,18 @@ static int apple_pcie_setup_link(struct apple_pcie *pcie,
+ 	 * The minimal Tperst-clk value is 100us (PCIe CEM r5.0, 2.9.2)
+ 	 * If powering up, the minimal Tpvperl is 100ms
+ 	 */
+-	if (pwren)
++	if (port->pwren)
+ 		msleep(pcie->hw->pwren_on_ms ?: 100);
+ 	else
+ 		usleep_range(100, 200);
+ 
+ 	/* Deassert PERST# */
+ 	rmw_set(PORT_PERST_OFF, port->base + pcie->hw->port_perst);
+-	ret = gpiod_set_value_cansleep(reset, 0);
++	ret = gpiod_set_value_cansleep(port->perst, 0);
+ 	if (ret)
+ 		return ret;
+-	for (u32 idx = 0; idx < num_aux_resets; idx++)
+-		gpiod_set_value_cansleep(aux_reset[idx], 0);
++	for (u32 idx = 0; idx < port->num_aux_perst; idx++)
++		gpiod_set_value_cansleep(port->aux_perst[idx], 0);
+ 
+ 	/* Wait for 100ms after PERST# deassertion (PCIe r5.0, 6.6.1) */
+ 	msleep(100);
+@@ -1563,7 +1598,7 @@ static int apple_pcie_setup_link(struct apple_pcie *pcie,
+ 	ret = readl_relaxed_poll_timeout(port->base + PORT_STATUS, stat,
+ 					 stat & PORT_STATUS_READY, 100, 250000);
+ 	if (ret < 0) {
+-		dev_err(pcie->dev, "port %pOF ready wait timeout\n", np);
++		dev_err(pcie->dev, "port %pOF ready wait timeout\n", port->np);
+ 		return ret;
+ 	}
+ 
+@@ -2790,6 +2825,7 @@ static int apple_pcie_probe(struct platform_device *pdev)
+ 
+ 	mutex_init(&pcie->lock);
+ 	INIT_LIST_HEAD(&pcie->ports);
++	INIT_WORK(&pcie->s2r_work, apple_pcie_s2r_work);
+ 
+ 	/* Resolve PM dependencies before publishing the PCI hierarchy. */
+ 	if (pcie->hw->tunneled) {
+@@ -3465,8 +3501,19 @@ static int apple_pcie_suspend_noirq(struct device *dev)
+ {
+ 	struct apple_pcie *pcie = apple_pcie_lookup(dev);
+ 
+-	if (!pcie->hw->tunneled)
++	if (!pcie->hw->tunneled) {
++		struct apple_pcie_port *port;
++		int i;
++
++		/* GH-5: what a real S2R power cut takes from a conventional port */
++		list_for_each_entry(port, &pcie->ports, entry) {
++			port->s2r_intmask = apple_pcie_port_readl(port, PORT_INTMSK);
++			for_each_set_bit(i, port->sid_map, port->sid_map_sz)
++				port->saved_rid2sid[i] =
++					apple_pcie_port_readl(port, port_rid2sid_offset(port, i));
++		}
+ 		return 0;
++	}
+ 	pcie->reset_on_resume = false;
+ 	pcie->link_kept = apple_pcie_keep_link(pcie);
+ 	if (!pcie->link_kept)
+@@ -3588,9 +3635,151 @@ static int apple_pcie_resume_noirq(struct device *dev)
+ 	return ret;
+ }
+ 
++/*
++ * GH-5: after a real suspend-to-RAM power cut a conventional port comes back with its slot unpowered (the SMC drops
++ * PWREN), its link down and its MSI and RID2SID setup gone; only probe sets those up. Redo that part of probe here,
++ * in the normal resume phase (the SMC, which drives PWREN, needs interrupts), before the endpoints' drivers resume,
++ * then put the config space of the devices below back, since their noirq restore ran against a dead link.
++ * Idea and result on t602x: nekolyanich ("redo probe's whole per-port setup").
++ */
++static unsigned int s2r_pwren_off_ms = 200;
++module_param(s2r_pwren_off_ms, uint, 0644);
++MODULE_PARM_DESC(s2r_pwren_off_ms, "GH-5: ms with PWREN low before the port power-on after an S2R power cut (0 = no cycle)");
++static unsigned int s2r_attempts = 3;
++module_param(s2r_attempts, uint, 0644);
++MODULE_PARM_DESC(s2r_attempts, "GH-5: how many times to redo a lost port's setup after resume, 3 s apart");
++static unsigned int s2r_resume_delay_ms = 1500;
++module_param(s2r_resume_delay_ms, uint, 0644);
++MODULE_PARM_DESC(s2r_resume_delay_ms, "Delay before a lost conventional port is set up again after resume");
++
++static void apple_pcie_s2r_work(struct work_struct *work)
++{
++	bool any_up = false;
++	struct apple_pcie *pcie = container_of(work, struct apple_pcie, s2r_work);
++	struct device *dev = pcie->dev;
++	struct apple_pcie_port *port;
++	struct pci_bus *root = NULL;
++	struct pci_dev *pdev = NULL, *child, *tmp;
++	bool redone = false;
++	unsigned int attempt;
++	int perst_dir = -1;
++	u32 stat;
++	int ret;
++
++	msleep(s2r_resume_delay_ms);
++	for (attempt = 1; attempt <= s2r_attempts; attempt++) {
++	if (attempt > 1) {
++		if (any_up)
++			break;
++		msleep(3000);
++	}
++	list_for_each_entry(port, &pcie->ports, entry) {
++		if (apple_pcie_port_readl(port, PORT_LINKSTS) & PORT_LINKSTS_UP)
++			continue;
++		dev_info(dev, "port %pOF lost its link in suspend (status %#x, link %#x): redoing its setup\n",
++			 port->np, apple_pcie_port_readl(port, PORT_STATUS),
++			 apple_pcie_port_readl(port, PORT_LINKSTS));
++		if (!port->perst)
++			continue;
++		/*
++		 * GH-5 R59W: gpiolib's set_value only flips the data bit. If the power cut put PERST#'s pin back to an
++		 * input (its reset state), it is never driven again. Record what is found and make it an output (asserted).
++		 */
++		perst_dir = gpiod_get_direction(port->perst);
++		gpiod_direction_output(port->perst, 1);
++		/*
++		 * GH-5 R58T: the SMC may have cut the slot's rail in S2R while gpiolib still has PWREN high, and t602x
++		 * has no pwren_off_ms, so power_on would only write 1 again. Hold PERST# and drop PWREN long enough for
++		 * the rail to discharge before power_on brings it back.
++		 */
++		if (port->pwren && s2r_pwren_off_ms) {
++			gpiod_set_value_cansleep(port->perst, 1);
++			gpiod_set_value_cansleep(port->pwren, 0);
++			msleep(s2r_pwren_off_ms);
++		}
++		ret = apple_pcie_port_power_on(pcie, port);
++		if (ret) {
++			dev_err(dev, "port %pOF power-on after resume failed: %d\n", port->np, ret);
++			continue;
++		}
++		if (!pcie->hw->retain_clocks) {
++			if (pcie->hw->port_refclk)
++				rmw_clear(PORT_REFCLK_CGDIS, port->base + pcie->hw->port_refclk);
++			else if (port->phy)
++				rmw_set(PHY_LANE_CFG_REFCLKCGEN, port->phy + PHY_LANE_CFG);
++			rmw_clear(PORT_APPCLK_CGDIS, port->base + PORT_APPCLK);
++		}
++		apple_pcie_port_writel(port, ~0, PORT_INTMSK);
++		apple_pcie_port_writel(port, ~0, PORT_INTSTAT);
++		apple_pcie_port_writel(port, ~0, PORT_LINKCMDSTS);
++		apple_pcie_port_program_msi(port);
++		apple_pcie_port_writel(port, PORT_LTSSMCTL_START, PORT_LTSSMCTL);
++		ret = readl_relaxed_poll_timeout(port->base + PORT_LINKSTS, stat,
++						 stat & PORT_LINKSTS_UP, 1000,
++						 link_up_timeout * 1000);
++		apple_pcie_port_writel(port, port->s2r_intmask, PORT_INTMSK);
++		dev_info(dev, "port %pOF link %s after resume (%#x)\n", port->np,
++			 ret ? "still down" : "up", stat);
++		/* GH-5 R59V: one line per try for the job: attempt, PWREN read back, link status, port status */
++		dev_info(dev, "TEST s2r: port %u try %u pwren %d link %08x status %08x perstdir %d\n", port->idx, attempt,
++			 port->pwren ? gpiod_get_value_cansleep(port->pwren) : -1,
++			 apple_pcie_port_readl(port, PORT_LINKSTS), apple_pcie_port_readl(port, PORT_STATUS), perst_dir);
++		redone = true;
++		if (!ret)
++			any_up = true;
++	}
++	}
++	if (!redone)
++		return;
++	/*
++	 * GH-5 R59M: the R59K rescan aborted reading the Wi-Fi's vendor ID right after its link came up (a config read
++	 * before the device is ready is fatal here). PCIe asks for 100 ms after link up; give it 200 ms, and do not
++	 * rescan at all when no link came back.
++	 */
++	if (!any_up) {
++		dev_info(dev, "no link came back after resume, not rescanning\n");
++		return;
++	}
++	msleep(200);
++	/* The devices below went through resume against a dead link: take them away and enumerate them afresh. */
++	pci_lock_rescan_remove();
++	for_each_pci_dev(pdev) {
++		struct pci_host_bridge *hb = pci_find_host_bridge(pdev->bus);
++
++		if (hb && hb->dev.parent == dev) {
++			root = hb->bus;
++			pci_dev_put(pdev);
++			break;
++		}
++	}
++	if (root) {
++		list_for_each_entry_safe_reverse(child, tmp, &root->devices, bus_list)
++			pci_stop_and_remove_bus_device(child);
++		dev_info(dev, "rescanning after the S2R power cut: %u devices\n", pci_rescan_bus(root));
++	}
++	pci_unlock_rescan_remove();
++}
++
++/*
++ * GH-5: after a real suspend-to-RAM power cut a conventional port comes back with its slot unpowered (the SMC drops
++ * PWREN), its link down and its MSI setup gone; only probe sets those up. Redo that part of probe from a work item
++ * (the SMC, which drives PWREN, may not take commands yet while devices resume), then enumerate the devices below
++ * afresh. Idea and result on t602x: nekolyanich ("redo probe's whole per-port setup").
++ */
++static int apple_pcie_resume(struct device *dev)
++{
++	struct apple_pcie *pcie = apple_pcie_lookup(dev);
++
++	if (pcie->hw->tunneled || !s2r_resume)
++		return 0;
++	queue_work(system_long_wq, &pcie->s2r_work);
++	return 0;
++}
++
+ static const struct dev_pm_ops apple_pcie_pm_ops = {
+ 	.suspend_noirq = apple_pcie_suspend_noirq,
+ 	.resume_noirq = apple_pcie_resume_noirq,
++	.resume = apple_pcie_resume,
+ };
+ 
+ static const struct of_device_id apple_pcie_of_match[] = {
+diff --git a/drivers/phy/apple/atc.c b/drivers/phy/apple/atc.c
+index 34bdee648798..9f937e10bcbd 100644
+--- a/drivers/phy/apple/atc.c
++++ b/drivers/phy/apple/atc.c
+@@ -39,6 +39,7 @@
+ #include <linux/reset-controller.h>
+ #include <linux/soc/apple/dp-tunnel.h>
+ #include <linux/soc/apple/tunable.h>
++#include <linux/suspend.h>
+ #include <linux/types.h>
+ #include <linux/usb.h>
+ #include <linux/usb/hcd.h>
+@@ -1195,6 +1196,12 @@ static int atcphy_pipehandler_lock(struct apple_atcphy *atcphy)
+ 			reg, atcphy->mode, atcphy->pipe_state, atcphy->mode_dirty);
+ 		clear32(atcphy->regs.pipehandler + PIPEHANDLER_LOCK_REQ, 1);
+ 		dev_warn(atcphy->dev, "Pipehandler lock not acked.\n");
++		/* GH-5 TEST: the state the S2R job records after the wake */
++		dev_warn(atcphy->dev,
++			 "TEST s2r: lock nak aon=%08x mux=%08x req=%08x ack=%08x mode=%u pipe=%u host=%u\n",
++			 readl(atcphy->regs.pipehandler + PIPEHANDLER_AON_GEN),
++			 readl(atcphy->regs.pipehandler + PIPEHANDLER_MUX_CTRL), requested, reg,
++			 atcphy->mode, atcphy->pipe_state, atcphy->host_active);
+ 	}
+ 
+ 	return ret;
+@@ -5441,7 +5448,26 @@ static int atcphy_resume(struct device *dev)
+ 	return 0;
+ }
+ 
+-static DEFINE_SIMPLE_DEV_PM_OPS(atcphy_pm_ops, NULL, atcphy_resume);
++/*
++ * GH-5: a suspend to RAM with a real S2R power cut resets the PHY while genpd still has its domain as on, so the
++ * domain notifier never sees it go off. Assume the cut and let resume run the full restore.
++ */
++static bool s2r_assume_cut = true;
++module_param(s2r_assume_cut, bool, 0644);
++MODULE_PARM_DESC(s2r_assume_cut, "GH-5: treat a suspend to RAM as a power cut and restore the PHY on resume");
++
++static int atcphy_suspend(struct device *dev)
++{
++	struct apple_atcphy *atcphy = dev_get_drvdata(dev);
++
++	if (s2r_assume_cut && pm_suspend_target_state == PM_SUSPEND_MEM) {
++		WRITE_ONCE(atcphy->pd_was_off, true);
++		dev_info(dev, "TEST s2r: PHY marked for a full restore on resume\n");
++	}
++	return 0;
++}
++
++static DEFINE_SIMPLE_DEV_PM_OPS(atcphy_pm_ops, atcphy_suspend, atcphy_resume);
+ 
+ static const struct atcphy_hw atcphy_hw_t8103 = {
+ 	.gen = ATCPHY_GENERATION_T8103,
+@@ -5453,6 +5479,24 @@ static const struct atcphy_hw atcphy_hw_t8103 = {
+ 	.has_usb4 = true,
+ };
+ 
++/*
++ * T6020/T6021 (M2 Pro/Max): the T8103 layout, but the PIPE lock is only
++ * acknowledged while the dummy PIPE PHY is enabled, as on T8122. iBoot leaves
++ * the bit set; it resets with the PHY's power domain (a runtime power-down or
++ * a suspend to RAM), after which every USB3 start fails with "Pipehandler lock
++ * not acked". Set it again on every park.
++ */
++static const struct atcphy_hw atcphy_hw_t6020 = {
++	.gen = ATCPHY_GENERATION_T8103,
++	.aciophy_lane_mode = ACIOPHY_LANE_MODE_T8103,
++	.aciophy_crossbar = ACIOPHY_CROSSBAR_T8103,
++	.configure_post_tunable = atcphy_configure_post_tunable_t8103,
++	.pipe_mux_clk = PIPEHANDLER_MUX_CTRL_CLK_T8103,
++	.pipe_mux_data = PIPEHANDLER_MUX_CTRL_DATA_T8103,
++	.has_usb4 = true,
++	.park_dummy_phy = true,
++};
++
+ static const struct atcphy_hw atcphy_hw_t8122 = {
+ 	.gen = ATCPHY_GENERATION_T8122,
+ 	.aciophy_lane_mode = ACIOPHY_LANE_MODE_T8122,
+@@ -5490,6 +5534,7 @@ static const struct atcphy_hw atcphy_hw_t8142 = {
+ };
+ 
+ static const struct of_device_id atcphy_match[] = {
++	{ .compatible = "apple,t6020-atcphy", .data = &atcphy_hw_t6020 },
+ 	{ .compatible = "apple,t8103-atcphy", .data = &atcphy_hw_t8103 },
+ 	{ .compatible = "apple,t8122-atcphy", .data = &atcphy_hw_t8122 },
+ 	{ .compatible = "apple,t8142-atcphy", .data = &atcphy_hw_t8142 },
+diff --git a/drivers/power/reset/macsmc-reboot.c b/drivers/power/reset/macsmc-reboot.c
+index fe9eac92b17b..9485b9825f1f 100644
+--- a/drivers/power/reset/macsmc-reboot.c
++++ b/drivers/power/reset/macsmc-reboot.c
+@@ -4,7 +4,9 @@
+  * Copyright The Asahi Linux Contributors
+  */
+ 
++#include <linux/debugfs.h>
+ #include <linux/delay.h>
++#include <linux/seq_file.h>
+ #include <linux/io.h>
+ #include <linux/mfd/core.h>
+ #include <linux/mfd/macsmc.h>
+@@ -325,6 +327,39 @@ static void macsmc_reboot_pm_unregister(void *data)
+ 	unregister_pm_notifier(&reboot->pm_notify);
+ }
+ 
++/* GH-5 R60D TEST: every readable SMC key with its type and value, for a before/after-sleep comparison */
++static int macsmc_reboot_keys_show(struct seq_file *m, void *unused)
++{
++	struct apple_smc *smc = m->private;
++	u8 buf[32];
++	int i;
++
++	for (i = 0; i < smc->key_count; i++) {
++		struct apple_smc_key_info info;
++		smc_key key;
++		int ret;
++
++		if (apple_smc_get_key_by_index(smc, i, &key) < 0)
++			continue;
++		if (apple_smc_get_key_info(smc, key, &info) < 0) {
++			seq_printf(m, "%p4ch ? info error\n", &key);
++			continue;
++		}
++		if (!(info.flags & 0x80) || info.size == 0 || info.size > sizeof(buf)) {
++			seq_printf(m, "%p4ch %p4ch f%02x s%u -\n", &key, &info.type_code, info.flags, info.size);
++			continue;
++		}
++		ret = apple_smc_read(smc, key, buf, info.size);
++		if (ret < 0)
++			seq_printf(m, "%p4ch %p4ch f%02x s%u err %d\n", &key, &info.type_code, info.flags, info.size, ret);
++		else
++			seq_printf(m, "%p4ch %p4ch f%02x s%u %*phN\n", &key, &info.type_code, info.flags, info.size,
++				   info.size, buf);
++	}
++	return 0;
++}
++DEFINE_SHOW_ATTRIBUTE(macsmc_reboot_keys);
++
+ static int macsmc_reboot_probe(struct platform_device *pdev)
+ {
+ 	struct apple_smc *smc = dev_get_drvdata(pdev->dev.parent);
+@@ -405,6 +440,7 @@ static int macsmc_reboot_probe(struct platform_device *pdev)
+ 	ret = register_pm_notifier(&reboot->pm_notify);
+ 	if (ret)
+ 		return dev_err_probe(&pdev->dev, ret, "Failed to register PM notifier\n");
++	debugfs_create_file("macsmc_keys", 0400, NULL, smc, &macsmc_reboot_keys_fops);	/* GH-5 TEST */
+ 	ret = devm_add_action_or_reset(&pdev->dev, macsmc_reboot_pm_unregister, reboot);
+ 	if (ret)
+ 		return ret;
+@@ -467,6 +503,44 @@ static void macsmc_reboot_ps_dump(struct device *dev, const char *when)
+ 	kfree(buf);
+ }
+ 
++static bool s2r_wake_bnap;
++module_param(s2r_wake_bnap, bool, 0644);
++MODULE_PARM_DESC(s2r_wake_bnap, "GH-5 TEST: send MBSE = bnap after waka");
++
++/*
++ * GH-5 R60G: macOS's PMGR writes pmVC (function-toggle_vdd_cio: 0x100, or 0x300 on T6022, | a mask of
++ * CIO requesters) and Aurora's T6050 sleep, from a trace of macOS, sends it 35 ms before slpa and 58 ms
++ * after waka. We never wrote it: on the J414s it reads 0 and MEPS stays in its sleep state after waka.
++ * 0 = off; otherwise the value written at both points.
++ */
++static unsigned int s2r_pmvc;
++module_param(s2r_pmvc, uint, 0644);
++MODULE_PARM_DESC(s2r_pmvc, "GH-5 TEST: pmVC value sent 35 ms before slpa and 58 ms after waka (0 = off)");
++
++static void macsmc_reboot_log_pmvc(struct device *dev, struct macsmc_reboot *reboot, const char *when)
++{
++	u8 meps[6] = {};
++	u32 pmvc = 0, mbse = 0;
++	int r1 = apple_smc_read_u32(reboot->smc, SMC_KEY(pmVC), &pmvc);
++	int r2 = apple_smc_read(reboot->smc, SMC_KEY(MEPS), meps, sizeof(meps));
++
++	apple_smc_read_u32(reboot->smc, SMC_KEY(MBSE), &mbse);
++	dev_info(dev, "TEST s2r: %s: pmVC %08x (%d) MEPS %6phN (%d) MBSE %08x\n", when, pmvc, r1, meps, r2, mbse);
++}
++
++static bool s2r_regon_cycle;
++module_param(s2r_regon_cycle, bool, 0644);
++MODULE_PARM_DESC(s2r_regon_cycle, "GH-5 TEST: cycle the radio REG_ON with macOS's gP0d command after the wake");
++
++/* GH-5 R59X: the Wi-Fi REG_ON/PWREN line (SMC gpio 13, key gP0d) as the SMC reports it; -1 on error */
++static int macsmc_reboot_wlan_reg_on(struct macsmc_reboot *reboot)
++{
++	u32 val = 0;
++	int ret = apple_smc_rw_u32(reboot->smc, SMC_KEY(gP0d), 1 << 24, &val);
++
++	return ret < 0 ? -1 : !!val;
++}
++
+ static int macsmc_reboot_pm_prepare(struct device *dev)
+ {
+ 	struct macsmc_reboot *reboot = dev_get_drvdata(dev);
+@@ -520,9 +594,22 @@ static int macsmc_reboot_pm_suspend_late(struct device *dev)
+ 		dev_info(dev, "sleep: PMP requests released before slpa (%d)\n", ret);
+ 	}
+ 	if (reboot->sleep_steps & MACSMC_SLEEP_SLPA) {
++		int reg_on_before = macsmc_reboot_wlan_reg_on(reboot);
++		unsigned int pmvc = READ_ONCE(s2r_pmvc);
++
++		if (pmvc) {
++			macsmc_reboot_log_pmvc(dev, reboot, "before pmVC");
++			ret = apple_smc_write_u32(reboot->smc, SMC_KEY(pmVC), pmvc);
++			dev_info(dev, "TEST s2r: pmVC = %#x before slpa (%d)\n", pmvc, ret);
++			msleep(35);
++			macsmc_reboot_log_pmvc(dev, reboot, "35 ms after pmVC");
++		}
+ 		ret = apple_smc_write_u32(reboot->smc, SMC_KEY(MBSE), SMC_KEY(slpa));
+ 		reboot->slpa_sent = ret >= 0;
+ 		dev_info(dev, "sleep: MBSE = slpa (%d)\n", ret);
++		dev_info(dev, "TEST s2r: gP0d before %d, after slpa %d\n", reg_on_before, macsmc_reboot_wlan_reg_on(reboot));
++		msleep(100);
++		dev_info(dev, "TEST s2r: gP0d 100ms after slpa %d\n", macsmc_reboot_wlan_reg_on(reboot));
+ 	}
+ 	return 0;
+ }
+@@ -549,11 +636,52 @@ static int macsmc_reboot_pm_resume_early(struct device *dev)
+ 	if (!reboot->slpa_sent)
+ 		return 0;
+ 	reboot->slpa_sent = false;
++	dev_info(dev, "TEST s2r: gP0d at the wake before waka %d\n", macsmc_reboot_wlan_reg_on(reboot));
+ 	r1 = apple_smc_read_u32(reboot->smc, SMC_KEY(MBSE), &mbse);
+ 	r2 = apple_smc_read(reboot->smc, SMC_KEY(MBSW), mbsw, sizeof(mbsw));
+ 	ret = apple_smc_write_u32(reboot->smc, SMC_KEY(MBSE), SMC_KEY(waka));
+ 	dev_info(dev, "sleep: wake MBSE %08x (%d), MBSW %8phN (%d); MBSE = waka (%d)\n",
+ 		 mbse, r1, mbsw, r2, ret);
++	dev_info(dev, "TEST s2r: gP0d after waka %d\n", macsmc_reboot_wlan_reg_on(reboot));
++	if (READ_ONCE(s2r_pmvc)) {
++		unsigned int pmvc = READ_ONCE(s2r_pmvc);
++
++		macsmc_reboot_log_pmvc(dev, reboot, "at waka");
++		msleep(58);
++		ret = apple_smc_write_u32(reboot->smc, SMC_KEY(pmVC), pmvc);
++		dev_info(dev, "TEST s2r: pmVC = %#x 58 ms after waka (%d)\n", pmvc, ret);
++		macsmc_reboot_log_pmvc(dev, reboot, "right after pmVC");
++		msleep(500);
++		macsmc_reboot_log_pmvc(dev, reboot, "500 ms after pmVC");
++	}
++	if (READ_ONCE(s2r_wake_bnap)) {
++		/*
++		 * GH-5 R60F: the SMC stays in a sleep power state after waka (MEPS 04 -> 01). macOS sends
++		 * MBSE = 'bnap' from userspace during boot (hypervisor trace 2026-11-13); try it after waka.
++		 */
++		u8 meps[6] = {};
++		u32 m2 = 0;
++		int r3 = apple_smc_write_u32(reboot->smc, SMC_KEY(MBSE), SMC_KEY(bnap));
++
++		msleep(500);
++		apple_smc_read_u32(reboot->smc, SMC_KEY(MBSE), &m2);
++		apple_smc_read(reboot->smc, SMC_KEY(MEPS), meps, sizeof(meps));
++		dev_info(dev, "TEST s2r: MBSE = bnap (%d); 500 ms later MBSE %08x MEPS %6phN\n", r3, m2, meps);
++	}
++	if (READ_ONCE(s2r_regon_cycle)) {
++		/*
++		 * GH-5 R60C: macOS drives the radio's REG_ON with the ADT function-reg_on, pKW4 gP0d 0x00800000,
++		 * whose handler puts the on/off value in the low 16 bits: gP0d = 0x00800000 | v. Linux's gpio
++		 * driver writes CMD_OUTPUT | v (0x01000000 | v) instead. Cycle it the macOS way after the wake.
++		 */
++		int r0 = apple_smc_write_u32(reboot->smc, SMC_KEY(gP0d), 0x00800000);
++
++		msleep(100);
++		ret = apple_smc_write_u32(reboot->smc, SMC_KEY(gP0d), 0x00800001);
++		msleep(200);
++		dev_info(dev, "TEST s2r: REG_ON cycled the macOS way (%d, %d), gP0d now %d\n", r0, ret,
++			 macsmc_reboot_wlan_reg_on(reboot));
++	}
+ 	return 0;
+ }
+ 
+diff --git a/drivers/soc/apple/pmp-export.c b/drivers/soc/apple/pmp-export.c
+index 77c200476318..00ade707874d 100644
+--- a/drivers/soc/apple/pmp-export.c
++++ b/drivers/soc/apple/pmp-export.c
+@@ -11,16 +11,596 @@ static DEFINE_MUTEX(pmp_lock);
+ static const void *pmp_data;
+ static struct device *pmp_device;
+ 
++/*
++ * GH-5: the PMP power cycle for system sleep with a real power cut, ported from Andreas Fernandez's t6000 S2R work
++ * (Ante042/linux t600x-s2r-reference, drivers/soc/apple/pmp-export.c), which follows macOS RTBuddy. The PMP firmware
++ * runs from PMS SRAM, which the S2R power cut erases: before the sleep the PMP is idled and stopped and its SRAM image
++ * saved; after the wake the SRAM, DAPF filters, DART and IORVBAR are put back and the firmware is booted again.
++ */
++#include <linux/bitfield.h>
++#include <linux/crc32.h>
++#include <linux/delay.h>
++#include <linux/interrupt.h>
++#include <linux/io.h>
++#include <linux/iopoll.h>
++#include <linux/mfd/syscon.h>
++#include <linux/of_platform.h>
++#include <linux/platform_device.h>
++#include <linux/pm.h>
++#include <linux/regmap.h>
++#include <linux/vmalloc.h>
++
++#define APPLE_PMP_IDLE		1
++#define APPLE_PMP_REINIT	2
++#define APPLE_PMP_BOOT		3
++
++#define ASC_CPU_CONFIG		0x40
++#define ASC_CPU_CONTROL		0x44
++#define ASC_CPU_CONTROL_RUN	BIT(4)
++#define ASC_CPU_STATUS		0x48
++#define ASC_CPU_STATUS_IDLE	GENMASK(1, 0)
++/* In the mailbox: bit 0 enables the IOP outbox (AppleASCWrapV4::_enableOutbox) */
++#define MBOX_A2I_CONTROL	0x110
++#define MBOX_I2A_CONTROL	0x114
++#define MBOX_OUTBOX_ENABLE	BIT(0)
++
++/* T6000 PMP reset vector, reg[1] of the macOS pmp node; bit 0 locks it */
++#define T6000_PMP_IORVBAR	0x28e850000ULL
++#define IORVBAR_LOCK		BIT_ULL(0)
++
++/*
++ * The APF filter of dart-pmp, reg[1] of its macOS node. All PMP traffic
++ * through the DART passes it (TCR bit 12 would bypass it). m1n1 fills it
++ * from filter-data-instance-0; it loses that with the power cut, and the
++ * T6000 PPL dartRestore writes the entries back before any TCR.
++ */
++#define T6000_PMP_DAPF		0x28e304000ULL
++#define DAPF_ENTRIES		16	/* n-apfs-instance-0 */
++#define DAPF_STRIDE		0x40
++#define DAPF_WORDS		6	/* control, 0x4, start lo/hi, end lo/hi */
++/* Every ADT entry sets these (r0_lo in m1n1); the unused ones read clear */
++#define DAPF_CTRL_SET		GENMASK(1, 0)
++
++/* PMGR PS fields as macOS ApplePMGR::_setPSLevel and _setPSAutoMinLevel use them */
++#define PS_TARGET		GENMASK(3, 0)
++#define PS_ACTUAL		GENMASK(7, 4)
++#define PS_WAS_GATED		GENMASK(9, 8)	/* write one to clear */
++#define PS_DEV_DISABLE		BIT(10)
++#define PS_BUSY			BIT(11)
++#define PS_AUTO_MIN		GENMASK(19, 16)
++#define PS_AUTO_ENABLE		BIT(28)
++#define PS_BIT30		BIT(30)
++#define PS_ACTIVE		0xf
++/* 0x2ee00 ticks of 24 MHz */
++#define PS_TIMEOUT_US		8000
++
++static void __iomem *pmp_asc;
++
++/* What the SRAM holds, to tell an image from a bus that reads back nothing */
++struct pmp_sram_sum {
++	u32 crc, word0, zero, ones;
++};
++
++struct pmp_ps {
++	const char *name;
++	struct regmap *map;
++	u32 reg;
++	u32 saved;
++};
++
++/* The T6000 power cycle for system sleep, as macOS RTBuddy does it */
++static struct {
++	void __iomem *mbox_ctl;
++	void __iomem *outbox;
++	void __iomem *iorvbar;
++	void __iomem *dapf;
++	u32 dapf_saved[DAPF_ENTRIES][DAPF_WORDS];
++	int dapf_n;
++	void __iomem *sram;
++	size_t sram_size;
++	u32 *sram_copy;
++	bool sram_saved;
++	struct pmp_sram_sum saved_sum;
++	u64 iorvbar_saved;
++	struct pmp_ps ps_pmp, ps_sram;
++	struct device *dart;
++	int dart_irq;
++	struct device *mbox;
++	int mbox_irq[2];
++	/* Idled for sleep: nothing may talk to it until it boots again */
++	bool stopped;
++	/* Powered down, with its mailbox, DART, IORVBAR and report region */
++	bool down;
++} pmp_pc;
++
++static u32 pmp_ps_read(struct pmp_ps *ps)
++{
++	u32 v = 0;
++
++	regmap_read(ps->map, ps->reg, &v);
++	return v;
++}
++
++static int pmp_ps_wait(struct pmp_ps *ps, u32 mask, u32 val)
++{
++	u32 v;
++	int ret;
++
++	ret = regmap_read_poll_timeout_atomic(ps->map, ps->reg, v, (v & mask) == val,
++					      1, PS_TIMEOUT_US);
++	if (ret)
++		dev_warn(pmp_device, "PS %s: %#x, waited for %#x in %#x\n", ps->name, v,
++			 val, mask);
++	return ret;
++}
++
++/* AppleT6000PMGR::writeReg32 waits out BUSY after each write of a lower target */
++static int pmp_ps_write(struct pmp_ps *ps, u32 val)
++{
++	regmap_write(ps->map, ps->reg, val);
++	if (FIELD_GET(PS_TARGET, val) == PS_ACTIVE)
++		return 0;
++	return pmp_ps_wait(ps, PS_BUSY, 0);
++}
++
++/* ApplePMGR::_setPSAutoMinLevel */
++static void pmp_ps_set_auto_min(struct pmp_ps *ps, u32 level)
++{
++	u32 r = pmp_ps_read(ps);
++
++	pmp_ps_write(ps, (r & ~(PS_AUTO_MIN | PS_WAS_GATED)) |
++		     FIELD_PREP(PS_AUTO_MIN, level));
++}
++
++/* ApplePMGR::_setPSLevel */
++static int pmp_ps_set_level(struct pmp_ps *ps, u32 level, bool auto_enable)
++{
++	u32 r = pmp_ps_read(ps), w;
++	int ret;
++
++	if (FIELD_GET(PS_TARGET, r) == level && !!(r & PS_AUTO_ENABLE) == auto_enable &&
++	    !(r & (PS_BIT30 | PS_DEV_DISABLE)))
++		return 0;
++	if (r & PS_AUTO_ENABLE) {
++		/* macOS leaves auto PM only from the active state */
++		if (FIELD_GET(PS_TARGET, r) != PS_ACTIVE)
++			return -EINVAL;
++		w = r & ~(PS_AUTO_ENABLE | PS_WAS_GATED);
++		pmp_ps_write(ps, w);
++		pmp_ps_wait(ps, PS_ACTUAL, FIELD_PREP(PS_ACTUAL, PS_ACTIVE));
++	} else {
++		w = r & ~PS_WAS_GATED;
++	}
++	w = (w & ~PS_TARGET) | level;
++	pmp_ps_write(ps, level == PS_ACTIVE ? w : w | PS_WAS_GATED);
++	ret = pmp_ps_wait(ps, PS_ACTUAL, FIELD_PREP(PS_ACTUAL, level));
++	if (auto_enable) {
++		w |= PS_AUTO_ENABLE;
++		pmp_ps_write(ps, w);
++	}
++	if (w & PS_BIT30) {
++		w &= ~PS_BIT30;
++		pmp_ps_write(ps, w);
++	}
++	if (w & PS_DEV_DISABLE) {
++		w &= ~PS_DEV_DISABLE;
++		pmp_ps_write(ps, w);
++	}
++	return ret;
++}
++
++/* As the PMGR powers a device up: its auto-min level, then active */
++static int pmp_ps_power_up(struct pmp_ps *ps)
++{
++	pmp_ps_set_auto_min(ps, FIELD_GET(PS_AUTO_MIN, ps->saved));
++	return pmp_ps_set_level(ps, PS_ACTIVE, ps->saved & PS_AUTO_ENABLE);
++}
++
++static void pmp_pc_mbox_irqs(bool enable)
++{
++	int i;
++
++	for (i = 0; i < ARRAY_SIZE(pmp_pc.mbox_irq); i++) {
++		if (enable)
++			enable_irq(pmp_pc.mbox_irq[i]);
++		else
++			disable_irq(pmp_pc.mbox_irq[i]);
++	}
++}
++
++/* AppleT6000DART save and restore around the power cut, as its runtime PM */
++static int pmp_pc_dart(bool up)
++{
++	struct device *dart = pmp_pc.dart;
++	const struct dev_pm_ops *pm = dart->driver ? dart->driver->pm : NULL;
++	int ret = -ENODEV;
++
++	if (!up) {
++		disable_irq(pmp_pc.dart_irq);
++		if (pm && pm->runtime_suspend)
++			ret = pm->runtime_suspend(dart);
++		return ret;
++	}
++	if (pm && pm->runtime_resume)
++		ret = pm->runtime_resume(dart);
++	enable_irq(pmp_pc.dart_irq);
++	return ret;
++}
++
++/* The filters m1n1 wrote at boot, which are the ADT ones macOS writes */
++static void pmp_pc_dapf_save(void)
++{
++	int i, j;
++
++	for (i = 0; i < DAPF_ENTRIES; i++) {
++		void __iomem *e = pmp_pc.dapf + i * DAPF_STRIDE;
++
++		if (!(readl(e) & DAPF_CTRL_SET))
++			break;
++		for (j = 0; j < DAPF_WORDS; j++)
++			pmp_pc.dapf_saved[i][j] = readl(e + 4 * j);
++	}
++	pmp_pc.dapf_n = i;
++}
++
++/*
++ * The APF loop of the PPL dartRestore, unlocked: plain stores of 0x4,
++ * 0x8, 0xc, 0x10 and 0x14, then the control word. Returns how many
++ * entries read back differently afterwards.
++ */
++static int pmp_pc_dapf_restore(void)
++{
++	int i, j, bad = 0;
++
++	for (i = 0; i < pmp_pc.dapf_n; i++) {
++		void __iomem *e = pmp_pc.dapf + i * DAPF_STRIDE;
++
++		for (j = 1; j < DAPF_WORDS; j++)
++			writel(pmp_pc.dapf_saved[i][j], e + 4 * j);
++		writel(pmp_pc.dapf_saved[i][0], e);
++	}
++	for (i = 0; i < pmp_pc.dapf_n; i++)
++		for (j = 0; j < DAPF_WORDS; j++)
++			if (readl(pmp_pc.dapf + i * DAPF_STRIDE + 4 * j) !=
++			    pmp_pc.dapf_saved[i][j]) {
++				bad++;
++				break;
++			}
++	return bad;
++}
++
++/* Reads only: the copy, or the SRAM itself when copy is NULL */
++static void pmp_pc_sram_sum(const u32 *copy, struct pmp_sram_sum *s)
++{
++	size_t i, n = pmp_pc.sram_size / 4;
++	u32 v;
++
++	memset(s, 0, sizeof(*s));
++	s->crc = ~0U;
++	for (i = 0; i < n; i++) {
++		v = copy ? copy[i] : readl_relaxed(pmp_pc.sram + 4 * i);
++		if (!i)
++			s->word0 = v;
++		s->zero += !v;
++		s->ones += v == ~0U;
++		s->crc = crc32_le(s->crc, (u8 *)&v, sizeof(v));
++	}
++}
++
++static void pmp_pc_sram_log(const char *when, const struct pmp_sram_sum *s)
++{
++	dev_info(pmp_device, "SRAM %s: crc %08x, word 0 %#x, %u zero, %u ones\n",
++		when, s->crc, s->word0, s->zero, s->ones);
++}
++
++/* RTBuddy saveSRAM and restoreSRAM: ascending 32-bit words */
++static void pmp_pc_sram(bool save)
++{
++	size_t i, n = pmp_pc.sram_size / 4;
++
++	if (save) {
++		for (i = 0; i < n; i++)
++			pmp_pc.sram_copy[i] = readl_relaxed(pmp_pc.sram + 4 * i);
++	} else {
++		for (i = 0; i < n; i++)
++			writel_relaxed(pmp_pc.sram_copy[i], pmp_pc.sram + 4 * i);
++		/* The whole image is written before the PMP is powered up and reads it */
++		wmb();
++	}
++	pmp_pc.sram_saved = save;
++}
++
++/* Reads only: how CPU status moves in the first 2 ms after RUN */
++static void pmp_pc_status_trace(void)
++{
++	u32 seen[8], at[8], v;
++	int i, n = 0, us;
++	char buf[160] = "";
++	int len = 0;
++
++	for (us = 0; us <= 2000 && n < ARRAY_SIZE(seen); us += 10) {
++		v = readl(pmp_asc + ASC_CPU_STATUS);
++		if (!n || v != seen[n - 1]) {
++			seen[n] = v;
++			at[n++] = us;
++		}
++		udelay(10);
++	}
++	for (i = 0; i < n; i++)
++		len += scnprintf(buf + len, sizeof(buf) - len, " %#x@%uus", seen[i], at[i]);
++	dev_info(pmp_device, "CPU status after RUN:%s\n", buf);
++}
++
++/* RTBuddy::_setManagedStateGated for sleep */
++static int pmp_pc_stop(void)
++{
++	struct pmp_sram_sum halted;
++	u32 st, ps_pmp, ps_sram, cfg, ps_pmp_now, ps_sram_now;
++	int ret, ret_pmp, ret_sram;
++
++	if (!pmp_pc.sram)
++		return -EOPNOTSUPP;
++	if (pmp_pc.stopped)
++		return -EALREADY;
++	if (!pmp_pc.sram_copy) {
++		pmp_pc.sram_copy = vmalloc(pmp_pc.sram_size);
++		if (!pmp_pc.sram_copy)
++			return -ENOMEM;
++	}
++
++	/* The report region goes down with PMS_SRAM, the requests wait in a shadow */
++	ret = apple_pmp_set_sleep(pmp_data, APPLE_PMP_IDLE);
++	if (ret) {
++		return ret;
++	}
++	pmp_pc.stopped = true;
++	pmp_pc_mbox_irqs(false);
++
++	/* stopCPU */
++	writel(readl(pmp_pc.outbox) & ~MBOX_OUTBOX_ENABLE, pmp_pc.outbox);
++	ret = readl_poll_timeout(pmp_asc + ASC_CPU_STATUS, st, st & ASC_CPU_STATUS_IDLE,
++				 1000, 10000);
++	if (ret) {
++		/* macOS panics here. Without the power cut a restart cannot work. */
++		dev_err(pmp_device, "CPU never idle (%#x), not powering it down\n", st);
++		return ret;
++	}
++	writel(readl(pmp_asc + ASC_CPU_CONTROL) & ~ASC_CPU_CONTROL_RUN,
++	       pmp_asc + ASC_CPU_CONTROL);
++	ret = pmp_pc_dart(false);
++	pmp_pc.iorvbar_saved = readq(pmp_pc.iorvbar);
++	ps_pmp = pmp_ps_read(&pmp_pc.ps_pmp);
++	pmp_pc.ps_pmp.saved = ps_pmp;
++	ps_sram = pmp_ps_read(&pmp_pc.ps_sram);
++	pmp_pc.ps_sram.saved = ps_sram;
++	/* Stopped but still powered: the image as it should be saved */
++	cfg = readl(pmp_asc + ASC_CPU_CONFIG);
++	pmp_pc_sram_sum(NULL, &halted);
++	pmp_pc.down = true;
++	ret_pmp = pmp_ps_set_level(&pmp_pc.ps_pmp, 0, false);
++
++	/* With the PMP off and PMS_SRAM still on, then PMS_SRAM off */
++	pmp_pc_sram(true);
++	ret_sram = pmp_ps_set_level(&pmp_pc.ps_sram, 0, false);
++
++	ps_pmp_now = pmp_ps_read(&pmp_pc.ps_pmp);
++	ps_sram_now = pmp_ps_read(&pmp_pc.ps_sram);
++	dev_info(pmp_device,
++		"down for sleep: CPU status %#x, config %#x, DART %d, IORVBAR %#llx, PS pmp %#x -> %#x (%d), pms_sram %#x -> %#x (%d)\n",
++		st, cfg, ret, pmp_pc.iorvbar_saved, ps_pmp, ps_pmp_now, ret_pmp,
++		ps_sram, ps_sram_now, ret_sram);
++	pmp_pc_sram_log("halted, powered", &halted);
++	pmp_pc_sram_sum(pmp_pc.sram_copy, &pmp_pc.saved_sum);
++	pmp_pc_sram_log("saved with the PMP off", &pmp_pc.saved_sum);
++	return 0;
++}
++
++/* The RTBuddy wake path, through startCPUWithOptions and the HELLO */
++static int pmp_pc_start(void)
++{
++	struct pmp_sram_sum back;
++	int ret_sram, ret_pmp, ret_dart, ret, dapf_bad;
++	bool wrote = false;
++	u32 dapf0, cpu_config, cpu_control, cpu_status, ps_pmp_now, ps_sram_now;
++	u64 rvbar;
++
++	if (!pmp_pc.stopped)
++		return 0;
++	if (!pmp_pc.down) {
++		/* Its CPU never stopped, so it cannot boot again; undo the rest */
++		writel(readl(pmp_pc.outbox) | MBOX_OUTBOX_ENABLE, pmp_pc.outbox);
++		pmp_pc_mbox_irqs(true);
++		pmp_pc.stopped = false;
++		return -EIO;
++	}
++
++	/* enableSRAM, restoreSRAM */
++	ret_sram = pmp_ps_power_up(&pmp_pc.ps_sram);
++	if (pmp_pc.sram_saved)
++		pmp_pc_sram(false);
++	pmp_pc_sram_sum(NULL, &back);
++
++	/* startCPUWithOptions: power, DART, firmware, interrupts, outbox, RUN */
++	ret_pmp = pmp_ps_power_up(&pmp_pc.ps_pmp);
++	pmp_pc.down = false;
++	pmp_pc_sram_log("restored, read with the PMP off", &back);
++	pmp_pc_sram_sum(NULL, &back);
++	pmp_pc_sram_log("with the PMP on", &back);
++	cpu_config = readl(pmp_asc + ASC_CPU_CONFIG);
++	cpu_control = readl(pmp_asc + ASC_CPU_CONTROL);
++	cpu_status = readl(pmp_asc + ASC_CPU_STATUS);
++	dev_info(pmp_device, "CPU after power up: config %#x, control %#x, status %#x\n",
++		cpu_config, cpu_control, cpu_status);
++	/* In dartRestore the APF entries go in ahead of the TCRs */
++	dapf0 = readl(pmp_pc.dapf);
++	dapf_bad = pmp_pc_dapf_restore();
++	ret_dart = pmp_pc_dart(true);
++	/*
++	 * iBoot locked it to the SRAM, and macOS writes it only when unlocked.
++	 * Should it come back reset, put back what iBoot left there.
++	 */
++	rvbar = readq(pmp_pc.iorvbar);
++	if (!(rvbar & IORVBAR_LOCK)) {
++		writeq(pmp_pc.iorvbar_saved, pmp_pc.iorvbar);
++		wrote = true;
++	}
++	ps_pmp_now = pmp_ps_read(&pmp_pc.ps_pmp);
++	ps_sram_now = pmp_ps_read(&pmp_pc.ps_sram);
++	dev_info(pmp_device,
++		"up after sleep: PS pmp %#x (%d), pms_sram %#x (%d), DART %d, IORVBAR %#llx%s, DAPF %d entries (control 0 was %#x, %d differ)\n",
++		ps_pmp_now, ret_pmp, ps_sram_now, ret_sram,
++		ret_dart, rvbar, wrote ? ", lost and written again" : "",
++		pmp_pc.dapf_n, dapf0, dapf_bad);
++
++	/* A fresh RTKit state before RUN, so the HELLO cannot be lost */
++	ret = apple_pmp_set_sleep(pmp_data, APPLE_PMP_REINIT);
++	pmp_pc_mbox_irqs(true);
++	if (!ret) {
++		writel(readl(pmp_pc.outbox) | MBOX_OUTBOX_ENABLE, pmp_pc.outbox);
++		writel(readl(pmp_asc + ASC_CPU_CONTROL) | ASC_CPU_CONTROL_RUN,
++		       pmp_asc + ASC_CPU_CONTROL);
++		pmp_pc_status_trace();
++		ret = apple_pmp_set_sleep(pmp_data, APPLE_PMP_BOOT);
++	}
++	if (ret)
++		dev_err(pmp_device,
++			"no boot after sleep: CPU control %#x, status %#x, mailbox A2I %#x, I2A %#x\n",
++			readl(pmp_asc + ASC_CPU_CONTROL), readl(pmp_asc + ASC_CPU_STATUS),
++			readl(pmp_pc.mbox_ctl), readl(pmp_pc.outbox));
++	pmp_pc.stopped = false;
++	if (!ret)
++		dev_info(pmp_device, "restarted after sleep\n");
++	return ret;
++}
++
++static struct device *pmp_pc_find_device(struct device_node *np, const char *prop)
++{
++	struct device_node *node = of_parse_phandle(np, prop, 0);
++	struct platform_device *pdev = node ? of_find_device_by_node(node) : NULL;
++
++	of_node_put(node);
++	return pdev ? &pdev->dev : NULL;
++}
++
++static int pmp_pc_find_ps(struct device_node *ps_np, struct pmp_ps *ps)
++{
++	struct device_node *parent = of_get_parent(ps_np);
++
++	ps->map = parent ? syscon_node_to_regmap(parent) : ERR_PTR(-ENODEV);
++	of_node_put(parent);
++	if (IS_ERR(ps->map))
++		return PTR_ERR(ps->map);
++	return of_property_read_u32(ps_np, "reg", &ps->reg);
++}
++
++/* Only T6000 has the power cycle; elsewhere stop returns -EOPNOTSUPP */
++static int pmp_pc_init(struct device *dev)
++{
++	struct platform_device *pdev = to_platform_device(dev);
++	struct device_node *ps_np, *parent, *child;
++	struct resource *res;
++	int ret = -ENODEV;
++
++	/* GH-5: t6000 and t6020 share the PMP layout (IORVBAR 0x28e850000, DAPF 0x28e304000, checked on J414s) */
++	if (!of_device_is_compatible(dev->of_node, "apple,t6000-pmp-v2") ||
++	    !(of_machine_is_compatible("apple,t6000") || of_machine_is_compatible("apple,t6020")))
++		return 0;
++
++	pmp_pc.ps_pmp.name = "pmp";
++	pmp_pc.ps_sram.name = "pms_sram";
++	ps_np = of_parse_phandle(dev->of_node, "power-domains", 0);
++	if (!ps_np)
++		return -ENODEV;
++	ret = pmp_pc_find_ps(ps_np, &pmp_pc.ps_pmp);
++	parent = of_get_parent(ps_np);
++	of_node_put(ps_np);
++	if (ret) {
++		of_node_put(parent);
++		return ret;
++	}
++	ret = -ENODEV;
++	for_each_child_of_node(parent, child) {
++		const char *label;
++
++		if (!of_property_read_string(child, "label", &label) &&
++		    !strcmp(label, "pms_sram")) {
++			ret = pmp_pc_find_ps(child, &pmp_pc.ps_sram);
++			of_node_put(child);
++			break;
++		}
++	}
++	of_node_put(parent);
++	if (ret)
++		return ret;
++
++	pmp_pc.dart = pmp_pc_find_device(dev->of_node, "iommus");
++	pmp_pc.mbox = pmp_pc_find_device(dev->of_node, "mboxes");
++	if (!pmp_pc.dart || !pmp_pc.mbox)
++		return -ENODEV;
++	pmp_pc.dart_irq = platform_get_irq(to_platform_device(pmp_pc.dart), 0);
++	pmp_pc.mbox_irq[0] = platform_get_irq_byname(to_platform_device(pmp_pc.mbox),
++						     "recv-not-empty");
++	pmp_pc.mbox_irq[1] = platform_get_irq_byname(to_platform_device(pmp_pc.mbox),
++						     "send-empty");
++	if (pmp_pc.dart_irq < 0 || pmp_pc.mbox_irq[0] < 0 || pmp_pc.mbox_irq[1] < 0)
++		return -ENODEV;
++
++	res = platform_get_resource(to_platform_device(pmp_pc.mbox), IORESOURCE_MEM, 0);
++	pmp_pc.mbox_ctl = res ? ioremap_np(res->start + MBOX_A2I_CONTROL, 8) : NULL;
++	pmp_pc.outbox = pmp_pc.mbox_ctl ? pmp_pc.mbox_ctl + 4 : NULL;
++	pmp_pc.iorvbar = ioremap_np(T6000_PMP_IORVBAR, 8);
++	pmp_pc.dapf = ioremap_np(T6000_PMP_DAPF, DAPF_ENTRIES * DAPF_STRIDE);
++	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "pmp");
++	if (!pmp_pc.outbox || !pmp_pc.iorvbar || !pmp_pc.dapf || !res)
++		return -ENODEV;
++	/* Without the filters the PMP could not reach anything after the cut */
++	pmp_pc_dapf_save();
++	if (!pmp_pc.dapf_n)
++		return -ENOENT;
++	pmp_pc.sram_size = resource_size(res);
++	/* Set last: it tells stop that everything above is there */
++	pmp_pc.sram = ioremap_np(res->start, pmp_pc.sram_size);
++	return pmp_pc.sram ? 0 : -ENOMEM;
++}
++
++static void pmp_pc_exit(void)
++{
++	if (pmp_pc.sram)
++		iounmap(pmp_pc.sram);
++	if (pmp_pc.dapf)
++		iounmap(pmp_pc.dapf);
++	if (pmp_pc.iorvbar)
++		iounmap(pmp_pc.iorvbar);
++	if (pmp_pc.mbox_ctl)
++		iounmap(pmp_pc.mbox_ctl);
++	put_device(pmp_pc.dart);
++	put_device(pmp_pc.mbox);
++	vfree(pmp_pc.sram_copy);
++	memset(&pmp_pc, 0, sizeof(pmp_pc));
++}
++
++
+ int apple_pmp_register(struct device *dev, const void *data)
+ {
+ 	int ret = 0;
+ 
++	struct resource *res;
++
+ 	guard(mutex)(&pmp_lock);
+ 	if (pmp_data)
+-		ret = -EBUSY;
+-	else {
+-		pmp_data = data;
+-		pmp_device = dev;
++		return -EBUSY;
++	pmp_data = data;
++	pmp_device = dev;
++	/* The Rust driver holds the region; this only drives the CPU */
++	res = platform_get_resource_byname(to_platform_device(dev), IORESOURCE_MEM, "asc");
++	pmp_asc = res ? ioremap_np(res->start, 0x100) : NULL;
++	ret = pmp_pc_init(dev);
++	if (ret) {
++		dev_warn(dev, "no power cycle for system sleep: %d\n", ret);
++		pmp_pc_exit();
++		ret = 0;
++	} else if (pmp_pc.sram) {
++		dev_info(dev, "power cycle for system sleep, %d DAPF entries\n", pmp_pc.dapf_n);
+ 	}
+ 	return ret;
+ }
+@@ -29,6 +609,10 @@ void apple_pmp_unregister(const void *data)
+ {
+ 	guard(mutex)(&pmp_lock);
+ 	if (pmp_data == data) {
++		pmp_pc_exit();
++		if (pmp_asc)
++			iounmap(pmp_asc);
++		pmp_asc = NULL;
+ 		pmp_data = NULL;
+ 		pmp_device = NULL;
+ 	}
+@@ -120,3 +704,16 @@ int apple_pmp_sleep(bool sleep)
+ 	return apple_pmp_sleep_power(pmp_data, sleep);
+ }
+ EXPORT_SYMBOL_GPL(apple_pmp_sleep);
++
++/**
++ * apple_pmp_power_cycle() - GH-5: stop the PMP for a sleep with a power cut, or restart it after the wake
++ * @stop: true after slpa, with interrupts still on; false before devices resume
++ */
++int apple_pmp_power_cycle(bool stop)
++{
++	guard(mutex)(&pmp_lock);
++	if (!pmp_data || !pmp_asc)
++		return -ENODEV;
++	return stop ? pmp_pc_stop() : pmp_pc_start();
++}
++EXPORT_SYMBOL_GPL(apple_pmp_power_cycle);
+diff --git a/drivers/soc/apple/pmp.rs b/drivers/soc/apple/pmp.rs
+index 3ccd728fb4cb..77a4c54afe4e 100644
+--- a/drivers/soc/apple/pmp.rs
++++ b/drivers/soc/apple/pmp.rs
+@@ -102,6 +102,11 @@ struct PmpState {
+     allocs: KVec<PmpAllocation>,
+     value_buf: Option<u64>,
+     ioreg_entries: KVec<u32>,
++    /// GH-5: the firmware was restarted after a power cut in system sleep (port of Andreas Fernandez's t6000
++    /// S2R PMP code) and may set itself up again.
++    restarted: bool,
++    /// Clear the ioreg indices on the first registration after a restart.
++    ioreg_restart: bool,
+ }
+ 
+ impl PmpState {
+@@ -111,6 +116,8 @@ fn new() -> Result<PmpState> {
+             allocs: KVec::with_capacity(10, GFP_KERNEL)?,
+             value_buf: None,
+             ioreg_entries: KVec::with_capacity(340, GFP_KERNEL)?,
++            restarted: false,
++            ioreg_restart: false,
+         })
+     }
+     fn find_alloc(&self, addr: u64) -> Option<usize> {
+@@ -188,7 +195,11 @@ fn patch_bootargs(
+     }
+     fn get_iova_table(&self) -> Result<u64> {
+         let mut state = self.state.lock();
+-        if state.iova_table.is_some() {
++        if let Some(table) = &state.iova_table {
++            if state.restarted {
++                // The PIO ranges are still mapped from the first boot.
++                return Ok((OPC_GET_IOVA_TABLE | OPC_ACK_MASK) << OPC_SHIFT | table.dma_handle());
++            }
+             dev_err!(self.dev, "Asked for iova table with existing buffer");
+             return Err(EIO);
+         }
+@@ -268,7 +279,7 @@ fn free(&self, addr: u64) -> Result<u64> {
+     }
+     fn set_buf(&self, addr: u64) -> Result<u64> {
+         let mut state = self.state.lock();
+-        if state.value_buf.is_some() {
++        if state.value_buf.is_some() && !state.restarted {
+             dev_err!(self.dev, "Setting a buffer when one exists");
+             return Err(EIO);
+         }
+@@ -289,6 +300,10 @@ fn set_buf(&self, addr: u64) -> Result<u64> {
+     }
+     fn register_ioreg(&self, addr: u64) -> Result<u64> {
+         let mut state = self.state.lock();
++        if state.ioreg_restart {
++            state.ioreg_restart = false;
++            state.ioreg_entries.clear();
++        }
+         let msg_buf = if let Some(s) = state.get_buf(addr) {
+             s
+         } else {
+@@ -477,6 +492,56 @@ unsafe impl Sync for PmpData {}
+     }
+ }
+ 
++/// GH-5: one RTKit step of stopping the PMP for system sleep and restarting it after the power cut, as macOS
++/// RTBuddy does (port of Andreas Fernandez's t6000 S2R code, Ante042/linux t600x-s2r-reference): 1 = IDLE,
++/// then (CPU stopped, SRAM saved, powered down; after the wake powered up, SRAM restored by the C bridge)
++/// 2 = REINIT before RUN and 3 = BOOT after it.
++///
++/// # Safety
++/// `data` must point to the live PmpData registered by PmpDriver.
++#[export]
++pub unsafe extern "C" fn apple_pmp_set_sleep(data: *const core::ffi::c_void, op: i32) -> i32 {
++    // SAFETY: The C bridge serializes calls against unregister in Drop.
++    let data = unsafe { &*data.cast::<PmpData>() };
++    let mut guard = data.rtkit.lock();
++    let Some(mut rtk) = guard.as_mut().as_pin_mut() else {
++        return ENODEV.to_errno();
++    };
++    let ret = match op {
++        1 => {
++            if !rtk.is_running() {
++                return EINVAL.to_errno();
++            }
++            rtk.as_mut().idle()
++        }
++        2 => {
++            let ret = rtk.as_mut().reinit();
++            if ret.is_ok() {
++                let mut state = data.state.lock();
++                state.restarted = true;
++                state.ioreg_restart = true;
++            }
++            ret
++        }
++        3 => {
++            // The restarted firmware acks IOP power by itself; ask if it does not.
++            let ret = match rtk.as_mut().boot() {
++                Err(e) if e == ETIME => {
++                    dev_warn!(data.dev, "no IOP power ack after restart, sending INIT");
++                    rtk.as_mut().wake()
++                }
++                ret => ret,
++            };
++            ret.and_then(|()| rtk.as_mut().start_endpoint(PMP_ENDPOINT))
++        }
++        _ => Err(EINVAL),
++    };
++    match ret {
++        Ok(()) => 0,
++        Err(error) => error.to_errno(),
++    }
++}
++
+ struct NoBuffer;
+ impl rtkit::Buffer for NoBuffer {
+     fn iova(&self) -> Result<usize> {
+diff --git a/drivers/soc/apple/rtkit-internal.h b/drivers/soc/apple/rtkit-internal.h
+index 417d4550ef3a..6a619c4c0b07 100644
+--- a/drivers/soc/apple/rtkit-internal.h
++++ b/drivers/soc/apple/rtkit-internal.h
+@@ -35,6 +35,8 @@ struct apple_rtkit_crashlog_header {
+ static_assert(sizeof(struct apple_rtkit_crashlog_header) == 0x20);
+ 
+ struct apple_rtkit {
++	/* GH-5: extra seconds to wait for the IOP power ack (a coprocessor booting after an S2R power cut) */
++	unsigned int iop_ack_extra_s;
+ 	void *cookie;
+ 	const struct apple_rtkit_ops *ops;
+ 	struct device *dev;
+diff --git a/drivers/soc/apple/rtkit.c b/drivers/soc/apple/rtkit.c
+index 6da0e4cbada7..7aab784a692c 100644
+--- a/drivers/soc/apple/rtkit.c
++++ b/drivers/soc/apple/rtkit.c
+@@ -1388,6 +1388,14 @@ static int apple_rtkit_boot_common(struct apple_rtkit *rtk, bool early_ap_power)
+ 
+ 	dev_dbg(rtk->dev, "RTKit: waiting for IOP power state ACK\n");
+ 	ret = apple_rtkit_wait(rtk, &rtk->iop_pwr_ack_completion);
++	if (ret == -ETIME && rtk->iop_ack_extra_s) {
++		/* GH-5 (after Andreas Fernandez's t6000 ANS wait): a coprocessor booting after a power cut is slow */
++		unsigned int i;
++
++		for (i = 0; ret == -ETIME && i < rtk->iop_ack_extra_s && !rtk->crashed; i++)
++			ret = apple_rtkit_wait(rtk, &rtk->iop_pwr_ack_completion);
++		dev_info(rtk->dev, "RTKit: IOP power ack %s after %u s more\n", ret ? "still missing" : "came", i);
++	}
+ 	if (ret) {
+ 		dev_err(rtk->dev, "RTKit: IOP power acknowledgment failed: %d\n", ret);
+ 		return ret;
+@@ -1397,6 +1405,60 @@ static int apple_rtkit_boot_common(struct apple_rtkit *rtk, bool early_ap_power)
+ 		apple_rtkit_set_ap_power_state(rtk, APPLE_RTKIT_PWR_STATE_ON);
+ }
+ 
++/*
++ * GH-5, from Andreas Fernandez's t6000 S2R work: like apple_rtkit_reinit(), but for a co-processor that was put to
++ * idle and resumes from its saved context. It keeps the shared buffers it was given, so they must stay mapped; only
++ * the mailbox and the power handshake restart.
++ */
++int apple_rtkit_reinit_keep(struct apple_rtkit *rtk)
++{
++	unsigned long flags;
++	int ret;
++
++	apple_rtkit_detach_rx(rtk);
++	flush_workqueue(rtk->wq);
++
++	bitmap_zero(rtk->endpoints, APPLE_RTKIT_MAX_ENDPOINTS);
++	set_bit(APPLE_RTKIT_EP_MGMT, rtk->endpoints);
++
++	reinit_completion(&rtk->epmap_completion);
++	reinit_completion(&rtk->iop_pwr_ack_completion);
++	reinit_completion(&rtk->ap_pwr_ack_completion);
++
++	rtk->crashed = false;
++	rtk->iop_power_state = APPLE_RTKIT_PWR_STATE_OFF;
++	rtk->ap_power_state = APPLE_RTKIT_PWR_STATE_OFF;
++	kfifo_reset(&rtk->sync_ack_fifo);
++
++	spin_lock_irqsave(&rtk->mbox->rx_lock, flags);
++	WRITE_ONCE(rtk->shutting_down, false);
++	rtk->mbox->rx = apple_rtkit_rx;
++	spin_unlock_irqrestore(&rtk->mbox->rx_lock, flags);
++
++	ret = apple_mbox_start(rtk->mbox);
++	if (ret) {
++		apple_rtkit_detach_rx(rtk);
++		flush_workqueue(rtk->wq);
++	}
++	return ret;
++}
++EXPORT_SYMBOL_GPL(apple_rtkit_reinit_keep);
++
++/* Stop receiving before an idled co-processor sleeps; its buffers stay put */
++void apple_rtkit_detach_keep(struct apple_rtkit *rtk)
++{
++	apple_rtkit_detach_rx(rtk);
++	flush_workqueue(rtk->wq);
++}
++EXPORT_SYMBOL_GPL(apple_rtkit_detach_keep);
++
++/* GH-5: let the next boot wait up to @seconds more for the IOP power ack (0 = the normal wait) */
++void apple_rtkit_set_iop_ack_wait(struct apple_rtkit *rtk, unsigned int seconds)
++{
++	rtk->iop_ack_extra_s = seconds;
++}
++EXPORT_SYMBOL_GPL(apple_rtkit_set_iop_ack_wait);
++
+ int apple_rtkit_boot(struct apple_rtkit *rtk)
+ {
+ 	return apple_rtkit_boot_common(rtk, false);
+diff --git a/include/linux/soc/apple/pmp.h b/include/linux/soc/apple/pmp.h
+index e8382921c5fd..5073bd964685 100644
+--- a/include/linux/soc/apple/pmp.h
++++ b/include/linux/soc/apple/pmp.h
+@@ -36,4 +36,6 @@ void apple_pmp_unregister(const void *data);
+ int apple_pmp_send_power_command(const void *data, u8 command,
+ 				u16 device_id, u32 enabled);
+ int apple_pmp_sleep_power(const void *data, bool sleep);
++int apple_pmp_power_cycle(bool stop);
++int apple_pmp_set_sleep(const void *data, int op);
+ #endif
+diff --git a/include/linux/soc/apple/rtkit.h b/include/linux/soc/apple/rtkit.h
+index 64d574550f01..2d138bdf65a4 100644
+--- a/include/linux/soc/apple/rtkit.h
++++ b/include/linux/soc/apple/rtkit.h
+@@ -160,6 +160,9 @@ int apple_rtkit_reinit(struct apple_rtkit *rtk);
+  * co-processor has been started.
+  */
+ int apple_rtkit_boot(struct apple_rtkit *rtk);
++void apple_rtkit_set_iop_ack_wait(struct apple_rtkit *rtk, unsigned int seconds);
++int apple_rtkit_reinit_keep(struct apple_rtkit *rtk);
++void apple_rtkit_detach_keep(struct apple_rtkit *rtk);
+ 
+ /*
+  * Mark an instance created with apple_rtkit_init() as running without a
+diff --git a/rust/kernel/soc/apple/rtkit.rs b/rust/kernel/soc/apple/rtkit.rs
+index 77f43889b22c..10b1d17ddb77 100644
+--- a/rust/kernel/soc/apple/rtkit.rs
++++ b/rust/kernel/soc/apple/rtkit.rs
+@@ -317,6 +317,13 @@ pub fn as_raw(&self) -> *mut bindings::apple_rtkit {
+         self.rtk
+     }
+ 
++    /// Resets the RTKit state machine (and the mailbox) for a coprocessor whose CPU is stopped, so that a restart's
++    /// HELLO cannot be lost (GH-5: the PMP after a power cut in system sleep).
++    pub fn reinit(self: Pin<&mut Self>) -> Result {
++        // SAFETY: `rtk` is valid per the type invariant.
++        to_result(unsafe { bindings::apple_rtkit_reinit(self.rtk) })
++    }
++
+     /// Waits for the RTKit coprocessor to finish booting.
+     pub fn boot(self: Pin<&mut Self>) -> Result {
+         // SAFETY: `rtk` is valid per the type invariant.
+-- 
+2.56.1
+
