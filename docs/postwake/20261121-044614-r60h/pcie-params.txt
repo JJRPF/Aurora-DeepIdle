@@ -1,0 +1,7 @@
+/sys/module/pcie_apple/parameters/link_up_timeout 500
+/sys/module/pcie_apple/parameters/s2idle_keep_link Y
+/sys/module/pcie_apple/parameters/s2r_attempts 3
+/sys/module/pcie_apple/parameters/s2r_pwren_off_ms 0
+/sys/module/pcie_apple/parameters/s2r_resume Y
+/sys/module/pcie_apple/parameters/s2r_resume_delay_ms 1500
+/sys/module/pcie_apple/parameters/tunnel_kernel_init Y

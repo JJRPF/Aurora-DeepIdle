@@ -1010,6 +1010,10 @@
   ],
   "findings": [
     {
+      "title": "R60H: SD reader power cut across the sleep, no change",
+      "body": "The SD power was switched off before the sleep and back on at the wake as planned, and the SMC sequence now matches Andreas Fernandez's M1 Pro one. Wi-Fi and the SD reader still don't show up on PCIe. Since both fail the same way, R60I compares the PCIe controller's registers before the sleep and after the wake."
+    },
+    {
       "title": "R60H armed: SD reader power off across the sleep (Andreas Fernandez's t600x recipe)",
       "body": "Andreas's M1 Pro S2R, where Wi-Fi comes back, switches the SD reader's power (SMC GPIO) off just before the final sleep command and on again first thing at the wake, and sets pmVC = 0x100. We never did either. R60H does both on the M2 Pro (gP16)."
     },
