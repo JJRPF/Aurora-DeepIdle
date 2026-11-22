@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "updated": "2026-11-21",
+  "updated": "2026-11-22",
   "overall": 75,
   "overall_note": "Risk-weighted guess with a wide error bar. The page prefers the live figure in `docs/status.md` when it can read one.",
   "machine": "14-inch MacBook Pro, M2 Pro (`T6020`, `apple,j414s`), Aurora Silicon Linux",
@@ -347,6 +347,7 @@
     { "what": "macOS 15.7.1", "value": "0.24 W", "detail": "5.9 h, 98.7% of it in S2R" }
   ],
   "findings": [
+    { "title": "Every PCIe power domain comes back after the wake", "body": "All 374 PMGR power-state registers macOS programs were read before the sleep and after the wake. The PCIe domains are all fully on after the wake; only the 'was gated' flags differ. So the Wi-Fi/SD slots are not missing a power domain. Next: restart the display firmware after the wake, since a running display firmware may be what restores a PMU setting macOS has after its wake and we do not." },
     { "title": "Our test kernel stops the display firmware for every sleep and never restarts it", "body": "A test switch added early on shuts the display coprocessor's firmware down before each deep sleep and leaves it off after the wake. Another tester found on his machine that the missing power rail comes back only when that firmware is restarted. The next test sleeps with the firmware left running." },
     { "title": "A runtime power cut can be recovered; a sleep cannot (yet)", "body": "After cutting the Wi-Fi and SD power on a running system, our PCIe relink brings both devices back. After a real sleep the same relink finds no device at all, so the sleep turns off something more, most likely a supply rail. The next test checks whether that rail depends on the display coprocessor, as another tester found on a similar Mac." },
     { "title": "The Wi-Fi/SD failure reproduces without a sleep", "body": "Switching the Wi-Fi radio's power (REG_ON) or the SD reader's power off and on again on a running system leaves both links in Detect and the devices unreadable, exactly as after a wake. So the fault is in how the slots are brought back after any power loss, and it can now be tested in 2-minute boots instead of full sleep cycles." },
