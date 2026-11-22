@@ -5756,3 +5756,13 @@ Armed R60H 23:52
 - **R61M5** (real S2R): the cold restart was as in R61M3 (HELLO, services). `ibootep_init` on the internal DCP worked: "new service disp0-service on channel 1". The query gave **HPD=0**, timing/colour count 0, and `getTimingModesRequest` returned 0xe00002bc. The bring-up stopped there (-5), `dcp_start` ran into the same "Driver didn't load in iBoot", and the firmware hit the same NULL abort (PC 0xd0518).
 - **Reading.** The panel is not powered yet, so HPD is 0. iBoot and m1n1 send SetPower(1) before they ask for HPD or modes.
 - **R61M6 armed** (UKI pmp29 a113be5c): SetPower(1) first, 100 ms, then HPD/modes (retried up to 10 × 100 ms while HPD=0), then SetMode, then `dcp_start`.
+
+## 2026-11-22 11:25 R61M6 result: **the internal display comes back after a real S2R**; the Wi-Fi/SD links still do not
+- **R61M6** (UKI pmp29, real S2R, wake saved). The DCP was restarted after the wake:
+  1. `__DATA` restored from DCP.img4 with iBoot's tagged block kept, RUN, plain RTKit reinit, `rtkit wake 0`.
+  2. Then iBoot's part on the disp0 service: **SetPower(1) 0**, HPD 0 at first and **HPD=1** 100 ms later, with 6 timings (3024x1964 at 120/60/48/59.94/47.95/50 Hz) and 1 colour mode (RGB 32 bpp SDR). **SetMode 0** (120 Hz).
+  3. Then `dcp_start` 0. The firmware log shows `start_ios_gated(): Created AP Services`, "Flushed RTPs", `set_device_enabled_gated: current state: 1`, M3 IMem/DMem loaded, "switch to normal mode succeeded", **"DCP booted"**, `dcp_hotplug() connected:1 nr_modes:6`, `is_main_display: 1`.
+  4. No crash for the rest of the run. The unblank gave rc 0. **VR3l (the panel rail) 1.29 V after the wake** (every earlier run: 0.005 V).
+- So the display path of S2R is solved in principle: restore the firmware's `__DATA` from the macOS firmware file (keeping iBoot's tagged block), cold-start the DCP, and play iBoot's disp0 part (SetPower, SetMode) before the normal IOMFB start. Still to check: that the panel shows a picture (nobody watched this run) and that the backlight comes back.
+- **Links: no change.** Port 0/1 LINKSTS 0xa9800200/0xa9000200 (Detect) at the wake, after the restart, at 21b and after the redo. PMU 0x2505 read 0x20 in every reading, before the restart too, and 0x2705 was 0x00 after the wake (0x80 at boot). So the dead DCP was not what keeps the Wi-Fi/SD endpoints from training, and 0x2505 is not the gate either.
+- Next for the links: back to the endpoint side. Neither endpoint shows a receiver after the wake, although the root side looks cold-booted.
