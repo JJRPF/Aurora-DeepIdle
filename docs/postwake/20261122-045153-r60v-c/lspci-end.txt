@@ -1,0 +1,5 @@
+00:00.0 PCI bridge [0604]: Apple Inc. Apple Silicon PCI Express Root Port [106b:100c] (rev 01)
+00:01.0 PCI bridge [0604]: Apple Inc. Apple Silicon PCI Express Root Port [106b:100c] (rev 01)
+01:00.0 Network controller [0280]: Broadcom Inc. and subsidiaries BCM4388 802.11ax Dual Band Wireless LAN Controller [14e4:4434] (rev 04)
+01:00.1 Network controller [0280]: Broadcom Inc. and subsidiaries BCM4388 Bluetooth Controller [14e4:5f72] (rev 04)
+02:00.0 SD Host controller [0805]: Genesys Logic, Inc GL9755 SD Host Controller [17a0:9755] (rev 01)
