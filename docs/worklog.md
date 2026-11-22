@@ -5848,3 +5848,6 @@ Armed R60H 23:52
 - Next:
   - R61R: the same without `pcie_apple.test_s2r_l2`, to see whether the port teardown is still needed now that the domains stay up.
   - Then make the bit-20 removal the default in Aura (and drop the step from the S2R recipe), and fold the DCP restart and the relink into non-TEST code.
+
+## 2026-11-22 15:10 R61R armed: R61Q without the PCIe port teardown
+- Job `r61r-nol2` = r61q-repeat without `echo 1 > test_s2r_l2`: no D3hot / PME_Turn_Off / L2 / PERST# / refclk-off before the sleep. Same UKI pmp30, aura-ctl `0xc16dcb3f 0 0 0 241`. If the links and Wi-Fi still come back, bit 20 alone was the fix and the teardown stays out of the patch set.
