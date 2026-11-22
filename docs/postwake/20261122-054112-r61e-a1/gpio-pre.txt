@@ -1,0 +1,40 @@
+gpiochip0: 64 GPIOs, parent: platform/macsmc-gpio, macsmc-pmu-gpio, can sleep:
+ gpio-6   (                    |dp2hdmi-pwren       ) out hi 
+ gpio-13  (                    |PWREN               ) out hi 
+ gpio-22  (                    |PWREN               ) out hi 
+ gpio-23  (                    |hdmi-pwren          ) out hi 
+ gpio-25  (                    |apple,afe-reset     ) out hi ACTIVE LOW
+
+gpiochip1: 30 GPIOs, parent: platform/2a2820000.pinctrl, 2a2820000.pinctrl:
+
+gpiochip2: 30 GPIOs, parent: platform/29e1f0000.pinctrl, 29e1f0000.pinctrl:
+ gpio-8   (                    |reset               ) out hi 
+
+gpiochip3: 72 GPIOs, parent: platform/2a6820000.pinctrl, 2a6820000.pinctrl:
+ gpio-25  (                    |hdmi-hpd            ) in  lo IRQ 
+
+gpiochip4: 255 GPIOs, parent: platform/39b028000.pinctrl, 39b028000.pinctrl:
+ gpio-4   (                    |PERST#              ) out hi ACTIVE LOW
+ gpio-5   (                    |PERST#              ) out hi ACTIVE LOW
+ gpio-44  (                    |interrupt           ) in  hi IRQ 
+ gpio-57  (                    |shared              ) out hi 
+ gpio-58  (                    |interrupt           ) in  hi IRQ 
+ gpio-59  (                    |interrupt           ) in  hi IRQ 
+
+gpiochip5: 1 GPIOs, parent: auxiliary/gpiolib_shared.proxy.2, gpiolib_shared.proxy.2, can sleep:
+ gpio-0   (                    |shutdown            ) out hi 
+
+gpiochip6: 1 GPIOs, parent: auxiliary/gpiolib_shared.proxy.3, gpiolib_shared.proxy.3, can sleep:
+ gpio-0   (                    |shutdown            ) out hi 
+
+gpiochip7: 1 GPIOs, parent: auxiliary/gpiolib_shared.proxy.4, gpiolib_shared.proxy.4, can sleep:
+ gpio-0   (                    |shutdown            ) out hi 
+
+gpiochip8: 1 GPIOs, parent: auxiliary/gpiolib_shared.proxy.7, gpiolib_shared.proxy.7, can sleep:
+ gpio-0   (                    |shutdown            ) out hi 
+
+gpiochip9: 1 GPIOs, parent: auxiliary/gpiolib_shared.proxy.8, gpiolib_shared.proxy.8, can sleep:
+ gpio-0   (                    |shutdown            ) out hi 
+
+gpiochip10: 1 GPIOs, parent: auxiliary/gpiolib_shared.proxy.9, gpiolib_shared.proxy.9, can sleep:
+ gpio-0   (                    |shutdown            ) out hi 

@@ -1,0 +1,63 @@
+drv before: ../../../../bus/platform/drivers/apple-dcp
+unbind rc 0 drv: 
+bind rc 0 drv: ../../../../bus/platform/drivers/apple-dcp
+[    7.694823] apple-dcp 389c00000.dcp: RTKit: syslog message: M3Hal_v1.cpp:197: IOMFB: load LED M3 IMem : size 0x7b74
+[    7.695514] apple-dcp 389c00000.dcp: RTKit: syslog message: M3Hal_v1.cpp:197: IOMFB: load LED M3 DMem : size 0x102e0
+[    7.698796] apple-dcp 389c00000.dcp: RTKit: syslog message: ock_PCC2DLTM_v4.cpp:324: IOMFBStatus IOMFB::UPBlock_PCC2DLTM_v4::set_mcpu_power(IOMFB::AppleRegisterStream *, bool) Loading M3 Hal
+[    7.698806] apple-dcp 389c00000.dcp: RTKit: syslog message: M3Hal_v1.cpp:197: IOMFB: load LTM M3 IMem : size 0x7308
+[    7.699414] apple-dcp 389c00000.dcp: RTKit: syslog message: M3Hal_v1.cpp:197: IOMFB: load LTM M3 DMem : size 0xd190
+[    7.701046] apple-dcp 389c00000.dcp: RTKit: syslog message: ck_PCC2DBlm_v5.cpp:4938: [set_lts_buffer] buffer 0x10001cf8000 Add_lo = 0x1cf8000, Add_hi = 0x100, size 0x2500 stride 0x100
+[    7.710682] apple-dcp 389c00000.dcp: RTKit: syslog message: PPipeDCP_H13P.cpp:10468: set_run_mode_safe: no need to defer: 1 -> 2
+[    7.711420] apple-dcp 389c00000.dcp: RTKit: syslog message: UPPipeDCP_H13P.cpp:1532: IOMFB: videoClock is zero, defaulting to 402280000
+[    7.711541] apple-dcp 389c00000.dcp: RTKit: syslog message: M3Hal_v1.cpp:197: IOMFB: load BLM M3 IMem : size 0x764c
+[    7.712183] apple-dcp 389c00000.dcp: RTKit: syslog message: M3Hal_v1.cpp:197: IOMFB: load BLM M3 DMem : size 0xaf6c
+[    7.712970] apple-dcp 389c00000.dcp: RTKit: syslog message: FBPropertyManager.h:189: value_t<P> IOMFB::PropMgr::getVal(IOMFB::RuntimeProperty) [P = IOMFB::RuntimePropertyType::boolean]: WARNING - type mismatch on
+[    7.713357] apple-dcp 389c00000.dcp: RTKit: syslog message: PPipeDCP_H13P.cpp:10490: set_run_mode_safe: deferring: 2 -> 4
+[    7.713367] apple-dcp 389c00000.dcp: RTKit: syslog message: PPipeDCP_H13P.cpp:10395: virtual IOMFBStatus IOMFB::UPPipeDCP_H13P::ready_for_run_mode_change(IOMFB::AppleRegisterStream *): initiating deferred run mod
+[    7.713437] apple-dcp 389c00000.dcp: RTKit: syslog message: M3Hal_v1.cpp:197: IOMFB: load APT M3 IMem : size 0x7b40
+[    7.713714] apple-dcp 389c00000.dcp: RTKit: syslog message: M3Hal_v1.cpp:197: IOMFB: load APT M3 DMem : size 0x6fd4
+[    7.715463] apple-dcp 389c00000.dcp: RTKit: syslog message: CAHandler.cpp:188: IOMFB load_ca_data: Unrecognized data version 0 (expected 1 or 2)
+[    7.715469] apple-dcp 389c00000.dcp: RTKit: syslog message: UPPipe.cpp:3767: IOMFB read_pmu_data_sync: pmu ram read error (e00800d8)
+[    7.715474] apple-dcp 389c00000.dcp: RTKit: syslog message: PPipeDCP_H13P.cpp:14085: IOMFB Int RTBandwidth: program_M3_rt_config: Using Dashboard 28e3d1208
+[    7.715479] apple-dcp 389c00000.dcp: RTKit: syslog message: UPTSQManager.cpp:133: IOMFB: clearing M3 reset
+[    7.715484] apple-dcp 389c00000.dcp: RTKit: syslog message: UPTSQ_Hal_v1.cpp:349: IOMFB: timebase_offset = 4
+[    7.727885] apple-dcp 389c00000.dcp: RTKit: syslog message: UPTSQManager.cpp:105: IOMFB: switch to normal mode succeeded
+[    7.728310] apple-dcp 389c00000.dcp: RTKit: syslog message: eoInterfaceIOAV.cpp:296: IOMFB: VideoInterfaceIOAV::power_on: m_power_ctrl->setPower( 1 )
+[    7.733674] apple-dcp 389c00000.dcp: RTKit: syslog message: MMailboxHandler.cpp:214: pcc firmware: MailBox Printf is enabled in BLM Pipe Line Init
+[    7.734323] apple-dcp 389c00000.dcp: RTKit: syslog message: PPipeDCP_H13P.cpp:17179: handle_stage1_enable blm_en 1 ltm_en 0
+[    7.734383] apple-dcp 389c00000.dcp: set_digital_out_mode finished:8370
+[    7.758870] apple-drm soc:display-subsystem: [drm] fb0: appledrmfb frame buffer device
+[    7.822862] asahi 406400000.gpu: RTKit: Initializing (protocol version 12)
+[   55.095820] apple-dcp 389c00000.dcp: RTKit: syslog message: BrightnessLCD.cpp:803: [AFK]nitsToDBV: iDAC out of range
+[   55.124712] apple-dcp 389c00000.dcp: RTKit: syslog message: PPipeDCP_H13P.cpp:10490: set_run_mode_safe: deferring: 4 -> 1
+[   55.124724] apple-dcp 389c00000.dcp: RTKit: syslog message: PPipeDCP_H13P.cpp:10395: virtual IOMFBStatus IOMFB::UPPipeDCP_H13P::ready_for_run_mode_change(IOMFB::AppleRegisterStream *): initiating deferred run mod
+[   55.124768] apple-dcp 389c00000.dcp: RTKit: syslog message: UPTSQManager.cpp:150: IOMFBStatus IOMFB::UPTSQManager::power_down_M3(IOMFB::AppleRegisterStream *, UPTSQManager::ModeChangeWaiter *): request mode ch
+[   55.131937] apple-dcp 389c00000.dcp: RTKit: syslog message: UPTSQManager.cpp:162: IOMFBStatus IOMFB::UPTSQManager::power_down_M3(IOMFB::AppleRegisterStream *, UPTSQManager::ModeChangeWaiter *): disabling M3
+[   55.132520] apple-dcp 389c00000.dcp: RTKit: syslog message: PPipeDCP_H13P.cpp:10468: set_run_mode_safe: no need to defer: 1 -> 0
+[   55.133373] apple-dcp 389c00000.dcp: RTKit: syslog message: ck_PCC2DBlm_v5.cpp:3300: Quiescing callback
+[   55.211409] apple-dcp 389c00000.dcp: RTKit: syslog message: eoInterfaceIOAV.cpp:433: IOMFB: VideoInterfaceIOAV::did_power_off: m_power_ctrl->setPower( 0 )
+[   55.211619] apple-dcp 389c00000.dcp: RTKit: syslog message: eoInterfaceIOAV.cpp:146: IOMFB: IOAVVideoInterface terminated
+[   55.211786] apple-dcp 389c00000.dcp: RTKit: syslog message: oInterfaceIOAV.cpp:1094: void VideoInterfaceIOAV::unplug_gated(IOAVVideoInterface *): display HPD removed
+[   55.213485] apple-dcp 389c00000.dcp: RTKit: syslog message: nifiedPipeline.cpp:1356: set_device_enabled_gated: current state: 1, requested state: 0
+[   55.213808] apple-dcp 389c00000.dcp: dcp_poweroff() done
+[   55.214934] apple-dcp 315c00000.dcp: TEST: firmware shut down for deep suspend, down until reboot
+[   55.215074] apple-dcp 289c00000.dcp: dcp_dptx_disconnect(port=0)
+[   55.215095] apple-dcp 289c00000.dcp: dcp_hotplug() connected:0 valid_mode:0 nr_modes:0
+[   55.215531] apple-dcp 289c00000.dcp: TEST: firmware shut down for deep suspend, down until reboot
+[   55.221640] nvme-apple 34bcc0000.nvme: RTKit: syslog message: cmd.c:7963: NVMe shutdown start seg->lba: 0, seg->size: 0
+[   55.616722] nvme-apple 34bcc0000.nvme: RTKit: syslog message: cmd.c:7991: seg->lba 0 saveCtx 1 took 395 ms - clog 20834581
+[   55.634568] apple-dcp 389c00000.dcp: TEST: firmware shut down for deep suspend, down until reboot
+[   56.121682] macsmc 2a2400000.smc: RTKit: Endpoint 0x20 is not running, cannot send message
+[   57.700010] apple_pmp 28e700000.pmp: RTKit: Initializing (protocol version 12)
+[   57.703974] macsmc 2a2400000.smc: RTKit: syslog message: drv_t5078.cpp:1053: Unsupported IRQ Number to read PMU DVC Status
+[   58.272376] nvme-apple 34bcc0000.nvme: TEST s2r: RTKit reinit with buffers kept: 0
+[   58.272589] nvme-apple 34bcc0000.nvme: RTKit: Initializing (protocol version 12)
+[   58.366031] nvme-apple 34bcc0000.nvme: RTKit: syslog message: apcie.c:1110: power up done[0]: PMU=Ocarina, PWR=1
+[   58.366040] nvme-apple 34bcc0000.nvme: RTKit: syslog message: apcie.c:1110: power up done[1]: PMU=Undefined, PWR=0
+[   58.366043] nvme-apple 34bcc0000.nvme: RTKit: syslog message: apcie.c:423: APCIe 1 is configured as unused.
+[   58.366047] nvme-apple 34bcc0000.nvme: RTKit: syslog message: pre_nand_eng.c:6158: enabled 1p0v 1, enabled prog-no-exec 1
+[   58.366050] nvme-apple 34bcc0000.nvme: RTKit: syslog message: pre_nand_eng.c:6158: enabled 1p0v 1, enabled prog-no-exec 1
+[   58.366053] nvme-apple 34bcc0000.nvme: RTKit: syslog message: pre_nand_eng.c:6158: enabled 1p0v 1, enabled prog-no-exec 1
+[   58.366059] nvme-apple 34bcc0000.nvme: RTKit: syslog message: pre_nand_eng.c:6158: enabled 1p0v 1, enabled prog-no-exec 1
+[   58.382443] nvme-apple 34bcc0000.nvme: RTKit: syslog message: cmd.c:6438:  boot mode normal
+[  124.673247] apple-drm soc:display-subsystem: [drm] *ERROR* Disabling all crtc's during unload failed with -22
