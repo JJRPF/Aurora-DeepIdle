@@ -1,5 +1,5 @@
 diff --git i/drivers/gpu/drm/apple/dcp.c w/drivers/gpu/drm/apple/dcp.c
-index 8cb040d16d55..84ee81d35ffb 100644
+index 8cb040d16d55..c09d5067e057 100644
 --- i/drivers/gpu/drm/apple/dcp.c
 +++ w/drivers/gpu/drm/apple/dcp.c
 @@ -26,6 +26,7 @@
@@ -10,7 +10,7 @@ index 8cb040d16d55..84ee81d35ffb 100644
  #include <linux/soc/apple/rtkit.h>
  #include <linux/soc/apple/pmp-report.h>
  #include <linux/string.h>
-@@ -4982,6 +4983,119 @@ static void dcp_platform_complete(struct device *dev)
+@@ -4982,6 +4983,127 @@ static void dcp_platform_complete(struct device *dev)
  	mutex_unlock(&dcp->hpd_mutex);
  }
  
@@ -34,6 +34,10 @@ index 8cb040d16d55..84ee81d35ffb 100644
 +module_param(test_restart_coproc, ulong, 0644);
 +static unsigned long test_restart_iorvbar = 0x389850000UL;
 +module_param(test_restart_iorvbar, ulong, 0644);
++static bool test_restart_keep;
++module_param(test_restart_keep, bool, 0644);
++static bool test_restart_nostart;
++module_param(test_restart_nostart, bool, 0644);
 +static unsigned int test_restart_delay_ms = 2000;
 +module_param(test_restart_delay_ms, uint, 0644);
 +
@@ -75,8 +79,8 @@ index 8cb040d16d55..84ee81d35ffb 100644
 +	ctl = readl(dcp->coproc_reg + APPLE_DCP_COPROC_CPU_CONTROL);
 +	writel(ctl | APPLE_DCP_COPROC_CPU_CONTROL_RUN, dcp->coproc_reg + APPLE_DCP_COPROC_CPU_CONTROL);
 +	dev_info(dcp->dev, "TEST restart: CPU_CONTROL %#x -> RUN\n", ctl);
-+	ret = apple_rtkit_reinit(dcp->rtk);
-+	dev_info(dcp->dev, "TEST restart: rtkit reinit %d\n", ret);
++	ret = test_restart_keep ? apple_rtkit_reinit_keep(dcp->rtk) : apple_rtkit_reinit(dcp->rtk);
++	dev_info(dcp->dev, "TEST restart: rtkit reinit%s %d\n", test_restart_keep ? "_keep" : "", ret);
 +	if (ret)
 +		return;
 +	ret = apple_rtkit_wake(dcp->rtk);
@@ -85,6 +89,10 @@ index 8cb040d16d55..84ee81d35ffb 100644
 +	dev_info(dcp->dev, "TEST restart: rtkit wake %d (boot retries %d)\n", ret, n);
 +	if (ret)
 +		return;
++	if (test_restart_nostart) {
++		dev_info(dcp->dev, "TEST restart: dcp_start skipped\n");
++		return;
++	}
 +	WRITE_ONCE(dcp->crashed, false);
 +	WRITE_ONCE(dcp->ext_dead, false);
 +	ret = dcp_start(to_platform_device(dcp->dev));
@@ -130,7 +138,7 @@ index 8cb040d16d55..84ee81d35ffb 100644
  static int dcp_platform_suspend(struct device *dev)
  {
  	struct apple_dcp *dcp = dev_get_drvdata(dev);
-@@ -5051,6 +5165,8 @@ static int dcp_platform_suspend(struct device *dev)
+@@ -5051,6 +5173,8 @@ static int dcp_platform_suspend(struct device *dev)
  	 * domains to stay on. We need this as we do not support full
  	 * shutdown properly yet.
  	 */
@@ -139,7 +147,7 @@ index 8cb040d16d55..84ee81d35ffb 100644
  	device_set_wakeup_path(dev);
  	/* Last: the steps above still talk to the coprocessor. */
  	dcp_hold_for_sleep(dcp);
-@@ -5062,6 +5178,11 @@ static int dcp_platform_resume(struct device *dev)
+@@ -5062,6 +5186,11 @@ static int dcp_platform_resume(struct device *dev)
  {
  	struct apple_dcp *dcp = dev_get_drvdata(dev);
  
