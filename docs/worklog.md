@@ -5813,3 +5813,12 @@ Armed R60H 23:52
   The wake's `s2r_work` is unchanged: PWREN cycle, refclk, PERST# release, LTSSM.
 - New Image c916b5bfd3930dc4; UKI pmp30 (`f49377c3`), same cmdline and modules as pmp29.
 - R61O (job `r61o-pcil2`): R61M7 + `test_s2r_l2=1` set right before `echo mem`.
+
+## 2026-11-22 13:45 R61O result: macOS's port teardown runs cleanly, and the links still stay in Detect
+- R61O (`-r61o-*`, real S2R, away 246 s; ANS cold start and the DCP restart as before, "DCP booted"). The teardown ran in suspend_noirq:
+  - 01:00.0, 01:00.1 and 02:00.0 to D3hot (all 0, now D3);
+  - port 0 and port 1: link `9b000211` (L0); PME_Turn_Off sent and cleared (+0x88 = 0x10); L2 reached (LINKSTS `9b000345` / `9b00034d`, bit 6);
+  - PERST# asserted (1), and the lane refclk enable cleared (phy `cc00000f`).
+- After the wake: `D3hot to D0, device inaccessible` ×3, then three relinks: port 0 `a8000200`, port 1 `a9800200`, no receiver. The redo is the same. MEPS `000102010004`.
+- So an orderly L2 / PERST# / refclk-off entry, as nekolyanich's and macOS's, doesn't bring the endpoints back either. Combined with R60I (the RC, ports and PHY are restored word for word) and R61M7 (the DCP is up), the AP-side PCIe state is now the same as his. What remains is upstream of the PCIe controller: the endpoints' power (the SMC's sleep state, MEPS 1).
+- Asked nekolyanich about his wake entry (iBoot or the RVBAR, and which loader) and his SMC/PMU state right after `waka`.

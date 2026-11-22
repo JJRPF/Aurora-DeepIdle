@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "updated": "2026-11-22T02:31:01-05:00",
+  "updated": "2026-11-22T07:35:57-05:00",
   "overall": 77,
   "overall_note": "Risk-weighted guess with a wide error bar. The page prefers the live figure in `docs/status.md` when it can read one.",
   "machine": "14-inch MacBook Pro, M2 Pro (`T6020`, `apple,j414s`), Aurora Silicon Linux",
@@ -348,6 +348,7 @@
     { "what": "macOS 15.7.1", "value": "0.24 W", "detail": "5.9 h, 98.7% of it in S2R" }
   ],
   "findings": [
+    { "title": "macOS's PCIe shutdown before the sleep doesn't bring Wi-Fi back (R61O)", "body": "Before the sleep, Linux now powers down the Wi-Fi and SD reader links in an orderly way, as macOS does: the devices go to their low-power state, the links into L2, reset held and clock off. All of it ran cleanly, but after the wake the links still never find a device. The PCIe side now matches a machine where Wi-Fi does come back, so the missing piece is the power to the devices, which the SMC still holds off." },
     { "title": "Holding the radio in reset through the sleep changes nothing (R61N)", "body": "The newer Apple sleep drivers hold the Wi-Fi chip in reset during the sleep and release it after. Our wake already resets and re-powers the slot before every relink attempt, and the links still never train. Wi-Fi and the SD reader stay blocked on the SMC's sleep power state; we are waiting on answers from people whose machines get their radios back." },
     { "title": "SMC stays in its sleep state even with the display back (R61M7)", "body": "With the display coprocessor restored, the SMC still reports its sleep power state after the wake, and Wi-Fi and SD stay off. The SMC's state machine can't be moved from the AP, and iBoot (which might do it on a cold boot) is encrypted. Wi-Fi/SD after S2R is blocked." },
     { "title": "Internal display comes back after a real S2R (R61M6)", "body": "After the wake the display coprocessor is cold-started from clean firmware data, and Linux plays iBoot's part (panel power-on, set mode) before the normal start. The display driver then starts fully: panel detected, 6 modes, panel rail back at 1.29 V, no crash. Wi-Fi and SD still do not come back; the display was not what blocks them." },
