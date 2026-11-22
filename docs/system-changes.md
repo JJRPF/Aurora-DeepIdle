@@ -126,3 +126,4 @@ Filled in below as it happens.
 | R61M6: appledrm (SetPower first) in modroot-nvme, UKI pmp29 (a113be5c) on the ESP | as R61M | as R61M |
 | R61O: Image c916b5bf (pcie-apple test_s2r_l2), UKI pmp30 (f49377c3) on the ESP | as R61M | as R61M |
 | R61P: no image change (job r61p-nopcieoff, aura-ctl 0xc16dcb3f), UKI pmp30 (f49377c3) on the ESP | as R61M | as R61M |
+| R61Q: as R61P (job r61q-repeat) | as R61M | as R61M |

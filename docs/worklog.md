@@ -5840,3 +5840,11 @@ Armed R60H 23:52
 ## 2026-11-22 15:05 R61Q armed: R61P again, with a Wi-Fi scan after the wake
 - Job `r61q-repeat` = r61p-nopcieoff plus radio.txt right after the 20-wake readings: `ip -br link`, `iw dev`, wlan0 up and a scan (only the BSS count and the strongest signals are kept, no network names), `/sys/class/bluetooth` with hci0 present, and the MMC hosts. Same UKI pmp30, image 127, aura-ctl `0xc16dcb3f 0 0 0 241`.
 - Look for: both links up again on the first relink, and a scan with BSSes in it (the radio works, not only the driver binding).
+
+## 2026-11-22 15:00 R61Q result: repeatable; after the wake Wi-Fi scans 51 networks and joins the home network
+- R61Q (`20261122-1945..1947-r61q-*`, away 217 s): a real S2R again (0x601f = aa, 0x6023 = a4). The ports again `lost its link in suspend (link 0xab000200)`; on the first relink both came up (`0x9b000001` / `0xd9000001`), `rescanning after the S2R power cut: 2 devices`; 01:00.0 / 01:00.1 / 02:00.0 answer and bind brcmfmac / hci_bcm4377 / sdhci-pci.
+- radio.txt, 4 s after the 20-wake readings: wlan0 UP, LOWER_UP, **associated to the home network on channel 40 (5200 MHz, 40 MHz)** by iwd, txpower 31 dBm; `iw dev wlan0 scan` rc 0, **51 BSSes**. hci0 present; mmc0 present. Links still `0x9b000211` through the DCP restart, the unblank and the redo. Network name and MAC scrubbed from the copies in docs/postwake.
+- So Wi-Fi works after a real S2R, 2 of 2 (R61P, R61Q) for the links. Bluetooth: hci0 comes up; pairing not tested. SD: the controller probes; no card test.
+- Next:
+  - R61R: the same without `pcie_apple.test_s2r_l2`, to see whether the port teardown is still needed now that the domains stay up.
+  - Then make the bit-20 removal the default in Aura (and drop the step from the S2R recipe), and fold the DCP restart and the relink into non-TEST code.
