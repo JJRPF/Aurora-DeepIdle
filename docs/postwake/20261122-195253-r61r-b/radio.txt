@@ -1,0 +1,19 @@
+Sun Nov 22 19:51:55 UTC 2026
+lo               UNKNOWN        00:00:00:00:00:00 <LOOPBACK,UP,LOWER_UP> 
+wlan0            UP             <mac> <BROADCAST,MULTICAST,UP,LOWER_UP> 
+phy#1
+	Interface wlan0
+		ifindex 3
+		wdev 0x100000001
+		addr <mac>
+		ssid <ssid>
+		type managed
+		channel 40 (5200 MHz), width: 40 MHz, center1: 5190 MHz
+		txpower 31.00 dBm
+scan rc 0 bss 51
+	signal: -94.00 dBm
+	signal: -91.00 dBm
+	signal: -91.00 dBm
+hci0
+unsupported
+mmc0

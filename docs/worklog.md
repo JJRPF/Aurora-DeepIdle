@@ -5851,3 +5851,9 @@ Armed R60H 23:52
 
 ## 2026-11-22 15:10 R61R armed: R61Q without the PCIe port teardown
 - Job `r61r-nol2` = r61q-repeat without `echo 1 > test_s2r_l2`: no D3hot / PME_Turn_Off / L2 / PERST# / refclk-off before the sleep. Same UKI pmp30, aura-ctl `0xc16dcb3f 0 0 0 241`. If the links and Wi-Fi still come back, bit 20 alone was the fix and the teardown stays out of the patch set.
+
+## 2026-11-22 15:05 R61R result: the port teardown is not needed; bit 20 alone was the fix (3 of 3)
+- R61R (`20261122-1951..1952-r61r-*`, away 212 s, real S2R: 0x601f = aa, 0x6023 = a4), without `test_s2r_l2`: no `TEST s2r_l2` lines; after the wake again `link 0xab000200`, both ports up on try 1 (`0x9b000001` / `0xd9000001`), rescan 2 devices, all three endpoints bound. Wi-Fi associated (channel 40), scan 51 BSSes; hci0 and mmc0 present. Links `0x9b000211` through the DCP restart and the redo.
+- So the only change needed for Wi-Fi/BT and the SD reader is leaving Aura's `PSCI_S2R_PCIE` step off. The existing relink (`apple_pcie_s2r_work`, patch 0001) does the rest. `test_s2r_l2` (patch 0010) stays a test switch, off.
+- docs/s2r-repro.md updated: Wi-Fi/BT, SD and the display moved to "works", aura-ctl `0xc16dcb3f`, the after-wake signs.
+- Left to do: Bluetooth pairing and an SD card (owner), drain over a night, suspend from the full desktop, the DCP restart and bit-20-off moved out of TEST code, and the normal install (needs the owner's go-ahead: Aura and U-Boot in the main boot chain).

@@ -15,8 +15,11 @@ Works, in every run since R57AL (2026-11-20):
 - The real S2R sleep and the RTC alarm wake, back to userspace with all 10 CPUs online. `echo mem` returns 0.
 - NVMe, USB, the SMC, RTC, SEP and PMP come back.
 
-Does not work:
-- **Wi-Fi/BT (PCIe port 0) and the SD reader (port 1).** After the wake both links stay in Detect (LINKSTS `0xa9000200`/`0xa8000200`), and `lspci` shows "Unknown header type 7f". The root complex, ports and PHYs restore word for word. The SMC stays at MEPS `000102010004` (awake: `000400040001`), and a few PMU registers keep their sleep values (`0x2505` 0x20 → 0, `0x2705` 0x80 → 0). Everything we tried against this is in `docs/worklog.md` (R58 to R60L).
+Works since 2026-11-22:
+- **Wi-Fi/BT (PCIe port 0) and the SD reader (port 1)**, 3 of 3 (R61P, R61Q, R61R). Both links train on the first relink after the wake, and brcmfmac, hci_bcm4377 and sdhci-pci bind again. In R61Q and R61R Wi-Fi scanned 51 networks and rejoined the home network. The fix was in our own sleep entry: Aura must **not** power off the PCIe domains (`apcie_gp_sys`, `apcie_gpshr_sys`, `apcie_gp`) at the commit, so aura-ctl bit 20 (`PSCI_S2R_PCIE`) is now off. With it on, the links stayed in Detect after every wake (LINKSTS `0xa9000200`). The SMC's MEPS `000102010004` after `waka` is normal; macOS shows it too.
+- **The internal display** (R61M6, R61M7): the DCP firmware is cold-started after the wake from macOS's `DCP.img4`, with iBoot's tagged block kept. This needs the DCP firmware file from your own macOS install, and the kernel changes in `patches/s2r-kernel/` (not yet folded into the repro diff below).
+
+Not tested yet: Bluetooth pairing, an SD card, drain over a night, and suspend from the full desktop.
 
 ## The pieces
 
@@ -76,7 +79,7 @@ sudo bash harness/usbtest/arm.sh --chain --job harness/usbtest/jobs/r60j-nostage
    - `pmgr_pwrstate.test_sleep_keep=afr,gpio`;
    - `dwc3_apple.test_deep_teardown=1`, `appledrm.test_sleep_off=1`.
 2. Puts the SEP to sleep (a freezer pass, then the SLEEP message).
-3. Tells Aura which entry steps to use: `aura-ctl 0xc17dcb3f 0 0 0 241`.
+3. Tells Aura which entry steps to use: `aura-ctl 0xc16dcb3f 0 0 0 241` (bit 20 off; see above).
 4. Sets an RTC alarm 30 s ahead (`/sys/class/rtc/rtc0/wakealarm`), then `echo mem > /sys/power/state`.
 5. After the wake, logs `dmesg`, `lspci -vv`, the PCIe registers, the SMC keys and the PMU registers. It writes them to `/boot/deeptest/postwake/<date>-<run>/` on the normal install's /boot, then reboots back to it.
 
@@ -85,10 +88,10 @@ A run takes about 8 to 10 minutes from arm to being back on the normal install.
 ## What to look for after the wake
 
 - `PM: suspend exit` in `dmesg` and `echo mem` rc 0: the wake worked.
-- `pcie-apple ... lost its link in suspend` and `link still down after resume`: the Wi-Fi/SD failure we are stuck on.
+- `pcie-apple ... lost its link in suspend (... link 0xab000200)` followed by `link up after resume` and `rescanning after the S2R power cut: 2 devices`: Wi-Fi/BT and the SD reader are back. `link 0xa9000200` and `link still down after resume` mean the PCIe domains were powered off at the commit.
 - `TEST s2r: ... MEPS` lines from `macsmc-reboot`: the SMC's power state at `waka` and after.
 
-If Wi-Fi or the SD reader comes back on your machine, we would very much like to know what is different (SoC, firmware, kernel, which steps you used). Issue: https://github.com/JJRPF/Aurora-DeepIdle/issues/5
+If you try this on your machine, we would like to hear how it went (SoC, firmware, kernel, which steps you used). Issue: https://github.com/JJRPF/Aurora-DeepIdle/issues/5
 
 ## Credits
 
