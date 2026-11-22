@@ -5798,3 +5798,18 @@ Armed R60H 23:52
   - Wi-Fi/BT and the SD reader never present a receiver after the wake. The SMC stays in its sleep power state (MEPS 1), whatever the AP does: the SMC sequence, the PCIe controller restored word for word, pinmux, PMP requests, pmVC, the DCP, and PWREN/PERST# cycles.
   - The only remaining source is iBoot's or the SMC firmware's behaviour, and iBoot is encrypted. Questions are on issue #5 (nekolyanich, whose J416s gets its endpoints back).
 - The DeepTest UKI stays at pmp29 (`a113be5c`) for further tests; the modroot backup is at `~/Work/modroot-backup-r61h/`.
+
+## 2026-11-22 13:20 nekolyanich's answer; R61O (macOS's PCIe port teardown before the sleep) armed
+- nekolyanich (issue #5, 08:06Z):
+  - His DCP is **idled** for the sleep, not shut down: A500, RTKit idle, then at the wake a disp0 PMGR power cycle, a warm RTKit restart and RUN.
+  - His slots answer after the wake with and without the DCP restart. The relink comes first (port 0 up in noirq resume, LINKSTS `0x9b000001`).
+  - **His entry does macOS's port teardown: D3hot, PME_Turn_Off, L2, PERST# asserted, refclk off. The resume brings refclk and the lane config back before PERST#.** Ours does none of that; the cut takes the rails under a live L0/L1 link. That is the clearest difference left.
+- With the owner's OK I asked for a link to his WIP branch, to read: https://github.com/JJRPF/Aurora-DeepIdle/issues/5#issuecomment-7079089799.
+- Kernel: `pcie_apple.test_s2r_l2` (patch 0010), in the conventional-port suspend_noirq:
+  1. every endpoint to D3hot;
+  2. for a link that is up: APPCLK CGDIS, port+0x88 = 0x11 (PME_Turn_Off, upstream T6050's register), wait for bit 0 to clear, then LINKSTS bit 6 (L2);
+  3. PERST# asserted through gpiolib, lane refclk enable (phy+0, bits 9/10) cleared;
+  4. one log line per port.
+  The wake's `s2r_work` is unchanged: PWREN cycle, refclk, PERST# release, LTSSM.
+- New Image c916b5bfd3930dc4; UKI pmp30 (`f49377c3`), same cmdline and modules as pmp29.
+- R61O (job `r61o-pcil2`): R61M7 + `test_s2r_l2=1` set right before `echo mem`.

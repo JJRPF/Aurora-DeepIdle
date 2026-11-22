@@ -124,3 +124,4 @@ Filled in below as it happens.
 | R61M4: appledrm (probe-time __DATA snapshot) in modroot-nvme, UKI pmp27 (9a4802cf, adds appledrm.test_restart_snap=1) on the ESP | as R61M | as R61M |
 | R61M5: appledrm (internal iBoot disp0 bring-up, ibootep.c) in modroot-nvme, UKI pmp28 (ea5c3c1a) on the ESP | as R61M | as R61M |
 | R61M6: appledrm (SetPower first) in modroot-nvme, UKI pmp29 (a113be5c) on the ESP | as R61M | as R61M |
+| R61O: Image c916b5bf (pcie-apple test_s2r_l2), UKI pmp30 (f49377c3) on the ESP | as R61M | as R61M |
