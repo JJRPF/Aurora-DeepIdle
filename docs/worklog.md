@@ -5838,5 +5838,5 @@ Armed R60H 23:52
 - Next: R61Q = R61P again (repeatability), with a Wi-Fi scan after the wake (`iw dev wlan0 scan`) and `hciconfig`/`bluetoothctl list`. Then check whether `test_s2r_l2` and the DCP restart are still needed for the links, and move the fixes out of TEST code.
 
 ## 2026-11-22 15:05 R61Q armed: R61P again, with a Wi-Fi scan after the wake
-- Job `r61q-repeat` = r61p-nopcieoff plus radio.txt right after the 20-wake readings: `ip -br link`, `iw dev`, wlan0 up and a scan (only the BSS count and the strongest signals are kept, no network names), `/sys/class/bluetooth` with hci0's address, and the MMC hosts. Same UKI pmp30, image 127, aura-ctl `0xc16dcb3f 0 0 0 241`.
+- Job `r61q-repeat` = r61p-nopcieoff plus radio.txt right after the 20-wake readings: `ip -br link`, `iw dev`, wlan0 up and a scan (only the BSS count and the strongest signals are kept, no network names), `/sys/class/bluetooth` with hci0 present, and the MMC hosts. Same UKI pmp30, image 127, aura-ctl `0xc16dcb3f 0 0 0 241`.
 - Look for: both links up again on the first relink, and a scan with BSSes in it (the radio works, not only the driver binding).
