@@ -5644,3 +5644,8 @@ Armed R60H 23:52
   - `0x594008100` / `0x595008100` (port interrupt status) and `0x594008210` (0x800 → 0): status.
   Everything else (RC, AXI2AF, shared PHY, the rest of the lane PHY-IP tunables, port setup) reads back as before the sleep, so the wake-time apcie bring-up restores it.
 - R60Y (job `r60y-port80`): before the sleep, the REG_ON + SD power cycle and the relink at runtime with these registers logged at each step (does the recoverable runtime Detect also show 0x10f?); after the wake, the registers, then **0x101 written back** to both port +0x80, then the relink. rg.txt, links.txt.
+
+## 2026-11-22 01:20 R60Y result: died before the sleep, but port +0x80 stays 0x101 through the runtime cycle; R60Z armed
+- R60Y (`-r60y-pre`, away 211 s, 0x6025 = 04, no Aura entry): the runtime part ran and saved; the boot then died at or before the sleep entry (after a runtime relink 01:00.0 and 02:00.0 config reads failed with `od:` errors, so the endpoints were left half up; likely the sleep entry tripped on that).
+- rg.txt: through REG_ON off/on, SD off/on and the relink, **port +0x80 stays 0x101** on both ports. Lane PHY-IP bits 8-9 drop at runtime as well (0x38000b00 → 0x38000800 at Detect, 0x38001300 after the relink), so they are link status. `0x594008210` 0x800 → 0 after the relink. So **0x10f at port +0x80 is the one register state seen only after a wake.** Runtime relink link: `0x9b000001`.
+- R60Z (job `r60z-port80b`): R60Y without the runtime part: real S2R, then 0x101 written to both port +0x80, the relink, links.
