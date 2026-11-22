@@ -392,7 +392,7 @@ index 8cb040d16d55..8a565153a93d 100644
  		return 0;
  
 diff --git i/drivers/gpu/drm/apple/ibootep.c w/drivers/gpu/drm/apple/ibootep.c
-index 7f90f68bf26f..b56b62d8a361 100644
+index 7f90f68bf26f..ba5190a8a712 100644
 --- i/drivers/gpu/drm/apple/ibootep.c
 +++ w/drivers/gpu/drm/apple/ibootep.c
 @@ -401,7 +401,7 @@ static struct iboot_query *iboot_find_query(struct apple_dcp *dcp)
@@ -424,7 +424,7 @@ index 7f90f68bf26f..b56b62d8a361 100644
  	ret = dcpext_scanout_register(dcp);
  	if (ret && ret != -ENODEV)
  		dev_warn(dcp->dev, "external pattern interface unavailable: %d\n", ret);
-@@ -741,6 +745,85 @@ static const struct apple_epic_service_ops external_ibootep_ops[] = {
+@@ -741,6 +745,90 @@ static const struct apple_epic_service_ops external_ibootep_ops[] = {
  	{}
  };
  
@@ -488,18 +488,23 @@ index 7f90f68bf26f..b56b62d8a361 100644
 +	reply = kzalloc(IBOOT_QUERY_RX_SIZE, GFP_KERNEL);
 +	if (!reply)
 +		return -ENOMEM;
-+	ret = iboot_refresh_modes(query, reply);
-+	dev_info(dcp->dev, "TEST iBoot: HPD/mode query %d\n", ret);
-+	ret = iboot_test_pick(query, IBOOT_GET_TIMING_MODES, reply, modes);
-+	if (!ret)
-+		ret = iboot_test_pick(query, IBOOT_GET_COLOR_MODES, reply, modes + IBOOT_MODE_SIZE);
-+	if (ret)
-+		goto out;
 +	ret = iboot_pattern_command(query, 2, &power, sizeof(power), reply);
 +	dev_info(dcp->dev, "TEST iBoot: SetPower(1) %d\n", ret);
 +	if (ret)
 +		goto out;
 +	msleep(100);
++	for (n = 0; n < 10; n++) {
++		ret = iboot_refresh_modes(query, reply);
++		if (ret != -ENOLINK)
++			break;
++		msleep(100);
++	}
++	dev_info(dcp->dev, "TEST iBoot: HPD/mode query %d (after %d waits)\n", ret, n);
++	ret = iboot_test_pick(query, IBOOT_GET_TIMING_MODES, reply, modes);
++	if (!ret)
++		ret = iboot_test_pick(query, IBOOT_GET_COLOR_MODES, reply, modes + IBOOT_MODE_SIZE);
++	if (ret)
++		goto out;
 +	ret = iboot_pattern_command(query, 6, modes, sizeof(modes), reply);
 +	dev_info(dcp->dev, "TEST iBoot: SetMode %d\n", ret);
 +out:

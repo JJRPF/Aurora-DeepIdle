@@ -123,3 +123,4 @@ Filled in below as it happens.
 | R61M3: appledrm (keep the iBoot parameter block) in modroot-nvme, UKI pmp26 (82ccb47c) on the ESP | as R61M | as R61M |
 | R61M4: appledrm (probe-time __DATA snapshot) in modroot-nvme, UKI pmp27 (9a4802cf, adds appledrm.test_restart_snap=1) on the ESP | as R61M | as R61M |
 | R61M5: appledrm (internal iBoot disp0 bring-up, ibootep.c) in modroot-nvme, UKI pmp28 (ea5c3c1a) on the ESP | as R61M | as R61M |
+| R61M6: appledrm (SetPower first) in modroot-nvme, UKI pmp29 (a113be5c) on the ESP | as R61M | as R61M |

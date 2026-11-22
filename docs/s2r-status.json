@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "updated": "2026-11-22T02:03:35-05:00",
+  "updated": "2026-11-22T02:08:58-05:00",
   "overall": 75,
   "overall_note": "Risk-weighted guess with a wide error bar. The page prefers the live figure in `docs/status.md` when it can read one.",
   "machine": "14-inch MacBook Pro, M2 Pro (`T6020`, `apple,j414s`), Aurora Silicon Linux",
@@ -347,6 +347,7 @@
     { "what": "macOS 15.7.1", "value": "0.24 W", "detail": "5.9 h, 98.7% of it in S2R" }
   ],
   "findings": [
+    { "title": "Internal display's iBoot service answers after the wake (R61M5)", "body": "After the cold restart, Linux can now talk to the internal display coprocessor's iBoot service. The panel reported as unplugged because it was not yet powered. R61M6 powers it on first, then sets the mode." },
     { "title": "DCP firmware wants iBoot's display session first (R61M4)", "body": "Reading the DCP firmware shows the display driver start checks a flag that only iBoot's display session sets. A copy of the firmware data taken at boot does not restart. R61M5 has Linux play iBoot's part (power on, set mode) before the normal start." },
     { "title": "DCP firmware cold-boots after the wake (R61M3)", "body": "With a clean data segment plus iBoot's boot arguments, the display coprocessor's firmware restarts cleanly after a real S2R and all its services start. The display driver then refuses because iBoot did not bring the panel up this time. R61M4 restores the state iBoot hands over instead." },
     { "title": "DCP restart: assert gone with pristine data (R61M2)", "body": "Restoring the DCP firmware's data segment from macOS's file stops the crash after the wake, but the firmware then stays silent. It has lost the boot arguments iBoot writes into a tagged block (bArg and others). R61M3 keeps that block." },
