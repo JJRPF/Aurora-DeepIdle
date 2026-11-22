@@ -5785,3 +5785,7 @@ Armed R60H 23:52
 - So the DCP is not what returns the SMC to state 4, and the R60 hard block stands: after `waka` the SMC stays in its sleep power state, and the Wi-Fi/SD endpoints never present a receiver.
 - **iBoot lead closed.** On a cold boot MEPS is 4 by the time Linux runs, while our wake jumps from the RVBAR straight into Aura. So I looked at whether iBoot tells the SMC something. The active boot set's `iBoot.img4` (iBoot-8422.141.2, from Preboot read-only, unmounted after) is encrypted (payload entropy 8.0, no strings), so it cannot be read here.
 - Status: **display after S2R works** (R61M6/M7). **Wi-Fi/SD after S2R** is blocked on the SMC's state machine, and the questions are on issue #5.
+
+## 2026-11-22 12:05 R61N armed: PERST# held asserted across the sleep
+- Checked the others' work: no new Ante042 commits since 11-12, and nekolyanich has not replied yet. aurora-silicon/linux has new deep-sleep drivers (T6050, T8132, T8140, T8142, T8122), but none for T6020. Its T8132 radio path asserts the radio's PERST# before the commit ("keeps its power and firmware, in reset until its host releases it"), retrains it after the wake, and doesn't repeat the SMC's reset. Our sleep leaves PERST# released (pins 4/5 = 0x00076a03, R61B) while the rails go away.
+- R61N (job `r61n-perstsleep`): R61M7 with AP GPIO 4/5 (Wi-Fi and SD PERST#, active low) driven low right before `echo mem`, and pins.txt read at each step. The relink then releases PERST# as at boot. If the endpoints only need a clean reset edge after their rails return, they train.
