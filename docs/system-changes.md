@@ -121,3 +121,4 @@ Filled in below as it happens.
 | R61M: appledrm with test_restart_fwdata in modroot-nvme, UKI pmp24 (3c1d7b45) on the ESP; DCP firmware Mach-O copied from Preboot (read-only) into the job dir (gitignored) | `~/Work/modroot-nvme`, ESP `deeptest.efi`, `harness/usbtest/jobs/r61m-dcpfwdata/apple/` | originals in `~/Work/modroot-backup-r61h/`, pmp20 UKI kept; delete the job's `apple/` dir |
 | R61M2: appledrm (TEXT check relaxed) in modroot-nvme, UKI pmp25 (2b3831a0) on the ESP | as R61M | as R61M |
 | R61M3: appledrm (keep the iBoot parameter block) in modroot-nvme, UKI pmp26 (82ccb47c) on the ESP | as R61M | as R61M |
+| R61M4: appledrm (probe-time __DATA snapshot) in modroot-nvme, UKI pmp27 (9a4802cf, adds appledrm.test_restart_snap=1) on the ESP | as R61M | as R61M |

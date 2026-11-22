@@ -1,18 +1,19 @@
 diff --git i/drivers/gpu/drm/apple/dcp.c w/drivers/gpu/drm/apple/dcp.c
-index 8cb040d16d55..d91b13e937e8 100644
+index 8cb040d16d55..01d122ea0843 100644
 --- i/drivers/gpu/drm/apple/dcp.c
 +++ w/drivers/gpu/drm/apple/dcp.c
-@@ -10,6 +10,9 @@
+@@ -10,6 +10,10 @@
  #include <linux/delay.h>
  #include <linux/device/driver.h>
  #include <linux/dma-mapping.h>
 +#include <linux/firmware.h>
 +#include <linux/unaligned.h>
++#include <linux/vmalloc.h>
 +#include <linux/io.h>
  #include <linux/gpio/consumer.h>
  #include <linux/iommu.h>
  #include <linux/jiffies.h>
-@@ -26,6 +29,7 @@
+@@ -26,6 +30,7 @@
  #include <linux/of_platform.h>
  #include <linux/property.h>
  #include <linux/slab.h>
@@ -20,7 +21,25 @@ index 8cb040d16d55..d91b13e937e8 100644
  #include <linux/soc/apple/rtkit.h>
  #include <linux/soc/apple/pmp-report.h>
  #include <linux/string.h>
-@@ -4982,6 +4986,269 @@ static void dcp_platform_complete(struct device *dev)
+@@ -4716,6 +4721,8 @@ static int dcp_ext_route_suppliers(struct device *dev)
+  * deferring while its suppliers may still appear (bounded by the deferred
+  * probe timeout); on any other failure join as an unusable pipe.
+  */
++void dcp_test_snapshot(struct platform_device *pdev);
++
+ static int dcp_platform_probe(struct platform_device *pdev)
+ {
+ 	struct device *dev = &pdev->dev;
+@@ -4723,6 +4730,8 @@ static int dcp_platform_probe(struct platform_device *pdev)
+ 	void *group;
+ 	int ret;
+ 
++	dcp_test_snapshot(pdev);
++
+ 	if (!of_device_is_compatible(dev->of_node, "apple,t8122-dcpext"))
+ 		return dcp_platform_probe_pipe(pdev);
+ 
+@@ -4982,6 +4991,320 @@ static void dcp_platform_complete(struct device *dev)
  	mutex_unlock(&dcp->hpd_mutex);
  }
  
@@ -88,6 +107,36 @@ index 8cb040d16d55..d91b13e937e8 100644
 +module_param(test_restart_text_phys, ulong, 0644);
 +static unsigned long test_restart_data_phys = 0x107d2c94000UL;
 +module_param(test_restart_data_phys, ulong, 0644);
++/*
++ * R61M4: appledrm.test_restart_snap=1 (kernel command line): the target DCP's __DATA is copied at probe,
++ * before Linux talks to the firmware (the state iBoot hands over), and that copy is what the restart puts back.
++ */
++static bool test_restart_snap;
++module_param(test_restart_snap, bool, 0444);
++static unsigned int test_restart_data_len = 0x300000;
++module_param(test_restart_data_len, uint, 0444);
++static void *dcp_test_snap;
++
++void dcp_test_snapshot(struct platform_device *pdev)
++{
++	struct resource *r = platform_get_resource_byname(pdev, IORESOURCE_MEM, "coproc");
++	void *m;
++
++	if (!test_restart_snap || dcp_test_snap || !r || r->start != test_restart_coproc)
++		return;
++	m = memremap(test_restart_data_phys, test_restart_data_len, MEMREMAP_WC);
++	if (!m) {
++		dev_info(&pdev->dev, "TEST snap: memremap %#lx failed\n", test_restart_data_phys);
++		return;
++	}
++	dcp_test_snap = vmalloc(test_restart_data_len);
++	if (dcp_test_snap)
++		memcpy(dcp_test_snap, m, test_restart_data_len);
++	memunmap(m);
++	dev_info(&pdev->dev, "TEST snap: __DATA %#lx+%#x %s at probe\n", test_restart_data_phys,
++		 test_restart_data_len, dcp_test_snap ? "copied" : "not copied (no memory)");
++}
++
 +/* R61M3: the RTKit header at __TEXT+0x1228 points into __DATA (va, len): iBoot's block, kept live */
 +static unsigned int test_restart_keep_va = 0x7410c8;
 +module_param(test_restart_keep_va, uint, 0644);
@@ -152,6 +201,27 @@ index 8cb040d16d55..d91b13e937e8 100644
 +	m = memremap(test_restart_data_phys, fs, MEMREMAP_WC);
 +	if (!m) {
 +		dev_info(dcp->dev, "TEST restart: fwdata: __DATA memremap failed\n");
++		return;
++	}
++	if (dcp_test_snap && fs == test_restart_data_len) {
++		size_t fdiff = 0;
++
++		for (i = 0; i < fs; i += 4) {
++			u32 l = *(u32 *)(m + i), sn = *(u32 *)(dcp_test_snap + i);
++
++			if (l != sn)
++				ndiff++;
++			if (sn != get_unaligned_le32(dcp_test_fw->data + fo + i))
++				fdiff++;
++		}
++		memcpy(m, dcp_test_snap, fs);
++		wmb();
++		for (i = 0, tdiff = 0; i < fs; i += 4)
++			if (*(u32 *)(m + i) != *(u32 *)(dcp_test_snap + i))
++				tdiff++;
++		memunmap(m);
++		dev_info(dcp->dev, "TEST restart: snap: __DATA: %zu words differed from the probe-time copy, restored (%zu still differ); the copy differs from the file in %zu words\n",
++			 ndiff, tdiff, fdiff);
 +		return;
 +	}
 +	{
@@ -290,7 +360,7 @@ index 8cb040d16d55..d91b13e937e8 100644
  static int dcp_platform_suspend(struct device *dev)
  {
  	struct apple_dcp *dcp = dev_get_drvdata(dev);
-@@ -5051,6 +5318,8 @@ static int dcp_platform_suspend(struct device *dev)
+@@ -5051,6 +5374,8 @@ static int dcp_platform_suspend(struct device *dev)
  	 * domains to stay on. We need this as we do not support full
  	 * shutdown properly yet.
  	 */
@@ -299,7 +369,7 @@ index 8cb040d16d55..d91b13e937e8 100644
  	device_set_wakeup_path(dev);
  	/* Last: the steps above still talk to the coprocessor. */
  	dcp_hold_for_sleep(dcp);
-@@ -5062,6 +5331,11 @@ static int dcp_platform_resume(struct device *dev)
+@@ -5062,6 +5387,11 @@ static int dcp_platform_resume(struct device *dev)
  {
  	struct apple_dcp *dcp = dev_get_drvdata(dev);
  

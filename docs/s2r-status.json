@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "updated": "2026-11-22T01:48:59-05:00",
+  "updated": "2026-11-22T01:55:25-05:00",
   "overall": 75,
   "overall_note": "Risk-weighted guess with a wide error bar. The page prefers the live figure in `docs/status.md` when it can read one.",
   "machine": "14-inch MacBook Pro, M2 Pro (`T6020`, `apple,j414s`), Aurora Silicon Linux",
@@ -347,6 +347,7 @@
     { "what": "macOS 15.7.1", "value": "0.24 W", "detail": "5.9 h, 98.7% of it in S2R" }
   ],
   "findings": [
+    { "title": "DCP firmware cold-boots after the wake (R61M3)", "body": "With a clean data segment plus iBoot's boot arguments, the display coprocessor's firmware restarts cleanly after a real S2R and all its services start. The display driver then refuses because iBoot did not bring the panel up this time. R61M4 restores the state iBoot hands over instead." },
     { "title": "DCP restart: assert gone with pristine data (R61M2)", "body": "Restoring the DCP firmware's data segment from macOS's file stops the crash after the wake, but the firmware then stays silent. It has lost the boot arguments iBoot writes into a tagged block (bArg and others). R61M3 keeps that block." },
     { "title": "DCP firmware addresses confirmed (R61M)", "body": "After the wake, the firmware code in memory matches macOS's DCP file except for 2 words, so the addresses are right. A check that was too strict left the data segment unrestored, so the restart crashed as before. R61M2 restores it." },
     { "title": "DCP firmware data segment located (R61L)", "body": "The live ADT gives the DCP firmware's segments: __TEXT at 0x10000230000 (6 MB) and __DATA at 0x107d2c94000 (3 MB). They match macOS's DCP.img4 exactly, so the restart after the wake can begin from a pristine __DATA. R61M tests that." },
