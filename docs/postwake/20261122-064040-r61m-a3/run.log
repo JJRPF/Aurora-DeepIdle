@@ -1,0 +1,28 @@
+2026-11-22 06:37:49 start; kernel 7.2.11-psci-efi+, cpus 0-9, mem 31677 MB
+2026-11-22 06:37:49 job: # R61M-dcpfwdata: R61J (Aura image 127, UKI pmp24) with test_restart_fwdata: the DCP firmware's __DATA segment is copied back from the
+2026-11-22 06:37:49 R57J kernel 7.2.11-psci-efi+; stage2 v0.1.0-76-g387a8ef3; cmdline aop: aop.sleep_ap_idle=3
+2026-11-22 06:37:49 R57J kernel 7.2.11-psci-efi+; stage2 v0.1.0-76-g387a8ef3; cmdline aop: aop.sleep_ap_idle=3
+2026-11-22 06:37:49 axi2af:  0x0:0x00000010>0x00000011 0xc:0x000fffff>0x0000000d 0x10:0x0007ffff>0x0000000c 0x14:0x000005a0>0x00000001 0x18:0x000005a0>0x00000001 0x1c:0x000005a0>0x00000003 0x20:0x000005a0>0x00000003 0x24:0x000005a0>0x00000003 0x28:0x000005a0>0x00000003 0x2c:0x000005a0>0x00000003 0x108:0x00000010>0x00000011 0x10c:0x000fffff>0x0000000d 0x110:0x0007ffff>0x0000000c 0x114:0x000005a0>0x00000001 0x118:0x000005a0>0x00000001 0x11c:0x000005a0>0x00000003 0x120:0x000005a0>0x00000003 0x124:0x000005a0>0x00000003 0x128:0x000005a0>0x00000003 0x12c:0x000005a0>0x00000003 0x400:0x00f00008>0xc0f10010 0xa00:0x00000000>0x01ffffff
+2026-11-22 06:37:49 axi2af:  0x0:0x00000010>0x00000011 0xc:0x000fffff>0x0000000d 0x10:0x0007ffff>0x0000000c 0x14:0x000005a0>0x00000001 0x18:0x000005a0>0x00000001 0x1c:0x000005a0>0x00000003 0x20:0x000005a0>0x00000003 0x24:0x000005a0>0x00000003 0x28:0x000005a0>0x00000003 0x2c:0x000005a0>0x00000003 0x108:0x00000010>0x00000011 0x10c:0x000fffff>0x0000000d 0x110:0x0007ffff>0x0000000c 0x114:0x000005a0>0x00000001 0x118:0x000005a0>0x00000001 0x11c:0x000005a0>0x00000003 0x120:0x000005a0>0x00000003 0x124:0x000005a0>0x00000003 0x128:0x000005a0>0x00000003 0x12c:0x000005a0>0x00000003 0x400:0x00f00008>0xc0f10010 0xa00:0x00000000>0x01ffffff
+2026-11-22 06:37:49 afnc2 words before: 0x1f0000ff 0x1f0000ff 0x1f0000ff 0x1f0000ff ; after: 0x1f0000ff 0x1f0000ff 0x1f0000ff 0x1f0000ff 
+2026-11-22 06:37:49 afnc2 words before: 0x1f0000ff 0x1f0000ff 0x1f0000ff 0x1f0000ff ; after: 0x1f0000ff 0x1f0000ff 0x1f0000ff 0x1f0000ff 
+2026-11-22 06:38:21 sep: ps_sep before the driver 0x1f0000ff, idle after 20 s (0 = never): 0x1000030f; rng_current apple-sep -> none; panic=10; the SLEEP pass is next
+2026-11-22 06:38:21 sep: ps_sep before the driver 0x1f0000ff, idle after 20 s (0 = never): 0x1000030f; rng_current apple-sep -> none; panic=10; the SLEEP pass is next
+2026-11-22 06:38:28 sep: freezer pass rc=0; ps_sep right after 0x1f0003ff, 2 s later 0x1f0003ff; [   38.199175] apple_sep 396400000.sep: TEST SLEEP type 2: reply tag 0xd data 0x0|; the commit is next (Aura does the outbox and the word)
+2026-11-22 06:38:28 sep: freezer pass rc=0; ps_sep right after 0x1f0003ff, 2 s later 0x1f0003ff; [   38.199175] apple_sep 396400000.sep: TEST SLEEP type 2: reply tag 0xd data 0x0|; the commit is next (Aura does the outbox and the word)
+2026-11-22 06:38:28 switches: suspend_timeout=120 deep_steps=183 pmp_sleep=Y pmp_cycle=Y test_release_aon=Y test_release_ids=4096 test_pcpm=768 test_sleep_keep=afr,gpio test_dump=Y test_deep_teardown=Y test_sleep_off=Y test_wake_restart=Y  fwpath=/run/usbtest/job test_restart_fwdata=Y s2r_pmvc=256 
+2026-11-22 06:38:28 switches: suspend_timeout=120 deep_steps=183 pmp_sleep=Y pmp_cycle=Y test_release_aon=Y test_release_ids=4096 test_pcpm=768 test_sleep_keep=afr,gpio test_dump=Y test_deep_teardown=Y test_sleep_off=Y test_wake_restart=Y  fwpath=/run/usbtest/job test_restart_fwdata=Y s2r_pmvc=256 
+2026-11-22 06:38:28 pmgr counters: SLP_DDR=1:0 SLP_DDR.2=1:0 AWAKE=1:0 AWAKE.2=1:0 SLP_S2R=1:0 SLP_S2R.2=1:0 DEEP_WAIT=1:0 DEEP_WAIT.2=1:0 SYS_AWAKE=1:0 SYS_AWAKE.2=1:0 SYS_S2R_AOP=1:0 SYS_S2R_AOP.2=1:0 SYS_SLP_DDR=1:0 SYS_SLP_DDR.2=1:0 ctl=30001
+2026-11-22 06:38:28 pmgr counters: SLP_DDR=1:0 SLP_DDR.2=1:0 AWAKE=1:0 AWAKE.2=1:0 SLP_S2R=1:0 SLP_S2R.2=1:0 DEEP_WAIT=1:0 DEEP_WAIT.2=1:0 SYS_AWAKE=1:0 SYS_AWAKE.2=1:0 SYS_S2R_AOP=1:0 SYS_S2R_AOP.2=1:0 SYS_SLP_DDR=1:0 SYS_SLP_DDR.2=1:0 ctl=30001
+2026-11-22 06:38:28 before: atc 0x000003ff 0x000003ff 0x000003ff 0x000003ff 0x000002ff 0x000003ff 0x000003ff 0x000003ff ; pmp req 0x0000f000 ack 0x0000f000; usb 5
+2026-11-22 06:38:28 before: atc 0x000003ff 0x000003ff 0x000003ff 0x000003ff 0x000002ff 0x000003ff 0x000003ff 0x000003ff ; pmp req 0x0000f000 ack 0x0000f000; usb 5
+2026-11-22 06:38:28 runtime mmio: 135 ranges, 10 external debug pages
+2026-11-22 06:38:28 runtime mmio: 135 ranges, 10 external debug pages
+2026-11-22 06:38:29 aura ctl: aura ctl at 0x10002aeed40: 0xc17dcb3f mask 0x0 cap 0
+2026-11-22 06:38:29 aura ctl: aura ctl at 0x10002aeed40: 0xc17dcb3f mask 0x0 cap 0
+2026-11-22 06:38:29 gpio ps 0x000000ff
+2026-11-22 06:38:29 gpio ps 0x000000ff
+2026-11-22 06:38:29 echo mem at 06:38:29.520 UTC
+2026-11-22 06:38:29 echo mem at 06:38:29.520 UTC
+2026-11-22 06:38:31 R60M unbound: pre-unbind 0000:01:00.0  443414e4 00100406 drv=brcmfmac|pre-unbind 0000:01:00.1  5f7214e4 00100406 drv=hci_bcm4377|pre-unbind 0000:02:00.0  975517a0 00100406 drv=sdhci-pci|post-unbind 0000:01:00.0  443414e4 00100002 drv=|post-unbind 0000:01:00.1  5f7214e4 00180002 drv=|post-unbind 0000:02:00.0  975517a0 00100002 drv=|
+2026-11-22 06:38:31 R60M unbound: pre-unbind 0000:01:00.0  443414e4 00100406 drv=brcmfmac|pre-unbind 0000:01:00.1  5f7214e4 00100406 drv=hci_bcm4377|pre-unbind 0000:02:00.0  975517a0 00100406 drv=sdhci-pci|post-unbind 0000:01:00.0  443414e4 00100002 drv=|post-unbind 0000:01:00.1  5f7214e4 00180002 drv=|post-unbind 0000:02:00.0  975517a0 00100002 drv=|
