@@ -5769,3 +5769,19 @@ Armed R60H 23:52
 - Issue #5: posted the DCP restart recipe (https://github.com/JJRPF/Aurora-DeepIdle/issues/5#issuecomment-7075804939). Still no reply from nekolyanich to the earlier question.
 - R61M6's SMC keys right after the wake (before the restart): MEPS `00 01 02 01 00 04` (state 1, the R60D hard block), MPPR 1 → 2, SAQw 0 → 0x400, as in R60D.
 - **R61M7 armed** (same UKI pmp29): R61M6 plus full SMC key dumps after the DCP restart, after the unblank and after the redo. Does MEPS leave state 1 once the DCP is back (nekolyanich's 0x2505 came back after his DCP restart), and do the links follow?
+
+## 2026-11-22 11:40 R61M7 result: the SMC stays in its sleep state with the DCP back; the Wi-Fi/SD block stands
+- **R61M7** (UKI pmp29, real S2R): the DCP restart repeated ("DCP booted", panel up). SMC keys:
+
+  | reading | MEPS | MPPR | MBSE | SAQw |
+  |---|---|---|---|---|
+  | before the sleep | `00 04 00 04 00 01` | 1 | 0x30 | 0 |
+  | right after the wake | `00 01 02 01 00 04` | 2 | 0x0630 | 5 |
+  | after the DCP restart | same | 2 | 0x0630 | 0x16 |
+  | after the unblank | same | 2 | 0x0630 | 0x26 |
+  | after the redo | same | 2 | 0x0630 | 0x30 |
+
+  SAQw only counts. Links in Detect throughout (p0 0xa8000200, p1 0xa9800200).
+- So the DCP is not what returns the SMC to state 4, and the R60 hard block stands: after `waka` the SMC stays in its sleep power state, and the Wi-Fi/SD endpoints never present a receiver.
+- **iBoot lead closed.** On a cold boot MEPS is 4 by the time Linux runs, while our wake jumps from the RVBAR straight into Aura. So I looked at whether iBoot tells the SMC something. The active boot set's `iBoot.img4` (iBoot-8422.141.2, from Preboot read-only, unmounted after) is encrypted (payload entropy 8.0, no strings), so it cannot be read here.
+- Status: **display after S2R works** (R61M6/M7). **Wi-Fi/SD after S2R** is blocked on the SMC's state machine, and the questions are on issue #5.
