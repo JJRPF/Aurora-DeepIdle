@@ -5857,3 +5857,6 @@ Armed R60H 23:52
 - So the only change needed for Wi-Fi/BT and the SD reader is leaving Aura's `PSCI_S2R_PCIE` step off. The existing relink (`apple_pcie_s2r_work`, patch 0001) does the rest. `test_s2r_l2` (patch 0010) stays a test switch, off.
 - docs/s2r-repro.md updated: Wi-Fi/BT, SD and the display moved to "works", aura-ctl `0xc16dcb3f`, the after-wake signs.
 - Left to do: Bluetooth pairing and an SD card (owner), drain over a night, suspend from the full desktop, the DCP restart and bit-20-off moved out of TEST code, and the normal install (needs the owner's go-ahead: Aura and U-Boot in the main boot chain).
+
+## 2026-11-22 15:15 The Pi is unplugged for about 2 days
+- The owner unplugged the Pi (core-node) for about 2 days. No hypervisor runs until it is back. DeepTest jobs still run; their Pi log pushes fail quietly (curl -m 2), and results come from /boot/deeptest/postwake as usual.
