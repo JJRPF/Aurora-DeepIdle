@@ -5546,3 +5546,8 @@ Armed R60H 23:52
 
 ## 2026-11-21 19:05 13.5 installer on the USB drive
 - The owner's 62.9 GB USB drive (the old DEEPTEST test root, cleared with the owner's OK): GPT, one exFAT partition `MACOS135`. `InstallAssistant.pkg` copied, read back after a cache drop: 11,934,300,398 B, SHA-1 9ceeac3a75aaf3d6e477990caaf2c695f31624e2 (matches). Unmounted and powered off. Next: the owner's steps 2 to 8 in `docs/hv-guest-13.5.md`.
+
+## 2026-11-21 recoveryOS step for macOS135
+- Owner at step 7 of `docs/hv-guest-13.5.md`. Pi's port 8000 is taken by another web service, so the file server for `~/deepidle/hv-serve` runs on **8001** (python http.server, log `~/deepidle/hv-serve.log`). From this Mac (LiveFreeOrDie, 192.168.1.64): aura.bin 3473408 B, sha256 c7509ccf…, 38 s over the dd-wrt route.
+- Command given: `curl -fsSL http://192.168.5.111:8001/hv-135-recovery.sh | sh -s -- http://192.168.5.111:8001/aura.bin`.
+- The Pi is on dd-wrt again (profile `netplan-wlan0-dd-wrt`, priority 5; LiveFreeOrDie priority 20 is saved). Deleting it needs sudo on the Pi (nmcli is `auth` over ssh); owner to run it after the recovery step. Then `pi-ssh` needs the Pi's new LiveFreeOrDie address (wlan0 MAC 2c:cf:67:f0:7c:72).
