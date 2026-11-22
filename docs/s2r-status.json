@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "updated": "2026-11-22T07:35:57-05:00",
-  "overall": 77,
+  "updated": "2026-11-22T14:55:00-05:00",
+  "overall": 81,
   "overall_note": "Risk-weighted guess with a wide error bar. The page prefers the live figure in `docs/status.md` when it can read one.",
   "machine": "14-inch MacBook Pro, M2 Pro (`T6020`, `apple,j414s`), Aurora Silicon Linux",
   "goal": {
@@ -105,9 +105,10 @@
       "name": "Devices survive power loss",
       "short": "NVMe, USB, SMC, SEP, PCIe, Wi-Fi",
       "state": "active",
-      "pct": 75,
-      "summary": "Each device has to come back after its power is really removed. After a real S2R wake, NVMe (the ANS cold-started with its buffers kept), USB, the SMC, the RTC, the SEP, the keyboard and the PMP all work again, every run since R59L. The internal PCIe controller is restored word for word (R60I). Since R61M6 the internal display comes back too: the DCP is cold-started from clean firmware data, and Linux plays iBoot's part before the normal start. Wi-Fi/Bluetooth and the SD reader do not come back: their link stays in Detect because the endpoints have no power, and the SMC and PMU stay in a sleep power state (SMC `MEPS` 1) after `waka`. Nothing we can write from Linux moves them; we have asked nekolyanich and Andreas Fernandez what their machines show.",
+      "pct": 88,
+      "summary": "Each device has to come back after its power is really removed. After a real S2R wake, NVMe (the ANS cold-started with its buffers kept), USB, the SMC, the RTC, the SEP, the keyboard and the PMP all work again, every run since R59L. The internal PCIe controller is restored word for word (R60I). Since R61M6 the internal display comes back too: the DCP is cold-started from clean firmware data, and Linux plays iBoot's part before the normal start. Since R61P Wi-Fi/Bluetooth and the SD reader come back as well: Aura no longer powers off the PCIe domains at the commit, and both links train on the first relink. Still to check: Wi-Fi joining a network and Bluetooth pairing after the wake.",
       "done": [
+        "Wi-Fi/Bluetooth and the SD reader after a real cut (R61P): with Aura's PCIe power-off at the commit left out, both links train on the first relink, brcmfmac loads the BCM4388 firmware, hci0 comes up and the GL9755 SD controller is found, 1 of 1",
         "Internal display after a real cut (R61M6, R61M7): the DCP firmware's `__DATA` is restored from macOS's DCP.img4 with iBoot's tagged block kept, then a plain RTKit restart. After that the iBoot disp0 service gets SetPower(1) and SetMode, and then the normal IOMFB start runs. Result: panel detected with 6 modes, panel rail back at 1.29 V, no crash, 2 of 2",
         "NVMe after a real cut: the ANS idled with its RTKit buffers kept, cold-started after the wake with the ADT tunables Aura publishes; 5 of 5 since R59L (after Andreas Fernandez's t6000 NVMe work)",
         "USB after a real cut: the dwc3 cores restarted, the i2c-pasemi controller set up again (R59R onwards)",
@@ -137,8 +138,8 @@
       "name": "Full S2R",
       "short": "The SoC powers down, DRAM in self-refresh",
       "state": "active",
-      "pct": 82,
-      "summary": "Works on the test boot: a real SLP_S2R sleep (PMGR `SLP_S2R` counter), the RTC alarm wake through RVBAR, and Linux back in userspace with all 10 CPUs, every run since R57AL, including a 5-minute sleep (R59P). NVMe, USB, the SMC and the SEP come back. The internal display comes back too (R61M6). Not yet: Wi-Fi and the SD reader, drain measured over hours, and running it on the normal install (Aura and U-Boot in the main boot chain need the owner's go-ahead).",
+      "pct": 88,
+      "summary": "Works on the test boot: a real SLP_S2R sleep (PMGR `SLP_S2R` counter), the RTC alarm wake through RVBAR, and Linux back in userspace with all 10 CPUs, every run since R57AL, including a 5-minute sleep (R59P). NVMe, USB, the SMC and the SEP come back, the internal display too (R61M6), and Wi-Fi/Bluetooth and the SD reader (R61P). Not yet: repeat runs, Wi-Fi on a network after the wake, drain measured over hours, and running it on the normal install (Aura and U-Boot in the main boot chain need the owner's go-ahead).",
       "done": [
         "R59P: a 5-minute S2R sleep, resumed to userspace with NVMe live and a clean reboot after (2026-11-20)",
         "R57AL: Linux resumes to userspace after a real S2R sleep, reproduced in every run since",
@@ -348,6 +349,7 @@
     { "what": "macOS 15.7.1", "value": "0.24 W", "detail": "5.9 h, 98.7% of it in S2R" }
   ],
   "findings": [
+    { "title": "Wi-Fi, Bluetooth and the SD reader come back after a real S2R (R61P)", "body": "The cause was our own sleep entry. Since image 64, Aura powered off the three PCIe power domains (apcie_gp_sys, apcie_gpshr_sys, apcie_gp) at the commit, because macOS has them off at that point. With that step left out (aura-ctl bit 20), the sleep still commits (PMU 0x601f = aa, NVMe cold-starts) and both links train on the first relink after the wake. The BCM4388 loads its firmware, Bluetooth comes up as hci0, and the SD controller is found again. The SMC's MEPS 1 after waka is normal: macOS shows it too." },
     { "title": "macOS's PCIe shutdown before the sleep doesn't bring Wi-Fi back (R61O)", "body": "Before the sleep, Linux now powers down the Wi-Fi and SD reader links in an orderly way, as macOS does: the devices go to their low-power state, the links into L2, reset held and clock off. All of it ran cleanly, but after the wake the links still never find a device. The PCIe side now matches a machine where Wi-Fi does come back, so the missing piece is the power to the devices, which the SMC still holds off." },
     { "title": "Holding the radio in reset through the sleep changes nothing (R61N)", "body": "The newer Apple sleep drivers hold the Wi-Fi chip in reset during the sleep and release it after. Our wake already resets and re-powers the slot before every relink attempt, and the links still never train. Wi-Fi and the SD reader stay blocked on the SMC's sleep power state; we are waiting on answers from people whose machines get their radios back." },
     { "title": "SMC stays in its sleep state even with the display back (R61M7)", "body": "With the display coprocessor restored, the SMC still reports its sleep power state after the wake, and Wi-Fi and SD stay off. The SMC's state machine can't be moved from the AP, and iBoot (which might do it on a cold boot) is encrypted. Wi-Fi/SD after S2R is blocked." },
@@ -532,7 +534,7 @@
     "Test GRUB entries use `panic=0`, so a panic hangs and the watchdog stamps tell where it died."
   ],
   "unknowns": [
-    "What returns the SMC to its awake power state (`MEPS` 4) after `waka`. On this Mac it stays at 1 with the PMU in what looks like its sleep state, and the Wi-Fi/BT and SD reader rails stay off. macOS's SMC and PMU drivers send nothing else that we can find.",
+    "Whether Wi-Fi joins a network and Bluetooth pairs after the wake (the drivers bind and load firmware; nothing was connected in R61P).",
     "Drain in real S2R over a whole night.",
     "What the PMP's VLPM tunables control."
   ],
