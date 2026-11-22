@@ -1,0 +1,153 @@
+diff --git i/drivers/gpu/drm/apple/dcp.c w/drivers/gpu/drm/apple/dcp.c
+index 8cb040d16d55..84ee81d35ffb 100644
+--- i/drivers/gpu/drm/apple/dcp.c
++++ w/drivers/gpu/drm/apple/dcp.c
+@@ -26,6 +26,7 @@
+ #include <linux/of_platform.h>
+ #include <linux/property.h>
+ #include <linux/slab.h>
++#include <linux/suspend.h>
+ #include <linux/soc/apple/rtkit.h>
+ #include <linux/soc/apple/pmp-report.h>
+ #include <linux/string.h>
+@@ -4982,6 +4983,119 @@ static void dcp_platform_complete(struct device *dev)
+ 	mutex_unlock(&dcp->hpd_mutex);
+ }
+ 
++/*
++ * TEST: for a deep suspend, stop the coprocessor's firmware instead of keeping
++ * its power domains on through the wake path, so genpd can power them off.
++ * GH-5 R61H: with test_wake_restart, the DCP whose coproc block is at
++ * test_restart_coproc is cold-started again after the wake: its ASC wrapper's
++ * IO RVBAR (test_restart_iorvbar, ADT reg 1) is saved at suspend and written
++ * back if the power cut lost it, CPU_CONTROL RUN, RTKit reinit + boot, then
++ * dcp_start(). Every step is logged; the others stay down until reboot.
++ */
++static bool test_sleep_off;
++module_param(test_sleep_off, bool, 0644);
++MODULE_PARM_DESC(test_sleep_off,
++		 "TEST: shut the DCP firmware down for a deep suspend");
++static bool test_wake_restart;
++module_param(test_wake_restart, bool, 0644);
++MODULE_PARM_DESC(test_wake_restart, "TEST GH-5: cold-start one DCP after the wake");
++static unsigned long test_restart_coproc = 0x389c00000UL;
++module_param(test_restart_coproc, ulong, 0644);
++static unsigned long test_restart_iorvbar = 0x389850000UL;
++module_param(test_restart_iorvbar, ulong, 0644);
++static unsigned int test_restart_delay_ms = 2000;
++module_param(test_restart_delay_ms, uint, 0644);
++
++static struct apple_dcp *dcp_test_restart_dcp;
++static u64 dcp_test_iorvbar_saved;
++static void dcp_test_restart_fn(struct work_struct *w);
++static DECLARE_DELAYED_WORK(dcp_test_restart_work, dcp_test_restart_fn);
++
++static bool dcp_test_is_restart_target(struct apple_dcp *dcp)
++{
++	struct resource *r = platform_get_resource_byname(to_platform_device(dcp->dev),
++							  IORESOURCE_MEM, "coproc");
++
++	return test_wake_restart && r && r->start == test_restart_coproc;
++}
++
++static void dcp_test_restart_fn(struct work_struct *w)
++{
++	struct apple_dcp *dcp = dcp_test_restart_dcp;
++	void __iomem *rv;
++	u64 now = 0;
++	u32 ctl;
++	int ret, n;
++
++	if (!dcp)
++		return;
++	rv = ioremap(test_restart_iorvbar, 8);
++	if (rv) {
++		now = readq(rv);
++		if (now != dcp_test_iorvbar_saved && dcp_test_iorvbar_saved) {
++			writeq(dcp_test_iorvbar_saved, rv);
++			dev_info(dcp->dev, "TEST restart: iorvbar was %#llx, restored %#llx (reads %#llx)\n",
++				 now, dcp_test_iorvbar_saved, readq(rv));
++		} else {
++			dev_info(dcp->dev, "TEST restart: iorvbar kept %#llx\n", now);
++		}
++		iounmap(rv);
++	}
++	ctl = readl(dcp->coproc_reg + APPLE_DCP_COPROC_CPU_CONTROL);
++	writel(ctl | APPLE_DCP_COPROC_CPU_CONTROL_RUN, dcp->coproc_reg + APPLE_DCP_COPROC_CPU_CONTROL);
++	dev_info(dcp->dev, "TEST restart: CPU_CONTROL %#x -> RUN\n", ctl);
++	ret = apple_rtkit_reinit(dcp->rtk);
++	dev_info(dcp->dev, "TEST restart: rtkit reinit %d\n", ret);
++	if (ret)
++		return;
++	ret = apple_rtkit_wake(dcp->rtk);
++	for (n = 0; ret == -ETIME && n < 3; n++)
++		ret = apple_rtkit_boot(dcp->rtk);
++	dev_info(dcp->dev, "TEST restart: rtkit wake %d (boot retries %d)\n", ret, n);
++	if (ret)
++		return;
++	WRITE_ONCE(dcp->crashed, false);
++	WRITE_ONCE(dcp->ext_dead, false);
++	ret = dcp_start(to_platform_device(dcp->dev));
++	dev_info(dcp->dev, "TEST restart: dcp_start %d\n", ret);
++}
++
++static bool dcp_test_sleep_off(struct apple_dcp *dcp)
++{
++	bool target;
++	int ret;
++
++	if (!READ_ONCE(test_sleep_off) || pm_suspend_target_state != PM_SUSPEND_MEM ||
++	    IS_ERR_OR_NULL(dcp->rtk) || READ_ONCE(dcp->crashed))
++		return false;
++	target = dcp_test_is_restart_target(dcp);
++	if (target) {
++		void __iomem *rv = ioremap(test_restart_iorvbar, 8);
++
++		if (rv) {
++			dcp_test_iorvbar_saved = readq(rv);
++			iounmap(rv);
++		}
++	}
++	ret = apple_rtkit_shutdown(dcp->rtk);
++	if (ret) {
++		dev_warn(dcp->dev, "TEST: firmware shutdown for deep suspend failed: %d\n", ret);
++		return false;
++	}
++	if (!IS_ERR_OR_NULL(dcp->coproc_reg))
++		writel(0, dcp->coproc_reg + APPLE_DCP_COPROC_CPU_CONTROL);
++	WRITE_ONCE(dcp->crashed, true);
++	WRITE_ONCE(dcp->ext_dead, true);
++	if (target) {
++		dcp_test_restart_dcp = dcp;
++		dev_info(dcp->dev, "TEST: firmware shut down for deep suspend, restart after the wake (iorvbar %#llx)\n",
++			 dcp_test_iorvbar_saved);
++	} else {
++		dev_info(dcp->dev, "TEST: firmware shut down for deep suspend, down until reboot\n");
++	}
++	return true;
++}
++
+ static int dcp_platform_suspend(struct device *dev)
+ {
+ 	struct apple_dcp *dcp = dev_get_drvdata(dev);
+@@ -5051,6 +5165,8 @@ static int dcp_platform_suspend(struct device *dev)
+ 	 * domains to stay on. We need this as we do not support full
+ 	 * shutdown properly yet.
+ 	 */
++	if (dcp_test_sleep_off(dcp))
++		return 0;
+ 	device_set_wakeup_path(dev);
+ 	/* Last: the steps above still talk to the coprocessor. */
+ 	dcp_hold_for_sleep(dcp);
+@@ -5062,6 +5178,11 @@ static int dcp_platform_resume(struct device *dev)
+ {
+ 	struct apple_dcp *dcp = dev_get_drvdata(dev);
+ 
++	if (dcp == dcp_test_restart_dcp && READ_ONCE(dcp->ext_dead)) {
++		dev_info(dev, "TEST restart: queued in %u ms\n", test_restart_delay_ms);
++		schedule_delayed_work(&dcp_test_restart_work, msecs_to_jiffies(test_restart_delay_ms));
++		return 0;
++	}
+ 	if (READ_ONCE(dcp->ext_dead))
+ 		return 0;
+ 
