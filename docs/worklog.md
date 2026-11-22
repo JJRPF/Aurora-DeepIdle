@@ -5543,3 +5543,6 @@ Armed R60H 23:52
 - So the endpoint drivers' suspend path is not what cuts them. Unlike nekolyanich's J416s, where they answer config reads after the native wake (no drivers bound).
 - VR3l 1.2918 V before, 0.0049 V at the wake. The test boot does not load the DCP driver (no DCP probe in its dmesg), so nothing could restart the DCP after the cut; VR3l still drops. Whether VR3l (or 0x2505) feeds the Wi-Fi/SD slots is open.
 - Next: ask nekolyanich whether his answering endpoints were with or without his DCP restart; the macOS 13.5 trace (owner's drive) is the main path.
+
+## 2026-11-21 19:05 13.5 installer on the USB drive
+- The owner's 62.9 GB USB drive (the old DEEPTEST test root, cleared with the owner's OK): GPT, one exFAT partition `MACOS135`. `InstallAssistant.pkg` copied, read back after a cache drop: 11,934,300,398 B, SHA-1 9ceeac3a75aaf3d6e477990caaf2c695f31624e2 (matches). Unmounted and powered off. Next: the owner's steps 2 to 8 in `docs/hv-guest-13.5.md`.
