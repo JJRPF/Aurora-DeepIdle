@@ -5551,3 +5551,11 @@ Armed R60H 23:52
 - Owner at step 7 of `docs/hv-guest-13.5.md`. Pi's port 8000 is taken by another web service, so the file server for `~/deepidle/hv-serve` runs on **8001** (python http.server, log `~/deepidle/hv-serve.log`). From this Mac (LiveFreeOrDie, 192.168.1.64): aura.bin 3473408 B, sha256 c7509ccf…, 38 s over the dd-wrt route.
 - Command given: `curl -fsSL http://192.168.5.111:8001/hv-135-recovery.sh | sh -s -- http://192.168.5.111:8001/aura.bin`.
 - The Pi is on dd-wrt again (profile `netplan-wlan0-dd-wrt`, priority 5; LiveFreeOrDie priority 20 is saved). Deleting it needs sudo on the Pi (nmcli is `auth` over ssh); owner to run it after the recovery step. Then `pi-ssh` needs the Pi's new LiveFreeOrDie address (wlan0 MAC 2c:cf:67:f0:7c:72).
+
+## 2026-11-21 20:40 macOS135 (13.5) ready for the hypervisor
+- Owner finished steps 2 to 8 of `docs/hv-guest-13.5.md`. The recovery script ran twice (20:15, the first aura.bin fetch broke off; 20:30 complete).
+- Preboot (read-only, apfs-fuse): volume group **45A69E84-C5F5-4246-A98F-6B4DA5D32F29** = macOS135, 13.5 22G74. New active boot hash 818DA8E3… (written 20:32) holds `kernelcache.custom.B9FBA4A1…` (3,476,333 B = Aura c7509ccf + IMG4 wrapper), so `kmutil configure-boot` took.
+- Its kernelcache (IM4P krnl, LZFSE) → fileset Mach-O 96,518,144 B, xnu-8796.141.3~6/RELEASE_ARM64_T6020, sha256 9615a486511c7a60…. On the Pi as `~/deepidle/hv/kernelcache-13.5-22G74.macho` (sent xz-compressed over ssh, 90 s; same sha256).
+- Setup bundle (`~/deepidle/macos/macos-hv-prep-20261121-200259.tar.gz`, before the recovery step): 13.5 22G74, FileVault off, SIP on then (disabled after). pmset: hibernatemode 3, standby 1.
+- Pi file server for the recovery step still on :8001. The Pi is still on dd-wrt (owner to delete the profile; needs sudo).
+- Next: an HV run of macOS135 with PCIe on: `harness/hv/bless.sh next macOS135`, reboot, `hv-run.sh kernelcache-13.5-22G74.macho`. Needs the owner's go and the Pi's cable in the DFU port.
