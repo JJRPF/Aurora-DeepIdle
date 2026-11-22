@@ -1,0 +1,1 @@
+[    6.337751] usbtest-run: job: # R61L-adtdump: Aura image 127, no sleep: dump the live-ADT dcp0 properties copied into /chosen (segment-ranges etc.), then reboot.

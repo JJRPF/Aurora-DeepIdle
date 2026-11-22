@@ -1,0 +1,42 @@
+289c00000-289c03fff : 289c00000.dcp coproc
+315c00000-315c03fff : 315c00000.dcp coproc
+389c00000-389c03fff : 389c00000.dcp coproc
+10000230000-10000833fff : reserved
+100009fc000-1000132ffff : reserved
+100013e4000-100013fffff : reserved
+1000196c000-10001c7ffff : reserved
+10001d48000-10001e3ffff : reserved
+  10003694000-1000370bfff : reserved
+10003764000-10003ae3fff : reserved
+  10004094000-1000463ffff : reserved
+10008b20000-10008b5ffff : reserved
+  1000a000000-1000dffffff : reserved
+  10724920000-107257fbfff : reserved
+  10727290000-1072740ffff : reserved
+  1072c930000-1072c967fff : reserved
+10730800000-10730803fff : reserved
+  107c0400000-107c54fffff : reserved
+  107c5564000-107c572bfff : reserved
+  107c5734000-107c943bfff : reserved
+  107c943c000-107c94b3fff : reserved
+  107c94b4000-107c954bfff : reserved
+  107c954c000-107c954ffff : reserved
+  107c9550000-107c9553fff : reserved
+  107c9554000-107c956bfff : reserved
+107c956c000-107c9593fff : reserved
+  107c9594000-107ca62bfff : reserved
+107ca62c000-107ca62ffff : reserved
+  107ca630000-107cd673fff : reserved
+  107cd674000-107cd677fff : reserved
+  107cd678000-107cd67bfff : reserved
+  107cd67c000-107cd687fff : reserved
+  107cd688000-107cd72ffff : reserved
+  107cd730000-107ce5effff : reserved
+107ce5f0000-107ce5fffff : reserved
+  107ce600000-107ce6ebfff : reserved
+107ce6f0000-107ce71bfff : reserved
+  107ce71c000-107ce743fff : reserved
+107ce744000-107ce9fbfff : reserved
+107d0694000-107d9b63fff : reserved
+  107fff70000-107fff73fff : reserved
+  107fff78000-107fffbbfff : reserved

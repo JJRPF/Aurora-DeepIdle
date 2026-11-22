@@ -1,8 +1,18 @@
 diff --git i/drivers/gpu/drm/apple/dcp.c w/drivers/gpu/drm/apple/dcp.c
-index 8cb040d16d55..adfb8b05580c 100644
+index 8cb040d16d55..7782c37cfff4 100644
 --- i/drivers/gpu/drm/apple/dcp.c
 +++ w/drivers/gpu/drm/apple/dcp.c
-@@ -26,6 +26,7 @@
+@@ -10,6 +10,9 @@
+ #include <linux/delay.h>
+ #include <linux/device/driver.h>
+ #include <linux/dma-mapping.h>
++#include <linux/firmware.h>
++#include <linux/unaligned.h>
++#include <linux/io.h>
+ #include <linux/gpio/consumer.h>
+ #include <linux/iommu.h>
+ #include <linux/jiffies.h>
+@@ -26,6 +29,7 @@
  #include <linux/of_platform.h>
  #include <linux/property.h>
  #include <linux/slab.h>
@@ -10,7 +20,7 @@ index 8cb040d16d55..adfb8b05580c 100644
  #include <linux/soc/apple/rtkit.h>
  #include <linux/soc/apple/pmp-report.h>
  #include <linux/string.h>
-@@ -4982,6 +4983,138 @@ static void dcp_platform_complete(struct device *dev)
+@@ -4982,6 +4986,243 @@ static void dcp_platform_complete(struct device *dev)
  	mutex_unlock(&dcp->hpd_mutex);
  }
  
@@ -45,6 +55,109 @@ index 8cb040d16d55..adfb8b05580c 100644
 +module_param(test_restart_nostart, bool, 0644);
 +static unsigned int test_restart_delay_ms = 2000;
 +module_param(test_restart_delay_ms, uint, 0644);
++
++/*
++ * GH-5 R61M: test_restart_fwdata: the firmware's writable __DATA segment is put back
++ * from the firmware Mach-O (request_firmware("apple/dcp-fw.macho"), loaded at suspend)
++ * before RUN, so the restart starts from pristine data. Segment phys addresses are the
++ * live ADT's iop-dcp0-nub segment-ranges (iBoot); __TEXT is compared as a check.
++ */
++static bool test_restart_fwdata;
++static const struct firmware *dcp_test_fw;
++static int dcp_test_fwdata_set(const char *val, const struct kernel_param *kp)
++{
++	int ret = param_set_bool(val, kp);
++
++	if (ret || !test_restart_fwdata || dcp_test_fw)
++		return ret;
++	ret = firmware_request_nowarn(&dcp_test_fw, "apple/dcp-fw.macho", NULL);
++	pr_info("appledrm: TEST fwdata: firmware apple/dcp-fw.macho: %d (%zu bytes)\n", ret,
++		ret ? 0 : dcp_test_fw->size);
++	if (ret) {
++		dcp_test_fw = NULL;
++		test_restart_fwdata = false;
++	}
++	return ret;
++}
++static const struct kernel_param_ops dcp_test_fwdata_ops = {
++	.set = dcp_test_fwdata_set,
++	.get = param_get_bool,
++};
++module_param_cb(test_restart_fwdata, &dcp_test_fwdata_ops, &test_restart_fwdata, 0644);
++static unsigned long test_restart_text_phys = 0x10000230000UL;
++module_param(test_restart_text_phys, ulong, 0644);
++static unsigned long test_restart_data_phys = 0x107d2c94000UL;
++module_param(test_restart_data_phys, ulong, 0644);
++
++/* Mach-O LC_SEGMENT_64 lookup: file offset and size of a named segment. */
++static int dcp_test_macho_seg(const u8 *b, size_t len, const char *name, u64 *vmaddr, u64 *fo, u64 *fs)
++{
++	u32 ncmds, i, off = 32;
++
++	if (len < 32 || get_unaligned_le32(b) != 0xfeedfacf)
++		return -EINVAL;
++	ncmds = get_unaligned_le32(b + 16);
++	for (i = 0; i < ncmds && off + 72 <= len; i++) {
++		u32 cmd = get_unaligned_le32(b + off), sz = get_unaligned_le32(b + off + 4);
++
++		if (cmd == 0x19 && !strncmp((const char *)b + off + 8, name, 16)) {
++			*vmaddr = get_unaligned_le64(b + off + 24);
++			*fo = get_unaligned_le64(b + off + 40);
++			*fs = get_unaligned_le64(b + off + 48);
++			return (*fo + *fs <= len) ? 0 : -EINVAL;
++		}
++		if (!sz)
++			break;
++		off += sz;
++	}
++	return -ENOENT;
++}
++
++static void dcp_test_restore_fwdata(struct apple_dcp *dcp)
++{
++	u64 va, fo, fs, tva, tfo, tfs;
++	size_t i, ndiff = 0, tdiff = 0;
++	void *m;
++
++	if (!dcp_test_fw) {
++		dev_info(dcp->dev, "TEST restart: fwdata: no firmware loaded\n");
++		return;
++	}
++	if (dcp_test_macho_seg(dcp_test_fw->data, dcp_test_fw->size, "__TEXT", &tva, &tfo, &tfs) ||
++	    dcp_test_macho_seg(dcp_test_fw->data, dcp_test_fw->size, "__DATA", &va, &fo, &fs)) {
++		dev_info(dcp->dev, "TEST restart: fwdata: Mach-O segments not found\n");
++		return;
++	}
++	m = memremap(test_restart_text_phys, tfs, MEMREMAP_WC);
++	if (m) {
++		for (i = 0; i < tfs; i += 4)
++			if (*(u32 *)(m + i) != get_unaligned_le32(dcp_test_fw->data + tfo + i))
++				tdiff++;
++		memunmap(m);
++	}
++	dev_info(dcp->dev, "TEST restart: fwdata: __TEXT %#llx+%#llx at %#lx: %zu words differ%s\n",
++		 tva, tfs, test_restart_text_phys, tdiff, m ? "" : " (memremap failed)");
++	if (!m || tdiff) {
++		dev_info(dcp->dev, "TEST restart: fwdata: __TEXT mismatch, __DATA not touched\n");
++		return;
++	}
++	m = memremap(test_restart_data_phys, fs, MEMREMAP_WC);
++	if (!m) {
++		dev_info(dcp->dev, "TEST restart: fwdata: __DATA memremap failed\n");
++		return;
++	}
++	for (i = 0; i < fs; i += 4)
++		if (*(u32 *)(m + i) != get_unaligned_le32(dcp_test_fw->data + fo + i))
++			ndiff++;
++	memcpy(m, dcp_test_fw->data + fo, fs);
++	wmb();
++	for (i = 0, tdiff = 0; i < fs; i += 4)
++		if (*(u32 *)(m + i) != get_unaligned_le32(dcp_test_fw->data + fo + i))
++			tdiff++;
++	memunmap(m);
++	dev_info(dcp->dev, "TEST restart: fwdata: __DATA %#llx+%#llx at %#lx: %zu words differed, restored (%zu still differ)\n",
++		 va, fs, test_restart_data_phys, ndiff, tdiff);
++}
 +
 +static struct apple_dcp *dcp_test_restart_dcp;
 +static u64 dcp_test_iorvbar_saved;
@@ -81,6 +194,8 @@ index 8cb040d16d55..adfb8b05580c 100644
 +		}
 +		iounmap(rv);
 +	}
++	if (test_restart_fwdata)
++		dcp_test_restore_fwdata(dcp);
 +	ctl = readl(dcp->coproc_reg + APPLE_DCP_COPROC_CPU_CONTROL);
 +	writel(ctl | APPLE_DCP_COPROC_CPU_CONTROL_RUN, dcp->coproc_reg + APPLE_DCP_COPROC_CPU_CONTROL);
 +	dev_info(dcp->dev, "TEST restart: CPU_CONTROL %#x -> RUN\n", ctl);
@@ -149,7 +264,7 @@ index 8cb040d16d55..adfb8b05580c 100644
  static int dcp_platform_suspend(struct device *dev)
  {
  	struct apple_dcp *dcp = dev_get_drvdata(dev);
-@@ -5051,6 +5184,8 @@ static int dcp_platform_suspend(struct device *dev)
+@@ -5051,6 +5292,8 @@ static int dcp_platform_suspend(struct device *dev)
  	 * domains to stay on. We need this as we do not support full
  	 * shutdown properly yet.
  	 */
@@ -158,7 +273,7 @@ index 8cb040d16d55..adfb8b05580c 100644
  	device_set_wakeup_path(dev);
  	/* Last: the steps above still talk to the coprocessor. */
  	dcp_hold_for_sleep(dcp);
-@@ -5062,6 +5197,11 @@ static int dcp_platform_resume(struct device *dev)
+@@ -5062,6 +5305,11 @@ static int dcp_platform_resume(struct device *dev)
  {
  	struct apple_dcp *dcp = dev_get_drvdata(dev);
  

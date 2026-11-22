@@ -1,0 +1,78 @@
+== aurora-adt-dcp0 AAPL,phandle 4
+ 0b 01 00 00
+== aurora-adt-dcp0 adt-compatible 15
+ 69 6f 70 2c 61 73 63 77 72 61 70 2d 76 34 00
+== aurora-adt-dcp0 adt-name 5
+ 64 63 70 30 00
+== aurora-adt-dcp0 audio 4
+ 10 01 00 00
+== aurora-adt-dcp0 clock-gates 4
+ 46 02 00 00
+== aurora-adt-dcp0 clock-ids 0
+== aurora-adt-dcp0 device_type 4
+ 64 63 70 00
+== aurora-adt-dcp0 hdcp-channels 8
+ 05 00 00 00 06 00 00 00
+== aurora-adt-dcp0 hdcp-parent 4
+ c5 00 00 00
+== aurora-adt-dcp0 interrupt-parent 4
+ 9c 00 00 00
+== aurora-adt-dcp0 interrupts 16
+ a5 03 00 00 a4 03 00 00 a7 03 00 00 a6 03 00 00
+== aurora-adt-dcp0 iommu-parent 4
+ 0e 01 00 00
+== aurora-adt-dcp0 iop-version 4
+ 01 00 00 00
+== aurora-adt-dcp0 name 16
+ 61 75 72 6f 72 61 2d 61 64 74 2d 64 63 70 30 00
+== aurora-adt-dcp0 power-gates 4
+ 46 02 00 00
+== aurora-adt-dcp0 reg 32
+ 00 00 c0 89 01 00 00 00 00 c0 06 00 00 00 00 00
+ 00 00 85 89 01 00 00 00 00 40 00 00 00 00 00 00
+== aurora-adt-dcp0 role 5
+ 44 43 50 30 00
+== aurora-adt-dcp0 truncate-dvas 0
+== aurora-adt-dcp0-nub AAPL,phandle 4
+ 0c 01 00 00
+== aurora-adt-dcp0-nub adt-compatible 19
+ 69 6f 70 2d 6e 75 62 2c 72 74 62 75 64 64 79 2d
+ 76 32 00
+== aurora-adt-dcp0-nub adt-name 13
+ 69 6f 70 2d 64 63 70 30 2d 6e 75 62 00
+== aurora-adt-dcp0-nub cold-boot-after-hibernate 0
+== aurora-adt-dcp0-nub coredump-enable 4
+ 40 00 00 00
+== aurora-adt-dcp0-nub coredump-rel-privacy-approved 0
+== aurora-adt-dcp0-nub name 20
+ 61 75 72 6f 72 61 2d 61 64 74 2d 64 63 70 30 2d
+ 6e 75 62 00
+== aurora-adt-dcp0-nub no-firmware-service 0
+== aurora-adt-dcp0-nub pre-loaded 4
+ 01 00 00 00
+== aurora-adt-dcp0-nub quiesced 0
+== aurora-adt-dcp0-nub running 4
+ 01 00 00 00
+== aurora-adt-dcp0-nub segment-names 54
+ 5f 5f 54 45 58 54 3b 5f 5f 44 41 54 41 3b 75 6e
+ 6b 6e 6f 77 6e 3b 75 6e 6b 6e 6f 77 6e 3b 75 6e
+ 6b 6e 6f 77 6e 3b 75 6e 6b 6e 6f 77 6e 3b 75 6e
+ 6b 6e 6f 77 6e 00
+== aurora-adt-dcp0-nub segment-ranges 224
+ 00 00 23 00 00 01 00 00 00 00 00 00 00 00 00 00
+ 00 00 00 40 00 01 00 00 00 10 60 00 01 00 00 00
+ 00 40 c9 d2 07 01 00 00 00 10 60 00 00 00 00 00
+ 00 00 00 80 00 01 00 00 00 00 30 00 00 00 00 00
+ 00 40 b6 d8 07 01 00 00 ff ff ff ff ff ff ff ff
+ 00 80 97 00 00 01 00 00 00 00 00 01 02 00 00 00
+ 00 40 80 d8 07 01 00 00 ff ff ff ff ff ff ff ff
+ 00 c0 9a 01 00 01 00 00 00 00 36 00 02 00 00 00
+ 00 40 74 d8 07 01 00 00 ff ff ff ff ff ff ff ff
+ 00 c0 d0 01 00 01 00 00 00 00 0c 00 02 00 00 00
+ 00 80 f9 d2 07 01 00 00 ff ff ff ff ff ff ff ff
+ 00 c0 dc 01 00 01 00 00 00 c0 7a 05 02 00 00 00
+ 00 40 f9 d2 07 01 00 00 ff ff ff ff ff ff ff ff
+ 00 80 57 07 00 01 00 00 00 40 00 00 02 00 00 00
+== aurora-adt-dcp0-nub user-power-managed 4
+ 01 00 00 00
+== aurora-adt-dcp0-nub watchdog-enable 0
