@@ -1,0 +1,80 @@
+[   60.883312] apple-dcp 389c00000.dcp: RTKit: syslog message: AppleDCPDPTX.cpp:355: [AFK]powering nub 0x8541d0
+[   60.885016] apple-dcp 389c00000.dcp: RTKit: syslog message: deoInterfaceStub.cpp:33: IOMFB using stub Video Interface adapter
+[   60.885452] apple-dcp 389c00000.dcp: iBoot command 2 EPIC success: inner-op=0 declared-len=0 header-check=-71 raw64=00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 (capacity snapshot, inner status unknown)
+[   60.885456] apple-dcp 389c00000.dcp: TEST iBoot: SetPower(1) 0
+[   60.990798] apple-dcp 389c00000.dcp: iBoot HPD=0 timing-count=0 color-count=0
+[   61.010862] apple-dcp 389c00000.dcp: RTKit: syslog message: ileCDIDPDisplay.cpp:119: [AFK]SAC enable: DP=1 CDI=1
+[   61.010946] apple-dcp 389c00000.dcp: RTKit: syslog message: DCPDP13Service.cpp:60: [AFK]version: 14
+[   61.010963] apple-dcp 389c00000.dcp: RTKit: syslog message: DCPDPService.cpp:76: [AFK]version: 14
+[   61.061977] apple-dcp 389c00000.dcp: RTKit: syslog message: eoInterfaceIOAV.cpp:135: IOMFB: IOAVVideoInterface published
+[   61.062128] apple-dcp 389c00000.dcp: RTKit: syslog message: eoInterfaceIOAV.cpp:714: IOMFBStatus VideoInterfaceIOAV::plug_gated(IOAVVideoInterface *, bool): display HPD asserted
+[   61.095006] apple-dcp 389c00000.dcp: iBoot HPD=1 timing-count=6 color-count=1
+[   61.095514] apple-dcp 389c00000.dcp: RTKit: syslog message: PIbootInterface.cpp:345: getTimingModesRequest
+[   61.095768] apple-dcp 389c00000.dcp: iBoot timing modes: 6
+[   61.095773] apple-dcp 389c00000.dcp: iBoot mode op=4 index=0 selected=0 raw24=01000000d00b0000ac0700001f0078000000000000000000
+[   61.095777] apple-dcp 389c00000.dcp: iBoot timing 0: valid=1 3024x1964 fps=120.0004 rawfps=0x78001f
+[   61.095782] apple-dcp 389c00000.dcp: iBoot mode op=4 index=1 selected=0 raw24=01000000d00b0000ac07000000003c000000000000000000
+[   61.095786] apple-dcp 389c00000.dcp: iBoot timing 1: valid=1 3024x1964 fps=60.0000 rawfps=0x3c0000
+[   61.095791] apple-dcp 389c00000.dcp: iBoot mode op=4 index=2 selected=0 raw24=01000000d00b0000ac070000000030000000000000000000
+[   61.095794] apple-dcp 389c00000.dcp: iBoot timing 2: valid=1 3024x1964 fps=48.0000 rawfps=0x300000
+[   61.095798] apple-dcp 389c00000.dcp: iBoot mode op=4 index=3 selected=0 raw24=01000000d00b0000ac070000a8f03b000000000000000000
+[   61.095802] apple-dcp 389c00000.dcp: iBoot timing 3: valid=1 3024x1964 fps=59.9400 rawfps=0x3bf0a8
+[   61.095805] apple-dcp 389c00000.dcp: iBoot mode op=4 index=4 selected=0 raw24=01000000d00b0000ac070000b9f32f000000000000000000
+[   61.095808] apple-dcp 389c00000.dcp: iBoot timing 4: valid=1 3024x1964 fps=47.9520 rawfps=0x2ff3b9
+[   61.095812] apple-dcp 389c00000.dcp: iBoot mode op=4 index=5 selected=0 raw24=01000000d00b0000ac070000000032003867dd0000000000
+[   61.095815] apple-dcp 389c00000.dcp: iBoot timing 5: valid=1 3024x1964 fps=50.0000 rawfps=0x320000
+[   61.096260] apple-dcp 389c00000.dcp: RTKit: syslog message: PIbootInterface.cpp:380: getColorModesRequest
+[   61.096499] apple-dcp 389c00000.dcp: iBoot color modes: 1
+[   61.096502] apple-dcp 389c00000.dcp: iBoot mode op=5 index=0 selected=1 raw24=010000000100000001000000010000002000000000000000
+[   61.096505] apple-dcp 389c00000.dcp: iBoot color 0: valid=1 colorimetry=1 eotf=1 encoding=1 bpp=32
+[   61.096509] apple-dcp 389c00000.dcp: TEST iBoot: HPD/mode query 0 (after 1 waits)
+[   61.097013] apple-dcp 389c00000.dcp: RTKit: syslog message: PIbootInterface.cpp:345: getTimingModesRequest
+[   61.097254] apple-dcp 389c00000.dcp: TEST iBoot: op 4 picks index 0 of 6: 01000000d00b0000ac0700001f0078000000000000000000
+[   61.097755] apple-dcp 389c00000.dcp: RTKit: syslog message: PIbootInterface.cpp:380: getColorModesRequest
+[   61.098012] apple-dcp 389c00000.dcp: TEST iBoot: op 5 picks index 0 of 1: 010000000100000001000000010000002000000000000000
+[   61.098524] apple-dcp 389c00000.dcp: RTKit: syslog message: PIbootInterface.cpp:436: setModeRequest
+[   61.102462] apple-dcp 389c00000.dcp: RTKit: syslog message: PPipeDCP_H13P.cpp:11092: IOMFB updateFrequencies: minimum-frequency property not found, using getClockFrequency(0) instead.
+[   61.102476] apple-dcp 389c00000.dcp: RTKit: syslog message: PPipeDCP_H13P.cpp:11109: IOMFB updateFrequencies EDT ERROR: getClockFrequency(0) (48000000) < videoClock 402278400! Giving up on frequencies.
+[   61.102789] apple-dcp 389c00000.dcp: RTKit: syslog message: nifiedPipeline.cpp:7356: IOMFBStatus UnifiedPipeline::mode_set_gated(uint32_t, uint32_t): 3024x1964@120 Hz link: 1
+[   61.102910] apple-dcp 389c00000.dcp: RTKit: syslog message: M3Hal_v1.cpp:197: IOMFB: load BLM M3 IMem : size 0x764c
+[   61.103622] apple-dcp 389c00000.dcp: RTKit: syslog message: M3Hal_v1.cpp:197: IOMFB: load BLM M3 DMem : size 0xaf6c
+[   61.104347] apple-dcp 389c00000.dcp: RTKit: syslog message: FBPropertyManager.h:189: value_t<P> IOMFB::PropMgr::getVal(IOMFB::RuntimeProperty) [P = IOMFB::RuntimePropertyType::boolean]: WARNING - type mismatch on
+[   61.104990] apple-dcp 389c00000.dcp: iBoot command 6 EPIC success: inner-op=0 declared-len=0 header-check=-71 raw64=00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 (capacity snapshot, inner status unknown)
+[   61.104996] apple-dcp 389c00000.dcp: TEST iBoot: SetMode 0
+[   61.105000] apple-dcp 389c00000.dcp: TEST restart: iBoot bring-up 0
+[   61.105645] apple-dcp 389c00000.dcp: Ignoring unknown message 840100
+[   61.108492] apple-dcp 389c00000.dcp: RTKit: syslog message: ap_link.c:299: shared memory dva: 0x10fffb00000 0xffffffff00017000
+[   61.108511] apple-dcp 389c00000.dcp: No audio support
+[   61.108515] apple-dcp 389c00000.dcp: TEST restart: dcp_start 0
+[   61.108542] apple-dcp 389c00000.dcp: RTKit: syslog message: ap_link.c:276: ap_link: IOMFB: DCP heap size: 0x1030000 [iBoot:0x1030000] [LinkService:0x0]
+[   61.109868] apple-dcp 389c00000.dcp: RTKit: syslog message: nifiedPipeline.cpp:4191: IOMFB: Could not find Backlight service
+[   61.109915] apple-dcp 389c00000.dcp: RTKit: syslog message: nifiedPipeline.cpp:4199: IOMFB: Could not find nvram service
+[   61.109920] apple-dcp 389c00000.dcp: RTKit: syslog message: nifiedPipeline.cpp:1838: virtual bool UnifiedPipeline::start_ios_gated(): Created AP Services
+[   61.109960] apple-dcp 389c00000.dcp: RTKit: syslog message: nifiedPipeline.cpp:1864: start_ios_gated: trigger pending HPD notification
+[   61.113249] apple-dcp 389c00000.dcp: RTKit: syslog message: nifiedPipeline.cpp:1871: virtual bool UnifiedPipeline::start_ios_gated(): Flushed RTPs
+[   61.113719] apple-dcp 389c00000.dcp: RTKit: syslog message: ableCompensator.cpp:903: IOMFB setup_table: Could not find table 'display-backlight-compensation-v1' in registry. Using default table.
+[   61.113983] apple-dcp 389c00000.dcp: RTKit: syslog message: PPipeDCP_H13P.cpp:11092: IOMFB updateFrequencies: minimum-frequency property not found, using getClockFrequency(0) instead.
+[   61.114068] apple-dcp 389c00000.dcp: RTKit: syslog message: PPipeDCP_H13P.cpp:11109: IOMFB updateFrequencies EDT ERROR: getClockFrequency(0) (257142848) < videoClock 402278400! Giving up on frequencies.
+[   61.114360] apple-dcp 389c00000.dcp: RTKit: syslog message: UPPipeDCP_H13P.cpp:1532: IOMFB: videoClock is zero, defaulting to 402280000
+[   61.115031] apple-dcp 389c00000.dcp: RTKit: syslog message: nifiedPipeline.cpp:1356: set_device_enabled_gated: current state: 1, requested state: 1
+[   61.115234] apple-dcp 389c00000.dcp: RTKit: syslog message: PPipeDCP_H13P.cpp:11092: IOMFB updateFrequencies: minimum-frequency property not found, using getClockFrequency(0) instead.
+[   61.115316] apple-dcp 389c00000.dcp: RTKit: syslog message: PPipeDCP_H13P.cpp:11109: IOMFB updateFrequencies EDT ERROR: getClockFrequency(0) (257142848) < videoClock 402278400! Giving up on frequencies.
+[   61.115699] apple-dcp 389c00000.dcp: RTKit: syslog message: PPipeDCP_H13P.cpp:10490: set_run_mode_safe: deferring: 2 -> 4
+[   61.115716] apple-dcp 389c00000.dcp: RTKit: syslog message: PPipeDCP_H13P.cpp:10395: virtual IOMFBStatus IOMFB::UPPipeDCP_H13P::ready_for_run_mode_change(IOMFB::AppleRegisterStream *): initiating deferred run mod
+[   61.116473] apple-dcp 389c00000.dcp: RTKit: syslog message: M3Hal_v1.cpp:197: IOMFB: load APT M3 IMem : size 0x7b40
+[   61.116757] apple-dcp 389c00000.dcp: RTKit: syslog message: M3Hal_v1.cpp:197: IOMFB: load APT M3 DMem : size 0x6fd4
+[   61.117014] apple-dcp 389c00000.dcp: RTKit: syslog message: CAHandler.cpp:188: IOMFB load_ca_data: Unrecognized data version 0 (expected 1 or 2)
+[   61.123481] apple-dcp 389c00000.dcp: RTKit: syslog message: UPPipe.cpp:3767: IOMFB read_pmu_data_sync: pmu ram read error (e00800d8)
+[   61.124392] apple-dcp 389c00000.dcp: RTKit: syslog message: PPipeDCP_H13P.cpp:14085: IOMFB Int RTBandwidth: program_M3_rt_config: Using Dashboard 28e3d1208
+[   61.124473] apple-dcp 389c00000.dcp: RTKit: syslog message: UPTSQManager.cpp:133: IOMFB: clearing M3 reset
+[   61.124577] apple-dcp 389c00000.dcp: RTKit: syslog message: UPTSQ_Hal_v1.cpp:349: IOMFB: timebase_offset = 4
+[   61.124651] apple-dcp 389c00000.dcp: AFK[ep:20]: new service system on channel 1
+[   61.124706] apple-dcp 389c00000.dcp: AFK[ep:20]: new service powerlog-service on channel 3
+[   61.130963] apple-dcp 389c00000.dcp: RTKit: syslog message: MMailboxHandler.cpp:214: pcc firmware: MailBox Printf is enabled in BLM Pipe Line Init
+[   61.135825] apple-dcp 389c00000.dcp: RTKit: syslog message: UPTSQManager.cpp:105: IOMFB: switch to normal mode succeeded
+[   61.137224] apple-dcp 389c00000.dcp: RTKit: syslog message: ck_PCC2DBlm_v5.cpp:4938: [set_lts_buffer] buffer 0x10fffa74000 Add_lo = 0xffa74000, Add_hi = 0x10f, size 0x2500 stride 0x100
+[   61.142177] apple-dcp 389c00000.dcp: dcp_hotplug() connected:1 valid_mode:1 nr_modes:6
+[   61.143919] apple-dcp 389c00000.dcp: RTKit: syslog message: PPipeDCP_H13P.cpp:17179: handle_stage1_enable blm_en 1 ltm_en 0
+[   61.144134] apple-dcp 389c00000.dcp: DCP booted
+[   61.144607] apple-dcp 389c00000.dcp: DCP is_main_display: 1
+[   61.144617] apple-dcp 389c00000.dcp: dcp_hotplug() connected:1 valid_mode:1 nr_modes:6
