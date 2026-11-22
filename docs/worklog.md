@@ -5559,3 +5559,8 @@ Armed R60H 23:52
 - Setup bundle (`~/deepidle/macos/macos-hv-prep-20261121-200259.tar.gz`, before the recovery step): 13.5 22G74, FileVault off, SIP on then (disabled after). pmset: hibernatemode 3, standby 1.
 - Pi file server for the recovery step still on :8001. The Pi is still on dd-wrt (owner to delete the profile; needs sudo).
 - Next: an HV run of macOS135 with PCIe on: `harness/hv/bless.sh next macOS135`, reboot, `hv-run.sh kernelcache-13.5-22G74.macho`. Needs the owner's go and the Pi's cable in the DFU port.
+
+## 2026-11-21 21:00 HV run "135-pcieon" armed: macOS135 (13.5) under the hypervisor, PCIe on
+- Pi now on LiveFreeOrDie at 192.168.1.112 (owner deleted the dd-wrt profile); `pi-ssh` updated.
+- Owner's go 20:55, cable in the DFU port. Pi: `WAITSECS=900 RUNTIME=1200 HVSLEEP=0 BOOTARGS="debug=0x14e serial=3 -enable-kprintf-spam wdt=-1 clpc=0 hvsleep=0" hv-run.sh hv/kernelcache-13.5-22G74.macho 135-pcieon hv/aura-hvsleep.unmask.bin` (host = the one 14.8.9 booted with; **no apcie mask**; default tracers PMP, SMC, MPMGR, mem_w, late_w; no sleep job). `bless.sh next macOS135`.
+- Question: does 13.5 boot under the HV with PCIe on, and what does it write (SMC gP0d/gP16, PMU, PCIe) to bring up the Wi-Fi and SD slots.
