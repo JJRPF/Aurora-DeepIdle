@@ -1,5 +1,5 @@
 diff --git i/drivers/gpu/drm/apple/dcp.c w/drivers/gpu/drm/apple/dcp.c
-index 8cb040d16d55..d2be7bbccce2 100644
+index 8cb040d16d55..d91b13e937e8 100644
 --- i/drivers/gpu/drm/apple/dcp.c
 +++ w/drivers/gpu/drm/apple/dcp.c
 @@ -10,6 +10,9 @@
@@ -20,7 +20,7 @@ index 8cb040d16d55..d2be7bbccce2 100644
  #include <linux/soc/apple/rtkit.h>
  #include <linux/soc/apple/pmp-report.h>
  #include <linux/string.h>
-@@ -4982,6 +4986,246 @@ static void dcp_platform_complete(struct device *dev)
+@@ -4982,6 +4986,269 @@ static void dcp_platform_complete(struct device *dev)
  	mutex_unlock(&dcp->hpd_mutex);
  }
  
@@ -88,6 +88,11 @@ index 8cb040d16d55..d2be7bbccce2 100644
 +module_param(test_restart_text_phys, ulong, 0644);
 +static unsigned long test_restart_data_phys = 0x107d2c94000UL;
 +module_param(test_restart_data_phys, ulong, 0644);
++/* R61M3: the RTKit header at __TEXT+0x1228 points into __DATA (va, len): iBoot's block, kept live */
++static unsigned int test_restart_keep_va = 0x7410c8;
++module_param(test_restart_keep_va, uint, 0644);
++static unsigned int test_restart_keep_len = 0x51c;
++module_param(test_restart_keep_len, uint, 0644);
 +
 +/* Mach-O LC_SEGMENT_64 lookup: file offset and size of a named segment. */
 +static int dcp_test_macho_seg(const u8 *b, size_t len, const char *name, u64 *vmaddr, u64 *fo, u64 *fs)
@@ -149,17 +154,35 @@ index 8cb040d16d55..d2be7bbccce2 100644
 +		dev_info(dcp->dev, "TEST restart: fwdata: __DATA memremap failed\n");
 +		return;
 +	}
-+	for (i = 0; i < fs; i += 4)
-+		if (*(u32 *)(m + i) != get_unaligned_le32(dcp_test_fw->data + fo + i))
-+			ndiff++;
-+	memcpy(m, dcp_test_fw->data + fo, fs);
-+	wmb();
-+	for (i = 0, tdiff = 0; i < fs; i += 4)
-+		if (*(u32 *)(m + i) != get_unaligned_le32(dcp_test_fw->data + fo + i))
-+			tdiff++;
-+	memunmap(m);
-+	dev_info(dcp->dev, "TEST restart: fwdata: __DATA %#llx+%#llx at %#lx: %zu words differed, restored (%zu still differ)\n",
-+		 va, fs, test_restart_data_phys, ndiff, tdiff);
++	{
++		u64 ks = test_restart_keep_va >= va ? test_restart_keep_va - va : fs, ke = ks + test_restart_keep_len;
++		size_t kdiff = 0;
++
++		if (ke > fs)
++			ks = ke = fs;
++		for (i = 0; i < fs; i += 4) {
++			u32 l = *(u32 *)(m + i), f = get_unaligned_le32(dcp_test_fw->data + fo + i);
++
++			if (l == f)
++				continue;
++			if (i >= ks && i < ke) {
++				if (kdiff++ < 16)
++					dev_info(dcp->dev, "TEST restart: fwdata: kept block +%#llx live %#x file %#x\n",
++						 i - ks, l, f);
++			} else {
++				ndiff++;
++			}
++		}
++		memcpy(m, dcp_test_fw->data + fo, ks);
++		memcpy(m + ke, dcp_test_fw->data + fo + ke, fs - ke);
++		wmb();
++		for (i = 0, tdiff = 0; i < fs; i += 4)
++			if ((i < ks || i >= ke) && *(u32 *)(m + i) != get_unaligned_le32(dcp_test_fw->data + fo + i))
++				tdiff++;
++		memunmap(m);
++		dev_info(dcp->dev, "TEST restart: fwdata: __DATA %#llx+%#llx at %#lx: %zu words differed, restored (%zu still differ); block va %#x+%#x kept (%zu words differ from the file)\n",
++			 va, fs, test_restart_data_phys, ndiff, tdiff, test_restart_keep_va, test_restart_keep_len, kdiff);
++	}
 +}
 +
 +static struct apple_dcp *dcp_test_restart_dcp;
@@ -267,7 +290,7 @@ index 8cb040d16d55..d2be7bbccce2 100644
  static int dcp_platform_suspend(struct device *dev)
  {
  	struct apple_dcp *dcp = dev_get_drvdata(dev);
-@@ -5051,6 +5295,8 @@ static int dcp_platform_suspend(struct device *dev)
+@@ -5051,6 +5318,8 @@ static int dcp_platform_suspend(struct device *dev)
  	 * domains to stay on. We need this as we do not support full
  	 * shutdown properly yet.
  	 */
@@ -276,7 +299,7 @@ index 8cb040d16d55..d2be7bbccce2 100644
  	device_set_wakeup_path(dev);
  	/* Last: the steps above still talk to the coprocessor. */
  	dcp_hold_for_sleep(dcp);
-@@ -5062,6 +5308,11 @@ static int dcp_platform_resume(struct device *dev)
+@@ -5062,6 +5331,11 @@ static int dcp_platform_resume(struct device *dev)
  {
  	struct apple_dcp *dcp = dev_get_drvdata(dev);
  

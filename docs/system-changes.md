@@ -120,3 +120,4 @@ Filled in below as it happens.
 | apfs-fuse built for read-only Preboot / iSCPreboot reads (mounted read-only, unmounted after) | `~/Work/apfs-ro` | `rm -r ~/Work/apfs-ro` |
 | R61M: appledrm with test_restart_fwdata in modroot-nvme, UKI pmp24 (3c1d7b45) on the ESP; DCP firmware Mach-O copied from Preboot (read-only) into the job dir (gitignored) | `~/Work/modroot-nvme`, ESP `deeptest.efi`, `harness/usbtest/jobs/r61m-dcpfwdata/apple/` | originals in `~/Work/modroot-backup-r61h/`, pmp20 UKI kept; delete the job's `apple/` dir |
 | R61M2: appledrm (TEXT check relaxed) in modroot-nvme, UKI pmp25 (2b3831a0) on the ESP | as R61M | as R61M |
+| R61M3: appledrm (keep the iBoot parameter block) in modroot-nvme, UKI pmp26 (82ccb47c) on the ESP | as R61M | as R61M |
