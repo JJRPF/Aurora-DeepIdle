@@ -128,3 +128,4 @@ Filled in below as it happens.
 | R61P: no image change (job r61p-nopcieoff, aura-ctl 0xc16dcb3f), UKI pmp30 (f49377c3) on the ESP | as R61M | as R61M |
 | R61Q: as R61P (job r61q-repeat) | as R61M | as R61M |
 | R61R: as R61P without test_s2r_l2 (job r61r-nol2) | as R61M | as R61M |
+| 2026-11-24: Post-boot resume hook switched from Claude Code to Antigravity (`agy`), resuming conversation `eb6969fe-cb69-4970-b40a-c9b0fdc4d2a9` via `~/.local/state/deepidle/agy-conversation` | `~/.config/omarchy/hooks/post-boot.d/deepidle-resume` (repo copy `harness/usbtest/deepidle-resume`), `~/.local/state/deepidle/agy-conversation` | restore `harness/usbtest/deepidle-resume` from `38bd746b`, copy to `~/.config/omarchy/hooks/post-boot.d/deepidle-resume`, and `rm -f ~/.local/state/deepidle/agy-conversation` |
