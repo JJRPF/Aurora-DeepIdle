@@ -5860,3 +5860,6 @@ Armed R60H 23:52
 
 ## 2026-11-22 15:15 The Pi is unplugged for about 2 days
 - The owner unplugged the Pi (core-node) for about 2 days. No hypervisor runs until it is back. DeepTest jobs still run; their Pi log pushes fail quietly (curl -m 2), and results come from /boot/deeptest/postwake as usual.
+
+## 2026-11-24 Handoff to Gemini Neon
+- The owner is continuing on Gemini Neon. Handoff prompt: `docs/handoff-claude-to-gemini-2026-11-24.md` (state, test loop, next steps, rules). The Pi is still unplugged. Nothing armed.
