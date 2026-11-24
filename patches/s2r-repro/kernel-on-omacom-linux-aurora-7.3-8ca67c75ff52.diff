@@ -1,0 +1,1663 @@
+diff --git a/Documentation/devicetree/bindings/arm/psci.yaml b/Documentation/devicetree/bindings/arm/psci.yaml
+index 0d04389c81fa..34c976bec41a 100644
+--- a/Documentation/devicetree/bindings/arm/psci.yaml
++++ b/Documentation/devicetree/bindings/arm/psci.yaml
+@@ -28,6 +28,14 @@ description: |+
+   Note that the immediate field of the trapping instruction must be set
+   to #0.
+ 
++  Alternatively, when the "efi" method is used, the PSCI functions are not
++  invoked by trapping to a higher privilege level. Instead, they are backed
++  by EFI runtime services: the firmware exposes a PSCI handler that the OS
++  invokes through an EFI runtime call. This method is intended for platforms
++  where the kernel runs at the highest privilege level, leaving no higher level
++  to trap into; the firmware shares that same level and is instead reached
++  through EFI runtime services.
++
+   [2] Power State Coordination Interface (PSCI) specification
+     http://infocenter.arm.com/help/topic/com.arm.doc.den0022c/DEN0022C_Power_State_Coordination_Interface.pdf
+ 
+@@ -69,6 +77,10 @@ properties:
+       - smc
+       # HVC #0, with the register assignments specified in this binding.
+       - hvc
++      # The PSCI functions are implemented by EFI runtime services, and are
++      # invoked through a runtime call into the firmware rather than via an
++      # SMC or HVC trap.
++      - efi
+ 
+   cpu_suspend:
+     $ref: /schemas/types.yaml#/definitions/uint32
+diff --git a/arch/arm64/boot/dts/apple/t6020-j414s-psci-pmp.dts b/arch/arm64/boot/dts/apple/t6020-j414s-psci-pmp.dts
+new file mode 100644
+index 000000000000..7140db7e189f
+--- /dev/null
++++ b/arch/arm64/boot/dts/apple/t6020-j414s-psci-pmp.dts
+@@ -0,0 +1,4 @@
++// SPDX-License-Identifier: GPL-2.0+ OR MIT
++/* Test variant: PSCI-via-EFI conduit (t6020-j414s-psci.dts) with the PMP booted (t6020-j414s-pmp.dts). */
++#define APPLE_USE_PMP
++#include "t6020-j414s-psci.dts"
+diff --git a/arch/arm64/boot/dts/apple/t6020-j414s-psci.dts b/arch/arm64/boot/dts/apple/t6020-j414s-psci.dts
+new file mode 100644
+index 000000000000..661e550b26fa
+--- /dev/null
++++ b/arch/arm64/boot/dts/apple/t6020-j414s-psci.dts
+@@ -0,0 +1,39 @@
++// SPDX-License-Identifier: GPL-2.0+ OR MIT
++/*
++ * MacBook Pro (14-inch, M2 Pro, 2023), CPUs brought up through PSCI
++ *
++ * target-type: J414s
++ *
++ * Opt-in test variant of t6020-j414s.dts for the PSCI-via-EFI conduit: the
++ * secondaries are started and stopped with PSCI CPU_ON/CPU_OFF, served by the
++ * resident bootloader through the LINUX_EFI_ARM_PSCI_HANDLER_TABLE config
++ * table, instead of the spin-table. CPU idle stays with the Apple cpuidle
++ * driver for now, so no idle-states are added.
++ *
++ * Without that config table only the boot CPU comes up, so this must only
++ * be booted with a bootloader that provides it. It is left out of the
++ * Makefile on purpose (same compatible as t6020-j414s.dtb; m1n1 boots the
++ * last DTB that matches). Build it by name.
++ */
++
++#include "t6020-j414s.dts"
++
++/ {
++	psci {
++		compatible = "arm,psci-1.0";
++		method = "efi";
++	};
++};
++
++&cpu_e00 { enable-method = "psci"; };
++&cpu_e01 { enable-method = "psci"; };
++&cpu_e02 { enable-method = "psci"; };
++&cpu_e03 { enable-method = "psci"; };
++&cpu_p00 { enable-method = "psci"; };
++&cpu_p01 { enable-method = "psci"; };
++&cpu_p02 { enable-method = "psci"; };
++&cpu_p03 { enable-method = "psci"; };
++&cpu_p10 { enable-method = "psci"; };
++&cpu_p11 { enable-method = "psci"; };
++&cpu_p12 { enable-method = "psci"; };
++&cpu_p13 { enable-method = "psci"; };
+diff --git a/arch/arm64/boot/dts/apple/t602x-die0.dtsi b/arch/arm64/boot/dts/apple/t602x-die0.dtsi
+index 828f6ac65c4a..b9b7261006d6 100644
+--- a/arch/arm64/boot/dts/apple/t602x-die0.dtsi
++++ b/arch/arm64/boot/dts/apple/t602x-die0.dtsi
+@@ -23,7 +23,7 @@ ane_dart0: iommu@285800000 {
+ 		#iommu-cells = <1>;
+ 		interrupt-parent = <&aic>;
+ 		interrupts = <AIC_IRQ 0 885 IRQ_TYPE_LEVEL_HIGH>;
+-		power-domains = <&ps_pmp>;
++		power-domains = <&ps_ane_cpu>;
+ 		status = "disabled";
+ 	};
+ 
+@@ -311,6 +311,10 @@ nub_spmi0: spmi@29e114000 {
+ 		reg = <0x2 0x9e114000 0x0 0x100>;
+ 		#address-cells = <2>;
+ 		#size-cells = <0>;
++		#interrupt-cells = <2>;
++		interrupt-controller;
++		interrupt-parent = <&aic>;
++		interrupts = <AIC_IRQ 0 724 IRQ_TYPE_LEVEL_HIGH>;
+ 
+ 		pmic1: pmic@b {
+ 			compatible = "apple,maverick-pmic", "apple,spmi-nvmem";
+@@ -321,14 +325,31 @@ nvmem-layout {
+ 				#address-cells = <1>;
+ 				#size-cells = <1>;
+ 
++				rtc_ctrl: rtc-ctrl@1401 {
++					reg = <0x1401 0x1>;
++				};
++
+ 				pm_setting: pm-setting@1405 {
+ 					reg = <0x1405 0x1>;
+ 				};
+ 
++				rtc_alarm: rtc-alarm@140c {
++					reg = <0x140c 0x4>;
++				};
++
+ 				rtc_offset: rtc-offset@1411 {
+ 					reg = <0x1411 0x6>;
+ 				};
+ 
++				rtc_alarm_event: rtc-alarm-event@14c0 {
++					reg = <0x14c0 0x1>;
++				};
++
++				rtc_alarm_mask: rtc-alarm-mask@14c2,0 {
++					reg = <0x14c2 0x1>;
++					bits = <0 1>;
++				};
++
+ 				boot_stage: boot-stage@6001 {
+ 					reg = <0x6001 0x1>;
+ 				};
+@@ -411,8 +432,13 @@ smc_hwmon: hwmon {
+ 
+ 		rtc {
+ 			compatible = "apple,smc-rtc";
+-			nvmem-cells = <&rtc_offset>;
+-			nvmem-cell-names = "rtc_offset";
++			nvmem-cells = <&rtc_offset>, <&rtc_ctrl>, <&rtc_alarm>,
++				<&rtc_alarm_mask>, <&rtc_alarm_event>;
++			nvmem-cell-names = "rtc_offset", "rtc_ctrl", "rtc_alarm",
++				"rtc_alarm_mask", "rtc_alarm_event";
++			/* The PMU alarm, SPMI peripheral interrupt 2 of nub-spmi0 (AIC 724) */
++			interrupts-extended = <&nub_spmi0 2 IRQ_TYPE_EDGE_RISING>;
++			wakeup-source;
+ 		};
+ 	};
+ 
+diff --git a/arch/arm64/include/asm/efi.h b/arch/arm64/include/asm/efi.h
+index e8a9783235cb..62fae6693a94 100644
+--- a/arch/arm64/include/asm/efi.h
++++ b/arch/arm64/include/asm/efi.h
+@@ -14,10 +14,12 @@
+ 
+ #ifdef CONFIG_EFI
+ extern void efi_init(void);
++extern void arm64_efi_init(void);
+ 
+ bool efi_runtime_fixup_exception(struct pt_regs *regs, const char *msg);
+ #else
+ #define efi_init()
++#define arm64_efi_init()
+ 
+ static inline
+ bool efi_runtime_fixup_exception(struct pt_regs *regs, const char *msg)
+@@ -151,4 +153,59 @@ efi_status_t efi_handle_corrupted_x18(efi_status_t s, const char *f);
+ 
+ void efi_icache_sync(unsigned long start, unsigned long end);
+ 
++/*
++ * PSCI handler exposed by the firmware through
++ * LINUX_EFI_ARM_PSCI_HANDLER_TABLE_GUID.
++ *
++ * Unlike the regular EFI runtime services, this handler is invoked as a plain
++ * call under the EFI virtual mapping and not through the runtime services
++ * dispatch path. The OS therefore does not set up the usual runtime call
++ * environment around it, which imposes two requirements on the firmware:
++ *
++ *  - The handler must not corrupt FP/SIMD/SVE or any other lazily-saved CPU
++ *    state.
++ *
++ *  - The handler must be reentrant and independent of the other EFI runtime
++ *    services. It is only guaranteed to run with interrupts disabled on the
++ *    core it is called.
++ */
++typedef unsigned long efi_psci_handler_t(unsigned long function_id,
++					 unsigned long arg0,
++					 unsigned long arg1,
++					 unsigned long arg2);
++
++#define EFI_PSCI_MAX_FN 0x20
++
++/**
++ * struct efi_psci_table - firmware-provided PSCI conduit table
++ * @version:      PSCI version implemented by the firmware, in the format
++ *                returned by PSCI_VERSION (major in bits 16-30, minor in
++ *                bits 0-15).
++ * @num_features: Number of valid entries in @features. Function numbers at
++ *                or above this value are treated as not supported. Guaranteed
++ *                to be at least 0x20.
++ * @psci_handler: Firmware entry point invoked for PSCI calls that are not
++ *                served from the cached fields above. Called via
++ *                arm64_efi_psci_call() with the EFI runtime mapping active.
++ * @features:     PSCI_FEATURES results indexed by PSCI function number (the
++ *                low byte of the function ID, which is identical for the
++ *                SMC32 and SMC64 variants).
++ *
++ * Populated at boot from the firmware's PSCI handler configuration table
++ * (LINUX_EFI_ARM_PSCI_HANDLER_TABLE_GUID). @version, @num_features and
++ * @features cache the answers to the PSCI calls that must be serviced before
++ * EFI runtime services can be invoked. All other calls are forwarded to
++ * @psci_handler using arm64_efi_psci_call().
++ */
++extern struct efi_psci_table {
++	u32 version;
++	u32 num_features;
++	efi_psci_handler_t *psci_handler;
++	s32 features[EFI_PSCI_MAX_FN];
++} efi_psci;
++
++unsigned long arm64_efi_psci_call(unsigned long function_id, unsigned long arg0,
++				  unsigned long arg1, unsigned long arg2);
++void arm64_efi_psci_resumed(void);
++
+ #endif /* _ASM_EFI_H */
+diff --git a/arch/arm64/kernel/efi.c b/arch/arm64/kernel/efi.c
+index 0f080509f2df..e38f29c3844c 100644
+--- a/arch/arm64/kernel/efi.c
++++ b/arch/arm64/kernel/efi.c
+@@ -7,6 +7,7 @@
+  * Copyright (C) 2013, 2014 Linaro Ltd.
+  */
+ 
++#include <linux/bitfield.h>
+ #include <linux/efi.h>
+ #include <linux/init.h>
+ #include <linux/kmemleak.h>
+@@ -14,11 +15,15 @@
+ #include <linux/screen_info.h>
+ #include <linux/vmalloc.h>
+ 
++#include <uapi/linux/psci.h>
++
+ #include <asm/ctxr_execmem.h>
+ #include <asm/efi.h>
+ #include <asm/stacktrace.h>
++#include <asm/sysreg.h>
+ #include <asm/vmap_stack.h>
+ 
++
+ static bool region_is_misaligned(const efi_memory_desc_t *md)
+ {
+ 	if (PAGE_SIZE == EFI_PAGE_SIZE)
+@@ -38,7 +43,27 @@ static __init ptval_t create_mapping_protection(efi_memory_desc_t *md)
+ 	u32 type = md->type;
+ 
+ 	if (type == EFI_MEMORY_MAPPED_IO) {
+-		pgprot_t prot = __pgprot(PROT_DEVICE_nGnRE);
++		pgprot_t prot;
++
++		if (attr & EFI_MEMORY_ISA_VALID) {
++			u8 mair = FIELD_GET(EFI_MEMORY_ISA_MASK, attr);
++
++			switch (mair) {
++			case MAIR_ATTR_DEVICE_nGnRnE:
++				prot = __pgprot(PROT_DEVICE_nGnRnE);
++				break;
++			case MAIR_ATTR_DEVICE_nGnRE:
++				prot = __pgprot(PROT_DEVICE_nGnRE);
++				break;
++			default:
++				prot = __pgprot(PROT_DEVICE_nGnRE);
++				pr_warn("unsupported MAIR attribute %#x for EFI MMIO region at 0x%llx, using Device-nGnRE\n",
++					mair, md->phys_addr);
++				break;
++			}
++		} else {
++			prot = __pgprot(PROT_DEVICE_nGnRE);
++		}
+ 
+ 		if (arm64_is_protected_mmio(md->phys_addr,
+ 					    md->num_pages << EFI_PAGE_SHIFT))
+@@ -243,6 +268,85 @@ bool efi_runtime_fixup_exception(struct pt_regs *regs, const char *msg)
+ /* EFI requires 8 KiB of stack space for runtime services */
+ static_assert(THREAD_SIZE >= SZ_8K);
+ 
++struct efi_psci_table efi_psci __ro_after_init;
++static unsigned long efi_psci_handler_table __initdata = EFI_INVALID_TABLE_ADDR;
++const efi_config_table_type_t efi_arch_tables[] __initconst = {
++	{LINUX_EFI_ARM_PSCI_HANDLER_TABLE_GUID, &efi_psci_handler_table},
++	{}
++};
++
++static void __init arm64_efi_init_psci(void)
++{
++	struct efi_psci_table *psci;
++
++	if (efi_psci_handler_table == EFI_INVALID_TABLE_ADDR)
++		return;
++
++	psci = early_memremap_ro(efi_psci_handler_table, sizeof(*psci));
++	if (psci == NULL) {
++		pr_warn("Unable to map PSCI table.\n");
++		return;
++	}
++
++	memcpy(&efi_psci, psci, sizeof(*psci));
++	early_memunmap(psci, sizeof(*psci));
++}
++
++void __init arm64_efi_init(void)
++{
++	efi_init();
++	arm64_efi_init_psci();
++}
++
++/*
++ * SYSTEM_SUSPEND does not return through arm64_efi_psci_call(): the firmware resumes the
++ * kernel at cpu_resume, so the unwinding half of the call never ran. Do it here, after the
++ * resume path is back in the caller.
++ */
++void arm64_efi_psci_resumed(void)
++{
++	uaccess_ttbr0_disable();
++	efi_virtmap_unload();
++}
++
++unsigned long arm64_efi_psci_call(unsigned long function_id, unsigned long arg0,
++				  unsigned long arg1, unsigned long arg2)
++{
++	unsigned long ret, flags;
++
++	/*
++	 * Note that unlike for regular EFI runtime calls we don't have to save
++	 * FP/SIMD state here because the handler ABI forbids using those.
++	 * Likewise, we do not take any lock here because the handler has to be
++	 * re-entrant. We couldn't take the sleeping efi_runtime_lock here
++	 * anyway because we may be called from atomic context for cpuidle
++	 * and CPU bring-up.
++	 */
++	local_irq_save(flags);
++	efi_virtmap_load();
++	uaccess_ttbr0_enable();
++	post_ttbr_update_workaround();
++
++	/*
++	 * A successful CPU_OFF does not return: the CPU comes back later through CPU_ON at the
++	 * kernel's secondary entry, so the preempt_disable() in efi_virtmap_load() would never be
++	 * undone and the re-onlined idle task would start with an extra preempt count ("scheduling
++	 * while atomic"). Interrupts are masked on the dying CPU, so drop the count before the call
++	 * and take it again only if the firmware returns.
++	 */
++	if (function_id == PSCI_0_2_FN_CPU_OFF)
++		preempt_enable_no_resched();
++	ret = efi_psci.psci_handler(function_id, arg0, arg1, arg2);
++	if (function_id == PSCI_0_2_FN_CPU_OFF)
++		preempt_disable();
++
++	uaccess_ttbr0_disable();
++	efi_virtmap_unload();
++	local_irq_restore(flags);
++
++	return ret;
++}
++
+ static int __init arm64_efi_rt_init(void)
+ {
+ 	void *p;
+diff --git a/arch/arm64/kernel/setup.c b/arch/arm64/kernel/setup.c
+index f6f87f250e16..353d7f06f52f 100644
+--- a/arch/arm64/kernel/setup.c
++++ b/arch/arm64/kernel/setup.c
+@@ -320,7 +320,7 @@ void __init __no_sanitize_address setup_arch(char **cmdline_p)
+ 	cpu_uninstall_idmap();
+ 
+ 	xen_early_init();
+-	efi_init();
++	arm64_efi_init();
+ 
+ 	if (!efi_enabled(EFI_BOOT)) {
+ 		if ((u64)_text % MIN_KIMG_ALIGN)
+diff --git a/drivers/firmware/psci/psci.c b/drivers/firmware/psci/psci.c
+index e73bae6cb23a..b6927520b206 100644
+--- a/drivers/firmware/psci/psci.c
++++ b/drivers/firmware/psci/psci.c
+@@ -10,6 +10,7 @@
+ #include <linux/arm-smccc.h>
+ #include <linux/cpuidle.h>
+ #include <linux/debugfs.h>
++#include <linux/efi.h>
+ #include <linux/errno.h>
+ #include <linux/linkage.h>
+ #include <linux/of.h>
+@@ -24,6 +25,7 @@
+ 
+ #include <asm/cpuidle.h>
+ #include <asm/cputype.h>
++#include <asm/efi.h>
+ #include <asm/hypervisor.h>
+ #include <asm/system_misc.h>
+ #include <asm/smp_plat.h>
+@@ -131,6 +133,63 @@ __invoke_psci_fn_smc(unsigned long function_id,
+ 	return res.a0;
+ }
+ 
++#if IS_ENABLED(CONFIG_EFI) && IS_ENABLED(CONFIG_ARM64)
++static bool efi_psci_fn_valid(unsigned long function_id)
++{
++	if (function_id >= PSCI_0_2_FN_BASE &&
++	    function_id <= PSCI_0_2_FN(EFI_PSCI_MAX_FN))
++		return true;
++
++	if (function_id >= PSCI_0_2_FN64_BASE &&
++	    function_id <= PSCI_0_2_FN64(EFI_PSCI_MAX_FN))
++		return true;
++
++	return false;
++}
++
++static unsigned long __invoke_psci_fn_efi(unsigned long function_id,
++					  unsigned long arg0,
++					  unsigned long arg1,
++					  unsigned long arg2)
++{
++	u32 fn;
++
++	/* These are called before EFI runtime services are available */
++	switch (function_id) {
++	case PSCI_0_2_FN_PSCI_VERSION:
++		return efi_psci.version;
++	case PSCI_0_2_FN_MIGRATE_INFO_TYPE:
++		return PSCI_0_2_TOS_MP;
++	case PSCI_1_0_FN_PSCI_FEATURES:
++		if (!efi_psci_fn_valid(arg0))
++			return PSCI_RET_NOT_SUPPORTED;
++		fn = arg0 & 0xff;
++		if (fn >= efi_psci.num_features || fn >= EFI_PSCI_MAX_FN)
++			return PSCI_RET_NOT_SUPPORTED;
++		return efi_psci.features[fn];
++	}
++
++	if (!efi_psci_fn_valid(function_id))
++		return PSCI_RET_NOT_SUPPORTED;
++
++	if (WARN_ON_ONCE(!efi_psci.psci_handler))
++		return PSCI_RET_NOT_SUPPORTED;
++	if (WARN_ON_ONCE(!efi_enabled(EFI_RUNTIME_SERVICES)))
++		return PSCI_RET_NOT_SUPPORTED;
++
++	return arm64_efi_psci_call(function_id, arg0, arg1, arg2);
++}
++#else
++static unsigned long __invoke_psci_fn_efi(unsigned long function_id,
++					  unsigned long arg0,
++					  unsigned long arg1,
++					  unsigned long arg2)
++{
++	WARN(1, "EFI PSCI conduit invoked but kernel has not EFI support");
++	return PSCI_RET_NOT_SUPPORTED;
++}
++#endif
++
+ static __always_inline int psci_to_linux_errno(int errno)
+ {
+ 	switch (errno) {
+@@ -277,6 +336,9 @@ static void set_conduit(enum arm_smccc_conduit conduit)
+ 	case SMCCC_CONDUIT_SMC:
+ 		invoke_psci_fn = __invoke_psci_fn_smc;
+ 		break;
++	case SMCCC_CONDUIT_EFI:
++		invoke_psci_fn = __invoke_psci_fn_efi;
++		break;
+ 	default:
+ 		WARN(1, "Unexpected PSCI conduit %d\n", conduit);
+ 	}
+@@ -299,6 +361,8 @@ static int get_set_conduit_method(const struct device_node *np)
+ 		set_conduit(SMCCC_CONDUIT_HVC);
+ 	} else if (!strcmp("smc", method)) {
+ 		set_conduit(SMCCC_CONDUIT_SMC);
++	} else if (!strcmp("efi", method)) {
++		set_conduit(SMCCC_CONDUIT_EFI);
+ 	} else {
+ 		pr_warn("invalid \"method\" property: %s\n", method);
+ 		return -EINVAL;
+@@ -539,9 +603,17 @@ static int psci_system_suspend(unsigned long unused)
+ 
+ static int psci_system_suspend_enter(suspend_state_t state)
+ {
++	int ret;
++
+ 	pm_set_resume_via_firmware();
+ 
+-	return cpu_suspend(0, psci_system_suspend);
++	ret = cpu_suspend(0, psci_system_suspend);
++#if IS_ENABLED(CONFIG_EFI) && IS_ENABLED(CONFIG_ARM64)
++	/* A successful suspend resumed at cpu_resume: the EFI call never unwound */
++	if (!ret && psci_conduit == SMCCC_CONDUIT_EFI)
++		arm64_efi_psci_resumed();
++#endif
++	return ret;
+ }
+ 
+ static int psci_system_suspend_begin(suspend_state_t state)
+diff --git a/drivers/gpu/drm/apple/dcp.c b/drivers/gpu/drm/apple/dcp.c
+index b16995083020..f2c66c65d6db 100644
+--- a/drivers/gpu/drm/apple/dcp.c
++++ b/drivers/gpu/drm/apple/dcp.c
+@@ -12,6 +12,9 @@
+ #include <linux/device/driver.h>
+ #include <linux/dma-mapping.h>
+ #include <linux/dma-fence.h>
++#include <linux/firmware.h>
++#include <linux/io.h>
++#include <linux/unaligned.h>
+ #include <linux/gpio/consumer.h>
+ #include <linux/iommu.h>
+ #include <linux/jiffies.h>
+@@ -9717,6 +9720,207 @@ static void dcp_t8132_sleep_stopped(struct apple_dcp *dcp)
+ 	WRITE_ONCE(dcp->t8132_release_late, false);
+ }
+ 
++/*
++ * Post-S2R cold restart of the internal DCP on T602x:
++ * At firmware-driven S2R suspend, shut down the DCP firmware so its power
++ * domains can gate. After the wake, restore __DATA from apple/dcp-fw.macho
++ * (keeping iBoot's RTKit tagged parameter block), cold-start RTKit, run the
++ * iBoot disp0 bring-up (SetPower(1), HPD, SetMode), and call dcp_start().
++ */
++static bool s2r_fw_restart = true;
++module_param(s2r_fw_restart, bool, 0644);
++MODULE_PARM_DESC(s2r_fw_restart, "Cold-restart internal DCP after firmware S2R using apple/dcp-fw.macho");
++
++static const struct firmware *dcp_fw_s2r_img;
++static struct apple_dcp *dcp_fw_s2r_target;
++static void dcp_fw_s2r_work_fn(struct work_struct *w);
++static DECLARE_DELAYED_WORK(dcp_fw_s2r_work, dcp_fw_s2r_work_fn);
++
++static int dcp_fw_s2r_macho_seg(const u8 *b, size_t len, const char *name,
++				u64 *vmaddr, u64 *fo, u64 *fs)
++{
++	u32 ncmds, i, off = 32;
++
++	if (len < 32 || get_unaligned_le32(b) != 0xfeedfacf)
++		return -EINVAL;
++	ncmds = get_unaligned_le32(b + 16);
++	for (i = 0; i < ncmds && off + 72 <= len; i++) {
++		u32 cmd = get_unaligned_le32(b + off);
++		u32 sz = get_unaligned_le32(b + off + 4);
++
++		if (cmd == 0x19 && !strncmp((const char *)b + off + 8, name, 16)) {
++			*vmaddr = get_unaligned_le64(b + off + 24);
++			*fo = get_unaligned_le64(b + off + 40);
++			*fs = get_unaligned_le64(b + off + 48);
++			return (*fo + *fs <= len) ? 0 : -EINVAL;
++		}
++		if (!sz)
++			break;
++		off += sz;
++	}
++	return -ENOENT;
++}
++
++/* Read __TEXT and __DATA physical addresses from Aura's /chosen/aurora-adt-dcp0-nub. */
++static int dcp_fw_s2r_adt_segments(u64 *text_phys, u64 *data_phys)
++{
++	struct device_node *np = of_find_node_by_path("/chosen/aurora-adt-dcp0-nub");
++	const char *names, *p;
++	const u8 *ranges;
++	int nlen = 0, rlen = 0, idx = 0;
++	bool got_text = false, got_data = false;
++
++	if (!np)
++		return -ENOENT;
++	names = of_get_property(np, "segment-names", &nlen);
++	ranges = of_get_property(np, "segment-ranges", &rlen);
++	if (!names || !ranges || rlen < 32) {
++		of_node_put(np);
++		return -ENOENT;
++	}
++	for (p = names; p < names + nlen && (idx + 1) * 32 <= rlen; idx++) {
++		const char *sep = memchr(p, ';', (names + nlen) - p);
++		size_t slen = sep ? (size_t)(sep - p) : strnlen(p, (names + nlen) - p);
++		u64 phys = get_unaligned_le64(ranges + idx * 32);
++
++		if (slen == 6 && !memcmp(p, "__TEXT", 6)) {
++			*text_phys = phys;
++			got_text = true;
++		} else if (slen == 6 && !memcmp(p, "__DATA", 6)) {
++			*data_phys = phys;
++			got_data = true;
++		}
++		if (!sep)
++			break;
++		p = sep + 1;
++	}
++	of_node_put(np);
++	return (got_text && got_data) ? 0 : -ENOENT;
++}
++
++static int dcp_fw_s2r_restore_data(struct apple_dcp *dcp)
++{
++	u64 text_phys = 0, data_phys = 0;
++	u64 va, fo, fs, tva, tfo, tfs;
++	u32 keep_va = 0, keep_len = 0;
++	size_t i, tdiff = 0;
++	void *m;
++
++	if (!dcp_fw_s2r_img)
++		return -ENOENT;
++	if (dcp_fw_s2r_adt_segments(&text_phys, &data_phys)) {
++		dev_warn(dcp->dev, "s2r: /chosen/aurora-adt-dcp0-nub segments not found\n");
++		return -ENOENT;
++	}
++	if (dcp_fw_s2r_macho_seg(dcp_fw_s2r_img->data, dcp_fw_s2r_img->size,
++				 "__TEXT", &tva, &tfo, &tfs) ||
++	    dcp_fw_s2r_macho_seg(dcp_fw_s2r_img->data, dcp_fw_s2r_img->size,
++				 "__DATA", &va, &fo, &fs)) {
++		dev_warn(dcp->dev, "s2r: Mach-O __TEXT/__DATA segments not found\n");
++		return -EINVAL;
++	}
++	m = memremap(text_phys, tfs, MEMREMAP_WC);
++	if (!m)
++		return -ENOMEM;
++	for (i = 0; i < tfs; i += 4) {
++		if (*(u32 *)(m + i) != get_unaligned_le32(dcp_fw_s2r_img->data + tfo + i))
++			tdiff++;
++	}
++	if (tfs >= 0x1230) {
++		keep_va = *(u32 *)(m + 0x1228);
++		keep_len = *(u32 *)(m + 0x122c);
++	}
++	memunmap(m);
++	if (tdiff > 16) {
++		dev_warn(dcp->dev, "s2r: __TEXT mismatch (%zu words), skipping __DATA restore\n",
++			 tdiff);
++		return -EINVAL;
++	}
++	m = memremap(data_phys, fs, MEMREMAP_WC);
++	if (!m)
++		return -ENOMEM;
++	{
++		u64 ks = (keep_va >= va && keep_len) ? (keep_va - va) : fs;
++		u64 ke = ks + keep_len;
++
++		if (ke > fs)
++			ks = ke = fs;
++		memcpy(m, dcp_fw_s2r_img->data + fo, ks);
++		memcpy(m + ke, dcp_fw_s2r_img->data + fo + ke, fs - ke);
++		wmb();
++	}
++	memunmap(m);
++	dev_info(dcp->dev, "s2r: restored DCP __DATA (%#llx bytes, kept iBoot block %#x+%#x)\n",
++		 fs, keep_va, keep_len);
++	return 0;
++}
++
++static void dcp_fw_s2r_work_fn(struct work_struct *w)
++{
++	struct apple_dcp *dcp = dcp_fw_s2r_target;
++	u32 ctl;
++	int ret, n;
++
++	if (!dcp)
++		return;
++	ret = dcp_fw_s2r_restore_data(dcp);
++	if (ret) {
++		dev_err(dcp->dev, "s2r: DCP __DATA restore failed: %d\n", ret);
++		return;
++	}
++	ctl = readl(dcp->coproc_reg + APPLE_DCP_COPROC_CPU_CONTROL);
++	writel(ctl | APPLE_DCP_COPROC_CPU_CONTROL_RUN,
++	       dcp->coproc_reg + APPLE_DCP_COPROC_CPU_CONTROL);
++	ret = apple_rtkit_reinit(dcp->rtk);
++	if (ret) {
++		dev_err(dcp->dev, "s2r: DCP rtkit reinit failed: %d\n", ret);
++		return;
++	}
++	ret = apple_rtkit_wake(dcp->rtk);
++	for (n = 0; ret == -ETIME && n < 3; n++)
++		ret = apple_rtkit_boot(dcp->rtk);
++	if (ret) {
++		dev_err(dcp->dev, "s2r: DCP rtkit wake failed: %d\n", ret);
++		return;
++	}
++	WRITE_ONCE(dcp->crashed, false);
++	WRITE_ONCE(dcp->ext_dead, false);
++	ret = ibootep_s2r_bringup(dcp);
++	if (ret)
++		dev_warn(dcp->dev, "s2r: DCP iBoot disp0 bring-up failed: %d\n", ret);
++	ret = dcp_start(to_platform_device(dcp->dev));
++	dev_info(dcp->dev, "s2r: internal DCP cold restart complete (%d)\n", ret);
++}
++
++static bool dcp_fw_s2r_suspend(struct apple_dcp *dcp)
++{
++	int ret;
++
++	if (!READ_ONCE(s2r_fw_restart) || pm_suspend_target_state != PM_SUSPEND_MEM ||
++	    !pm_suspend_via_firmware() || IS_ERR_OR_NULL(dcp->rtk) ||
++	    READ_ONCE(dcp->crashed))
++		return false;
++	if (!dcp->external && !dcp_fw_s2r_img) {
++		ret = firmware_request_nowarn(&dcp_fw_s2r_img, "apple/dcp-fw.macho", dcp->dev);
++		if (ret) {
++			dcp_fw_s2r_img = NULL;
++			dev_dbg(dcp->dev, "s2r: apple/dcp-fw.macho not available (%d)\n", ret);
++		}
++	}
++	ret = apple_rtkit_shutdown(dcp->rtk);
++	if (ret) {
++		dev_warn(dcp->dev, "s2r: DCP firmware shutdown failed: %d\n", ret);
++		return false;
++	}
++	if (!IS_ERR_OR_NULL(dcp->coproc_reg))
++		writel(0, dcp->coproc_reg + APPLE_DCP_COPROC_CPU_CONTROL);
++	WRITE_ONCE(dcp->crashed, true);
++	WRITE_ONCE(dcp->ext_dead, true);
++	if (!dcp->external && dcp_fw_s2r_img)
++		dcp_fw_s2r_target = dcp;
++	return true;
++}
++
+ static int dcp_platform_suspend(struct device *dev)
+ {
+ 	struct apple_dcp *dcp = dev_get_drvdata(dev);
+@@ -9864,6 +10068,8 @@ static int dcp_platform_suspend(struct device *dev)
+ 	 * domains to stay on. We need this as we do not support full
+ 	 * shutdown properly yet.
+ 	 */
++	if (dcp_fw_s2r_suspend(dcp))
++		return 0;
+ 	device_set_wakeup_path(dev);
+ 	/* Last: the steps above still talk to the coprocessor. */
+ 	dcp_hold_for_sleep(dcp);
+@@ -9884,6 +10090,11 @@ static int dcp_platform_resume(struct device *dev)
+ 	if (dcp->s2r_stopped)
+ 		return dcp_s2r_resume(dcp);
+ 
++	if (dcp == dcp_fw_s2r_target && READ_ONCE(dcp->ext_dead)) {
++		schedule_delayed_work(&dcp_fw_s2r_work, msecs_to_jiffies(2000));
++		return 0;
++	}
++
+ 	if (iomfb_is_m4(dcp)) {
+ 		int ret = iomfb_m4_resume(dcp);
+ 
+diff --git a/drivers/gpu/drm/apple/ibootep.c b/drivers/gpu/drm/apple/ibootep.c
+index 7f90f68bf26f..1676ff5d1b0b 100644
+--- a/drivers/gpu/drm/apple/ibootep.c
++++ b/drivers/gpu/drm/apple/ibootep.c
+@@ -396,12 +396,14 @@ static void iboot_query_work(struct work_struct *work)
+ 	atomic_set_release(&query->busy, 0);
+ }
+ 
++static bool ibootep_s2r_internal;
++
+ static struct iboot_query *iboot_find_query(struct apple_dcp *dcp)
+ {
+ 	struct apple_dcp_afkep *ep = READ_ONCE(dcp->ibootep);
+ 	u32 i;
+ 
+-	if (!dcp->external || !ep)
++	if ((!dcp->external && !READ_ONCE(ibootep_s2r_internal)) || !ep)
+ 		return ERR_PTR(-ENODEV);
+ 	for (i = 0; i < AFK_MAX_CHANNEL; i++) {
+ 		struct iboot_query *query = smp_load_acquire(&ep->services[i].cookie);
+@@ -699,7 +701,7 @@ static void disp_service_init(struct apple_epic_service *service, const char *na
+ 	struct iboot_query *query;
+ 	int ret;
+ 
+-	if (!dcp->external)
++	if (!dcp->external && !READ_ONCE(ibootep_s2r_internal))
+ 		return;
+ 	query = devm_kzalloc(dcp->dev, sizeof(*query), GFP_KERNEL);
+ 	if (!query)
+@@ -717,6 +719,8 @@ static void disp_service_init(struct apple_epic_service *service, const char *na
+ 		return;
+ 	}
+ 	smp_store_release(&service->cookie, query);
++	if (!dcp->external)
++		return;
+ 	ret = dcpext_scanout_register(dcp);
+ 	if (ret && ret != -ENODEV)
+ 		dev_warn(dcp->dev, "external pattern interface unavailable: %d\n", ret);
+@@ -741,6 +745,88 @@ static const struct apple_epic_service_ops external_ibootep_ops[] = {
+ 	{}
+ };
+ 
++static int iboot_s2r_pick(struct iboot_query *query, u32 op, u8 *reply, u8 *out)
++{
++	const u8 *payload, *mode;
++	size_t size;
++	u32 count, i;
++	int ret, best = -1;
++
++	ret = iboot_read_query(query, op, reply, &payload, &size);
++	if (!ret)
++		ret = iboot_parse_modes(payload, size, &count);
++	if (ret)
++		return ret;
++	for (i = 0; i < count; i++) {
++		mode = payload + 4 + i * IBOOT_MODE_SIZE;
++		if (get_unaligned_le32(mode) != 1)
++			continue;
++		if (best < 0)
++			best = i;
++		if (op == IBOOT_GET_COLOR_MODES && get_unaligned_le32(mode + 12) == 1 &&
++		    get_unaligned_le32(mode + 16) == 32) {
++			best = i;
++			break;
++		}
++		if (op == IBOOT_GET_TIMING_MODES)
++			break;
++	}
++	if (best < 0)
++		return -ENODATA;
++	memcpy(out, payload + 4 + best * IBOOT_MODE_SIZE, IBOOT_MODE_SIZE);
++	return 0;
++}
++
++/*
++ * After a post-S2R cold restart of the internal DCP, drive the iBoot disp0
++ * service (SetPower(1), HPD/mode query, SetMode) so IOMFB's start_ios_gated()
++ * finds the panel powered and initialized as iBoot hands it over.
++ */
++int ibootep_s2r_bringup(struct apple_dcp *dcp)
++{
++	struct iboot_query *query = ERR_PTR(-EAGAIN);
++	u8 modes[2 * IBOOT_MODE_SIZE], power = 1;
++	u8 *reply;
++	int ret, n;
++
++	WRITE_ONCE(ibootep_s2r_internal, true);
++	if (!dcp->ibootep) {
++		ret = ibootep_init(dcp);
++		if (ret)
++			return ret;
++	}
++	for (n = 0; n < 60; n++) {
++		query = iboot_find_query(dcp);
++		if (!IS_ERR(query))
++			break;
++		msleep(50);
++	}
++	if (IS_ERR(query))
++		return PTR_ERR(query);
++	reply = kzalloc(IBOOT_QUERY_RX_SIZE, GFP_KERNEL);
++	if (!reply)
++		return -ENOMEM;
++	ret = iboot_pattern_command(query, 2, &power, sizeof(power), reply);
++	if (ret)
++		goto out;
++	msleep(100);
++	for (n = 0; n < 10; n++) {
++		ret = iboot_refresh_modes(query, reply);
++		if (ret != -ENOLINK)
++			break;
++		msleep(100);
++	}
++	ret = iboot_s2r_pick(query, IBOOT_GET_TIMING_MODES, reply, modes);
++	if (!ret)
++		ret = iboot_s2r_pick(query, IBOOT_GET_COLOR_MODES, reply, modes + IBOOT_MODE_SIZE);
++	if (ret)
++		goto out;
++	ret = iboot_pattern_command(query, 6, modes, sizeof(modes), reply);
++out:
++	kfree(reply);
++	return ret;
++}
++
+ int ibootep_init(struct apple_dcp *dcp)
+ {
+ 	const struct apple_epic_service_ops *ops = ibootep_ops;
+diff --git a/drivers/gpu/drm/apple/ibootep.h b/drivers/gpu/drm/apple/ibootep.h
+index aa44c2f8754e..d01b464e17de 100644
+--- a/drivers/gpu/drm/apple/ibootep.h
++++ b/drivers/gpu/drm/apple/ibootep.h
+@@ -8,6 +8,7 @@ struct apple_dcp;
+ 
+ /* Read-only publication check; does not send firmware commands. */
+ bool ibootep_is_ready(struct apple_dcp *dcp);
++int ibootep_s2r_bringup(struct apple_dcp *dcp);
+ 
+ /* Queue external HPD/timing/color queries; never call synchronously from AFK RX. */
+ int ibootep_query_modes(struct apple_dcp *dcp);
+diff --git a/drivers/nvme/host/apple.c b/drivers/nvme/host/apple.c
+index e4522195f9a2..fefe822b8471 100644
+--- a/drivers/nvme/host/apple.c
++++ b/drivers/nvme/host/apple.c
+@@ -238,6 +238,13 @@ struct apple_nvme_hw {
+ struct apple_nvme {
+ 	struct device *dev;
+ 	struct apple_nvme_m5_sleep m5;
++	bool s2r_force_cold;
++	bool s2r_cold;
++	bool s2r_idle_kept;
++	u32 sart_power_boot;
++	int s2r_tun_n;
++	void __iomem *s2r_tun_reg[64];
++	u32 s2r_tun_mask[64], s2r_tun_val[64];
+ 	struct kref ref;
+ 	/* Serializes the post-M4 controller disable with reset and teardown. */
+ 	struct mutex disable_lock;
+@@ -1743,6 +1750,48 @@ static void apple_nvme_stop_crashed_session(struct apple_nvme *anv)
+ 	anv->ctrl.ctrl_config = 0;
+ }
+ 
++#define APPLE_ANS_SART_POWER	0x13e8
++
++static void apple_nvme_s2r_tunables_init(struct apple_nvme *anv)
++{
++	struct device_node *ch = of_find_node_by_path("/chosen");
++	const __be32 *p;
++	int len, i;
++
++	p = ch ? of_get_property(ch, "aurora,ans-tunables", &len) : NULL;
++	of_node_put(ch);
++	if (!p)
++		return;
++	for (i = 0; i < len / 16 && anv->s2r_tun_n < ARRAY_SIZE(anv->s2r_tun_reg); i++, p += 4) {
++		u64 a = ((u64)be32_to_cpu(p[0]) << 32) | be32_to_cpu(p[1]);
++		void __iomem *r = ioremap_np(a, 4);
++
++		if (!r)
++			continue;
++		anv->s2r_tun_reg[anv->s2r_tun_n] = r;
++		anv->s2r_tun_mask[anv->s2r_tun_n] = be32_to_cpu(p[2]);
++		anv->s2r_tun_val[anv->s2r_tun_n] = be32_to_cpu(p[3]);
++		anv->s2r_tun_n++;
++	}
++	dev_dbg(anv->dev, "s2r: %d ANS tunable writes from ADT\n", anv->s2r_tun_n);
++}
++
++static void apple_nvme_s2r_tunables_apply(struct apple_nvme *anv)
++{
++	int i, changed = 0;
++
++	for (i = 0; i < anv->s2r_tun_n; i++) {
++		u32 v = readl(anv->s2r_tun_reg[i]);
++		u32 w = (v & ~anv->s2r_tun_mask[i]) | (anv->s2r_tun_val[i] & anv->s2r_tun_mask[i]);
++
++		if (w != v) {
++			writel(w, anv->s2r_tun_reg[i]);
++			changed++;
++		}
++	}
++	dev_dbg(anv->dev, "s2r: ANS tunables %d of %d rewritten\n", changed, anv->s2r_tun_n);
++}
++
+ static bool apple_nvme_sleep_wait_on(struct apple_nvme *anv);
+ 
+ static void apple_nvme_reset_work_impl(struct work_struct *work)
+@@ -1872,6 +1921,17 @@ static void apple_nvme_reset_work_impl(struct work_struct *work)
+ 		writel(0, anv->mmio_coproc + APPLE_ANS_COPROC_CPU_CONTROL);
+ 	}
+ 
++	/*
++	 * After a firmware S2R power cut, the ANS lost power even if CPU_CONTROL
++	 * reads non-zero: force a cold start with its saved RTKit buffers kept,
++	 * SART power word and ADT tunables restored.
++	 */
++	if (anv->s2r_force_cold && !anv->hw->needs_ioq_registers) {
++		writel(0, anv->mmio_coproc + APPLE_ANS_COPROC_CPU_CONTROL);
++		anv->s2r_force_cold = false;
++		anv->s2r_cold = true;
++	}
++
+ 	/*
+ 	 * Only do the soft-reset if the CPU is not running, which means either we
+ 	 * or the previous stage shut it down cleanly.
+@@ -1899,7 +1959,12 @@ static void apple_nvme_reset_work_impl(struct work_struct *work)
+ 		if (ret)
+ 			goto out;
+ 
+-		ret = apple_rtkit_reinit(anv->rtk);
++		if (anv->s2r_idle_kept) {
++			anv->s2r_idle_kept = false;
++			ret = apple_rtkit_reinit_keep(anv->rtk);
++		} else {
++			ret = apple_rtkit_reinit(anv->rtk);
++		}
+ 		if (ret)
+ 			goto out;
+ 
+@@ -1907,10 +1972,23 @@ static void apple_nvme_reset_work_impl(struct work_struct *work)
+ 		if (ret)
+ 			goto out;
+ 
++		if (anv->s2r_cold) {
++			u32 sp = readl(anv->mmio_nvme + APPLE_ANS_SART_POWER);
++
++			if (anv->sart_power_boot && sp != anv->sart_power_boot)
++				writel(anv->sart_power_boot, anv->mmio_nvme + APPLE_ANS_SART_POWER);
++			apple_rtkit_set_iop_ack_wait(anv->rtk, 25);
++			apple_nvme_s2r_tunables_apply(anv);
++		}
++
+ 		writel(APPLE_ANS_COPROC_CPU_CONTROL_RUN,
+ 		       anv->mmio_coproc + APPLE_ANS_COPROC_CPU_CONTROL);
+ 
+ 		ret = apple_rtkit_boot(anv->rtk);
++		if (anv->s2r_cold) {
++			apple_rtkit_set_iop_ack_wait(anv->rtk, 0);
++			anv->s2r_cold = false;
++		}
+ 	} else {
+ 		ret = apple_rtkit_wake(anv->rtk);
+ 	}
+@@ -2154,6 +2232,8 @@ static void apple_nvme_reset_work_impl(struct work_struct *work)
+ 		ret = -ENODEV;
+ 		goto out_remove_sq;
+ 	}
++	if (!anv->sart_power_boot && !anv->hw->needs_ioq_registers)
++		anv->sart_power_boot = readl(anv->mmio_nvme + APPLE_ANS_SART_POWER);
+ 
+ 	/* M5 remains REBUILDING even if nvme_start_ctrl unquiesces. The
+ 	 * bounded PM owner, not this worker, releases admission and retention.
+@@ -2672,6 +2752,7 @@ static struct apple_nvme *apple_nvme_alloc(struct platform_device *pdev)
+ 	}
+ 
+ 	INIT_WORK(&anv->ctrl.reset_work, apple_nvme_reset_work);
++	apple_nvme_s2r_tunables_init(anv);
+ 	INIT_WORK(&anv->remove_work, apple_nvme_remove_dead_ctrl_work);
+ 	INIT_WORK(&anv->recovery_work, apple_nvme_recovery_work);
+ 	spin_lock_init(&anv->lock);
+@@ -3083,6 +3164,8 @@ static int apple_nvme_resume(struct device *dev)
+ 		WRITE_ONCE(anv->suspended, false);
+ 		return nvme_try_sched_reset(&anv->ctrl);
+ 	}
++	if (pm_resume_via_firmware())
++		anv->s2r_force_cold = true;
+ 	return nvme_reset_ctrl(&anv->ctrl);
+ }
+ 
+@@ -3243,7 +3326,15 @@ static int apple_nvme_suspend(struct device *dev)
+ 	}
+ 
+ 	if (apple_rtkit_is_running(anv->rtk)) {
+-		ret = apple_rtkit_shutdown(anv->rtk);
++		if (pm_suspend_via_firmware() && pm_suspend_target_state == PM_SUSPEND_MEM) {
++			ret = apple_rtkit_idle(anv->rtk);
++			if (!ret) {
++				apple_rtkit_detach_keep(anv->rtk);
++				anv->s2r_idle_kept = true;
++			}
++		} else {
++			ret = apple_rtkit_shutdown(anv->rtk);
++		}
+ 
+ 		writel(0, anv->mmio_coproc + APPLE_ANS_COPROC_CPU_CONTROL);
+ 	}
+diff --git a/drivers/pci/controller/pcie-apple.c b/drivers/pci/controller/pcie-apple.c
+index 66b1cbe93663..0be9f7d1834f 100644
+--- a/drivers/pci/controller/pcie-apple.c
++++ b/drivers/pci/controller/pcie-apple.c
+@@ -527,6 +527,7 @@ struct apple_radio_sleep;
+ struct apple_pcie {
+ 	struct mutex		lock;
+ 	struct device		*dev;
++	struct work_struct	s2r_work;
+ 	void __iomem            *base;
+ 	void __iomem		*fabric_base;
+ 	void __iomem		*debug_base;
+@@ -654,6 +655,8 @@ struct apple_pcie_port {
+ 	bool			powered;	/* cold train: pwren raised, port not parked yet */
+ 	struct device		*cold_dart;	/* a parked port's DART: gated while the port is parked */
+ 	struct pci_saved_state	*cold_rp_state;	/* a parked port's root port, as it was before the park */
++	struct gpio_desc	*s2r_aux_perst[3];
++	u32			s2r_num_aux_perst;
+ };
+ 
+ static bool apple_radio_writer_closed(struct apple_pcie *pcie);
+@@ -663,6 +666,7 @@ static void __noreturn apple_radio_terminal(void);
+ static int apple_pcie_managed_admit(struct apple_pcie_port *port);
+ static struct apple_pcie *apple_pcie_lookup(struct device *dev);
+ static int apple_pcie_radio_check_cold(struct apple_pcie_port *port);
++static void apple_pcie_s2r_work(struct work_struct *work);
+ 
+ static void rmw_set(u32 set, void __iomem *addr)
+ {
+@@ -2884,6 +2888,12 @@ static int apple_pcie_setup_link(struct apple_pcie *pcie,
+ 	if (!num_aux_resets) {
+ 		port->perst_gpio = reset;
+ 		port->pwren_gpio = pwren;
++	} else {
++		port->perst_gpio = reset;
++		port->pwren_gpio = pwren;
++		port->s2r_num_aux_perst = num_aux_resets;
++		for (u32 idx = 0; idx < num_aux_resets; idx++)
++			port->s2r_aux_perst[idx] = aux_reset[idx];
+ 	}
+ 
+ have_gpios:
+@@ -5869,6 +5879,7 @@ static int apple_pcie_probe(struct platform_device *pdev)
+ 
+ 	mutex_init(&pcie->lock);
+ 	INIT_LIST_HEAD(&pcie->ports);
++	INIT_WORK(&pcie->s2r_work, apple_pcie_s2r_work);
+ 
+ 	/* Resolve PM dependencies before publishing the PCI hierarchy. */
+ 	if (pcie->hw->tunneled) {
+@@ -6939,6 +6950,17 @@ static int apple_pcie_suspend_noirq(struct device *dev)
+ 		return ret;
+ 	}
+ 	if (!pcie->hw->tunneled) {
++		if (pm_suspend_via_firmware()) {
++			struct apple_pcie_port *port;
++			int i;
++
++			list_for_each_entry(port, &pcie->ports, entry) {
++				port->saved_intmask = apple_pcie_port_readl(port, PORT_INTMSK);
++				for_each_set_bit(i, port->sid_map, port->sid_map_sz)
++					port->saved_rid2sid[i] =
++						apple_pcie_port_readl(port, port_rid2sid_offset(port, i));
++			}
++		}
+ 		if (pm_suspend_no_platform() && pcie->num_pds)
+ 			return apple_pcie_hold_domains(pcie);
+ 		return 0;
+@@ -7556,12 +7578,173 @@ static int apple_pcie_prepare(struct device *dev)
+ 	return apple_radio_prepare(dev);
+ }
+ 
++static bool s2r_resume = true;
++module_param(s2r_resume, bool, 0644);
++MODULE_PARM_DESC(s2r_resume, "Redo conventional port setup and rescan after a firmware S2R power cut");
++
++static void apple_pcie_port_program_msi_s2r(struct apple_pcie_port *port)
++{
++	struct apple_pcie *pcie = port->pcie;
++	u32 val = 0;
++
++	BUILD_BUG_ON(upper_32_bits(DOORBELL_ADDR));
++	apple_pcie_port_writel(port, lower_32_bits(DOORBELL_ADDR),
++				 pcie->hw->port_msiaddr);
++	if (pcie->hw->port_msiaddr_hi)
++		apple_pcie_port_writel(port, 0, pcie->hw->port_msiaddr_hi);
++
++	if (pcie->hw->port_msimap) {
++		for (int i = 0; i < pcie->nvecs; i++)
++			apple_pcie_port_writel(port,
++				FIELD_PREP(PORT_MSIMAP_TARGET, pcie->msi_vector_base + i) |
++				PORT_MSIMAP_ENABLE,
++				pcie->hw->port_msimap + 4 * (i +
++				(pcie->hw->msimap_by_vector ? pcie->msi_vector_base : 0)));
++	} else {
++		apple_pcie_port_writel(port, 0, PORT_MSIBASE);
++		val = ilog2(pcie->nvecs) << PORT_MSICFG_L2MSINUM_SHIFT;
++	}
++
++	apple_pcie_port_writel(port, val | PORT_MSICFG_EN, PORT_MSICFG);
++}
++
++static int apple_pcie_port_power_on_s2r(struct apple_pcie *pcie, struct apple_pcie_port *port)
++{
++	u32 stat;
++	int ret;
++
++	rmw_set(PORT_APPCLK_EN, port->base + PORT_APPCLK);
++
++	gpiod_direction_output(port->perst_gpio, 1);
++	for (u32 idx = 0; idx < port->s2r_num_aux_perst; idx++)
++		gpiod_set_value_cansleep(port->s2r_aux_perst[idx], 1);
++
++	if (port->pwren_gpio) {
++		ret = gpiod_set_value_cansleep(port->pwren_gpio, 1);
++		if (ret)
++			return ret;
++	}
++
++	if (!pcie->hw->retain_clocks) {
++		ret = apple_pcie_setup_refclk(pcie, port);
++		if (ret < 0)
++			return ret;
++	}
++
++	if (port->pwren_gpio)
++		msleep(pcie->hw->pwren_on_ms ?: 100);
++	else
++		usleep_range(100, 200);
++
++	rmw_set(PORT_PERST_OFF, port->base + pcie->hw->port_perst);
++	ret = gpiod_set_value_cansleep(port->perst_gpio, 0);
++	if (ret)
++		return ret;
++	for (u32 idx = 0; idx < port->s2r_num_aux_perst; idx++)
++		gpiod_set_value_cansleep(port->s2r_aux_perst[idx], 0);
++
++	msleep(100);
++	ret = readl_relaxed_poll_timeout(port->base + PORT_STATUS, stat,
++					 stat & PORT_STATUS_READY, 100, 250000);
++	if (ret < 0) {
++		dev_err(pcie->dev, "port %pOF ready wait timeout after S2R\n", port->np);
++		return ret;
++	}
++	return 0;
++}
++
++static void apple_pcie_s2r_work(struct work_struct *work)
++{
++	struct apple_pcie *pcie = container_of(work, struct apple_pcie, s2r_work);
++	struct device *dev = pcie->dev;
++	struct apple_pcie_port *port;
++	struct pci_bus *root = NULL;
++	struct pci_dev *pdev = NULL, *child, *tmp;
++	bool redone = false, any_up = false;
++	u32 stat;
++	int ret;
++
++	msleep(1500);
++	for (unsigned int attempt = 1; attempt <= 3; attempt++) {
++		if (attempt > 1) {
++			if (any_up)
++				break;
++			msleep(3000);
++		}
++		list_for_each_entry(port, &pcie->ports, entry) {
++			if (apple_pcie_port_readl(port, PORT_LINKSTS) & PORT_LINKSTS_UP)
++				continue;
++			dev_info(dev, "port %pOF lost its link in suspend (status %#x, link %#x): redoing setup\n",
++				 port->np, apple_pcie_port_readl(port, PORT_STATUS),
++				 apple_pcie_port_readl(port, PORT_LINKSTS));
++			if (!port->perst_gpio)
++				continue;
++			ret = apple_pcie_port_power_on_s2r(pcie, port);
++			if (ret) {
++				dev_err(dev, "port %pOF power-on after resume failed: %d\n", port->np, ret);
++				continue;
++			}
++			if (!pcie->hw->retain_clocks) {
++				if (pcie->hw->port_refclk)
++					rmw_clear(PORT_REFCLK_CGDIS, port->base + pcie->hw->port_refclk);
++				else if (port->phy)
++					rmw_set(PHY_LANE_CFG_REFCLKCGEN, port->phy + PHY_LANE_CFG);
++				rmw_clear(PORT_APPCLK_CGDIS, port->base + PORT_APPCLK);
++			}
++			apple_pcie_port_writel(port, ~0, PORT_INTMSK);
++			apple_pcie_port_writel(port, ~0, PORT_INTSTAT);
++			apple_pcie_port_writel(port, ~0, PORT_LINKCMDSTS);
++			apple_pcie_port_program_msi_s2r(port);
++			apple_pcie_port_writel(port, PORT_LTSSMCTL_START, PORT_LTSSMCTL);
++			ret = readl_relaxed_poll_timeout(port->base + PORT_LINKSTS, stat,
++							 stat & PORT_LINKSTS_UP, 1000,
++							 link_up_timeout * 1000);
++			apple_pcie_port_writel(port, port->saved_intmask, PORT_INTMSK);
++			dev_info(dev, "port %pOF link %s after resume (%#x)\n", port->np,
++				 ret ? "still down" : "up", stat);
++			redone = true;
++			if (!ret)
++				any_up = true;
++		}
++	}
++	if (!redone || !any_up)
++		return;
++	msleep(200);
++	pci_lock_rescan_remove();
++	for_each_pci_dev(pdev) {
++		struct pci_host_bridge *hb = pci_find_host_bridge(pdev->bus);
++
++		if (hb && hb->dev.parent == dev) {
++			root = hb->bus;
++			pci_dev_put(pdev);
++			break;
++		}
++	}
++	if (root) {
++		list_for_each_entry_safe_reverse(child, tmp, &root->devices, bus_list)
++			pci_stop_and_remove_bus_device(child);
++		dev_info(dev, "rescanning after S2R power cut: %u devices\n", pci_rescan_bus(root));
++	}
++	pci_unlock_rescan_remove();
++}
++
++static int apple_pcie_resume(struct device *dev)
++{
++	struct apple_pcie *pcie = apple_pcie_lookup(dev);
++
++	if (pcie->hw->tunneled || !s2r_resume || !pm_resume_via_firmware())
++		return 0;
++	queue_work(system_long_wq, &pcie->s2r_work);
++	return 0;
++}
++
+ static const struct dev_pm_ops apple_pcie_pm_ops = {
+ 	.prepare = apple_pcie_prepare,
+ 	.complete = apple_radio_complete,
+ 	.suspend_noirq = apple_pcie_suspend_noirq,
+ 	.resume_noirq = apple_pcie_resume_noirq,
+ 	.resume_early = apple_pcie_resume_early,
++	.resume = apple_pcie_resume,
+ };
+ 
+ static const struct of_device_id apple_pcie_of_match[] = {
+diff --git a/drivers/phy/apple/atc.c b/drivers/phy/apple/atc.c
+index 34d3aa12b8f4..e30616e8e230 100644
+--- a/drivers/phy/apple/atc.c
++++ b/drivers/phy/apple/atc.c
+@@ -7836,6 +7836,14 @@ static int atcphy_suspend(struct device *dev)
+ {
+ 	struct apple_atcphy *atcphy = dev_get_drvdata(dev);
+ 
++	/*
++	 * A firmware-driven S2R power cut resets the PHY while genpd may still
++	 * consider its domain on; mark it for a full restore on resume.
++	 */
++	if (pm_suspend_via_firmware() && pm_suspend_target_state == PM_SUSPEND_MEM &&
++	    atcphy->hw->restore_after_pd_off)
++		WRITE_ONCE(atcphy->pd_was_off, true);
++
+ 	if (atcphy->hw->gen != ATCPHY_GENERATION_T8132 || !atcphy->t8132_ss)
+ 		return 0;
+ 
+@@ -7930,6 +7938,26 @@ static const struct atcphy_hw atcphy_hw_t8103 = {
+ 	.park_pipe_unlocked = true,
+ };
+ 
++/*
++ * T6020/T6021 (M2 Pro/Max): T8103 register layout, but the PIPE lock is only
++ * acknowledged while the dummy PIPE PHY is enabled, as on T8122. iBoot leaves
++ * the bit set; a power-domain reset or S2R cut clears it, after which USB3
++ * starts fail with "Pipehandler lock not acked". Re-enable it on every park
++ * and restore the PHY after a power-domain cut.
++ */
++static const struct atcphy_hw atcphy_hw_t6020 = {
++	.gen = ATCPHY_GENERATION_T8103,
++	.aciophy_lane_mode = ACIOPHY_LANE_MODE_T8103,
++	.aciophy_crossbar = ACIOPHY_CROSSBAR_T8103,
++	.configure_post_tunable = atcphy_configure_post_tunable_t8103,
++	.pipe_mux_clk = PIPEHANDLER_MUX_CTRL_CLK_T8103,
++	.pipe_mux_data = PIPEHANDLER_MUX_CTRL_DATA_T8103,
++	.has_usb4 = true,
++	.park_pipe_unlocked = true,
++	.park_dummy_phy = true,
++	.restore_after_pd_off = true,
++};
++
+ static const struct atcphy_hw atcphy_hw_t8122 = {
+ 	.gen = ATCPHY_GENERATION_T8122,
+ 	.aciophy_lane_mode = ACIOPHY_LANE_MODE_T8122,
+@@ -7984,6 +8012,7 @@ static const struct atcphy_hw atcphy_hw_t8142 = {
+ };
+ 
+ static const struct of_device_id atcphy_match[] = {
++	{ .compatible = "apple,t6020-atcphy", .data = &atcphy_hw_t6020 },
+ 	{ .compatible = "apple,t8103-atcphy", .data = &atcphy_hw_t8103 },
+ 	{ .compatible = "apple,t8122-atcphy", .data = &atcphy_hw_t8122 },
+ 	{ .compatible = "apple,t8132-atcphy", .data = &atcphy_hw_t8132 },
+diff --git a/drivers/pmdomain/apple/pmgr-pwrstate.c b/drivers/pmdomain/apple/pmgr-pwrstate.c
+index 6745b4916365..be2b2a0a7e73 100644
+--- a/drivers/pmdomain/apple/pmgr-pwrstate.c
++++ b/drivers/pmdomain/apple/pmgr-pwrstate.c
+@@ -430,6 +430,28 @@ static int apple_pmgr_ps_power_on(struct generic_pm_domain *genpd)
+ 	return ret;
+ }
+ 
++static char *s2r_sleep_keep = "afr,gpio";
++module_param(s2r_sleep_keep, charp, 0644);
++MODULE_PARM_DESC(s2r_sleep_keep, "Comma-separated PMGR domain names kept powered through firmware S2R");
++
++static bool apple_pmgr_ps_s2r_keep(const char *name)
++{
++	const char *p = READ_ONCE(s2r_sleep_keep);
++	size_t nlen;
++
++	if (!p || !*p || !name)
++		return false;
++	nlen = strlen(name);
++	while (*p) {
++		const char *c = strchrnul(p, ',');
++
++		if ((size_t)(c - p) == nlen && !strncmp(p, name, nlen))
++			return true;
++		p = *c ? c + 1 : c;
++	}
++	return false;
++}
++
+ static int apple_pmgr_ps_power_off(struct generic_pm_domain *genpd)
+ {
+ 	struct apple_pmgr_ps *ps = genpd_to_apple_pmgr_ps(genpd);
+@@ -442,6 +464,9 @@ static int apple_pmgr_ps_power_off(struct generic_pm_domain *genpd)
+ 	/* A live coprocessor keeps this domain through system sleep. */
+ 	if (ps->sleep_retained && ps->system_sleep)
+ 		return -EBUSY;
++	if (ps->system_sleep && pm_suspend_via_firmware() &&
++	    apple_pmgr_ps_s2r_keep(genpd->name))
++		return -EBUSY;
+ 	/*
+ 	 * Its driver took it down for the sleep and raises it in its own order. Gating it
+ 	 * here would take its parents too, and genpd would raise them all first at the wake.
+diff --git a/drivers/rtc/rtc-macsmc.c b/drivers/rtc/rtc-macsmc.c
+index 690a4a84ff90..e4cd38bab9c0 100644
+--- a/drivers/rtc/rtc-macsmc.c
++++ b/drivers/rtc/rtc-macsmc.c
+@@ -45,6 +45,8 @@ struct macsmc_rtc {
+ 	struct nvmem_cell *alarm_ctrl;
+ 	struct nvmem_cell *alarm_value;
+ 	struct nvmem_cell *alarm_mask;
++	/* T602x: the event is a byte of its own, bit 0, cleared by writing 1 */
++	struct nvmem_cell *alarm_event;
+ 	struct mutex alarm_lock;
+ 	u32 alarm_secs;
+ };
+@@ -208,6 +210,50 @@ static int macsmc_rtc_offset_secs(struct macsmc_rtc *rtc, s64 *secs)
+ 	return 0;
+ }
+ 
++/*
++ * The control byte as the alarm code sees it. With a separate event cell
++ * (T602x) the event bit is taken from there. The control byte's own bit 1 is
++ * then a "fired" latch the PMU sets with the event: while it is set a later
++ * alarm clears the enable bit at its second but raises no event and no
++ * interrupt, so every write clears it.
++ */
++static int macsmc_rtc_read_ctrl(struct macsmc_rtc *rtc, u8 *ctrl)
++{
++	u8 ev;
++	int ret;
++
++	ret = macsmc_rtc_read_u8(rtc->alarm_ctrl, ctrl);
++	if (ret || !rtc->alarm_event)
++		return ret;
++	ret = macsmc_rtc_read_u8(rtc->alarm_event, &ev);
++	if (ret)
++		return ret;
++	*ctrl &= ~RTC_CTRL_ALARM_EVENT;
++	if (ev & BIT(0))
++		*ctrl |= RTC_CTRL_ALARM_EVENT;
++	return 0;
++}
++
++static int macsmc_rtc_write_ctrl(struct macsmc_rtc *rtc, u8 ctrl)
++{
++	u8 cur;
++	int ret;
++
++	if (!rtc->alarm_event)
++		return macsmc_rtc_write_u8(rtc->alarm_ctrl, ctrl);
++	if (ctrl & RTC_CTRL_ALARM_EVENT) {
++		ret = macsmc_rtc_write_u8(rtc->alarm_event, BIT(0));
++		if (ret)
++			return ret;
++	}
++	ret = macsmc_rtc_read_u8(rtc->alarm_ctrl, &cur);
++	if (ret)
++		return ret;
++	cur &= ~(RTC_CTRL_ALARM_EN | RTC_CTRL_ALARM_EVENT);
++	return macsmc_rtc_write_u8(rtc->alarm_ctrl,
++				   cur | (ctrl & RTC_CTRL_ALARM_EN));
++}
++
+ /*
+  * Arm the alarm at counter second @secs, or disarm it if @secs is 0. The
+  * other bits of the control byte are kept. A latched event is cleared by
+@@ -219,11 +265,11 @@ static int macsmc_rtc_program_alarm(struct macsmc_rtc *rtc, u32 secs)
+ 	u8 ctrl;
+ 	int ret;
+ 
+-	ret = macsmc_rtc_read_u8(rtc->alarm_ctrl, &ctrl);
++	ret = macsmc_rtc_read_ctrl(rtc, &ctrl);
+ 	if (ret)
+ 		return ret;
+ 	if (ctrl & RTC_CTRL_ALARM_EVENT) {
+-		ret = macsmc_rtc_write_u8(rtc->alarm_ctrl, ctrl);
++		ret = macsmc_rtc_write_ctrl(rtc, ctrl);
+ 		if (ret)
+ 			return ret;
+ 	}
+@@ -233,7 +279,7 @@ static int macsmc_rtc_program_alarm(struct macsmc_rtc *rtc, u32 secs)
+ 		ret = macsmc_rtc_write_u8(rtc->alarm_mask, 1);
+ 		if (ret)
+ 			return ret;
+-		return macsmc_rtc_write_u8(rtc->alarm_ctrl,
++		return macsmc_rtc_write_ctrl(rtc,
+ 					   (ctrl & ~RTC_CTRL_ALARM_EN) |
+ 					   RTC_CTRL_MONITOR);
+ 	}
+@@ -244,7 +290,7 @@ static int macsmc_rtc_program_alarm(struct macsmc_rtc *rtc, u32 secs)
+ 	ret = macsmc_rtc_write_u8(rtc->alarm_mask, 0);
+ 	if (ret)
+ 		return ret;
+-	return macsmc_rtc_write_u8(rtc->alarm_ctrl, ctrl | RTC_CTRL_ALARM_EN |
++	return macsmc_rtc_write_ctrl(rtc, ctrl | RTC_CTRL_ALARM_EN |
+ 				   RTC_CTRL_MONITOR);
+ }
+ 
+@@ -263,7 +309,7 @@ static int macsmc_rtc_read_alarm(struct device *dev, struct rtc_wkalrm *alrm)
+ 		return ret;
+ 
+ 	mutex_lock(&rtc->alarm_lock);
+-	ret = macsmc_rtc_read_u8(rtc->alarm_ctrl, &ctrl);
++	ret = macsmc_rtc_read_ctrl(rtc, &ctrl);
+ 	if (ret)
+ 		goto out;
+ 	p = nvmem_cell_read(rtc->alarm_value, &len);
+@@ -327,7 +373,7 @@ static irqreturn_t macsmc_rtc_alarm_irq(int irq, void *data)
+ 	u8 ctrl;
+ 
+ 	mutex_lock(&rtc->alarm_lock);
+-	if (macsmc_rtc_read_u8(rtc->alarm_ctrl, &ctrl) ||
++	if (macsmc_rtc_read_ctrl(rtc, &ctrl) ||
+ 	    !(ctrl & RTC_CTRL_ALARM_EVENT)) {
+ 		mutex_unlock(&rtc->alarm_lock);
+ 		return IRQ_NONE;
+@@ -370,6 +416,9 @@ static int macsmc_rtc_init_alarm(struct platform_device *pdev,
+ 	rtc->alarm_ctrl = macsmc_rtc_cell_optional(dev, "rtc_ctrl");
+ 	rtc->alarm_value = macsmc_rtc_cell_optional(dev, "rtc_alarm");
+ 	rtc->alarm_mask = macsmc_rtc_cell_optional(dev, "rtc_alarm_mask");
++	rtc->alarm_event = macsmc_rtc_cell_optional(dev, "rtc_alarm_event");
++	if (IS_ERR(rtc->alarm_event))
++		return PTR_ERR(rtc->alarm_event);
+ 	if (IS_ERR(rtc->alarm_ctrl))
+ 		return PTR_ERR(rtc->alarm_ctrl);
+ 	if (IS_ERR(rtc->alarm_value))
+diff --git a/drivers/soc/apple/rtkit-internal.h b/drivers/soc/apple/rtkit-internal.h
+index d953d8c0d6c4..1f7280cbce9e 100644
+--- a/drivers/soc/apple/rtkit-internal.h
++++ b/drivers/soc/apple/rtkit-internal.h
+@@ -61,6 +61,7 @@ struct apple_rtkit {
+ 
+ 	unsigned int iop_power_state;
+ 	unsigned int ap_power_state;
++	unsigned int iop_ack_extra_s;
+ 	bool crashed;
+ 	bool shutting_down;
+ 	/*
+diff --git a/drivers/soc/apple/rtkit.c b/drivers/soc/apple/rtkit.c
+index e529b4d4dd4c..5ce02463840c 100644
+--- a/drivers/soc/apple/rtkit.c
++++ b/drivers/soc/apple/rtkit.c
+@@ -2618,6 +2618,61 @@ int apple_rtkit_reinit(struct apple_rtkit *rtk)
+ }
+ EXPORT_SYMBOL_GPL(apple_rtkit_reinit);
+ 
++/*
++ * Like apple_rtkit_reinit(), but for a coprocessor that was put to idle and
++ * resumes from its saved context. It keeps its shared buffers mapped; only the
++ * mailbox and the power handshake restart.
++ */
++int apple_rtkit_reinit_keep(struct apple_rtkit *rtk)
++{
++	unsigned long flags;
++	int ret;
++
++	apple_rtkit_detach_rx(rtk);
++	flush_workqueue(rtk->wq);
++
++	bitmap_zero(rtk->endpoints, APPLE_RTKIT_MAX_ENDPOINTS);
++	set_bit(APPLE_RTKIT_EP_MGMT, rtk->endpoints);
++	bitmap_zero(rtk->started, APPLE_RTKIT_MAX_ENDPOINTS);
++	set_bit(APPLE_RTKIT_EP_MGMT, rtk->started);
++
++	reinit_completion(&rtk->epmap_completion);
++	reinit_completion(&rtk->coreanalytics_completion);
++	reinit_completion(&rtk->iop_pwr_ack_completion);
++	reinit_completion(&rtk->ap_pwr_ack_completion);
++
++	rtk->crashed = false;
++	rtk->iop_power_state = APPLE_RTKIT_PWR_STATE_OFF;
++	rtk->ap_power_state = APPLE_RTKIT_PWR_STATE_OFF;
++	kfifo_reset(&rtk->sync_ack_fifo);
++
++	spin_lock_irqsave(&rtk->mbox->rx_lock, flags);
++	WRITE_ONCE(rtk->shutting_down, false);
++	rtk->mbox->rx = apple_rtkit_rx;
++	spin_unlock_irqrestore(&rtk->mbox->rx_lock, flags);
++
++	ret = apple_mbox_start(rtk->mbox);
++	if (ret) {
++		apple_rtkit_detach_rx(rtk);
++		flush_workqueue(rtk->wq);
++	}
++	return ret;
++}
++EXPORT_SYMBOL_GPL(apple_rtkit_reinit_keep);
++
++void apple_rtkit_detach_keep(struct apple_rtkit *rtk)
++{
++	apple_rtkit_detach_rx(rtk);
++	flush_workqueue(rtk->wq);
++}
++EXPORT_SYMBOL_GPL(apple_rtkit_detach_keep);
++
++void apple_rtkit_set_iop_ack_wait(struct apple_rtkit *rtk, unsigned int seconds)
++{
++	rtk->iop_ack_extra_s = seconds;
++}
++EXPORT_SYMBOL_GPL(apple_rtkit_set_iop_ack_wait);
++
+ static int apple_rtkit_set_ap_power_state(struct apple_rtkit *rtk,
+ 					  unsigned int state)
+ {
+@@ -2705,6 +2760,14 @@ static int apple_rtkit_boot_common(struct apple_rtkit *rtk, bool early_ap_power,
+ 
+ 	dev_dbg(rtk->dev, "RTKit: waiting for IOP power state ACK\n");
+ 	ret = apple_rtkit_wait(rtk, &rtk->iop_pwr_ack_completion);
++	if (ret == -ETIME && rtk->iop_ack_extra_s) {
++		unsigned int i;
++
++		for (i = 0; ret == -ETIME && i < rtk->iop_ack_extra_s && !rtk->crashed; i++)
++			ret = apple_rtkit_wait(rtk, &rtk->iop_pwr_ack_completion);
++		dev_info(rtk->dev, "RTKit: IOP power ack %s after %u s more\n",
++			 ret ? "still missing" : "came", i);
++	}
+ 	if (ret) {
+ 		dev_err(rtk->dev, "RTKit: IOP power acknowledgment failed: %d\n", ret);
+ 		return ret;
+diff --git a/include/linux/arm-smccc.h b/include/linux/arm-smccc.h
+index 19d44616b059..a40b3df45ef9 100644
+--- a/include/linux/arm-smccc.h
++++ b/include/linux/arm-smccc.h
+@@ -332,6 +332,7 @@ enum arm_smccc_conduit {
+ 	SMCCC_CONDUIT_NONE,
+ 	SMCCC_CONDUIT_SMC,
+ 	SMCCC_CONDUIT_HVC,
++	SMCCC_CONDUIT_EFI,
+ };
+ 
+ /**
+diff --git a/include/linux/efi.h b/include/linux/efi.h
+index aa15ff88539b..579d792d4e75 100644
+--- a/include/linux/efi.h
++++ b/include/linux/efi.h
+@@ -128,6 +128,8 @@ typedef	struct {
+ #define EFI_MEMORY_SP			BIT_ULL(18)	/* soft reserved */
+ #define EFI_MEMORY_CPU_CRYPTO		BIT_ULL(19)	/* supports encryption */
+ #define EFI_MEMORY_HOT_PLUGGABLE	BIT_ULL(20)	/* supports unplugging at runtime */
++#define EFI_MEMORY_ISA_MASK		GENMASK_ULL(59, 44)	/* ISA-specific attributes */
++#define EFI_MEMORY_ISA_VALID		BIT_ULL(62)	/* EFI_MEMORY_ISA_MASK bits are valid */
+ #define EFI_MEMORY_RUNTIME		BIT_ULL(63)	/* range requires runtime mapping */
+ 
+ #define EFI_MEMORY_DESCRIPTOR_VERSION	1
+@@ -422,6 +424,7 @@ void efi_native_runtime_setup(void);
+ #define LINUX_EFI_COCO_SECRET_AREA_GUID		EFI_GUID(0xadf956ad, 0xe98c, 0x484c,  0xae, 0x11, 0xb5, 0x1c, 0x7d, 0x33, 0x64, 0x47)
+ #define LINUX_EFI_BOOT_MEMMAP_GUID		EFI_GUID(0x800f683f, 0xd08b, 0x423a,  0xa2, 0x93, 0x96, 0x5c, 0x3c, 0x6f, 0xe2, 0xb4)
+ #define LINUX_EFI_UNACCEPTED_MEM_TABLE_GUID	EFI_GUID(0xd5d1de3c, 0x105c, 0x44f9,  0x9e, 0xa9, 0xbc, 0xef, 0x98, 0x12, 0x00, 0x31)
++#define LINUX_EFI_ARM_PSCI_HANDLER_TABLE_GUID	EFI_GUID(0xf9b47651, 0x4674, 0x4ed9,  0x94, 0x3b, 0x5c, 0xea, 0xd2, 0x10, 0x9a, 0x8b)
+ 
+ #define RISCV_EFI_BOOT_PROTOCOL_GUID		EFI_GUID(0xccd15fec, 0x6f73, 0x4eec,  0x83, 0x95, 0x3e, 0x69, 0xe4, 0xb9, 0x40, 0xbf)
+ 
+diff --git a/include/linux/soc/apple/rtkit.h b/include/linux/soc/apple/rtkit.h
+index 4db916bb89f0..4c0ceae30369 100644
+--- a/include/linux/soc/apple/rtkit.h
++++ b/include/linux/soc/apple/rtkit.h
+@@ -210,6 +210,9 @@ void apple_rtkit_free_retaining_buffers(struct apple_rtkit *rtk);
+  * is held in reset.
+  */
+ int apple_rtkit_reinit(struct apple_rtkit *rtk);
++int apple_rtkit_reinit_keep(struct apple_rtkit *rtk);
++void apple_rtkit_detach_keep(struct apple_rtkit *rtk);
++void apple_rtkit_set_iop_ack_wait(struct apple_rtkit *rtk, unsigned int seconds);
+ 
+ /*
+  * Set how long each handshake step (power state and endpoint map replies)
