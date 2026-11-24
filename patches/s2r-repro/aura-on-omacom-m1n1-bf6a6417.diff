@@ -110,7 +110,7 @@ index dcb5443c..c530d522 100644
  void iodev_console_rewind(iodev_id_t id);
  void iodev_console_kick(void);
 diff --git a/src/kboot.c b/src/kboot.c
-index 070d90e6..0441411a 100644
+index 070d90e6..d5eb3113 100644
 --- a/src/kboot.c
 +++ b/src/kboot.c
 @@ -23,6 +23,7 @@
@@ -229,7 +229,7 @@ index 070d90e6..0441411a 100644
      if (fdt_setprop_u32(dt, pmp_node, "apple,board-id", board_id))
          bail("FDT: failed to set board id\n");
      if (fdt_setprop_u32(dt, pmp_node, "apple,dram-vendor-id", dram_vendor_id))
-@@ -4633,6 +4721,72 @@ static int dt_setup_mtd_phram(void)
+@@ -4633,6 +4721,119 @@ static int dt_setup_mtd_phram(void)
      return 0;
  }
  
@@ -299,10 +299,57 @@ index 070d90e6..0441411a 100644
 +    return 0;
 +}
 +
++/*
++ * GH-5 (image 127): copy the live ADT properties of the internal DCP (/arm-io/dcp0 and its iop-dcp0-nub) into
++ * /chosen/aurora-adt-dcp0 and /chosen/aurora-adt-dcp0-nub, so Linux can see what iBoot filled in (segment-ranges,
++ * segment-names, ...) for a post-S2R firmware restore. "name" and "compatible" are renamed adt-name / adt-compatible
++ * so nothing binds to the nodes; properties over 4 KB are skipped (their sizes listed in "aurora,skipped").
++ */
++static void dt_copy_adt_node(const char *adt_path, const char *fdt_name)
++{
++    int anode = adt_path_offset(adt, adt_path);
++    int chosen = fdt_path_offset(dt, "/chosen");
++    int n = 0;
++    u32 skipped[16];
++    int ns = 0;
++
++    if (anode < 0 || chosen < 0)
++        return;
++    int node = fdt_add_subnode(dt, chosen, fdt_name);
++    if (node < 0) {
++        printf("FDT: %s: cannot add (%d)\n", fdt_name, node);
++        return;
++    }
++    ADT_FOREACH_PROPERTY(adt, anode, prop)
++    {
++        const char *nm = prop->name;
++        if (!strcmp(nm, "name"))
++            nm = "adt-name";
++        else if (!strcmp(nm, "compatible"))
++            nm = "adt-compatible";
++        if (prop->size > 4096) {
++            if (ns < 16)
++                skipped[ns++] = cpu_to_fdt32(prop->size);
++            continue;
++        }
++        if (!fdt_setprop(dt, node, nm, prop->value, prop->size))
++            n++;
++    }
++    if (ns)
++        fdt_setprop(dt, node, "aurora,skipped", skipped, ns * 4);
++    printf("FDT: %s: %d ADT properties copied, %d skipped\n", fdt_name, n, ns);
++}
++
++static void dt_set_dcp0_adt(void)
++{
++    dt_copy_adt_node("/arm-io/dcp0", "aurora-adt-dcp0");
++    dt_copy_adt_node("/arm-io/dcp0/iop-dcp0-nub", "aurora-adt-dcp0-nub");
++}
++
  int kboot_prepare_dt(void *fdt)
  {
      if (dt) {
-@@ -4647,6 +4801,9 @@ int kboot_prepare_dt(void *fdt)
+@@ -4647,6 +4848,9 @@ int kboot_prepare_dt(void *fdt)
      assert(dt_bufsize);
  
      dt_bufsize += 6 * SZ_16K; // Add 96K of buffer for modifications
@@ -312,15 +359,16 @@ index 070d90e6..0441411a 100644
      dt = memalign(DT_ALIGN, dt_bufsize);
  
      if (fdt_open_into(fdt, dt, dt_bufsize) < 0)
-@@ -4722,6 +4879,7 @@ int kboot_prepare_dt(void *fdt)
+@@ -4722,6 +4926,8 @@ int kboot_prepare_dt(void *fdt)
  
      if (dt_set_chosen())
          return -1;
 +    dt_set_ans_tunables(); /* image 124 */
++    dt_set_dcp0_adt(); /* image 127 */
      if (dt_set_speaker_safety())
          return -1;
      if (dt_set_uboot_config())
-@@ -4732,6 +4890,8 @@ int kboot_prepare_dt(void *fdt)
+@@ -4732,6 +4938,8 @@ int kboot_prepare_dt(void *fdt)
          return -1;
      if (dt_set_cpus())
          return -1;
@@ -415,7 +463,7 @@ index 3c4950f8..a1275221 100644
  
  #endif
 diff --git a/src/pmgr.c b/src/pmgr.c
-index fd8914a2..6f06dd7b 100644
+index fd8914a2..119c0c1c 100644
 --- a/src/pmgr.c
 +++ b/src/pmgr.c
 @@ -1,6 +1,7 @@
@@ -426,7 +474,48 @@ index fd8914a2..6f06dd7b 100644
  #include "adt.h"
  #include "string.h"
  #include "types.h"
-@@ -739,3 +740,44 @@ int pmgr_set_voltage_ctl(uint32_t offset)
+@@ -442,6 +443,40 @@ int pmgr_adt_power_disable(const char *path)
+     return pmgr_adt_devices_set_mode(path, PMGR_PS_PWRGATE, false, false);
+ }
+ 
++/*
++ * GH-5 image 126: power an ADT node's own domains fully off, last listed first (no parents), and report how many
++ * reached actual 0. Used on the S2R wake path to reset /arm-io/apcie, which the sleep only clock-gates.
++ */
++int pmgr_adt_power_off_reverse(const char *path, int *n_off, int *n_total)
++{
++    const u32 *devices;
++    u32 n_devices;
++    int ret = 0;
++
++    *n_off = 0;
++    *n_total = 0;
++    if (pmgr_adt_find_devices(path, &devices, &n_devices) < 0)
++        return -1;
++    *n_total = n_devices;
++    for (int i = (int)n_devices - 1; i >= 0; --i) {
++        const struct pmgr_device *device;
++        u16 id = FIELD_GET(PMGR_DEVICE_ID, devices[i]);
++        u8 die = FIELD_GET(PMGR_DIE_ID, devices[i]);
++
++        if (pmgr_find_device(id, &device) || pmgr_protected_device(device)) {
++            ret = -1;
++            continue;
++        }
++        uintptr_t addr = pmgr_device_get_addr(die, device);
++        if (!addr || pmgr_set_mode(addr, PMGR_PS_PWRGATE)) {
++            ret = -1;
++            continue;
++        }
++        (*n_off)++;
++    }
++    return ret;
++}
++
+ int pmgr_adt_power_enable_traced(const char *path)
+ {
+     return pmgr_adt_devices_set_mode(path, PMGR_PS_ACTIVE, true, true);
+@@ -739,3 +774,44 @@ int pmgr_set_voltage_ctl(uint32_t offset)
  
      return 0;
  }
@@ -472,10 +561,18 @@ index fd8914a2..6f06dd7b 100644
 +    return pmgr_ps_tab[i].addr;
 +}
 diff --git a/src/pmgr.h b/src/pmgr.h
-index d258ad66..9fc01feb 100644
+index d258ad66..7d32c124 100644
 --- a/src/pmgr.h
 +++ b/src/pmgr.h
-@@ -51,5 +51,8 @@ int pmgr_set_mode(uintptr_t addr, u8 target_mode);
+@@ -25,6 +25,7 @@ int pmgr_adt_path_offset_trace(const void *adt_ptr, int *path);
+ 
+ int pmgr_adt_power_enable(const char *path);
+ int pmgr_adt_power_disable(const char *path);
++int pmgr_adt_power_off_reverse(const char *path, int *n_off, int *n_total);
+ int pmgr_adt_power_enable_traced(const char *path);
+ struct pmgr_saved_mode {
+     uintptr_t addr;
+@@ -51,5 +52,8 @@ int pmgr_set_mode(uintptr_t addr, u8 target_mode);
  u32 pmgr_get_feature(const char *name);
  
  int pmgr_set_voltage_ctl(uint32_t offset);
@@ -486,10 +583,10 @@ index d258ad66..9fc01feb 100644
  #endif
 diff --git a/src/psci.c b/src/psci.c
 new file mode 100644
-index 00000000..323f0c57
+index 00000000..3b409aaa
 --- /dev/null
 +++ b/src/psci.c
-@@ -0,0 +1,2453 @@
+@@ -0,0 +1,2444 @@
 +/* SPDX-License-Identifier: MIT */
 +
 +#include "memory.h"
@@ -849,12 +946,8 @@ index 00000000..323f0c57
 +        qs_save.fabric[i] = read32(qs_fabric[i]);
 +    qs_save.saved |= 256;
 +    dc_civac_range((void *)&qs_save, sizeof(qs_save));
-+    for (unsigned i = 0; i < 3; i++) {
-+        /* image 64: not apcie_gp_sys when the PCIE step has just set its target to 0 */
-+        if (i == 2 && (qs_save.saved & 1024))
-+            continue;
++    for (unsigned i = 0; i < 3; i++)
 +        write32(qs_fabric[i], QS_FABRIC_VAL);
-+    }
 +    psci_dbg2[51] = ((u64)qs_save.fabric[0] << 32) | read32(qs_fabric[0]);
 +}
 +
@@ -912,26 +1005,12 @@ index 00000000..323f0c57
 +}
 +
 +/*
-+ * Image 64: child first. psci_dbg[23] bits 52-54 = poll timeouts (PCIE), 55-58 (AON). All on pages already in the
-+ * PSCI map (pmgr_east 0x290280000 with ps_sio, pmgr_mini 0x29e280000 with atcN_usb).
++ * Image 64: child first. psci_dbg[23] bits 55-58 = poll timeouts (AON). All on pages already in the
++ * PSCI map (pmgr_mini 0x29e280000 with atcN_usb).
++ * Image 128 (GH-5 R61P-R61R): psci_quiesce_pcie() (bit 20) dropped — forcing apcie_gp_sys / apcie_gpshr_sys /
++ * apcie_gp to target 0 at the commit broke post-wake PCIe link training for Wi-Fi/BT and SD.
 + */
-+static const u64 qs_pcie[3] = {0x290280418ULL, 0x2902803f8ULL, 0x290280198ULL}; /* apcie_gp_sys, apcie_gpshr_sys, apcie_gp */
 +static const u64 qs_aon[4] = {0x29e280098ULL, 0x29e2800a0ULL, 0x29e2800a8ULL, 0x29e280078ULL}; /* atc1..3_usb_aon, msg */
-+
-+static void psci_quiesce_pcie(void)
-+{
-+    u64 fail = 0;
-+
-+    for (unsigned i = 0; i < 3; i++)
-+        qs_save.pcie[i] = read32(qs_pcie[i]);
-+    qs_save.saved |= 1024;
-+    dc_civac_range((void *)&qs_save, sizeof(qs_save));
-+    for (unsigned i = 0; i < 3; i++) {
-+        write32(qs_pcie[i], qs_save.pcie[i] & ~QS_PS_CLEAR);
-+        fail |= (u64)qs_poll(qs_pcie[i], 0xf0, 0, 10000) << (52 + i);
-+    }
-+    psci_dbg[23] |= fail;
-+}
 +
 +static void psci_quiesce_aon(void)
 +{
@@ -1021,15 +1100,11 @@ index 00000000..323f0c57
 +    return b;
 +}
 +
-+/* image 64: bits 0-2 = qs_pcie[i] still on, bits 3-6 = qs_aon[i] still on (each only if its step ran); for the crumb */
++/* image 64 / 128: bits 3-6 = qs_aon[i] still on (if its step ran); for the crumb */
 +static u8 qs_pcie_aon_state(void)
 +{
 +    u8 b = 0;
 +
-+    if (qs_save.saved & 1024)
-+        for (unsigned i = 0; i < 3; i++)
-+            if (read32(qs_pcie[i]) & 0xf0)
-+                b |= BIT(i);
 +    if (qs_save.saved & 2048)
 +        for (unsigned i = 0; i < 4; i++)
 +            if (read32(qs_aon[i]) & 0xf0)
@@ -1073,10 +1148,6 @@ index 00000000..323f0c57
 +    if (qs_save.saved & 2048) {
 +        for (int i = 3; i >= 0; i--)
 +            write32(qs_aon[i], qs_save.aon[i] & ~(BIT(11) | BIT(9) | BIT(8)));
-+    }
-+    if (qs_save.saved & 1024) {
-+        for (int i = 2; i >= 0; i--)
-+            write32(qs_pcie[i], qs_save.pcie[i] & ~(BIT(11) | BIT(9) | BIT(8)));
 +    }
 +    if (qs_save.saved & 512) {
 +        for (int i = 7; i >= 0; i--)
@@ -1158,6 +1229,8 @@ index 00000000..323f0c57
 +    for (unsigned i = 0; i < 8; i++)
 +        psci_ctl[i] = 0;
 +    psci_ctl[0] = PSCI_CTL_MAGIC_HI | lo;
++    psci_ctl[1] = PSCI_S2R_DEFAULT_CTL1;
++    psci_ctl[5] = PSCI_S2R_DEFAULT_CTL5;
 +    dc_civac_range((void *)psci_ctl, sizeof(psci_ctl));
 +    pmgr_ps_tab_build(); /* image 78 */
 +    /* image 58: the AMCC planes, found now while the ADT is still around */
@@ -2331,6 +2404,23 @@ index 00000000..323f0c57
 +        qs_crumb_write(0x601e, &gb, 1);
 +    }
 +    qs_apq_restore(); /* image 125: before the apcie re-init */
++    /*
++     * image 126 (psci_ctl[5] bit 9): the sleep only clock-gates the apcie domains (R61D: WAS_CLKGATED, never
++     * WAS_PWRGATED), so the root keeps state a cold boot never has (port +0x80 0x10f). Power them fully off
++     * before the re-init, which powers them on again. 0x6024 = 0xb0 | domains off (0xbf: none listed), 0x6024
++     * bit 6 set if any refused.
++     */
++    if (psci_ctl[5] & 0x200) {
++        int n_off = 0, n_total = 0;
++        u8 c = 0xbf;
++        qs_crumb_write(0x6024, &c, 1);
++        int r = pmgr_adt_power_off_reverse("/arm-io/apcie", &n_off, &n_total);
++        udelay(2000);
++        c = 0xb0 | (n_off > 15 ? 15 : n_off);
++        if (r)
++            c |= 0x40;
++        qs_crumb_write(0x6024, &c, 1);
++    }
 +    /* image 116: rerun the apcie bring-up (see pcie_reinit_apcie); 0x6023: a1 started, a0 done, af error */
 +    {
 +        u8 c = 0xa1;
@@ -2404,7 +2494,7 @@ index 00000000..323f0c57
 +    psci_dbg[2] = daif;
 +    psci_dbg[14] = mrs(SYS_IMP_APL_CYC_OVRD);
 +    dc_ivac_range((void *)psci_ctl, sizeof(psci_ctl));
-+    u64 steps = psci_ctl[1] & (PSCI_S2R_TIMER | PSCI_S2R_CORESOFF | PSCI_S2R_DOMAINS | PSCI_S2R_CLOCKS | PSCI_S2R_CLUSTERS | PSCI_S2R_STOPREQ | PSCI_S2R_HELD | PSCI_S2R_REC | PSCI_S2R_AMCC | PSCI_S2R_STOPWD2 | PSCI_S2R_AICMASK | PSCI_S2R_WD1OFF | PSCI_S2R_RESUMENOW | PSCI_S2R_CRUMB | PSCI_S2R_QUIET | PSCI_S2R_EACC | PSCI_S2R_DVFS | PSCI_S2R_FABRIC | PSCI_S2R_ATC | PSCI_S2R_PCIE | PSCI_S2R_AON | PSCI_S2R_PMP | PSCI_S2R_SPMINOTIFY | PSCI_S2R_SEP | PSCI_S2R_DVFSLATE | PSCI_S2R_EDPRCR | PSCI_S2R_OBSERVE | PSCI_S2R_OBSERVE_P0 | PSCI_S2R_NOCOMMIT | PSCI_S2R_LATEREL | PSCI_S2R_TWOWR);
++    u64 steps = psci_ctl[1] & (PSCI_S2R_TIMER | PSCI_S2R_CORESOFF | PSCI_S2R_DOMAINS | PSCI_S2R_CLOCKS | PSCI_S2R_CLUSTERS | PSCI_S2R_STOPREQ | PSCI_S2R_HELD | PSCI_S2R_REC | PSCI_S2R_AMCC | PSCI_S2R_STOPWD2 | PSCI_S2R_AICMASK | PSCI_S2R_WD1OFF | PSCI_S2R_RESUMENOW | PSCI_S2R_CRUMB | PSCI_S2R_QUIET | PSCI_S2R_EACC | PSCI_S2R_DVFS | PSCI_S2R_FABRIC | PSCI_S2R_ATC | PSCI_S2R_AON | PSCI_S2R_PMP | PSCI_S2R_SPMINOTIFY | PSCI_S2R_SEP | PSCI_S2R_DVFSLATE | PSCI_S2R_EDPRCR | PSCI_S2R_OBSERVE | PSCI_S2R_OBSERVE_P0 | PSCI_S2R_NOCOMMIT | PSCI_S2R_LATEREL | PSCI_S2R_TWOWR);
 +    for (unsigned i = 0; i < 48; i++)
 +        psci_dbg2[i] = 0;
 +    psci_dbg2[1] = steps | ((u64)qs_amcc_n << 32) | ((u64)qs_amcc_planes << 40);
@@ -2489,8 +2579,6 @@ index 00000000..323f0c57
 +        psci_quiesce_pcie_rc();
 +    if (psci_ctl[5] & 256)
 +        psci_quiesce_apq(); /* image 125 */
-+    if (steps & PSCI_S2R_PCIE)
-+        psci_quiesce_pcie();
 +    if (steps & PSCI_S2R_AON)
 +        psci_quiesce_aon();
 +    if (steps & PSCI_S2R_PMP)
@@ -2945,10 +3033,10 @@ index 00000000..323f0c57
 +};
 diff --git a/src/psci.h b/src/psci.h
 new file mode 100644
-index 00000000..8d027418
+index 00000000..9e3fe09a
 --- /dev/null
 +++ b/src/psci.h
-@@ -0,0 +1,161 @@
+@@ -0,0 +1,165 @@
 +/* SPDX-License-Identifier: MIT */
 +
 +#ifndef PSCI_H
@@ -3054,10 +3142,14 @@ index 00000000..8d027418
 +#define PSCI_S2R_FABRIC   BIT(18)
 +/* image 63: the USB-C complexes macOS has off at sleep entry and the DT keeps always-on: atcN_pcie, atcN_common */
 +#define PSCI_S2R_ATC      BIT(19)
-+/* image 64: the PCIe chain macOS has off or gated at sleep entry: apcie_gp_sys (always-on in the DT), then its
-+ * parents apcie_gpshr_sys and apcie_gp (aurora-silicon t6040_sleep_lower_apcie_gp). Commit runs only: nothing
-+ * retrains the links, so Wi-Fi and Bluetooth are gone after a resume that follows this step */
++/* image 64 / dropped in image 128 (GH-5 R61P-R61R): forcing apcie_gp_sys / apcie_gpshr_sys / apcie_gp to
++ * target 0 at the commit left Wi-Fi/BT and the SD reader permanently in Detect (0xa9000200) after the wake.
++ * Leaving them on (only lowering apcie_gp_sys's auto-PM floor in psci_quiesce_fabric) lets the sleep commit
++ * and both PCIe links train on the first relink (3 of 3). Bit 20 is now ignored. */
 +#define PSCI_S2R_PCIE     BIT(20)
++/* image 128: default S2R recipe (R61P-R61R, bit 20 off) so SYSTEM_SUSPEND works without aura-ctl */
++#define PSCI_S2R_DEFAULT_CTL1 0xc16dcb3fULL
++#define PSCI_S2R_DEFAULT_CTL5 241ULL
 +/* image 64: the AON-side words macOS has at target 0 at sleep entry and the DT keeps always-on: atc1..3_usb_aon, msg
 + * (data/psmap.txt). Commit runs only */
 +#define PSCI_S2R_AON      BIT(21)
