@@ -5899,3 +5899,11 @@ Armed R60H 23:52
 ## 2026-11-24 22:45 R62C armed: R62B + `modprobe apple-sep xart_writes=0 provision_keybag=0` (clean syscore SEP `SLEEP` commit)
 - Rebuilt `apple-sep.ko` with the syscore SEP `SLEEP` fallback, updated `root.sfs` and `patches/s2r-repro/kernel-on-omacom-linux-aurora-7.3-8ca67c75ff52.diff`.
 - Job `r62c-s2r73`: loads `apple-sep xart_writes=0 provision_keybag=0`, waits for SEP bind & idle (`0x100003?f`), unbinds `aurora`, and enters real S2R on `7.3.0-s2r73+` + Aura 128 (`31351234054bfdee`). Look for: real S2R commit + wake (`0x6004=0x22`, `0x601f=0xaa`, `0x6023=0xa4`), NVMe + Wi-Fi + BT + SD + internal DCP restart + SEP wake.
+
+## 2026-11-24 22:52 R62C result: SError in `syscore_suspend` (`0x6004=0x51`, `ESR=0xbc`) — `sep_dart`/`sep_mbox`/`ps_sep` already powered off
+- R62C (`20261125-034921-r62c-pre`, away 132 s): `apple-sep` bound cleanly (`ready in 3181 ms`, `ps_sep=0x1000030f` after 21 s), `aurora` unbound cleanly.
+- Aura's `0x6004=0x51` reset trace decoded `el1h_64_error` (`ESR 0xbc`, SError) -> `vpanic` -> `emergency_restart`. Cause: `syscore_suspend` ran AFTER `suspend_noirq` had already suspended `sep_dart`/`sep_mbox` and powered off `ps_sep` (plus `pm_shim.c` used posted `ioremap` instead of `ioremap_np` for `ps_sep`).
+- Fix: moved the direct `sep_pm_commit_stop()` call from `syscore_suspend` into `sep_pm_suspend_noirq` (which device-link ordering guarantees runs BEFORE `sep_dart`/`sep_mbox` `suspend_noirq` and BEFORE `genpd` powers off `ps_sep`) and switched `c->ps` to `ioremap_np()`.
+
+## 2026-11-24 22:53 R62D armed: R62C with `noirq_direct` SEP `SLEEP` + `ioremap_np(ps_sep)`
+- Rebuilt `apple-sep.ko` module-only, repacked `root.sfs`, refreshed `patches/s2r-repro/kernel-on-omacom-linux-aurora-7.3-8ca67c75ff52.diff`. Armed `r62d-s2r73` on `7.3.0-s2r73+` (`591f3150bbf6e630`) + Aura 128 (`31351234054bfdee`).
