@@ -12,7 +12,7 @@ KREL=${2:-$(strings "$KIMG" | grep -m1 -oE '^[0-9]+\.[0-9]+\.[0-9]+[^ ]*')}
 OUT=${3:-/home/jjr/Work/deepidle-usbtest/deeptest.efi}
 shift $(( $# > 3 ? 3 : $# ))
 EXTRA="$*"
-[ -d "/usr/lib/modules/$KREL" ] || { echo "no modules for $KREL"; exit 1; }
+[ -d "${MODROOT:-}/usr/lib/modules/$KREL" ] || [ -d "${MODROOT:-}/lib/modules/$KREL" ] || { echo "no modules for $KREL"; exit 1; }
 install -Dm644 "$H/initcpio/install/usbtest" /etc/initcpio/install/usbtest
 install -Dm644 "$H/initcpio/hooks/usbtest" /etc/initcpio/hooks/usbtest
 T=$(mktemp -d)

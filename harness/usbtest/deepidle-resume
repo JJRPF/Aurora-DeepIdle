@@ -1,10 +1,23 @@
 #!/bin/bash
-# GH-5: reopens the Antigravity (agy) session after a test reboot (Omarchy post-boot hook).
-# Armed by ~/.local/state/deepidle/resume (holds the worktree path); remove that file to stop it.
+# GH-5 / Coordination: reopens all three AGY agents (S2R-AGY, GPU-AGY, Lichen-AGY) after a reboot
+# and instructs each to immediately reconnect to Lichen (Omarchy post-boot hook).
+# Armed by ~/.local/state/deepidle/resume (holds the S2R worktree path); remove that file to stop it.
 STATE=$HOME/.local/state/deepidle
 [ -s "$STATE/resume" ] || exit 0
 DIR=$(head -1 "$STATE/resume"); [ -d "$DIR" ] || exit 0
-echo "$(date '+%F %T') resume launched in $DIR" >> "$STATE/resume.log"
+echo "$(date '+%F %T') resume launched (S2R-AGY, GPU-AGY, Lichen-AGY)" >> "$STATE/resume.log"
 sleep 20
-exec xdg-terminal-exec --title="deep-idle (AGY)" --dir="$DIR" -- \
-    bash -lc 'CONV=$(head -1 ~/.local/state/deepidle/agy-conversation 2>/dev/null); if [ -n "$CONV" ]; then set -- --conversation "$CONV"; else set -- --continue; fi; agy "$@" --remote-control --dangerously-skip-permissions -i "$(cat ~/.local/state/deepidle/prompt.txt)"; echo "agy exited: $?"; exec bash'
+
+launch_agy() {
+    local title="$1" dir="$2" conv="$3" prompt_file="$4"
+    [ -d "$dir" ] || return 0
+    xdg-terminal-exec --title="$title" --dir="$dir" -- \
+        bash -lc "agy --conversation '$conv' --remote-control --dangerously-skip-permissions -i \"\$(cat '$prompt_file')\"; echo 'agy exited: \$?'; exec bash" >/dev/null 2>&1 &
+}
+
+S2R_CONV=$(head -1 "$STATE/agy-conversation" 2>/dev/null)
+launch_agy "S2R-AGY" "$DIR" "${S2R_CONV:-eb6969fe-cb69-4970-b40a-c9b0fdc4d2a9}" "$STATE/prompt.txt"
+sleep 2
+launch_agy "GPU-AGY" "$HOME/dev/Aurora-GPUParity" "6703655e-f34e-4a18-aaa1-8e0fc9935c43" "$STATE/prompt-gpu.txt"
+sleep 2
+launch_agy "Lichen-AGY" "$HOME/dev/Lichen" "75d72571-9cfd-4259-99b6-2e77046a36d8" "$STATE/prompt-lichen.txt"
