@@ -5959,3 +5959,12 @@ Armed R60H 23:52
 
 ## 2026-11-24 23:34 R62L armed: R62K with `sv wake0` immediately after `echo mem` returns to capture full wake dmesg before `brcmfmac` spam
 - Same `7.3.0-s2r73+` (`22761db85ef56096`) + `root.sfs` (`9d6804f2f22a4188`) + Aura 128 (`31351234054bfdee`). Captures `r62l-wake0` immediately on resume so we can read `macsmc`, `pcie-apple`, `apple-sep`, and `appledrm` wake messages intact.
+
+## 2026-11-25 07:17 R62L result (2/2 real S2R wake on 7.3.0!) + fixes for `macsmc` mbox IRQ & `dcp.c` iBoot offset -> R62M armed
+- R62L (`20261125-043446-r62l-pre`, `20261125-043527-r62l-wake0`, `20261125-043609-r62l-wake`, away 164 s): 2 of 2 real S2R commit + wake on clean `7.3.0-s2r73+` + Aura 128.
+- `r62l-wake0` pinpointed the exact post-wake issues:
+  1. `macsmc` worked in polled `resume_noirq` (`wake record: MBSE 0x10630, MBSW 00..00`), then timed out in IRQ mode (`gP0d`, `gP16`, `MSLD`, `CH0R`, `WKTP`) because `macsmc`'s mailbox lost `RECV_ENABLE` across S2R. That in turn caused `pcie-apple` relink (`gP0d`/`gP16`) to fail `-110`. Fix: added `apple_rtkit_restore_mbox()` (`apple_mbox_restore` + `apple_mbox_set_recv_enabled(true)`) called in `apple_smc_resume_noirq` when `pm_resume_via_firmware()`.
+  2. `apple-dcp` logged `kept iBoot block 0x0+0x7410c8` (4-byte offset slip: `__TEXT+0x122c` = `0x7410c8`, `__TEXT+0x1230` = `0x51c`, not `0x1228`/`0x122c`), overwriting the iBoot tagged-parameter block. Fix: corrected `dcp.c` to read `0x122c`/`0x1230`.
+  3. Defaulted `pmgr_pwrstate.s2r_sleep_keep` to `"afr,gpio,sep"`.
+- Also replied to `@nekolyanich` and `@muness` on `JJRPF/Aurora-DeepIdle#5` (`issuecomment-7162133901`) and updated S2R-AGY's Lichen profile.
+- Rebuilding `Image`, `macsmc.ko`, `appledrm.ko`, `deeptest.efi.s2r73`, and `root.sfs`, and arming **R62M** (`r62m-s2r73`). Look for: `macsmc` healthy after wake, both PCIe links up + Wi-Fi scan/association + BT/SD bound, and clean non-TEST internal DCP cold restart + backlight/display!

@@ -511,7 +511,7 @@ index e73bae6cb23a..b6927520b206 100644
  
  static int psci_system_suspend_begin(suspend_state_t state)
 diff --git a/drivers/gpu/drm/apple/dcp.c b/drivers/gpu/drm/apple/dcp.c
-index b16995083020..f2c66c65d6db 100644
+index b16995083020..edc94667b71a 100644
 --- a/drivers/gpu/drm/apple/dcp.c
 +++ b/drivers/gpu/drm/apple/dcp.c
 @@ -12,6 +12,9 @@
@@ -634,9 +634,9 @@ index b16995083020..f2c66c65d6db 100644
 +		if (*(u32 *)(m + i) != get_unaligned_le32(dcp_fw_s2r_img->data + tfo + i))
 +			tdiff++;
 +	}
-+	if (tfs >= 0x1230) {
-+		keep_va = *(u32 *)(m + 0x1228);
-+		keep_len = *(u32 *)(m + 0x122c);
++	if (tfs >= 0x1234) {
++		keep_va = *(u32 *)(m + 0x122c);
++		keep_len = *(u32 *)(m + 0x1230);
 +	}
 +	memunmap(m);
 +	if (tdiff > 16) {
@@ -911,7 +911,7 @@ index 33a29ce9beb0..5c9acef76a77 100644
  	apple_dart_sleep_cfg_read(dart, dart->sleep_cfg);
  	spin_lock_irqsave(&dart->lock, flags);
 diff --git a/drivers/mfd/macsmc.c b/drivers/mfd/macsmc.c
-index ad4d84f9c3dd..6f2828a2f138 100644
+index ad4d84f9c3dd..8f706df35eaf 100644
 --- a/drivers/mfd/macsmc.c
 +++ b/drivers/mfd/macsmc.c
 @@ -839,10 +839,64 @@ static void apple_smc_write_mbse(struct apple_smc *smc, smc_key value)
@@ -991,6 +991,15 @@ index ad4d84f9c3dd..6f2828a2f138 100644
  	smc->sleep_policy = NULL;
  }
  
+@@ -1822,6 +1881,8 @@ static int apple_smc_resume_noirq(struct device *dev)
+ 		apple_smc_set_polled(smc, true);
+ 		apple_smc_sleep_wake(smc, false);
+ 		apple_smc_set_polled(smc, false);
++		if (pm_resume_via_firmware())
++			apple_rtkit_restore_mbox(smc->rtk);
+ 	}
+ 
+ 	return 0;
 diff --git a/drivers/nvme/host/apple.c b/drivers/nvme/host/apple.c
 index e4522195f9a2..fefe822b8471 100644
 --- a/drivers/nvme/host/apple.c
@@ -1454,14 +1463,14 @@ index 34d3aa12b8f4..e30616e8e230 100644
  	{ .compatible = "apple,t8122-atcphy", .data = &atcphy_hw_t8122 },
  	{ .compatible = "apple,t8132-atcphy", .data = &atcphy_hw_t8132 },
 diff --git a/drivers/pmdomain/apple/pmgr-pwrstate.c b/drivers/pmdomain/apple/pmgr-pwrstate.c
-index 6745b4916365..be2b2a0a7e73 100644
+index 6745b4916365..b73526d0eb8b 100644
 --- a/drivers/pmdomain/apple/pmgr-pwrstate.c
 +++ b/drivers/pmdomain/apple/pmgr-pwrstate.c
 @@ -430,6 +430,28 @@ static int apple_pmgr_ps_power_on(struct generic_pm_domain *genpd)
  	return ret;
  }
  
-+static char *s2r_sleep_keep = "afr,gpio";
++static char *s2r_sleep_keep = "afr,gpio,sep";
 +module_param(s2r_sleep_keep, charp, 0644);
 +MODULE_PARM_DESC(s2r_sleep_keep, "Comma-separated PMGR domain names kept powered through firmware S2R");
 +
@@ -1793,7 +1802,7 @@ index d953d8c0d6c4..1f7280cbce9e 100644
  	bool shutting_down;
  	/*
 diff --git a/drivers/soc/apple/rtkit.c b/drivers/soc/apple/rtkit.c
-index e529b4d4dd4c..5ce02463840c 100644
+index e529b4d4dd4c..212e954567a5 100644
 --- a/drivers/soc/apple/rtkit.c
 +++ b/drivers/soc/apple/rtkit.c
 @@ -2618,6 +2618,61 @@ int apple_rtkit_reinit(struct apple_rtkit *rtk)
@@ -1873,6 +1882,24 @@ index e529b4d4dd4c..5ce02463840c 100644
  	if (ret) {
  		dev_err(rtk->dev, "RTKit: IOP power acknowledgment failed: %d\n", ret);
  		return ret;
+@@ -3320,6 +3383,17 @@ int apple_rtkit_power_cycled_return(struct apple_rtkit *rtk, void __iomem *cpu_c
+ }
+ EXPORT_SYMBOL_GPL(apple_rtkit_power_cycled_return);
+ 
++int apple_rtkit_restore_mbox(struct apple_rtkit *rtk)
++{
++	int ret;
++
++	ret = apple_mbox_restore(rtk->mbox);
++	if (!ret)
++		apple_mbox_set_recv_enabled(rtk->mbox, true);
++	return ret;
++}
++EXPORT_SYMBOL_GPL(apple_rtkit_restore_mbox);
++
+ void apple_rtkit_set_oslog_echo(struct apple_rtkit *rtk, bool echo)
+ {
+ 	rtk->oslog_echo = echo;
 diff --git a/include/linux/arm-smccc.h b/include/linux/arm-smccc.h
 index 19d44616b059..a40b3df45ef9 100644
 --- a/include/linux/arm-smccc.h
@@ -1907,7 +1934,7 @@ index aa15ff88539b..579d792d4e75 100644
  #define RISCV_EFI_BOOT_PROTOCOL_GUID		EFI_GUID(0xccd15fec, 0x6f73, 0x4eec,  0x83, 0x95, 0x3e, 0x69, 0xe4, 0xb9, 0x40, 0xbf)
  
 diff --git a/include/linux/soc/apple/rtkit.h b/include/linux/soc/apple/rtkit.h
-index 4db916bb89f0..4c0ceae30369 100644
+index 4db916bb89f0..ae27e679a972 100644
 --- a/include/linux/soc/apple/rtkit.h
 +++ b/include/linux/soc/apple/rtkit.h
 @@ -210,6 +210,9 @@ void apple_rtkit_free_retaining_buffers(struct apple_rtkit *rtk);
@@ -1920,3 +1947,11 @@ index 4db916bb89f0..4c0ceae30369 100644
  
  /*
   * Set how long each handshake step (power state and endpoint map replies)
+@@ -398,6 +401,7 @@ int apple_rtkit_power_cycled_return(struct apple_rtkit *rtk, void __iomem *cpu_c
+  * firmware can be started in between. -EOPNOTSUPP after a sleep that kept the power.
+  */
+ int apple_rtkit_sleep_return_start(struct apple_rtkit *rtk, void __iomem *cpu_control);
++int apple_rtkit_restore_mbox(struct apple_rtkit *rtk);
+ 
+ /*
+  * Echo each OSLOG channel-0 counter the firmware sends, as macOS does. On by default on
