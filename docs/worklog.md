@@ -5968,3 +5968,8 @@ Armed R60H 23:52
   3. Defaulted `pmgr_pwrstate.s2r_sleep_keep` to `"afr,gpio,sep"`.
 - Also replied to `@nekolyanich` and `@muness` on `JJRPF/Aurora-DeepIdle#5` (`issuecomment-7162133901`) and updated S2R-AGY's Lichen profile.
 - Rebuilding `Image`, `macsmc.ko`, `appledrm.ko`, `deeptest.efi.s2r73`, and `root.sfs`, and arming **R62M** (`r62m-s2r73`). Look for: `macsmc` healthy after wake, both PCIe links up + Wi-Fi scan/association + BT/SD bound, and clean non-TEST internal DCP cold restart + backlight/display!
+
+## 2026-11-25 07:27 R62M result (3/3 real S2R wake on 7.3.0, USB-C + NVMe live) + 1-line `aic2_info.fw_suspend = true` fix -> R62N armed
+- R62M (`20261125-122240-r62m-pre`, `20261125-122322-r62m-wake0`, `20261125-122423-r62m-wake`, away 185 s): 3 of 3 real S2R commit + wake (`SLP_S2R = 22.57 s`, `online=0-9`, NVMe live 31.8 MB/s, USB-C Logi Bolt Receiver live!).
+- Found the single root cause behind `macsmc` / `spmi-0` / `apple_pmp` / `apple-dcp` / `apple_sep` ALL losing IRQs after wake: in 7.3.0 `drivers/irqchip/irq-apple-aic.c`, `aic_sleep_init()` checks `irqc->info.fw_suspend`, which was ONLY set on `aic3_*_info` — `aic2_info` (T6020) did NOT have `.fw_suspend = true`, so `aic_syscore` never registered and NO AIC2 masks/configs were restored after S2R!
+- Fix: added `.fw_suspend = true` to `aic2_info` in `drivers/irqchip/irq-apple-aic.c`. Rebuilding `Image` + `deeptest.efi.s2r73` and arming **R62N** (`r62n-s2r73`) now!

@@ -910,6 +910,18 @@ index 33a29ce9beb0..5c9acef76a77 100644
  
  	apple_dart_sleep_cfg_read(dart, dart->sleep_cfg);
  	spin_lock_irqsave(&dart->lock, flags);
+diff --git a/drivers/irqchip/irq-apple-aic.c b/drivers/irqchip/irq-apple-aic.c
+index 52a892164c3a..ee8eb227b21d 100644
+--- a/drivers/irqchip/irq-apple-aic.c
++++ b/drivers/irqchip/irq-apple-aic.c
+@@ -315,6 +315,7 @@ static const struct aic_info aic2_info __initconst = {
+ 
+ 	.fast_ipi	= true,
+ 	.local_fast_ipi = true,
++	.fw_suspend	= true,
+ };
+ 
+ static const struct aic_info aic3_info __initconst = {
 diff --git a/drivers/mfd/macsmc.c b/drivers/mfd/macsmc.c
 index ad4d84f9c3dd..8f706df35eaf 100644
 --- a/drivers/mfd/macsmc.c
