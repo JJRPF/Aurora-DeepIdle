@@ -25,10 +25,11 @@ Not tested yet: Bluetooth pairing, an SD card, drain over a night, and suspend f
 
 | Piece | Source | Our change |
 |---|---|---|
-| Kernel | `omacom/linux-aurora` at `49a8c150d6be` | `patches/s2r-repro/kernel-on-omacom-linux-aurora-49a8c150d6be.diff` (51 files), config `patches/s2r-repro/kernel.config` |
-| Aura (m1n1 fork; the S2R entry and the RVBAR wake live in its PSCI code) | `omacom/m1n1` at `bf6a6417` | `patches/s2r-repro/aura-on-omacom-m1n1-bf6a6417.diff` (27 files; `src/psci.c`, `src/smp.c`, `src/qs_macos_*.h`) |
+| Kernel (7.3.0 clean non-TEST, R62P) | `omacom/linux-aurora` `integration/aurora-7.3` at `8ca67c75ff52` | `patches/s2r-repro/kernel-on-omacom-linux-aurora-7.3-8ca67c75ff52.diff`, config `patches/s2r-repro/kernel-7.3.config` |
+| Kernel (7.2.11 historical, R61P–R61R) | `omacom/linux-aurora` at `49a8c150d6be` | `patches/s2r-repro/kernel-on-omacom-linux-aurora-49a8c150d6be.diff` (51 files), config `patches/s2r-repro/kernel.config` |
+| Aura (image 128: bit 20 dropped, default `0xc16dcb3f` / `241`, no `aura-ctl` needed) | `omacom/m1n1` at `bf6a6417` | `patches/s2r-repro/aura-on-omacom-m1n1-bf6a6417.diff` (`src/psci.c`, `src/smp.c`, `src/qs_macos_*.h`) |
 | Test boot harness | this repo, `harness/usbtest/` | `bootbin.sh`, `arm.sh`, `build-uki.sh`, the jobs |
-| A test job | `harness/usbtest/jobs/r60j-nostage/job.sh` | the sleep, the logging and the post-wake checks |
+| A test job | `harness/usbtest/jobs/r62p-s2r73/job.sh` | clean 7.3.0 S2R run (no `aura-ctl` or `TEST` switches), logging and post-wake checks |
 
 The boot chain on a test boot: m1n1 stage 1 → Aura (image 124/125) → U-Boot → a UKI with the test kernel and a small initramfs that runs the job.
 

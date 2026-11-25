@@ -1,0 +1,27 @@
+Wed Nov 25 12:40:43 UTC 2026
+=== NVMe ===
+live
+16+0 records out
+65536 bytes (66 kB, 64 KiB) copied, 0.00207121 s, 31.6 MB/s
+=== USB ===
+Bus 001 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub
+Bus 001 Device 002: ID 046d:c548 Logitech, Inc. Logi Bolt Receiver
+Bus 002 Device 001: ID 1d6b:0003 Linux Foundation 3.0 root hub
+=== Radio / BT / SD ===
+lo               UNKNOWN        <MAC> <LOOPBACK,UP,LOWER_UP> 
+wlan0            UP             <MAC> <BROADCAST,MULTICAST,UP,LOWER_UP> 
+phy#1
+	Interface wlan0
+		ifindex 3
+		wdev 0x100000001
+		addr <MAC>
+		ssid <REDACTED>
+		type managed
+		channel 40 (5200 MHz), width: 40 MHz, center1: 5190 MHz
+		txpower 31.00 dBm
+scan rc 0 bss 54
+	signal: -93.00 dBm
+	signal: -92.00 dBm
+	signal: -92.00 dBm
+hci0
+mmc0

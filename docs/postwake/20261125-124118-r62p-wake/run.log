@@ -1,0 +1,26 @@
+2026-11-25 12:39:20 start; kernel 7.3.0-s2r73+, cpus 0-9, mem 31676 MB
+2026-11-25 12:39:20 job: # R62P-s2r73: R62B + load apple-sep (xart_writes=0 provision_keybag=0) so 7.3.0 sep_pm_ops + syscore
+2026-11-25 12:39:20 R62P kernel 7.3.0-s2r73+; stage2 v0.1.0-77-g1b39fee5
+2026-11-25 12:39:20 R62P kernel 7.3.0-s2r73+; stage2 v0.1.0-77-g1b39fee5
+2026-11-25 12:39:20 firmware_class.path=/run/usbtest/job
+2026-11-25 12:39:20 firmware_class.path=/run/usbtest/job
+2026-11-25 12:39:20 s2r_sleep_keep=afr,gpio,sep
+2026-11-25 12:39:20 s2r_sleep_keep=afr,gpio,sep
+2026-11-25 12:39:20 pmgr counters: SLP_DDR=1:0 SLP_DDR.2=1:0 AWAKE=1:0 AWAKE.2=1:0 SLP_S2R=1:0 SLP_S2R.2=1:0 DEEP_WAIT=1:0 DEEP_WAIT.2=1:0 SYS_AWAKE=1:0 SYS_AWAKE.2=1:0 SYS_S2R_AOP=1:0 SYS_S2R_AOP.2=1:0 SYS_SLP_DDR=1:0 SYS_SLP_DDR.2=1:0 ctl=30001
+2026-11-25 12:39:20 pmgr counters: SLP_DDR=1:0 SLP_DDR.2=1:0 AWAKE=1:0 AWAKE.2=1:0 SLP_S2R=1:0 SLP_S2R.2=1:0 DEEP_WAIT=1:0 DEEP_WAIT.2=1:0 SYS_AWAKE=1:0 SYS_AWAKE.2=1:0 SYS_S2R_AOP=1:0 SYS_S2R_AOP.2=1:0 SYS_SLP_DDR=1:0 SYS_SLP_DDR.2=1:0 ctl=30001
+2026-11-25 12:39:20 aura ctl default: aura ctl at 0x10003096d40: 0xc16dcb3f mask 0x0 cap 0
+2026-11-25 12:39:20 aura ctl default: aura ctl at 0x10003096d40: 0xc16dcb3f mask 0x0 cap 0
+2026-11-25 12:39:20 ramoops: [    7.146029] pstore: Using crash dump compression: deflate|[    7.146040] pstore: Registered ramoops as persistent store backend|[    7.146042] ramoops: using 0x100000@0x107c5400000, ecc: 0|
+2026-11-25 12:39:20 ramoops: [    7.146029] pstore: Using crash dump compression: deflate|[    7.146040] pstore: Registered ramoops as persistent store backend|[    7.146042] ramoops: using 0x100000@0x107c5400000, ecc: 0|
+2026-11-25 12:39:41 pre-sleep sep_bound=yes sep_idle=21s ps_sep=0x1000030f hci0=yes
+2026-11-25 12:39:41 pre-sleep sep_bound=yes sep_idle=21s ps_sep=0x1000030f hci0=yes
+2026-11-25 12:39:41 unbound aurora 406400000.gpu: still_bound=no
+2026-11-25 12:39:41 unbound aurora 406400000.gpu: still_bound=no
+2026-11-25 12:39:43 saved r62p-pre (ok=1)
+2026-11-25 12:39:43 saved r62p-pre (ok=1)
+2026-11-25 12:39:43 echo mem at 12:39:43.187 UTC
+2026-11-25 12:39:43 echo mem at 12:39:43.187 UTC
+2026-11-25 12:40:17 R62P RESUMED: rc=0 dur=34.4s online=0-9 counters=SLP_DDR=1:793896 SLP_DDR.2=1:793896 AWAKE=1:807838232 AWAKE.2=1:807838280 SLP_S2R=1:554494256 SLP_S2R.2=1:554494256 DEEP_WAIT=1:0 DEEP_WAIT.2=1:0 SYS_AWAKE=1:806118128 SYS_AWAKE.2=1:806118160 SYS_S2R_AOP=1:554495496 SYS_S2R_AOP.2=1:554495496 SYS_SLP_DDR=1:2512976 SYS_SLP_DDR.2=1:2512976 ctl=30001
+2026-11-25 12:40:17 R62P RESUMED: rc=0 dur=34.4s online=0-9 counters=SLP_DDR=1:793896 SLP_DDR.2=1:793896 AWAKE=1:807838232 AWAKE.2=1:807838280 SLP_S2R=1:554494256 SLP_S2R.2=1:554494256 DEEP_WAIT=1:0 DEEP_WAIT.2=1:0 SYS_AWAKE=1:806118128 SYS_AWAKE.2=1:806118160 SYS_S2R_AOP=1:554495496 SYS_S2R_AOP.2=1:554495496 SYS_SLP_DDR=1:2512976 SYS_SLP_DDR.2=1:2512976 ctl=30001
+2026-11-25 12:40:17 saved r62p-wake0 (ok=1)
+2026-11-25 12:40:17 saved r62p-wake0 (ok=1)

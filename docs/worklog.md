@@ -5982,3 +5982,15 @@ Armed R60H 23:52
 - R62O (`20261125-123358-r62o-pre`, away 159 s): same `0x6004=0x50`, `ESR=0x0008f0` (`BRK #0x800` = `BUG()`/`BUG_ON()`) in `process_one_work` -> module (`0xffffff`), proving it is NOT `dcp_fw_s2r_work_fn`.
 - Realized: in R62M (`aic2_info.fw_suspend=false`), `macsmc` timed out so `apple_pcie_s2r_work` never reached `pci_stop_and_remove_bus_device()`. In R62N/R62O (`aic2_info.fw_suspend=true`), `macsmc` worked and `apple_pcie_s2r_work` removed live bound `brcmfmac`/`hci_bcm4377`/`sdhci-pci` (whereas R61R unbound them before `echo mem`, and `pci_rescan_bus` re-bound all three after wake).
 - R62P (`r62p-s2r73`): re-enables DCP restart (`s2r_fw_restart=1`) and unbinds `0000:01:00.0`, `0000:01:00.1`, `0000:02:00.0` before `echo mem` (matching R61R). Same UKI (`752fc576f255905f`) and `root.sfs` (`ed0228ed522c0972`).
+
+## 2026-11-25 07:43 R62P result: FULL CLEAN NON-TEST S2R ON AURORA 7.3.0 + AURA 128!! (NVMe, USB-C, SMC, Wi-Fi 54 BSSes, BT, SD, internal DCP all back!)
+- R62P (`20261125-123943-r62p-pre`, `20261125-124017-r62p-wake0`, `20261125-124118-r62p-wake`, away 177 s):
+  - **Real S2R commit & wake**: `rc=0`, `dur=34.4s` (30 s RTC alarm + 4.4 s resume), `SLP_S2R=554,494,256` (23.10 s @ 24 MHz), `SYS_S2R_AOP=554,495,496`, `online=0-9` (all 10 CPUs), `0x601f=aa`, `0x6023=a4`, `0x6011=50` (PMP + SEP gated). Zero `aura-ctl` override, zero `TEST` kernel switches!
+  - **SMC (`macsmc`)**: 0 timeouts! `wake record: MBSE 0x10630, MBSW 00..00`, `macsmc-gpio` working.
+  - **NVMe (`nvme-apple`)**: `boot mode normal`, `live`, `31.6 MB/s`.
+  - **USB-C**: `Logi Bolt Receiver` (`046d:c548`) live.
+  - **PCIe / Wi-Fi / BT / SD**: both links up on try 1 (`0x9b000001` / `0xd9000001`), `wake p0=0x9b000211 p1=0x9b000211`, `rescanning after S2R power cut: 2 devices`, `wlan0` UP/LOWER_UP associated to home network (ch 40, 5200 MHz, 40 MHz, 31 dBm), **`iw dev wlan0 scan` rc 0, 54 BSSes**; `hci0` present; `mmc0` (`17a0:9755`) present.
+  - **Internal DCP (`389c00000.dcp`)**: `restored DCP __DATA (0x300000 bytes, kept iBoot block 0x7410c8+0x51c)` -> `s2r: internal DCP cold restart complete (0)` -> `dcp_hotplug() connected:1 valid_mode:1 nr_modes:6`. (Note: `dcp_poweron` timed out waiting for power — likely needs `apple_pmp` wake fixed first since `apple_pmp` returned `-62`.)
+  - **Keyboard/trackpad (`mtp`), `apple-sio`, `aop` (`iio_aop_las`)**: all back cleanly.
+- Scrubbed SSID/MAC and copied R62P logs to `docs/postwake/20261125-124118-r62p-wake/`. Updated `docs/s2r-status.json`, `docs/s2r-repro.md`, and live status blurb.
+- Step 2 (clean non-TEST 7.3.0 + Aura 128 build) is **COMPLETE**! Next: (a) owner checks (Step 1: BT pairing, SD card, visual display check), (b) fix `apple_pmp` wake + `dcp_poweron` + wire G14S `aurora` GPU warm restart (Step 4, referencing `@nekolyanich`'s `m2pro-s2r-wip`), (c) overnight battery drain (Step 3).

@@ -1,0 +1,120 @@
+[   39.727082] apple-dcp 389c00000.dcp: RTKit: syslog message: UPBlock_PCC.cpp:76: IOMFB: dynamic enabling of PCC is not supported on this platform, you need to power cycle display to see this change take effec
+[   39.727195] apple-dcp 389c00000.dcp: RTKit: syslog message: ck_PCC2DBlm_v5.cpp:1926: blm is zerod 0 Blm firmware disable 0
+[   39.727444] apple-dcp 389c00000.dcp: RTKit: syslog message: UPBlock_PCC2DLed.cpp:99: led mode 0
+[   39.727455] apple-dcp 389c00000.dcp: RTKit: syslog message: PBlock_PCC2DLed.cpp:116: accel_out 0
+[   39.727515] apple-dcp 389c00000.dcp: RTKit: syslog message: UPBlock_PCC2DBrc.cpp:72: brc_enable mode 1
+[   39.728736] apple-dcp 389c00000.dcp: RTKit: syslog message: UPBlock_VUC.cpp:234: [IOMFB] reload_vuc_calib: No VUC Sysconfig data!
+[   39.728882] apple-dcp 389c00000.dcp: RTKit: syslog message: PPipeDCP_H13P.cpp:11046: IOMFB updateFrequencies: no timing set
+[   39.729374] apple-dcp 389c00000.dcp: RTKit: syslog message: UPBlock_VFTG.cpp:66: IOMFB did_power_on: timings not set; reading 'display-timing-info' from origin 2
+[   39.729885] apple-dcp 389c00000.dcp: RTKit: syslog message: M3Hal_v1.cpp:197: IOMFB: load LED M3 IMem : size 0x7b74
+[   39.730451] apple-dcp 389c00000.dcp: RTKit: syslog message: M3Hal_v1.cpp:197: IOMFB: load LED M3 DMem : size 0x102e0
+[   39.732640] apple-dcp 389c00000.dcp: RTKit: syslog message: ock_PCC2DLTM_v4.cpp:324: IOMFBStatus IOMFB::UPBlock_PCC2DLTM_v4::set_mcpu_power(IOMFB::AppleRegisterStream *, bool) Loading M3 Hal
+[   39.732723] apple-dcp 389c00000.dcp: RTKit: syslog message: M3Hal_v1.cpp:197: IOMFB: load LTM M3 IMem : size 0x7308
+[   39.733122] apple-dcp 389c00000.dcp: RTKit: syslog message: M3Hal_v1.cpp:197: IOMFB: load LTM M3 DMem : size 0xd190
+[   39.734323] apple-dcp 389c00000.dcp: RTKit: syslog message: ck_PCC2DBlm_v5.cpp:4656: IOMFB: write_lac_cfgs LAC gain map not ready
+[   39.739476] brcmfmac: brcmf_fw_alloc_request: using brcm/brcmfmac4388c0-pcie for chip BCM4388/4
+[   39.743803] apple-dcp 389c00000.dcp: RTKit: syslog message: PPipeDCP_H13P.cpp:10468: set_run_mode_safe: no need to defer: 1 -> 2
+[   39.744276] apple-dcp 389c00000.dcp: RTKit: syslog message: UPPipeDCP_H13P.cpp:1532: IOMFB: videoClock is zero, defaulting to 402280000
+[   39.744524] apple-dcp 389c00000.dcp: RTKit: syslog message: pMonitorHandler.cpp:428: IOMFB: TempMonitorHandler: using both 0D and 2D
+[   39.744536] apple-dcp 389c00000.dcp: RTKit: syslog message: pMonitorHandler.cpp:443: IOMFB: TempMonitorHandler: state is 3
+[   39.744598] apple-dcp 389c00000.dcp: RTKit: syslog message: mityCompensator.cpp:500: IOMFB: expected key twod-uc-compensation not found
+[   39.745282] apple-dcp 389c00000.dcp: RTKit: syslog message: eoInterfaceIOAV.cpp:179: IOMFB: AUC published
+[   39.745358] apple-dcp 389c00000.dcp: RTKit: syslog message: oInterfaceIOAV.cpp:1794: IOMFB: addNotification( AppleDCPAVPowerController, Publish )
+[   39.745404] apple-dcp 389c00000.dcp: RTKit: syslog message: oInterfaceIOAV.cpp:1818: IOMFB: AppleDCPAVPowerController found, powering up
+[   39.751855] apple-dcp 389c00000.dcp: RTKit: syslog message: AppleDCPDPTX.cpp:355: [AFK]powering nub 0x854050
+[   39.752097] apple-dcp 389c00000.dcp: RTKit: syslog message: AppleDCPDPTX.cpp:355: [AFK]powering nub 0x8541d0
+[   39.753632] apple-dcp 389c00000.dcp: RTKit: syslog message: deoInterfaceStub.cpp:33: IOMFB using stub Video Interface adapter
+[   39.754207] apple-dcp 389c00000.dcp: iBoot command 2 EPIC success: inner-op=0 declared-len=0 header-check=-71 raw64=00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 (capacity snapshot, inner status unknown)
+[   39.856610] apple-dcp 389c00000.dcp: iBoot HPD=0 timing-count=0 color-count=0
+[   39.875308] apple-dcp 389c00000.dcp: RTKit: syslog message: ileCDIDPDisplay.cpp:119: [AFK]SAC enable: DP=1 CDI=1
+[   39.875368] apple-dcp 389c00000.dcp: RTKit: syslog message: DCPDP13Service.cpp:60: [AFK]version: 14
+[   39.875398] apple-dcp 389c00000.dcp: RTKit: syslog message: DCPDPService.cpp:76: [AFK]version: 14
+[   39.914855] apple-dcp 389c00000.dcp: RTKit: syslog message: eoInterfaceIOAV.cpp:135: IOMFB: IOAVVideoInterface published
+[   39.914999] apple-dcp 389c00000.dcp: RTKit: syslog message: eoInterfaceIOAV.cpp:714: IOMFBStatus VideoInterfaceIOAV::plug_gated(IOAVVideoInterface *, bool): display HPD asserted
+[   39.944242] hci_bcm4377 0000:01:00.1: enabling device (0000 -> 0002)
+[   39.960609] apple-dcp 389c00000.dcp: iBoot HPD=1 timing-count=6 color-count=1
+[   39.960737] apple-dcp 389c00000.dcp: RTKit: syslog message: PIbootInterface.cpp:345: getTimingModesRequest
+[   39.960928] apple-dcp 389c00000.dcp: iBoot timing modes: 6
+[   39.960932] apple-dcp 389c00000.dcp: iBoot mode op=4 index=0 selected=0 raw24=01000000d00b0000ac0700001f0078000000000000000000
+[   39.960936] apple-dcp 389c00000.dcp: iBoot timing 0: valid=1 3024x1964 fps=120.0004 rawfps=0x78001f
+[   39.960939] apple-dcp 389c00000.dcp: iBoot mode op=4 index=1 selected=0 raw24=01000000d00b0000ac07000000003c000000000000000000
+[   39.960941] apple-dcp 389c00000.dcp: iBoot timing 1: valid=1 3024x1964 fps=60.0000 rawfps=0x3c0000
+[   39.960943] apple-dcp 389c00000.dcp: iBoot mode op=4 index=2 selected=0 raw24=01000000d00b0000ac070000000030000000000000000000
+[   39.960944] apple-dcp 389c00000.dcp: iBoot timing 2: valid=1 3024x1964 fps=48.0000 rawfps=0x300000
+[   39.960946] apple-dcp 389c00000.dcp: iBoot mode op=4 index=3 selected=0 raw24=01000000d00b0000ac070000a8f03b000000000000000000
+[   39.960947] apple-dcp 389c00000.dcp: iBoot timing 3: valid=1 3024x1964 fps=59.9400 rawfps=0x3bf0a8
+[   39.960948] apple-dcp 389c00000.dcp: iBoot mode op=4 index=4 selected=0 raw24=01000000d00b0000ac070000b9f32f000000000000000000
+[   39.960950] apple-dcp 389c00000.dcp: iBoot timing 4: valid=1 3024x1964 fps=47.9520 rawfps=0x2ff3b9
+[   39.960951] apple-dcp 389c00000.dcp: iBoot mode op=4 index=5 selected=0 raw24=01000000d00b0000ac070000000032003867dd0000000000
+[   39.960955] apple-dcp 389c00000.dcp: iBoot timing 5: valid=1 3024x1964 fps=50.0000 rawfps=0x320000
+[   39.961078] apple-dcp 389c00000.dcp: RTKit: syslog message: PIbootInterface.cpp:380: getColorModesRequest
+[   39.961261] apple-dcp 389c00000.dcp: iBoot color modes: 1
+[   39.961264] apple-dcp 389c00000.dcp: iBoot mode op=5 index=0 selected=1 raw24=010000000100000001000000010000002000000000000000
+[   39.961265] apple-dcp 389c00000.dcp: iBoot color 0: valid=1 colorimetry=1 eotf=1 encoding=1 bpp=32
+[   39.961382] apple-dcp 389c00000.dcp: RTKit: syslog message: PIbootInterface.cpp:345: getTimingModesRequest
+[   39.961662] apple-dcp 389c00000.dcp: RTKit: syslog message: PIbootInterface.cpp:380: getColorModesRequest
+[   39.961952] apple-dcp 389c00000.dcp: RTKit: syslog message: PIbootInterface.cpp:436: setModeRequest
+[   39.964028] apple-dcp 389c00000.dcp: RTKit: syslog message: PPipeDCP_H13P.cpp:11092: IOMFB updateFrequencies: minimum-frequency property not found, using getClockFrequency(0) instead.
+[   39.964083] apple-dcp 389c00000.dcp: RTKit: syslog message: PPipeDCP_H13P.cpp:11109: IOMFB updateFrequencies EDT ERROR: getClockFrequency(0) (48000000) < videoClock 402278400! Giving up on frequencies.
+[   39.964379] apple-dcp 389c00000.dcp: RTKit: syslog message: nifiedPipeline.cpp:7356: IOMFBStatus UnifiedPipeline::mode_set_gated(uint32_t, uint32_t): 3024x1964@120 Hz link: 1
+[   39.964509] apple-dcp 389c00000.dcp: RTKit: syslog message: M3Hal_v1.cpp:197: IOMFB: load BLM M3 IMem : size 0x764c
+[   39.965488] apple-dcp 389c00000.dcp: RTKit: syslog message: M3Hal_v1.cpp:197: IOMFB: load BLM M3 DMem : size 0xaf6c
+[   39.966174] apple-dcp 389c00000.dcp: RTKit: syslog message: FBPropertyManager.h:189: value_t<P> IOMFB::PropMgr::getVal(IOMFB::RuntimeProperty) [P = IOMFB::RuntimePropertyType::boolean]: WARNING - type mismatch on
+[   39.966990] apple-dcp 389c00000.dcp: iBoot command 6 EPIC success: inner-op=0 declared-len=0 header-check=-71 raw64=00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 (capacity snapshot, inner status unknown)
+[   39.967536] apple-dcp 389c00000.dcp: Ignoring unknown message 840100
+[   39.967589] apple-dcp 389c00000.dcp: s2r: internal DCP cold restart complete (0)
+[   39.968051] apple-dcp 389c00000.dcp: RTKit: syslog message: ap_link.c:299: shared memory dva: 0x10fffc00000 0xffffffff00017000
+[   39.968055] apple-dcp 389c00000.dcp: RTKit: syslog message: ap_link.c:276: ap_link: IOMFB: DCP heap size: 0x1030000 [iBoot:0x1030000] [LinkService:0x0]
+[   39.969397] apple-dcp 389c00000.dcp: RTKit: syslog message: nifiedPipeline.cpp:4191: IOMFB: Could not find Backlight service
+[   39.969443] apple-dcp 389c00000.dcp: RTKit: syslog message: nifiedPipeline.cpp:4199: IOMFB: Could not find nvram service
+[   39.969472] apple-dcp 389c00000.dcp: RTKit: syslog message: nifiedPipeline.cpp:1838: virtual bool UnifiedPipeline::start_ios_gated(): Created AP Services
+[   39.969512] apple-dcp 389c00000.dcp: RTKit: syslog message: nifiedPipeline.cpp:1864: start_ios_gated: trigger pending HPD notification
+[   39.972454] apple-dcp 389c00000.dcp: RTKit: syslog message: nifiedPipeline.cpp:1871: virtual bool UnifiedPipeline::start_ios_gated(): Flushed RTPs
+[   39.974965] apple-dcp 389c00000.dcp: RTKit: syslog message: ableCompensator.cpp:903: IOMFB setup_table: Could not find table 'display-backlight-compensation-v1' in registry. Using default table.
+[   39.975251] apple-dcp 389c00000.dcp: RTKit: syslog message: PPipeDCP_H13P.cpp:11092: IOMFB updateFrequencies: minimum-frequency property not found, using getClockFrequency(0) instead.
+[   39.975338] apple-dcp 389c00000.dcp: RTKit: syslog message: PPipeDCP_H13P.cpp:11109: IOMFB updateFrequencies EDT ERROR: getClockFrequency(0) (257142848) < videoClock 402278400! Giving up on frequencies.
+[   39.975660] apple-dcp 389c00000.dcp: RTKit: syslog message: UPPipeDCP_H13P.cpp:1532: IOMFB: videoClock is zero, defaulting to 402280000
+[   39.976336] apple-dcp 389c00000.dcp: RTKit: syslog message: nifiedPipeline.cpp:1356: set_device_enabled_gated: current state: 1, requested state: 1
+[   39.976519] apple-dcp 389c00000.dcp: RTKit: syslog message: PPipeDCP_H13P.cpp:11092: IOMFB updateFrequencies: minimum-frequency property not found, using getClockFrequency(0) instead.
+[   39.976601] apple-dcp 389c00000.dcp: RTKit: syslog message: PPipeDCP_H13P.cpp:11109: IOMFB updateFrequencies EDT ERROR: getClockFrequency(0) (257142848) < videoClock 402278400! Giving up on frequencies.
+[   39.976994] apple-dcp 389c00000.dcp: RTKit: syslog message: PPipeDCP_H13P.cpp:10490: set_run_mode_safe: deferring: 2 -> 4
+[   39.977030] apple-dcp 389c00000.dcp: RTKit: syslog message: PPipeDCP_H13P.cpp:10395: virtual IOMFBStatus IOMFB::UPPipeDCP_H13P::ready_for_run_mode_change(IOMFB::AppleRegisterStream *): initiating deferred run mod
+[   39.977788] apple-dcp 389c00000.dcp: RTKit: syslog message: M3Hal_v1.cpp:197: IOMFB: load APT M3 IMem : size 0x7b40
+[   39.978187] apple-dcp 389c00000.dcp: RTKit: syslog message: M3Hal_v1.cpp:197: IOMFB: load APT M3 DMem : size 0x6fd4
+[   39.978539] apple-dcp 389c00000.dcp: RTKit: syslog message: CAHandler.cpp:188: IOMFB load_ca_data: Unrecognized data version 0 (expected 1 or 2)
+[   39.990334] apple-dcp 389c00000.dcp: RTKit: syslog message: UPPipe.cpp:3767: IOMFB read_pmu_data_sync: pmu ram read error (e00800d8)
+[   39.991376] apple-dcp 389c00000.dcp: RTKit: syslog message: PPipeDCP_H13P.cpp:14085: IOMFB Int RTBandwidth: program_M3_rt_config: Using Dashboard 28e3d1208
+[   39.991473] apple-dcp 389c00000.dcp: RTKit: syslog message: UPTSQManager.cpp:133: IOMFB: clearing M3 reset
+[   39.991591] apple-dcp 389c00000.dcp: RTKit: syslog message: UPTSQ_Hal_v1.cpp:349: IOMFB: timebase_offset = 5
+[   39.991684] apple-dcp 389c00000.dcp: RTKit: syslog message: MMailboxHandler.cpp:214: pcc firmware: MailBox Printf is enabled in BLM Pipe Line Init
+[   39.991883] apple-dcp 389c00000.dcp: AFK[ep:20]: new service system on channel 1
+[   39.991916] apple-dcp 389c00000.dcp: AFK[ep:20]: new service powerlog-service on channel 3
+[   39.997799] apple-dcp 389c00000.dcp: RTKit: syslog message: UPTSQManager.cpp:105: IOMFB: switch to normal mode succeeded
+[   39.998537] apple-dcp 389c00000.dcp: RTKit: syslog message: ck_PCC2DBlm_v5.cpp:4938: [set_lts_buffer] buffer 0x10fffb30000 Add_lo = 0xffb30000, Add_hi = 0x10f, size 0x2500 stride 0x100
+[   40.002862] apple-dcp 389c00000.dcp: dcp_hotplug() connected:1 valid_mode:1 nr_modes:6
+[   40.002892] apple-dcp 389c00000.dcp: using firmware-derived EDID metadata for connection 0
+[   40.002966] apple-dcp 389c00000.dcp: dcp_poweron() starting
+[   40.919474] brcmfmac 0000:01:00.0: using bidirectional receive DMA
+[   41.027514] brcmfmac: brcmf_c_process_txcap_blob: TxCap blob found, loading
+[   41.029631] brcmfmac: brcmf_c_process_cal_blob: Calibration blob provided by platform, loading
+[   41.042670] brcmfmac: brcmf_c_preinit_dcmds: Firmware: BCM4388/4 wl0: Jun 11 2023 05:20:59 version 23.20.95.0.40.50.92 FWID 01-ec505a98
+[   41.318572] brcmfmac: brcmf_cfg80211_update_country: country US set in firmware (US rev 0)
+[   41.712207] pcieport 0000:00:01.0: mask Replay Timer Timeout Correctable Errors due to 0000:02:00.0 hardware defect
+[   41.712416] pcie-apple 580000000.pcie: rescanning after S2R power cut: 2 devices
+[   41.712573] sdhci-pci 0000:02:00.0: SDHCI controller found [17a0:9755] (rev 1)
+[   41.737272] mmc0: SDHCI controller on PCI [0000:02:00.0] using ADMA 64-bit
+[   50.144119] apple-dcp 389c00000.dcp: wait for power timed out, connector will be broken
+[   50.145545] apple-dcp 389c00000.dcp: set_digital_out_mode(color:1 timing:2) "3024x1964": 120 804560 3024 3032 3064 3104 1964 2066 2074 2160 0x48 0x5
+[   50.145553] apple-dcp 389c00000.dcp: set_digital_out_mode() color mode depth:8 format:0 colorimetry:16 eotf:0 range:0 vrr:0
+[   56.378514] brcmfmac: brcmf_cfg80211_update_country: country US already set in firmware (US rev 0)
+[   58.848127] apple-dcp 389c00000.dcp: set_digital_out_mode finished:0
+[   58.848131] apple-dcp 389c00000.dcp: set_digital_out_mode timed out
+[   75.504127] apple-dcp 389c00000.dcp: iomfb_poweroff_v13_3: clear swap timed out
+[   76.512115] apple-dcp 389c00000.dcp: setPowerState(0) timeout 1000 ms
+[   76.512125] apple-dcp 389c00000.dcp: dcp_poweroff() done
+[   77.519281] apple-dcp 389c00000.dcp: dcp_poweron() starting
+[   87.520135] apple-dcp 389c00000.dcp: wait for power timed out, connector will be broken
+[   87.520145] apple-dcp 389c00000.dcp: set_digital_out_mode(color:1 timing:2) "3024x1964": 120 804560 3024 3032 3064 3104 1964 2066 2074 2160 0x48 0x5
+[   87.520155] apple-dcp 389c00000.dcp: set_digital_out_mode() color mode depth:8 format:0 colorimetry:16 eotf:0 range:0 vrr:0
+[   96.224124] apple-dcp 389c00000.dcp: set_digital_out_mode finished:0
+[   96.224130] apple-dcp 389c00000.dcp: set_digital_out_mode timed out
