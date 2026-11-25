@@ -5926,3 +5926,8 @@ Armed R60H 23:52
 ## 2026-11-24 23:08 R62F result + R62G armed (load `ramoops mem_name=oops` to read exact SError)
 - R62F (`20261125-040459-r62f-pre`, away 133 s): hit the same `el1h_64_error` -> `arm64_serror_panic` -> `vpanic` -> `emergency_restart` (`0x6004=0x51`, `ESR=0xbc`). `ramoops` wasn't loaded by the job so `/sys/fs/pstore/` was empty.
 - R62G (`r62g-s2r73`): same UKI (`2267a705389dc3a4`, has `reserve_mem=1M:2M:oops`) and `root.sfs`, adds `modprobe ramoops mem_name=oops record_size=0x20000 console_size=0x20000 max_reason=2` before `sv pre` so we can read the exact SError log and address via `read-phys.py` on main.
+
+## 2026-11-24 23:13 R62G result + R62H armed (call `apple_dart_sleep_prepare` in `sep_pm_commit_prepare`, before `suspend_noirq`)
+- R62G (`20261125-041001-r62g-pre`, away 132 s): `ramoops` registered at `0x107c5400000` (all zeros on main after cold reset), same `el1h_64_error` SError.
+- Realized why R62F/G still hit the `sep_dart` SError: `apple_dart_sleep_prepare(c->dart)` was only called inside `sep_pm_commit_stop()` during `suspend_noirq`, which is too late if `apple_dart_sys_suspend_noirq(394ac0000.iommu)` runs before `sep_pm_suspend_noirq(396400000.sep)`.
+- Fix: moved `apple_dart_sleep_prepare(c->dart)` into `sep_pm_commit_prepare()` (during `.suspend`, guaranteed before `dpm_suspend_noirq`!). Rebuilt `apple-sep.ko`, repacked `root.sfs`, armed **R62H** (`r62h-s2r73`).
