@@ -5973,3 +5973,7 @@ Armed R60H 23:52
 - R62M (`20261125-122240-r62m-pre`, `20261125-122322-r62m-wake0`, `20261125-122423-r62m-wake`, away 185 s): 3 of 3 real S2R commit + wake (`SLP_S2R = 22.57 s`, `online=0-9`, NVMe live 31.8 MB/s, USB-C Logi Bolt Receiver live!).
 - Found the single root cause behind `macsmc` / `spmi-0` / `apple_pmp` / `apple-dcp` / `apple_sep` ALL losing IRQs after wake: in 7.3.0 `drivers/irqchip/irq-apple-aic.c`, `aic_sleep_init()` checks `irqc->info.fw_suspend`, which was ONLY set on `aic3_*_info` — `aic2_info` (T6020) did NOT have `.fw_suspend = true`, so `aic_syscore` never registered and NO AIC2 masks/configs were restored after S2R!
 - Fix: added `.fw_suspend = true` to `aic2_info` in `drivers/irqchip/irq-apple-aic.c`. Rebuilding `Image` + `deeptest.efi.s2r73` and arming **R62N** (`r62n-s2r73`) now!
+
+## 2026-11-25 07:32 R62N result (woke from S2R, hit post-wake `BRK` in module workqueue) + R62O armed (`s2r_fw_restart=0` bisect)
+- R62N (`20261125-122857-r62n-pre`, away 141 s): woke from S2R (`0x6004=0x50`, `0x6023=a4`), resumed into Linux with AIC2 IRQs restored, then hit a `BRK` (`ESR 0xf0`, `EC=0x3c`) in a module workqueue (`process_one_work` -> `0xffffff`).
+- R62O (`r62o-s2r73`): same UKI (`752fc576f255905f`) and `root.sfs`, sets `appledrm.s2r_fw_restart=0` to bisect whether the post-wake workqueue trap is in `dcp_fw_s2r_work_fn` vs a Rust module (`apple-sep`/`aop`/`apple-pmp`) and to verify `macsmc` + `pcie-apple` (Wi-Fi/BT/SD) + `apple-pmp` with AIC2 IRQs restored.
