@@ -5951,3 +5951,11 @@ Armed R60H 23:52
 
 ## 2026-11-24 23:28 R62K armed: R62J + T6020 `WKTP` + `0x29e00400c` wake mask in `macsmc.c`
 - Rebuilt `macsmc.ko` module-only, updated `deeptest.efi.s2r73` and `root.sfs`, refreshed kernel diff. Armed `r62k-s2r73` on `7.3.0-s2r73+` + Aura 128 (`31351234054bfdee`).
+
+## 2026-11-24 23:32 R62K result: FIRST REAL S2R COMMIT + WAKE ON CLEAN 7.3.0-s2r73+ + AURA 128!! (`SLP_S2R=22.95s`, `0x601f=aa`, NVMe live, 10 CPUs!)
+- R62K (`20261125-042930-r62k-pre`, `20261125-043053-r62k-wake`, away 164 s): **real S2R committed and woke on RTC alarm!** `rc=0`, `dur=41.1s`, `SLP_S2R=550,808,312` (22.95 s @ 24 MHz), `SYS_S2R_AOP=550,809,752`, `online=0-9`, `0x601f=aa`, `0x6023=a4`, `0x6011=50`. Zero `aura-ctl` override, zero `TEST` switches!
+- NVMe came back `live` and read 64 KiB at 32.5 MB/s (`dd` rc 0).
+- Remaining issue to fix on 7.3.0 wake: `macsmc` timed out after wake (`Command timed out`), leaving PCIe links in Detect (`0xab000200`) and causing `brcmf_pcie_bus_console_read` `\xff` spam to wrap the dmesg ring buffer before `sv wake`.
+
+## 2026-11-24 23:34 R62L armed: R62K with `sv wake0` immediately after `echo mem` returns to capture full wake dmesg before `brcmfmac` spam
+- Same `7.3.0-s2r73+` (`22761db85ef56096`) + `root.sfs` (`9d6804f2f22a4188`) + Aura 128 (`31351234054bfdee`). Captures `r62l-wake0` immediately on resume so we can read `macsmc`, `pcie-apple`, `apple-sep`, and `appledrm` wake messages intact.
