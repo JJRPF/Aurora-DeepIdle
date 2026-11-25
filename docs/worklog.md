@@ -5922,3 +5922,7 @@ Armed R60H 23:52
 
 ## 2026-11-24 23:03 R62F armed: R62E + `sep_dart` `sleep_saved` fix + `reserve_mem=1M:2M:oops`
 - Rebuilt `apple-dart.ko` module-only, rebuilt `deeptest.efi.s2r73` with `reserve_mem=1M:2M:oops`, repacked `root.sfs`, refreshed kernel diff. Armed `r62f-s2r73` on `7.3.0-s2r73+` + Aura 128 (`31351234054bfdee`).
+
+## 2026-11-24 23:08 R62F result + R62G armed (load `ramoops mem_name=oops` to read exact SError)
+- R62F (`20261125-040459-r62f-pre`, away 133 s): hit the same `el1h_64_error` -> `arm64_serror_panic` -> `vpanic` -> `emergency_restart` (`0x6004=0x51`, `ESR=0xbc`). `ramoops` wasn't loaded by the job so `/sys/fs/pstore/` was empty.
+- R62G (`r62g-s2r73`): same UKI (`2267a705389dc3a4`, has `reserve_mem=1M:2M:oops`) and `root.sfs`, adds `modprobe ramoops mem_name=oops record_size=0x20000 console_size=0x20000 max_reason=2` before `sv pre` so we can read the exact SError log and address via `read-phys.py` on main.
