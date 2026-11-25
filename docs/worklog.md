@@ -5977,3 +5977,8 @@ Armed R60H 23:52
 ## 2026-11-25 07:32 R62N result (woke from S2R, hit post-wake `BRK` in module workqueue) + R62O armed (`s2r_fw_restart=0` bisect)
 - R62N (`20261125-122857-r62n-pre`, away 141 s): woke from S2R (`0x6004=0x50`, `0x6023=a4`), resumed into Linux with AIC2 IRQs restored, then hit a `BRK` (`ESR 0xf0`, `EC=0x3c`) in a module workqueue (`process_one_work` -> `0xffffff`).
 - R62O (`r62o-s2r73`): same UKI (`752fc576f255905f`) and `root.sfs`, sets `appledrm.s2r_fw_restart=0` to bisect whether the post-wake workqueue trap is in `dcp_fw_s2r_work_fn` vs a Rust module (`apple-sep`/`aop`/`apple-pmp`) and to verify `macsmc` + `pcie-apple` (Wi-Fi/BT/SD) + `apple-pmp` with AIC2 IRQs restored.
+
+## 2026-11-25 07:38 R62O result (`s2r_fw_restart=0` still hit same `BRK #0x800` in module workqueue) + R62P armed (unbind PCIe endpoints before sleep as R61R)
+- R62O (`20261125-123358-r62o-pre`, away 159 s): same `0x6004=0x50`, `ESR=0x0008f0` (`BRK #0x800` = `BUG()`/`BUG_ON()`) in `process_one_work` -> module (`0xffffff`), proving it is NOT `dcp_fw_s2r_work_fn`.
+- Realized: in R62M (`aic2_info.fw_suspend=false`), `macsmc` timed out so `apple_pcie_s2r_work` never reached `pci_stop_and_remove_bus_device()`. In R62N/R62O (`aic2_info.fw_suspend=true`), `macsmc` worked and `apple_pcie_s2r_work` removed live bound `brcmfmac`/`hci_bcm4377`/`sdhci-pci` (whereas R61R unbound them before `echo mem`, and `pci_rescan_bus` re-bound all three after wake).
+- R62P (`r62p-s2r73`): re-enables DCP restart (`s2r_fw_restart=1`) and unbinds `0000:01:00.0`, `0000:01:00.1`, `0000:02:00.0` before `echo mem` (matching R61R). Same UKI (`752fc576f255905f`) and `root.sfs` (`ed0228ed522c0972`).
