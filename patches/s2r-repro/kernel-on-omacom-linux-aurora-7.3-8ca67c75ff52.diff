@@ -910,6 +910,87 @@ index 33a29ce9beb0..5c9acef76a77 100644
  
  	apple_dart_sleep_cfg_read(dart, dart->sleep_cfg);
  	spin_lock_irqsave(&dart->lock, flags);
+diff --git a/drivers/mfd/macsmc.c b/drivers/mfd/macsmc.c
+index ad4d84f9c3dd..6f2828a2f138 100644
+--- a/drivers/mfd/macsmc.c
++++ b/drivers/mfd/macsmc.c
+@@ -839,10 +839,64 @@ static void apple_smc_write_mbse(struct apple_smc *smc, smc_key value)
+ 		dev_err(smc->dev, "Failed to issue MBSE = %p4ch: %d\n", &value, ret);
+ }
+ 
++#define T6020_WAKEMASK_PHYS	0x29e00400cULL
++#define T6020_WAKEMASK_WORDS	9
++
++static const u32 t6020_wake_valid[T6020_WAKEMASK_WORDS] = {
++	0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff,
++	0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff, 0x0000007f,
++};
++static const u32 t6020_wake_sources[T6020_WAKEMASK_WORDS] = {
++	0x0c005000, 0x005e0900, 0x04200000, 0xc0000000,
++	0x0000003f, 0, 0x80000000, 0, 0,
++};
++static u32 t6020_saved_mask[T6020_WAKEMASK_WORDS];
++static bool t6020_mask_set;
++static bool t6020_wktp_set;
++
++static void apple_smc_t6020_wakemask_set(struct apple_smc *smc)
++{
++	void __iomem *m;
++	int i;
++
++	if (!of_machine_is_compatible("apple,t6020") || t6020_mask_set)
++		return;
++	m = ioremap_np(T6020_WAKEMASK_PHYS, 0x40);
++	if (!m)
++		return;
++	for (i = 0; i < T6020_WAKEMASK_WORDS; i++)
++		t6020_saved_mask[i] = readl(m + 4 * i);
++	for (i = 0; i < T6020_WAKEMASK_WORDS; i++)
++		writel(t6020_wake_valid[i] & ~t6020_wake_sources[i], m + 4 * i);
++	iounmap(m);
++	t6020_mask_set = true;
++}
++
++static void apple_smc_t6020_wakemask_restore(struct apple_smc *smc)
++{
++	void __iomem *m;
++	int i;
++
++	if (!t6020_mask_set)
++		return;
++	t6020_mask_set = false;
++	m = ioremap_np(T6020_WAKEMASK_PHYS, 0x40);
++	if (!m)
++		return;
++	for (i = 0; i < T6020_WAKEMASK_WORDS; i++)
++		writel(t6020_saved_mask[i], m + 4 * i);
++	iounmap(m);
++}
++
+ static void apple_smc_sleep_warn(struct apple_smc *smc)
+ {
+ 	apple_smc_write_mbse(smc, SMC_KEY(slpw));
+ 	smc->sleep_warned = true;
++	if (!smc->sleep_policy && of_machine_is_compatible("apple,t6020")) {
++		apple_smc_write_u8(smc, SMC_KEY(WKTP), 2);
++		t6020_wktp_set = true;
++		apple_smc_t6020_wakemask_set(smc);
++	}
+ }
+ 
+ static int apple_smc_notice_idle(struct apple_smc *smc)
+@@ -1716,6 +1770,11 @@ static void apple_smc_complete(struct device *dev)
+ 		}
+ 		smc->sleep_warned = false;
+ 	}
++	if (t6020_wktp_set) {
++		t6020_wktp_set = false;
++		apple_smc_write_u8(smc, SMC_KEY(WKTP), 0);
++	}
++	apple_smc_t6020_wakemask_restore(smc);
+ 	smc->sleep_policy = NULL;
+ }
+ 
 diff --git a/drivers/nvme/host/apple.c b/drivers/nvme/host/apple.c
 index e4522195f9a2..fefe822b8471 100644
 --- a/drivers/nvme/host/apple.c

@@ -5943,3 +5943,11 @@ Armed R60H 23:52
 
 ## 2026-11-24 23:23 R62J armed: R62H + skip OUTBOX_CTRL clear in Linux + `s2r_sleep_keep=afr,gpio,sep`
 - Rebuilt `apple-sep.ko` module-only, repacked `root.sfs`, refreshed kernel diff. Armed `r62j-s2r73` on `7.3.0-s2r73+` (`2267a705389dc3a4`) + Aura 128 (`31351234054bfdee`).
+
+## 2026-11-24 23:27 R62J result: ZERO SError! Reached Aura commit (`0x6004=0x16`) with PMP + SEP BOTH gated (`0x6011=0x50`)!
+- R62J (`20261125-042414-r62j-pre`, away 140 s, ~65 s S2R timer reset): completely eliminated the SError! Reached Aura's `SYSTEM_SUSPEND` commit (`0x6004 = 0x16`) with all 9 secondary CPUs parked (`0x077e`), clusters off (`0x10 0x10 0x10`), and **`0x6011 = 0x50`** (PMP + `pms_sram` off AND SEP outbox off + `ps_sep` gated!).
+- Why it hit the ~65 s S2R timer reset instead of waking at +30 s: 7.3.0's `macsmc.c` skipped T6020's `WKTP = 2` and macOS's PMGR AP wake-source mask (`0x29e00400c`, 9 words via `ioremap_np`) that R61P–R61R sent via `deep_steps=183`.
+- Fix: added clean T6020 `WKTP = 2`/`0` and `0x29e00400c` wake-mask save/write/restore directly in `drivers/mfd/macsmc.c` (gated on `of_machine_is_compatible("apple,t6020") && !smc->sleep_policy`).
+
+## 2026-11-24 23:28 R62K armed: R62J + T6020 `WKTP` + `0x29e00400c` wake mask in `macsmc.c`
+- Rebuilt `macsmc.ko` module-only, updated `deeptest.efi.s2r73` and `root.sfs`, refreshed kernel diff. Armed `r62k-s2r73` on `7.3.0-s2r73+` + Aura 128 (`31351234054bfdee`).
