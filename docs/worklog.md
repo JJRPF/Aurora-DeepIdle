@@ -5914,3 +5914,11 @@ Armed R60H 23:52
 
 ## 2026-11-24 22:58 R62E armed: R62D without `panic()` on T6020 SEP `SLEEP` reply byte
 - Rebuilt `apple-sep.ko` module-only, repacked `root.sfs`, refreshed `patches/s2r-repro/kernel-on-omacom-linux-aurora-7.3-8ca67c75ff52.diff`. Armed `r62e-s2r73` on `7.3.0-s2r73+` (`591f3150bbf6e630`) + Aura 128 (`31351234054bfdee`).
+
+## 2026-11-24 23:02 R62E result: same bit-for-bit `el1h_64_error` SError (`0x6004=0x51`, `ESR=0xbc`) — `sep_dart` (`394ac0000.iommu`) touched while `ps_sep` power-gated
+- R62E (`20261125-035852-r62e-pre`, away 104 s): exact same 8-frame `el1h_64_error` SError trace as R62C and R62D even with `panic()` removed from `pm_shim.c`.
+- Root cause deduced: R62B (`apple-sep` not loaded, `sep_dart` disabled) had no SError; R62C/D/E (`apple-sep` loaded, `sep_dart` enabled via DT changeset) all hit the exact same SError. On T6020 `sep_dart` (`394ac0000.iommu`) has no `power-domains` property and is power-gated by `ps_sep` (`0x1000030f`), so `apple_dart_sys_suspend_noirq()` -> `apple_dart_save_state()` reads a power-gated DART.
+- Fix: set `dart->sleep_saved = true` in `apple_dart_sleep_prepare()` when `!dart->sleep_restore.count` (so `apple_dart_suspend()` skips MMIO on `sep_dart` after `sep_pm_commit_stop()` runs), and added `reserve_mem=1M:2M:oops` to `deeptest.efi.s2r73` cmdline so any future panic is captured in `/sys/fs/pstore/`.
+
+## 2026-11-24 23:03 R62F armed: R62E + `sep_dart` `sleep_saved` fix + `reserve_mem=1M:2M:oops`
+- Rebuilt `apple-dart.ko` module-only, rebuilt `deeptest.efi.s2r73` with `reserve_mem=1M:2M:oops`, repacked `root.sfs`, refreshed kernel diff. Armed `r62f-s2r73` on `7.3.0-s2r73+` + Aura 128 (`31351234054bfdee`).

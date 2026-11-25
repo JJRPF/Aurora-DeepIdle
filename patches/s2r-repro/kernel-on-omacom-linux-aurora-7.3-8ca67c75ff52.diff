@@ -892,6 +892,24 @@ index aa44c2f8754e..d01b464e17de 100644
  
  /* Queue external HPD/timing/color queries; never call synchronously from AFK RX. */
  int ibootep_query_modes(struct apple_dcp *dcp);
+diff --git a/drivers/iommu/apple-dart.c b/drivers/iommu/apple-dart.c
+index 33a29ce9beb0..5c9acef76a77 100644
+--- a/drivers/iommu/apple-dart.c
++++ b/drivers/iommu/apple-dart.c
+@@ -6510,8 +6510,12 @@ int apple_dart_sleep_prepare(struct device *dev)
+ 
+ 	if (!dart)
+ 		return -ENODEV;
+-	if (!dart->sleep_restore.count)
++	if (!dart->sleep_restore.count) {
++		spin_lock_irqsave(&dart->lock, flags);
++		dart->sleep_saved = true;
++		spin_unlock_irqrestore(&dart->lock, flags);
+ 		return 0;
++	}
+ 
+ 	apple_dart_sleep_cfg_read(dart, dart->sleep_cfg);
+ 	spin_lock_irqsave(&dart->lock, flags);
 diff --git a/drivers/nvme/host/apple.c b/drivers/nvme/host/apple.c
 index e4522195f9a2..fefe822b8471 100644
 --- a/drivers/nvme/host/apple.c
