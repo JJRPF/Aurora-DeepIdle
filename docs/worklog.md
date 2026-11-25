@@ -5935,3 +5935,11 @@ Armed R60H 23:52
 ## 2026-11-24 23:18 R62H result + R62I armed (`pm_test=devices` bisect with `pm_debug_messages=1`)
 - R62H (`20261125-041448-r62h-pre`, away 132 s): still hit the same `el1h_64_error` SError (`0x6004=0x51`, `ESR=0xbc`).
 - R62I (`r62i-s2r73`): enables `/sys/power/pm_debug_messages=1` and runs `pm_test=devices` -> `sv devices` first, then real `echo mem`, so we immediately see whether the SError is in `.prepare`/`.suspend`/`.suspend_late` or `.suspend_noirq` (plus full `pm_debug_messages` output).
+
+## 2026-11-24 23:22 R62I result: `pm_test=devices` PASSED (`rc=0`); SError isolated to `suspend_noirq` SEP OUTBOX_CTRL clear + `ps_sep` power-off
+- R62I (`20261125-041909-r62i-pre`, `20261125-041916-r62i-devices`, away 141 s): `pm_test=devices` passed cleanly (`rc=0`, `ps_sep=0x1f0003ff`), proving `.prepare`/`.suspend`/`.suspend_late` (including `sep_pm_commit_prepare`) have zero errors and zero SErrors.
+- The SError in `suspend_noirq` matches R18B–R18H's exact finding on T6020: clearing SEP `OUTBOX_CTRL` (`apple_mbox_set_recv_enabled(false)`) and powering off `ps_sep` (`genpd_finish_suspend` writing `0` to `0x290280c00`) from Linux panics/hangs the system — Aura's `PSCI_S2R_SEP` step (bit 24) must do both atomically at the commit!
+- Fix: (1) in `pm_shim.c`, skip `apple_mbox_set_recv_enabled(false)` in `noirq_direct` mode; (2) add `sep` to `pmgr_pwrstate.s2r_sleep_keep` (`afr,gpio,sep`) so `genpd_finish_suspend` leaves `ps_sep` untouched for Aura.
+
+## 2026-11-24 23:23 R62J armed: R62H + skip OUTBOX_CTRL clear in Linux + `s2r_sleep_keep=afr,gpio,sep`
+- Rebuilt `apple-sep.ko` module-only, repacked `root.sfs`, refreshed kernel diff. Armed `r62j-s2r73` on `7.3.0-s2r73+` (`2267a705389dc3a4`) + Aura 128 (`31351234054bfdee`).
