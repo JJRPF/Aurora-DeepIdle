@@ -5931,3 +5931,7 @@ Armed R60H 23:52
 - R62G (`20261125-041001-r62g-pre`, away 132 s): `ramoops` registered at `0x107c5400000` (all zeros on main after cold reset), same `el1h_64_error` SError.
 - Realized why R62F/G still hit the `sep_dart` SError: `apple_dart_sleep_prepare(c->dart)` was only called inside `sep_pm_commit_stop()` during `suspend_noirq`, which is too late if `apple_dart_sys_suspend_noirq(394ac0000.iommu)` runs before `sep_pm_suspend_noirq(396400000.sep)`.
 - Fix: moved `apple_dart_sleep_prepare(c->dart)` into `sep_pm_commit_prepare()` (during `.suspend`, guaranteed before `dpm_suspend_noirq`!). Rebuilt `apple-sep.ko`, repacked `root.sfs`, armed **R62H** (`r62h-s2r73`).
+
+## 2026-11-24 23:18 R62H result + R62I armed (`pm_test=devices` bisect with `pm_debug_messages=1`)
+- R62H (`20261125-041448-r62h-pre`, away 132 s): still hit the same `el1h_64_error` SError (`0x6004=0x51`, `ESR=0xbc`).
+- R62I (`r62i-s2r73`): enables `/sys/power/pm_debug_messages=1` and runs `pm_test=devices` -> `sv devices` first, then real `echo mem`, so we immediately see whether the SError is in `.prepare`/`.suspend`/`.suspend_late` or `.suspend_noirq` (plus full `pm_debug_messages` output).
