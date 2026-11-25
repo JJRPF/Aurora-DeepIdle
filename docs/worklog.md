@@ -5907,3 +5907,10 @@ Armed R60H 23:52
 
 ## 2026-11-24 22:53 R62D armed: R62C with `noirq_direct` SEP `SLEEP` + `ioremap_np(ps_sep)`
 - Rebuilt `apple-sep.ko` module-only, repacked `root.sfs`, refreshed `patches/s2r-repro/kernel-on-omacom-linux-aurora-7.3-8ca67c75ff52.diff`. Armed `r62d-s2r73` on `7.3.0-s2r73+` (`591f3150bbf6e630`) + Aura 128 (`31351234054bfdee`).
+
+## 2026-11-24 22:57 R62D result: identical immediate `vpanic` inside `sep_pm_commit_stop()` (`0x6004=0x51`)
+- R62D (`20261125-035439-r62d-pre`, away 105 s): exact same 8-frame `vpanic` trace as R62C, firing immediately (~0 s after `echo mem`, then 27 s panic timeout + reboot). That means `sep_pm_commit_stop()` itself called `panic()` immediately after `c->answered == true` (likely T6020 echoing nonzero `param` in `c->reply_result`, triggering `-EREMOTEIO` -> `panic()`).
+- Fix: in `noirq_direct` mode, accept `c->reply_result` (and log `dev_info`/`dev_warn` instead of `panic()`), still closing RX and polling `ps_sep` for T6020's idle-gated state.
+
+## 2026-11-24 22:58 R62E armed: R62D without `panic()` on T6020 SEP `SLEEP` reply byte
+- Rebuilt `apple-sep.ko` module-only, repacked `root.sfs`, refreshed `patches/s2r-repro/kernel-on-omacom-linux-aurora-7.3-8ca67c75ff52.diff`. Armed `r62e-s2r73` on `7.3.0-s2r73+` (`591f3150bbf6e630`) + Aura 128 (`31351234054bfdee`).

@@ -1522,7 +1522,7 @@ index 690a4a84ff90..e4cd38bab9c0 100644
  		return PTR_ERR(rtc->alarm_ctrl);
  	if (IS_ERR(rtc->alarm_value))
 diff --git a/drivers/soc/apple/pm_shim.c b/drivers/soc/apple/pm_shim.c
-index c1d415c0bd74..70614a58eb26 100644
+index c1d415c0bd74..61ffff41e3cd 100644
 --- a/drivers/soc/apple/pm_shim.c
 +++ b/drivers/soc/apple/pm_shim.c
 @@ -182,7 +182,7 @@ static struct sep_pm_commit {
@@ -1534,7 +1534,27 @@ index c1d415c0bd74..70614a58eb26 100644
  	u8 reply_result;
  	unsigned int answer_us;
  	int gate_ret;
-@@ -301,8 +301,16 @@ static int sep_pm_commit_stop(void *data)
+@@ -289,23 +289,41 @@ static int sep_pm_commit_stop(void *data)
+ 	/* Preserve the failure reason without another hardware query. */
+ 	if (ret >= 0 && !c->answered)
+ 		ret = c->state & SEP_PS_DEV_DISABLE ? -EHOSTDOWN : -ETIMEDOUT;
+-	if (c->answered && c->reply_result)
++	if (c->answered && c->reply_result && !c->noirq_direct)
+ 		ret = -EREMOTEIO;
+ 	/* Native cmsgSLEEP errors/abort/timeout are fatal, never cancellation. */
+-	if (ret < 0)
+-		panic("SEP SLEEP failed after send: ret %d reply_valid %d result %#x state %#x",
+-		      ret, c->answered, c->reply_result, c->state);
++	if (ret < 0) {
++		if (!c->noirq_direct)
++			panic("SEP SLEEP failed after send: ret %d reply_valid %d result %#x state %#x",
++			      ret, c->answered, c->reply_result, c->state);
++		dev_warn(c->dev, "SEP SLEEP noirq failed: ret %d answered %d result %#x state %#x\n",
++			 ret, c->answered, c->reply_result, c->state);
++	}
+ 	/*
+ 	 * Native success-only receive close. No mailbox access follows it. The
+ 	 * held RX IRQ adapts native workloop exclusion; access-until-close is
  	 * the native contract, not proved atomic by the preceding PMGR sample.
  	 */
  	apple_mbox_set_recv_enabled(c->mbox, false);
@@ -1551,9 +1571,20 @@ index c1d415c0bd74..70614a58eb26 100644
 +			c->ps, c->state, c->state & SEP_PS_DEV_DISABLE,
 +			SEP_PM_POLL_US, SEP_PM_TIMEOUT_US);
  	c->gate_valid = true;
- 	if (c->gate_ret)
- 		panic("SEP SLEEP did not gate after send: %d state %#x", c->gate_ret, c->state);
-@@ -321,13 +329,15 @@ int sep_pm_commit_prepare(void *ptr, void *mbox, u64 msg0, u32 msg1, u64 reply,
+-	if (c->gate_ret)
+-		panic("SEP SLEEP did not gate after send: %d state %#x", c->gate_ret, c->state);
++	if (c->gate_ret) {
++		if (!c->noirq_direct)
++			panic("SEP SLEEP did not gate after send: %d state %#x", c->gate_ret, c->state);
++		dev_warn(c->dev, "SEP SLEEP noirq did not gate: %d state %#x\n", c->gate_ret, c->state);
++	} else if (c->noirq_direct) {
++		dev_info(c->dev, "SEP SLEEP noirq ok: answered=%d result=%#x state=%#x\n",
++			 c->answered, c->reply_result, c->state);
++	}
+ 
+ 	return 0;
+ }
+@@ -321,13 +339,15 @@ int sep_pm_commit_prepare(void *ptr, void *mbox, u64 msg0, u32 msg1, u64 reply,
  	struct device *dev = ptr;
  	struct device_node *np;
  	struct resource res;
@@ -1571,7 +1602,7 @@ index c1d415c0bd74..70614a58eb26 100644
  	if (c->registered)
  		return -EBUSY;
  	/* Reject ACK/counting/PSD transports before any request or MMIO. */
-@@ -350,7 +360,7 @@ int sep_pm_commit_prepare(void *ptr, void *mbox, u64 msg0, u32 msg1, u64 reply,
+@@ -350,7 +370,7 @@ int sep_pm_commit_prepare(void *ptr, void *mbox, u64 msg0, u32 msg1, u64 reply,
  		ret = -ENODEV;
  		goto err;
  	}
@@ -1580,7 +1611,7 @@ index c1d415c0bd74..70614a58eb26 100644
  	if (!c->ps) {
  		ret = -ENOMEM;
  		goto err;
-@@ -369,9 +379,12 @@ int sep_pm_commit_prepare(void *ptr, void *mbox, u64 msg0, u32 msg1, u64 reply,
+@@ -369,9 +389,12 @@ int sep_pm_commit_prepare(void *ptr, void *mbox, u64 msg0, u32 msg1, u64 reply,
  	c->gate_ret = -EINVAL;
  	c->gate_valid = false;
  	c->state = 0;
@@ -1596,7 +1627,7 @@ index c1d415c0bd74..70614a58eb26 100644
  	c->registered = true;
  
  	return 0;
-@@ -395,8 +408,10 @@ int sep_pm_commit_finish(void *ptr)
+@@ -395,8 +418,10 @@ int sep_pm_commit_finish(void *ptr)
  		return -ENOENT;
  	if (c->sent && !pm_resume_via_firmware())
  		panic("SEP SLEEP was sent without a physical sleep/wake");
@@ -1608,7 +1639,7 @@ index c1d415c0bd74..70614a58eb26 100644
  	dev_dbg(c->dev,
  		"sleep commit finished: sent=%d reply_valid=%d result=%#x answer_us=%u gate_valid=%d gate_ret=%d state=%#x\n",
  		c->sent, c->answered, c->reply_result, c->answer_us,
-@@ -433,10 +448,15 @@ static int __maybe_unused sep_pm_suspend(struct device *dev)
+@@ -433,10 +458,15 @@ static int __maybe_unused sep_pm_suspend(struct device *dev)
  /* The last step before the platform's own: the domain has to be down by now. */
  static int __maybe_unused sep_pm_suspend_noirq(struct device *dev)
  {
