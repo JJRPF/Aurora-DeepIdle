@@ -5890,3 +5890,12 @@ Armed R60H 23:52
 
 ## 2026-11-24 22:36 R62B armed: R62A with `aurora` unbound before sleep + wait for `hci0`
 - Job `r62b-s2r73`: unbinds `406400000.gpu` (`aurora`) before `echo mem` (so we can verify the entire rest of the clean 7.3.0-s2r73+ + Aura 128 S2R stack before tackling G14S GPU S2R for Step 4), waits up to 15 s for `hci0` to finish probing, logs `ps_sep` (`0x290280c00`), and only stamps `0x601f=aa` when `rc=0`. Same UKI `deeptest.efi.s2r73` (`804a0f79cfe78ee1`) and Aura 128 (`31351234054bfdee`).
+
+## 2026-11-24 22:40 R62B result: reached Aura `SYSTEM_SUSPEND` commit (`0x6004=0x16`), blocked only by SEP awake (`0x6011=0x58`)
+- R62B (`20261125-033649-r62b-pre`, away 116 s, 120 s watchdog reset): unbinding `aurora` let the entire 7.3.0 suspend stack (`macsmc` `slpw`/`slpa`/`SetAPPower`, `pmp-export`, `aop`, `dockchannel-hid`, `dwc3-apple`, `appledrm`, `nvme-apple`) run cleanly all the way into Aura's `SYSTEM_SUSPEND` commit (`0x6004 = 0x16`).
+- PMU scratch decoded: `edge_awake = 0x077e` (all 9 secondary CPUs held), clusters off (`0x10 0x10 0x10`), `0x6011 = 0x58` (`0x40` PMP + `pms_sram` both powered off cleanly! `0x10 | 0x08` = SEP step ran and **`ps_sep` stayed awake** — pre-sleep `ps_sep=0x1f0000ff` because `apple-sep` was not loaded and SEP `SLEEP` was never sent).
+- Fix: added a clean syscore fallback to `drivers/soc/apple/pm_shim.c` in `7.3.0-s2r73+` so when `apple_sleep` is absent (T6020 EL1 PSCI-via-EFI), `sep_pm_commit_prepare` registers a `struct syscore` that runs `sep_pm_commit_stop()` at `syscore_suspend` (after all `suspend_noirq` and CPU offline, right before `psci_system_suspend_enter`), polling `ps_sep` for either `SEP_PS_DEV_DISABLE` or T6020's idle-gated state (`(state >> 24) == 0x10 && !(state & SEP_PS_ACTUAL)`). No freezer hack or `TEST` switches needed.
+
+## 2026-11-24 22:45 R62C armed: R62B + `modprobe apple-sep xart_writes=0 provision_keybag=0` (clean syscore SEP `SLEEP` commit)
+- Rebuilt `apple-sep.ko` with the syscore SEP `SLEEP` fallback, updated `root.sfs` and `patches/s2r-repro/kernel-on-omacom-linux-aurora-7.3-8ca67c75ff52.diff`.
+- Job `r62c-s2r73`: loads `apple-sep xart_writes=0 provision_keybag=0`, waits for SEP bind & idle (`0x100003?f`), unbinds `aurora`, and enters real S2R on `7.3.0-s2r73+` + Aura 128 (`31351234054bfdee`). Look for: real S2R commit + wake (`0x6004=0x22`, `0x601f=0xaa`, `0x6023=0xa4`), NVMe + Wi-Fi + BT + SD + internal DCP restart + SEP wake.

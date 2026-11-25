@@ -1521,6 +1521,123 @@ index 690a4a84ff90..e4cd38bab9c0 100644
  	if (IS_ERR(rtc->alarm_ctrl))
  		return PTR_ERR(rtc->alarm_ctrl);
  	if (IS_ERR(rtc->alarm_value))
+diff --git a/drivers/soc/apple/pm_shim.c b/drivers/soc/apple/pm_shim.c
+index c1d415c0bd74..4b6b28c707c4 100644
+--- a/drivers/soc/apple/pm_shim.c
++++ b/drivers/soc/apple/pm_shim.c
+@@ -27,6 +27,7 @@
+ #include <linux/soc/apple/mailbox.h>
+ #include <linux/soc/apple/sleep.h>
+ #include <linux/suspend.h>
++#include <linux/syscore_ops.h>
+ 
+ #include <asm/virt.h>
+ 
+@@ -182,13 +183,34 @@ static struct sep_pm_commit {
+ 	u64 reply, reply_mask;
+ 	void (*rx)(struct apple_mbox *mbox, struct apple_mbox_msg msg, void *cookie);
+ 	void *cookie;
+-	bool registered, sent, answered, gate_valid;
++	bool registered, syscore_direct, sent, answered, gate_valid;
+ 	u8 reply_result;
+ 	unsigned int answer_us;
+ 	int gate_ret;
+ 	u32 state;
+ } sep_pm_commit;
+ 
++static int sep_pm_commit_stop(void *data);
++
++static int sep_pm_syscore_suspend(void *data)
++{
++	struct sep_pm_commit *c = data;
++
++	if (!c->registered || !c->syscore_direct)
++		return 0;
++
++	return sep_pm_commit_stop(c);
++}
++
++static const struct syscore_ops sep_pm_syscore_ops = {
++	.suspend = sep_pm_syscore_suspend,
++};
++
++static struct syscore sep_pm_syscore = {
++	.ops = &sep_pm_syscore_ops,
++	.data = &sep_pm_commit,
++};
++
+ /* The answer stops here. Anything else goes to the driver, which reads it after the wake. */
+ static void sep_pm_commit_rx(struct apple_mbox *mbox, struct apple_mbox_msg msg, void *cookie)
+ {
+@@ -301,8 +323,16 @@ static int sep_pm_commit_stop(void *data)
+ 	 * the native contract, not proved atomic by the preceding PMGR sample.
+ 	 */
+ 	apple_mbox_set_recv_enabled(c->mbox, false);
+-	c->gate_ret = readl_poll_timeout_atomic(c->ps, c->state, c->state & SEP_PS_DEV_DISABLE,
+-						SEP_PM_POLL_US, SEP_PM_TIMEOUT_US);
++	if (c->syscore_direct)
++		c->gate_ret = readl_poll_timeout_atomic(
++			c->ps, c->state,
++			(c->state & SEP_PS_DEV_DISABLE) ||
++			((c->state >> 24) == 0x10 && !(c->state & SEP_PS_ACTUAL)),
++			SEP_PM_POLL_US, SEP_PM_TIMEOUT_US);
++	else
++		c->gate_ret = readl_poll_timeout_atomic(
++			c->ps, c->state, c->state & SEP_PS_DEV_DISABLE,
++			SEP_PM_POLL_US, SEP_PM_TIMEOUT_US);
+ 	c->gate_valid = true;
+ 	if (c->gate_ret)
+ 		panic("SEP SLEEP did not gate after send: %d state %#x", c->gate_ret, c->state);
+@@ -321,13 +351,15 @@ int sep_pm_commit_prepare(void *ptr, void *mbox, u64 msg0, u32 msg1, u64 reply,
+ 	struct device *dev = ptr;
+ 	struct device_node *np;
+ 	struct resource res;
++	bool use_apple_sleep;
+ 	u32 offset;
+ 	int ret;
+ 
+ 	/* Check capability before resources that legacy providers need not have. */
+-	if (!READ_ONCE(sep_pm_suspending) || !IS_ENABLED(CONFIG_APPLE_SOC_SLEEP) ||
+-	    !is_kernel_in_hyp_mode())
++	if (!READ_ONCE(sep_pm_suspending))
+ 		return -EOPNOTSUPP;
++	use_apple_sleep = IS_ENABLED(CONFIG_APPLE_SOC_SLEEP) && is_kernel_in_hyp_mode() &&
++			  apple_sleep_commit_stops_coprocs();
+ 	if (c->registered)
+ 		return -EBUSY;
+ 	/* Reject ACK/counting/PSD transports before any request or MMIO. */
+@@ -369,9 +401,14 @@ int sep_pm_commit_prepare(void *ptr, void *mbox, u64 msg0, u32 msg1, u64 reply,
+ 	c->gate_ret = -EINVAL;
+ 	c->gate_valid = false;
+ 	c->state = 0;
+-	ret = apple_sleep_enclave_register(dev, sep_pm_commit_stop, c);
+-	if (ret)
+-		goto err;
++	c->syscore_direct = !use_apple_sleep;
++	if (use_apple_sleep) {
++		ret = apple_sleep_enclave_register(dev, sep_pm_commit_stop, c);
++		if (ret)
++			goto err;
++	} else {
++		register_syscore(&sep_pm_syscore);
++	}
+ 	c->registered = true;
+ 
+ 	return 0;
+@@ -395,8 +432,12 @@ int sep_pm_commit_finish(void *ptr)
+ 		return -ENOENT;
+ 	if (c->sent && !pm_resume_via_firmware())
+ 		panic("SEP SLEEP was sent without a physical sleep/wake");
+-	apple_sleep_enclave_unregister(c->dev);
++	if (c->syscore_direct)
++		unregister_syscore(&sep_pm_syscore);
++	else
++		apple_sleep_enclave_unregister(c->dev);
+ 	c->registered = false;
++	c->syscore_direct = false;
+ 	dev_dbg(c->dev,
+ 		"sleep commit finished: sent=%d reply_valid=%d result=%#x answer_us=%u gate_valid=%d gate_ret=%d state=%#x\n",
+ 		c->sent, c->answered, c->reply_result, c->answer_us,
 diff --git a/drivers/soc/apple/rtkit-internal.h b/drivers/soc/apple/rtkit-internal.h
 index d953d8c0d6c4..1f7280cbce9e 100644
 --- a/drivers/soc/apple/rtkit-internal.h
