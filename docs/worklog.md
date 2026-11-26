@@ -6091,3 +6091,8 @@ Armed R60H 23:52
 ## 2026-11-26 10:05 PR branch rebuilt with the gating fixes
 - Kernel branch `gh5/s2r-7.3-pr2` (local, 36 commits on omacom `integration/aurora-7.3` `8ca67c75ff52`): Sven Peter's 5 commits unchanged (same hashes), 31 of ours with the AI trailers stripped and `Signed-off-by: Justin Pfister` on each, same tree as `gh5/s2r-7.3-gating`; 0 mentions of Claude/Anthropic in the commit messages or added lines. `patches/s2r-repro/*.diff` refreshed (kernel + Aura, Aura image 130 includes the wake-source publisher).
 - Not yet done for the PR: squash the series so the early macsmc/pcie commits do not introduce the tables the last commit removes; Aura's debug-image commits squashed; `Tested:`/`Risk:` text; the 4 h run.
+
+## 2026-11-26 10:50 PR 13 merged, 4 h run restart
+- PR #13 (muness, J414c t6021 diffs, patches only) merged. Reviewed: only patches/s2r-repro/t6021/ touched, aura-t6021.diff applies cleanly to gh5-wakemask, the macsmc hunk of the kernel diff no longer applies (gating change removed the t6020 check and table). Added kernel-t6021-j414c-dts-only.diff and a README note.
+- PR texts drafted in docs/pr-drafts/ and emailed. Kernel squashed branch gh5/s2r-7.3-upstream (15 commits); trial onto aurora-silicon/linux main: 6 of 10 apply, 4 conflict (pcie-apple, DCP, asahi, nvme/pm_shim), so a port is needed before the kernel PR.
+- The first 4 h run was woken early by the owner and its drain.sh output was empty because it ran without root (/dev/mem). Restarted with sudo.
