@@ -1,0 +1,58 @@
+diff --git a/arch/arm64/boot/dts/apple/t6021-j414c-psci-pmp.dts b/arch/arm64/boot/dts/apple/t6021-j414c-psci-pmp.dts
+new file mode 100644
+index 000000000000..cef00bf1572d
+--- /dev/null
++++ b/arch/arm64/boot/dts/apple/t6021-j414c-psci-pmp.dts
+@@ -0,0 +1,28 @@
++// SPDX-License-Identifier: GPL-2.0+ OR MIT
++/*
++ * MacBook Pro (14-inch, M2 Max, 2023), CPUs brought up through PSCI, PMP booted.
++ * J414c test variant modelled on t6020-j414s-psci-pmp.dts. Left out of the Makefile
++ * on purpose (same compatible as t6021-j414c.dtb). Build it by name.
++ */
++#define APPLE_USE_PMP
++#include "t6021-j414c.dts"
++
++/ {
++	psci {
++		compatible = "arm,psci-1.0";
++		method = "efi";
++	};
++};
++
++&cpu_e00 { enable-method = "psci"; };
++&cpu_e01 { enable-method = "psci"; };
++&cpu_e02 { enable-method = "psci"; };
++&cpu_e03 { enable-method = "psci"; };
++&cpu_p00 { enable-method = "psci"; };
++&cpu_p01 { enable-method = "psci"; };
++&cpu_p02 { enable-method = "psci"; };
++&cpu_p03 { enable-method = "psci"; };
++&cpu_p10 { enable-method = "psci"; };
++&cpu_p11 { enable-method = "psci"; };
++&cpu_p12 { enable-method = "psci"; };
++&cpu_p13 { enable-method = "psci"; };
+diff --git a/drivers/mfd/macsmc.c b/drivers/mfd/macsmc.c
+index 8f706df35eaf..b5dbd45a91dd 100644
+--- a/drivers/mfd/macsmc.c
++++ b/drivers/mfd/macsmc.c
+@@ -859,7 +859,8 @@ static void apple_smc_t6020_wakemask_set(struct apple_smc *smc)
+ 	void __iomem *m;
+ 	int i;
+ 
+-	if (!of_machine_is_compatible("apple,t6020") || t6020_mask_set)
++	/* T6021 (M2 Max): same block and words; the 7.2.11 recipe wrote them on j414c in 10 of 10 real sleeps */
++	if (!(of_machine_is_compatible("apple,t6020") || of_machine_is_compatible("apple,t6021")) || t6020_mask_set)
+ 		return;
+ 	m = ioremap_np(T6020_WAKEMASK_PHYS, 0x40);
+ 	if (!m)
+@@ -892,7 +893,8 @@ static void apple_smc_sleep_warn(struct apple_smc *smc)
+ {
+ 	apple_smc_write_mbse(smc, SMC_KEY(slpw));
+ 	smc->sleep_warned = true;
+-	if (!smc->sleep_policy && of_machine_is_compatible("apple,t6020")) {
++	if (!smc->sleep_policy && (of_machine_is_compatible("apple,t6020") ||
++				   of_machine_is_compatible("apple,t6021"))) {
+ 		apple_smc_write_u8(smc, SMC_KEY(WKTP), 2);
+ 		t6020_wktp_set = true;
+ 		apple_smc_t6020_wakemask_set(smc);
