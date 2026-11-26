@@ -6022,3 +6022,8 @@ Armed R60H 23:52
 ## 2026-11-25 21:40 Default-boot reboot verified
 - Plain reboot (PMU flag 00): `7.3.0-s2r73+`, U-Boot `2026.07-g7a366a32dc83-dirty`, stage 2 `v0.1.0-77-g1b39fee5-dirty` (Aura 129 `eed3f571`), `Speaker volumes unlocked`, Lichen reconnected. Status page: overall 98%, phase 6 at 75%.
 - Open: overnight drain (owner), 4 compiler warnings, patches refresh, upstream PRs (Assisted-by line, no AI trailers per aurorasilicon.org contributing rules), `luks-autounlock.sh remove` when unattended testing is over.
+
+## 2026-11-25 21:50 Speaker protection audit on J414s (no audio played)
+- `speakerguardd 0.1.0.aurora3` is a feed-forward daemon for the MacBook Neo (J700 only: its unit and udev rule match `AppleJ700`); its `use-feedback-guard` drop-in only stops `speakersafetyd` on J700. On J414s the protection is `speakersafetyd 2.0.1` (V/I sense feedback) with `/usr/share/speakersafetyd/apple/j414.conf` (6 speakers, 140 C, 1.44 W max, per-speaker gain floor). speakerguardd 2 (the V/I `spp3` unit for this class of Mac) is 1.0.0-alpha and not installed.
+- This boot: `speakersafetyd` failed twice (21:26:59, 21:27:00: ALSA card not yet there), then took the card at 21:27:02 ("Cold boot"). The kernel keeps the speakers at the card's safe level until the daemon takes the volume lock, and `Speaker volumes unlocked` followed. Suspend/resume re-locks and re-inits it.
+- Gap: the earlier tones were played before this audit. No more speaker audio until the owner is happy with it.
