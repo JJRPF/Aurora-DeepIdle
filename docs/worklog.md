@@ -6063,3 +6063,11 @@ Armed R60H 23:52
   2. `drivers/pci/controller/pcie-apple.c`: `of_device_is_compatible(..., "apple,t6020-pcie")` gate plus hardcoded DART tunable offset/mask/value table in the S2R path. Should be match data or DT-provided tunables.
   3. Per-SoC match-data entries (atcphy t6020, pmp-v2) are normal compatible tables, fine.
   Fixing 1 and 2 means a DT/Aura side first (chicken and egg rule: land the property producer, consumer keeps today's behaviour as fallback). Not done yet; PRs wait for it.
+
+## 2026-11-26 11:30 Default cmdline proven (no prep, no sleep.conf)
+- Boot on the rebuilt S2R UKI: cmdline is stock (no aop.sleep_ap_idle, no mem_sleep_default), `/sys/power/mem_sleep` = `s2idle [deep]`, `/etc/systemd/sleep.conf.d` empty, prep service disabled, 0 failed units.
+- `s2r-soak.sh 5 45`: 5 of 5 clean (47 s wall each).
+- Plan for the two gating violations (kernel branch), producer first:
+  1. macsmc wake mask: Aura publishes the wake-mask register block (reg) and the enabled wake-source words as properties on the smc node (from the ADT), driver acts only when present; drop `of_machine_is_compatible` and the tables.
+  2. pcie-apple DART tunables: Aura copies the ADT DART tunables for the S2R path into the DT (as it already does for other tunables, e.g. ans-tunables), driver applies the property if present; drop the compatible gate and table.
+  Fallback keeps today's behaviour until the DT carries them. Needs: ADT field names (read from the ADT on the Mac), Aura commit, DT binding text, kernel commit, a re-soak.
