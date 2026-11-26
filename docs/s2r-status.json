@@ -1,8 +1,8 @@
 {
   "schema": 1,
-  "updated": "2026-11-26T07:45:00-05:00",
+  "updated": "2026-11-26T11:00:00-05:00",
   "overall": 99,
-  "overall_note": "Risk-weighted guess with a wide error bar. Real suspend from the full Omarchy desktop now works; left: speaker check, overnight drain, making it the default boot, upstream PRs.",
+  "overall_note": "Risk-weighted guess with a wide error bar. S2R works from the live desktop on the stock command line with no helper; left: a 4 h battery sleep on the clean configuration, the upstream PRs, and hands-on checks (lid, dock, Bluetooth pairing, SD card, speakers).",
   "machine": "14-inch MacBook Pro, M2 Pro (`T6020`, `apple,j414s`), Aurora Silicon Linux",
   "goal": {
     "linux_w": 0.375,
