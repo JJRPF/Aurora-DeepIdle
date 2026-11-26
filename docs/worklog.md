@@ -6046,3 +6046,11 @@ Armed R60H 23:52
 
 ## 2026-11-26 08:30 Experiment: does S2R need the userspace prep? (service disabled, sleep hook moved to /var/lib/deepidle/prep-off)
 - Owner: a clean install must work out of the box, so `s2r-t6020-prep.sh` (SIO axi2af MMIO writes + USB-C wakeup off), `MemorySleepMode=deep` and the cmdline `aop.sleep_ap_idle=3 mem_sleep_default=deep` must go into the kernel, Aura or the device tree. First find which pieces are needed: reboot with prep off, soak. Restore: `sudo bash harness/usbtest/prep-restore.sh`. (`aop.sleep_ap_idle` is not a parameter anywhere in `linux-aurora-73`; `mem_sleep_default` already defaults to deep when `PM_SUSPEND_MEM` is valid.)
+
+## 2026-11-26 09:10 Result: S2R works with the userspace prep OFF
+- Boot with `s2r-t6020-prep.service` disabled and `90-t6020-s2r` moved aside: the SIO axi2af registers were not written (`0x39a000000` = 0x10, `0x39a000400` = 0x00f00008 as left by Aura) and USB-C `power/wakeup` was `enabled` on all three controllers.
+- `s2r-soak.sh 5 45`: 5 of 5 clean (47 s wall each, NVMe, Wi-Fi, BT, CPUs 0-9, speakersafetyd, no new errors; Logi Bolt receiver still enumerated). A 30 s `rtcwake`: SLP_S2R delta 23 s (real S2R). A 20 min sleep: SLP_S2R 1193 s of 1205 s (99.0%).
+- Not decided: whether the prep changes the sleep power. The 20 min energy delta (0.0114 Wh, 34 mW) is far below macOS and the 7 h night (375 mW), so the battery gauge is too coarse for a short run. Needs a second overnight without the prep to compare with the 0.375 W night.
+- Cmdline: `aop` has no module parameters at all (`/sys/module/aop/parameters` absent), so `aop.sleep_ap_idle=3` does nothing in this kernel; `mem_sleep_default=deep` is redundant (kernel default is deep when `PM_SUSPEND_MEM` is valid). To be removed from the S2R UKI and `MemorySleepMode=deep` from sleep.conf.
+- Battery note: `capacity` read 10% while `energy_now`/`energy_full` = 34.7/60.2 Wh (57.7%); the percentage was wrong after the reboot. `s2r-overnight` uses energy_now, so its drain figure is unaffected.
+- State left: prep stays OFF (restore: `sudo bash harness/usbtest/prep-restore.sh`).
