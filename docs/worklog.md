@@ -6087,3 +6087,7 @@ Armed R60H 23:52
 - Battery gauge over that 20 min: 0.2166 Wh (648 mW), the earlier prep-off 20 min read 0.0114 Wh; the gauge is too coarse for short runs, the long run decides.
 - `bootbin.sh persist boot-test.bin.130` done: `/boot/efi/m1n1/boot.bin` = Aura 130 (`d1e1b367808cfb6a`), the one-shot loader and true stock stay as backups, Aura 129 is `/var/lib/deepidle/bootbin/boot-s2r.bin`.
 - Gating status: macsmc no longer has a machine check or tables (props from Aura), pcie DART rewrite removed. Remaining hardcoded things for review: macsmc `WKTP=2` SMC value, the `/chosen` property names (new, unreviewed upstream).
+
+## 2026-11-26 10:05 PR branch rebuilt with the gating fixes
+- Kernel branch `gh5/s2r-7.3-pr2` (local, 36 commits on omacom `integration/aurora-7.3` `8ca67c75ff52`): Sven Peter's 5 commits unchanged (same hashes), 31 of ours with the AI trailers stripped and `Signed-off-by: Justin Pfister` on each, same tree as `gh5/s2r-7.3-gating`; 0 mentions of Claude/Anthropic in the commit messages or added lines. `patches/s2r-repro/*.diff` refreshed (kernel + Aura, Aura image 130 includes the wake-source publisher).
+- Not yet done for the PR: squash the series so the early macsmc/pcie commits do not introduce the tables the last commit removes; Aura's debug-image commits squashed; `Tested:`/`Risk:` text; the 4 h run.
