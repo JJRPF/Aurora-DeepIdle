@@ -15,11 +15,16 @@ Works, in every run since R57AL (2026-11-20):
 - The real S2R sleep and the RTC alarm wake, back to userspace with all 10 CPUs online. `echo mem` returns 0.
 - NVMe, USB, the SMC, RTC, SEP and PMP come back.
 
-Works since 2026-11-22:
-- **Wi-Fi/BT (PCIe port 0) and the SD reader (port 1)**, 3 of 3 (R61P, R61Q, R61R). Both links train on the first relink after the wake, and brcmfmac, hci_bcm4377 and sdhci-pci bind again. In R61Q and R61R Wi-Fi scanned 51 networks and rejoined the home network. The fix was in our own sleep entry: Aura must **not** power off the PCIe domains (`apcie_gp_sys`, `apcie_gpshr_sys`, `apcie_gp`) at the commit, so aura-ctl bit 20 (`PSCI_S2R_PCIE`) is now off. With it on, the links stayed in Detect after every wake (LINKSTS `0xa9000200`). The SMC's MEPS `000102010004` after `waka` is normal; macOS shows it too.
-- **The internal display** (R61M6, R61M7): the DCP firmware is cold-started after the wake from macOS's `DCP.img4`, with iBoot's tagged block kept. This needs the DCP firmware file from your own macOS install, and the kernel changes in `patches/s2r-kernel/` (not yet folded into the repro diff below).
+Works since 2026-11-25 (`7.3.0-s2r73+` + Aura 128, R62Q–R62Y-4, **zero userspace unbinds**):
+- **Plain `echo mem > /sys/power/state`**: `pcie-apple` unbinds its 3 endpoints pre-freeze and rescans them on wake (`apple_pcie_s2r_pre_freeze` + `apple_pcie_s2r_work`).
+- **Internal display + backlight** (R62W–R62Y-4, visually confirmed): warm DCP restart (`A500` + `rtkit_idle` + `disp0` power cycle with DART save/restore + `rtkit_warm_restart` + `boot`) in 0.9 ms — **no `dcp-fw.macho` needed**. Backlight (`apple-panel-bl`) ramps cleanly (`20% -> 100% -> 60%`).
+- **G14S GPU (`aurora 406400000.gpu`)** (R62X–R62Y-4): kept bound across sleep, idled on suspend, warm-restarted on wake (`kick Ok(())`).
+- **SD card (`mmcblk0p1`)**: T6020 `dart-apcie0/1` tunables restored; detects at `t=1s` and reads at `6.6–7.1 MB/s` direct.
+- **Bluetooth (`hci0`)**: `btmgmt le on` + `power on` + `find` discovers 40 LE devices cleanly.
+- **PMP & SEP**: T6020 PMP 1 MiB SRAM backup + SEP DART save/restore; both wake cleanly with zero errors.
+- **Speaker audio (`clk-apple-nco`, `mca`, `tas2764`)**: S2R fixes ported and compiled (pending live desktop playback test).
 
-Not tested yet: Bluetooth pairing, an SD card, drain over a night, and suspend from the full desktop.
+Not tested yet: live desktop GPU rendering & speaker playback, external displays (`dcpext`), and overnight battery drain inside real Omarchy.
 
 ## The pieces
 

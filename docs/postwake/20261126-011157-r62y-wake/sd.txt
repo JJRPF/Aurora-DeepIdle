@@ -1,0 +1,9 @@
+detected_at=1s
+NAME         SIZE MODEL FSTYPE
+mmcblk0     58.6G       
+└─mmcblk0p1 58.2G       vfat
+/dev/mmcblk0: PTTYPE="dos"
+/dev/mmcblk0p1: LABEL_FATBOOT="MIYOO" LABEL="MIYOO" UUID="ADF9-19FD" BLOCK_SIZE="512" TYPE="vfat"
+1+0 records in
+1+0 records out
+1048576 bytes (1.0 MB, 1.0 MiB) copied, 0.158769 s, 6.6 MB/s

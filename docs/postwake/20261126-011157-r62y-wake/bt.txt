@@ -1,0 +1,149 @@
+=== btmgmt info (before) ===
+Index list with 1 item
+hci0:	Primary controller
+	addr 6C:7E:67:CA:E2:2E version 12 manufacturer 15 class 0x000000
+	supported settings: powered connectable fast-connectable discoverable bondable link-security ssp br/edr le advertising secure-conn debug-keys privacy configuration static-addr phy-configuration cis-central cis-peripheral iso-broadcaster sync-receiver ll-privacy past-sender 
+	current settings: br/edr 
+	name BCM4388C0 Olympic PCIe macOS_Tokara_CLPC_3ANT_OS USI [Version: 20.7.0324.2713]
+	short name 
+hci0:	Configuration options
+	supported options: public-address 
+	missing options: 
+=== btmgmt le on 2>&1 || true; btmgmt power on ===
+hci0 Set Low Energy complete, settings: br/edr le cis-central cis-peripheral iso-broadcaster sync-receiver ll-privacy past-sender past-receiver 
+hci0 Set Powered complete, settings: powered br/edr le cis-central cis-peripheral iso-broadcaster sync-receiver ll-privacy past-sender past-receiver 
+=== btmgmt info (after) ===
+Index list with 1 item
+hci0:	Primary controller
+	addr 6C:7E:67:CA:E2:2E version 12 manufacturer 15 class 0x000000
+	supported settings: powered connectable fast-connectable discoverable bondable link-security ssp br/edr le advertising secure-conn debug-keys privacy configuration static-addr phy-configuration cis-central cis-peripheral iso-broadcaster sync-receiver ll-privacy past-sender 
+	current settings: powered br/edr le cis-central cis-peripheral iso-broadcaster sync-receiver ll-privacy past-sender past-receiver 
+	name BCM4388C0 Olympic PCIe macOS_Tokara_CLPC_3ANT_OS USI [Version: 20.7.0324.2713]
+	short name 
+hci0:	Configuration options
+	supported options: public-address 
+	missing options: 
+=== btmgmt find (15s) ===
+hci0 type 7 discovering on
+Discovery started
+hci0 dev_found: 7B:39:78:C9:C3:90 type LE Random rssi -88 flags 0x0004 
+AD flags 0x00 
+eir_len 38
+hci0 dev_found: 1A:AF:71:D5:78:FD type LE Random rssi -50 flags 0x0004 
+AD flags 0x00 
+eir_len 38
+hci0 dev_found: F1:38:75:D8:BA:B0 type LE Random rssi -83 flags 0x0000 
+AD flags 0x00 
+name S55 BAB0 LE
+hci0 dev_found: 50:8B:B9:FD:9B:BE type LE Public rssi -100 flags 0x0000 
+AD flags 0x06 
+eir_len 28
+hci0 dev_found: 3D:83:41:43:F9:A3 type LE Random rssi -45 flags 0x0000 
+AD flags 0x02 
+eir_len 26
+hci0 dev_found: 28:FB:F8:1D:5B:2B type LE Random rssi -64 flags 0x0004 
+AD flags 0x00 
+eir_len 38
+hci0 dev_found: 53:78:02:6F:84:A3 type LE Random rssi -97 flags 0x0000 
+AD flags 0x06 
+name 9434P006A100014F
+hci0 dev_found: F8:04:2E:E9:B6:B5 type LE Public rssi -92 flags 0x0004 
+AD flags 0x00 
+eir_len 28
+hci0 dev_found: 6F:51:0E:F3:0D:A8 type LE Random rssi -82 flags 0x0004 
+AD flags 0x00 
+eir_len 38
+hci0 dev_found: 00:7C:2D:29:71:1C type LE Public rssi -87 flags 0x0004 
+AD flags 0x00 
+eir_len 28
+hci0 dev_found: DA:36:A5:F7:1E:47 type LE Random rssi -93 flags 0x0000 
+AD flags 0x06 
+name N0765
+hci0 dev_found: 3B:97:EE:8C:8D:F2 type LE Random rssi -75 flags 0x0004 
+AD flags 0x00 
+eir_len 31
+hci0 dev_found: DD:CA:60:6B:E1:E2 type LE Random rssi -90 flags 0x0000 
+AD flags 0x00 
+name S45 E1E2 LE
+hci0 dev_found: BC:7E:8B:A5:9C:01 type LE Public rssi -96 flags 0x0004 
+AD flags 0x00 
+eir_len 28
+hci0 dev_found: 76:A0:34:AC:E1:DB type LE Random rssi -95 flags 0x0000 
+AD flags 0x1a 
+eir_len 19
+hci0 dev_found: E8:C5:A5:1B:DF:B5 type LE Random rssi -70 flags 0x0000 
+AD flags 0x06 
+name N02RQ
+hci0 dev_found: 50:8B:B9:FD:9B:BE type LE Public rssi -84 flags 0x0000 
+AD flags 0x06 
+name TY
+hci0 dev_found: 2B:0F:68:7A:4D:1D type LE Random rssi -63 flags 0x0004 
+AD flags 0x00 
+eir_len 31
+hci0 dev_found: EA:E9:3F:E0:89:65 type LE Random rssi -94 flags 0x0000 
+AD flags 0x00 
+eir_len 8
+hci0 dev_found: 55:3D:1F:96:70:82 type LE Random rssi -78 flags 0x0004 
+AD flags 0x1a 
+eir_len 17
+hci0 dev_found: EE:80:1F:34:73:99 type LE Random rssi -87 flags 0x0004 
+AD flags 0x00 
+eir_len 8
+hci0 dev_found: C6:36:FE:3D:39:BF type LE Random rssi -81 flags 0x0004 
+AD flags 0x00 
+eir_len 8
+hci0 dev_found: 71:F1:14:10:56:7C type LE Random rssi -93 flags 0x0000 
+AD flags 0x06 
+eir_len 29
+hci0 dev_found: 68:34:02:F8:F4:90 type LE Random rssi -73 flags 0x0000 
+AD flags 0x06 
+eir_len 50
+hci0 dev_found: 1C:9D:C2:76:15:A2 type LE Public rssi -100 flags 0x0000 
+AD flags 0x06 
+eir_len 19
+hci0 dev_found: F8:B5:6E:4D:9F:3D type LE Random rssi -93 flags 0x0000 
+AD flags 0x06 
+name N02PC
+hci0 dev_found: EF:DE:CA:94:EA:D7 type LE Random rssi -82 flags 0x0000 
+AD flags 0x06 
+name N0770
+hci0 dev_found: EF:41:73:DD:CC:DB type LE Random rssi -78 flags 0x0000 
+AD flags 0x06 
+name N04ZU
+hci0 dev_found: 53:78:02:6F:84:A3 type LE Random rssi -71 flags 0x0000 
+AD flags 0x06 
+name 9434P006A100014F
+hci0 dev_found: F8:B5:6E:4D:9F:3D type LE Random rssi -93 flags 0x0000 
+AD flags 0x06 
+name N02PC
+hci0 dev_found: EA:E9:3F:E0:89:65 type LE Random rssi -95 flags 0x0000 
+AD flags 0x00 
+eir_len 8
+hci0 dev_found: 71:F1:14:10:56:7C type LE Random rssi -93 flags 0x0000 
+AD flags 0x06 
+eir_len 29
+hci0 dev_found: 55:CE:A7:58:0A:41 type LE Random rssi -45 flags 0x0004 
+AD flags 0x00 
+eir_len 10
+hci0 dev_found: 10:D2:8B:B6:9A:DC type LE Public rssi -39 flags 0x0004 
+AD flags 0x00 
+eir_len 96
+hci0 dev_found: 27:F8:B5:2D:2F:4E type LE Random rssi -37 flags 0x0004 
+AD flags 0x00 
+eir_len 31
+hci0 dev_found: 00:D5:9C:C8:A6:A0 type LE Random rssi -34 flags 0x0000 
+AD flags 0x02 
+eir_len 26
+hci0 dev_found: 41:43:30:BD:72:E7 type LE Random rssi -81 flags 0x0000 
+AD flags 0x1a 
+eir_len 18
+hci0 dev_found: 75:A2:5B:0B:99:67 type LE Random rssi -82 flags 0x0000 
+AD flags 0x1a 
+eir_len 18
+hci0 dev_found: 4F:4A:1E:DC:18:98 type LE Random rssi -82 flags 0x0004 
+AD flags 0x1a 
+eir_len 27
+hci0 dev_found: 75:A2:5B:0B:99:67 type LE Random rssi -84 flags 0x0000 
+AD flags 0x1a 
+eir_len 18
+hci0 type 7 discovering off

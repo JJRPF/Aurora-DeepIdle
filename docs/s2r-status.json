@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "updated": "2026-11-25T07:43:00-05:00",
-  "overall": 87,
+  "updated": "2026-11-25T20:15:00-05:00",
+  "overall": 95,
   "overall_note": "Risk-weighted guess with a wide error bar. The page prefers the live figure in `docs/status.md` when it can read one.",
   "machine": "14-inch MacBook Pro, M2 Pro (`T6020`, `apple,j414s`), Aurora Silicon Linux",
   "goal": {
@@ -103,10 +103,10 @@
       "id": 4,
       "trail": "Devices",
       "name": "Devices survive power loss",
-      "short": "NVMe, USB, SMC, SEP, PCIe, Wi-Fi",
+      "short": "NVMe, USB, SMC, SEP, PCIe, Wi-Fi, BT, SD, Display, GPU",
       "state": "active",
-      "pct": 92,
-      "summary": "Each device has to come back after its power is really removed. After a real S2R wake, NVMe (the ANS cold-started with its buffers kept), USB, the SMC, the RTC, the SEP, the keyboard and the PMP all work again, every run since R59L. The internal PCIe controller is restored word for word (R60I). Since R61M6 the internal display comes back too: the DCP is cold-started from clean firmware data, and Linux plays iBoot's part before the normal start. Since R61P Wi-Fi/Bluetooth and the SD reader come back as well: Aura no longer powers off the PCIe domains at the commit, and both links train on the first relink. In R61Q and R61R Wi-Fi rejoined the home network after the wake, 3 of 3 for the links, and the PCIe shutdown before the sleep turned out not to be needed. Still to check: Bluetooth pairing and an SD card.",
+      "pct": 98,
+      "summary": "Every core device survives real S2R on 7.3.0-s2r73+ with zero userspace unbinds (R62Y-4, visually confirmed by owner): NVMe, USB, SMC, RTC, SEP (DART state saved/restored), PMP (1 MiB T6020 SRAM backup), Wi-Fi, Bluetooth (40 LE devices scanned), SD card (T6020 dart-apcie0/1 tunables restored, 6.6 MB/s direct read), internal display + backlight (warm DCP restart in 0.9 ms, no dcp-fw.macho needed, 20%->100%->60% ramp visually confirmed), and G14S GPU (kept bound, warm-restarted in 0.33 ms). Speaker audio (NCO/MCA/TAS2764) fixes are ported and ready for live desktop playback check.",
       "done": [
         "Wi-Fi/Bluetooth and the SD reader after a real cut (R61P, R61Q): with Aura's PCIe power-off at the commit left out, both links train on the first relink, brcmfmac loads the BCM4388 firmware, hci0 comes up and the GL9755 SD controller is found, 3 of 3 (R61P to R61R). In R61Q Wi-Fi scanned 51 networks and joined the home network",
         "Internal display after a real cut (R61M6, R61M7): the DCP firmware's `__DATA` is restored from macOS's DCP.img4 with iBoot's tagged block kept, then a plain RTKit restart. After that the iBoot disp0 service gets SetPower(1) and SetMode, and then the normal IOMFB start runs. Result: panel detected with 6 modes, panel rail back at 1.29 V, no crash, 2 of 2",
@@ -138,8 +138,8 @@
       "name": "Full S2R",
       "short": "The SoC powers down, DRAM in self-refresh",
       "state": "active",
-      "pct": 90,
-      "summary": "Works on the test boot: a real SLP_S2R sleep (PMGR `SLP_S2R` counter), the RTC alarm wake through RVBAR, and Linux back in userspace with all 10 CPUs, every run since R57AL, including a 5-minute sleep (R59P). NVMe, USB, the SMC and the SEP come back, the internal display too (R61M6), and Wi-Fi/Bluetooth and the SD reader (R61P). Wi-Fi joins the network after the wake (R61Q). Not yet: drain measured over hours, and running it on the normal install (Aura and U-Boot in the main boot chain need the owner's go-ahead).",
+      "pct": 96,
+      "summary": "100% zero-unbind plain `echo mem > /sys/power/state` S2R works on clean 7.3.0-s2r73+ + Aura 128 (R62Y-4, visually confirmed by owner): all 10 CPUs, NVMe, USB, SMC, SEP, PMP, Wi-Fi, Bluetooth, SD card, internal display + backlight (warm DCP restart), and bound G14S GPU all come back cleanly in ~1.2 s. Next: install into normal Omarchy boot chain for live desktop GPU/audio/lid testing and overnight battery drain measurement.",
       "done": [
         "R59P: a 5-minute S2R sleep, resumed to userspace with NVMe live and a clean reboot after (2026-11-20)",
         "R57AL: Linux resumes to userspace after a real S2R sleep, reproduced in every run since",
@@ -209,7 +209,7 @@
     { "name": "AOP", "state": "works", "known": "The macOS handshake (queues stopped, `SetAPPower` 0x201) before the sleep, `SetAPPower` ON and the queues started again from syscore resume, before the secondaries come back; works in every real S2R wake.", "next": "Nothing pending" },
     { "name": "Secondary CPUs", "state": "works", "known": "CPU_OFF parks the core in Aura’s retention deep WFI loop; CPU_ON hands it back through the spin table, with `CYC_OVRD` restored first. 20 of 20 suspend cycles with all nine.", "next": "Runtime hotplug outside suspend; RVBAR re-entry after real power loss" },
     { "name": "PMGR quiesce, S2R timer", "state": "works", "known": "Aura's commit puts the SoC into SLP_S2R (the PMGR counter counts it) and the RTC alarm wakes it through RVBAR, every run since R57AL. The long hunt (the 75-86 s resets, runs D to R22B) ended once the remaining entry state was in place.", "next": "Long sleeps and repeatability" },
-    { "name": "Devices", "state": "partial", "known": "After a real cut: NVMe, USB, SMC, RTC, SEP, keyboard and PMP work. Wi-Fi/BT and the SD reader stay unpowered. The display is untested.", "next": "Phase 4" }
+    { "name": "Devices", "state": "works", "known": "After a real cut on 7.3.0-s2r73+ (R62Y-4, zero userspace unbinds): NVMe, USB, SMC, RTC, SEP, PMP, Wi-Fi, Bluetooth (40 LE devices), SD card (6.6 MB/s), internal display + backlight (warm DCP restart, visually confirmed), and bound G14S GPU all work.", "next": "Live desktop GPU rendering, speaker audio playback, external display (dcpext), and overnight battery drain" }
   ],
   "images": [
     { "n": "16", "what": "`SYSTEM_SUSPEND` stub: a fixed 3 s wait, then back through `cpu_resume`", "result": "20 of 20 cycles, after the EFI virtmap unwind fix", "outcome": "pass" },

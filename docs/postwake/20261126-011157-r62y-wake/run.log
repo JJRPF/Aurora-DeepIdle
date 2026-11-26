@@ -1,0 +1,36 @@
+2026-11-26 01:10:17 start; kernel 7.3.0-s2r73+, cpus 0-9, mem 31676 MB
+2026-11-26 01:10:17 job: # R62Y-s2r73: R62B + load apple-sep (xart_writes=0 provision_keybag=0) so 7.3.0 sep_pm_ops + syscore
+2026-11-26 01:10:17 R62Y kernel 7.3.0-s2r73+; stage2 v0.1.0-77-g1b39fee5
+2026-11-26 01:10:17 R62Y kernel 7.3.0-s2r73+; stage2 v0.1.0-77-g1b39fee5
+2026-11-26 01:10:17 firmware_class.path=/run/usbtest/job
+2026-11-26 01:10:17 firmware_class.path=/run/usbtest/job
+2026-11-26 01:10:17 s2r_sleep_keep=afr,gpio,sep
+2026-11-26 01:10:17 s2r_sleep_keep=afr,gpio,sep
+2026-11-26 01:10:17 pmgr counters: SLP_DDR=1:0 SLP_DDR.2=1:0 AWAKE=1:0 AWAKE.2=1:0 SLP_S2R=1:0 SLP_S2R.2=1:0 DEEP_WAIT=1:0 DEEP_WAIT.2=1:0 SYS_AWAKE=1:0 SYS_AWAKE.2=1:0 SYS_S2R_AOP=1:0 SYS_S2R_AOP.2=1:0 SYS_SLP_DDR=1:0 SYS_SLP_DDR.2=1:0 ctl=30001
+2026-11-26 01:10:17 pmgr counters: SLP_DDR=1:0 SLP_DDR.2=1:0 AWAKE=1:0 AWAKE.2=1:0 SLP_S2R=1:0 SLP_S2R.2=1:0 DEEP_WAIT=1:0 DEEP_WAIT.2=1:0 SYS_AWAKE=1:0 SYS_AWAKE.2=1:0 SYS_S2R_AOP=1:0 SYS_S2R_AOP.2=1:0 SYS_SLP_DDR=1:0 SYS_SLP_DDR.2=1:0 ctl=30001
+2026-11-26 01:10:18 aura ctl default: aura ctl at 0x10002c66d40: 0xc16dcb3f mask 0x0 cap 0
+2026-11-26 01:10:18 aura ctl default: aura ctl at 0x10002c66d40: 0xc16dcb3f mask 0x0 cap 0
+2026-11-26 01:10:18 ramoops: [    7.650405] pstore: Using crash dump compression: deflate|[    7.650411] pstore: Registered ramoops as persistent store backend|[    7.650412] ramoops: using 0x100000@0x107c5400000, ecc: 0|
+2026-11-26 01:10:18 ramoops: [    7.650405] pstore: Using crash dump compression: deflate|[    7.650411] pstore: Registered ramoops as persistent store backend|[    7.650412] ramoops: using 0x100000@0x107c5400000, ecc: 0|
+2026-11-26 01:10:33 pre-sleep sep_bound=yes sep_idle=0s ps_sep=0x1f0002ff hci0=yes
+2026-11-26 01:10:33 pre-sleep sep_bound=yes sep_idle=0s ps_sep=0x1f0002ff hci0=yes
+2026-11-26 01:10:33 saved r62y-pre (ok=1)
+2026-11-26 01:10:33 saved r62y-pre (ok=1)
+2026-11-26 01:10:33 echo mem at 01:10:33.637 UTC
+2026-11-26 01:10:33 echo mem at 01:10:33.637 UTC
+2026-11-26 01:10:54 R62Y RESUMED: rc=0 dur=21.2s online=0-9 counters=SLP_DDR=1:794640 SLP_DDR.2=1:794640 AWAKE=1:592257360 AWAKE.2=1:592257408 SLP_S2R=1:291308336 SLP_S2R.2=1:291308336 DEEP_WAIT=1:0 DEEP_WAIT.2=1:0 SYS_AWAKE=1:590543568 SYS_AWAKE.2=1:590543616 SYS_S2R_AOP=1:291309776 SYS_S2R_AOP.2=1:291309776 SYS_SLP_DDR=1:2507272 SYS_SLP_DDR.2=1:2507272 ctl=30001
+2026-11-26 01:10:54 R62Y RESUMED: rc=0 dur=21.2s online=0-9 counters=SLP_DDR=1:794640 SLP_DDR.2=1:794640 AWAKE=1:592257360 AWAKE.2=1:592257408 SLP_S2R=1:291308336 SLP_S2R.2=1:291308336 DEEP_WAIT=1:0 DEEP_WAIT.2=1:0 SYS_AWAKE=1:590543568 SYS_AWAKE.2=1:590543616 SYS_S2R_AOP=1:291309776 SYS_S2R_AOP.2=1:291309776 SYS_SLP_DDR=1:2507272 SYS_SLP_DDR.2=1:2507272 ctl=30001
+2026-11-26 01:10:54 saved r62y-wake0 (ok=1)
+2026-11-26 01:10:54 saved r62y-wake0 (ok=1)
+Backlight ramp done (20% -> 100% -> 60%; max=500).
+
+>>> BLUETOOTH CHECK (btmgmt le on 2>&1 || true; btmgmt power on + 15s scan)...
+Bluetooth check done: found 40 device(s).
+2026-11-26 01:11:48 bt check: found=40
+2026-11-26 01:11:48 bt check: found=40
+
+>>> INSERT SD CARD NOW (waiting up to 60 seconds) <<<
+SD CARD DETECTED at t=1s! Running lsblk + 1 MB read test...
+SD CARD READ OK! Holding screen for 8s before rebooting to main...
+2026-11-26 01:11:49 sd check: detected at 1s
+2026-11-26 01:11:49 sd check: detected at 1s

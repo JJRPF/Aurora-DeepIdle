@@ -1,0 +1,160 @@
+[    8.275064] Bluetooth: hci0: Failed to read codec capabilities (-22)
+[    8.276205] Bluetooth: hci0: Failed to read codec capabilities (-22)
+[    8.520195] apple_sep 396400000.sep: attach: 7 endpoints advertised in 18 messages
+[    8.520237] apple_sep 396400000.sep: xART: using /chosen/apfs-preboot-uuid
+[   10.873456] apple_sep 396400000.sep: sks: identity keybag provisioned
+[   10.873715] apple_sep 396400000.sep: ready in 3183 ms: 12 endpoints (cntl sbio scrd sse hdcp xars sks xarm hibe pnon skdl stac), key store open
+[   11.241947] apple_sep 396400000.sep: hwrng: registered after ready-phase survey (attempt 1)
+[   18.760579] brcmfmac: brcmf_cfg80211_update_country: country US set in firmware (US rev 0)
+[   18.931689] ieee80211 phy0: brcmf_p2p_send_action_frame: Unknown Frame: category 0x5, action 0x4
+[   22.794152] usbtest-run: pre-sleep sep_bound=yes sep_idle=0s ps_sep=0x1f0002ff hci0=yes
+[   23.017076] EXT4-fs (nvme0n1p5): Supports (experimental) DIO atomic writes awu_min: 4096, awu_max: 4096
+[   23.022221] EXT4-fs (nvme0n1p5): mounted filesystem 4f4d5801-424f-4f54-8000-000000000001 r/w with ordered data mode. Quota mode: none.
+[   23.040427] EXT4-fs (nvme0n1p5): unmounting filesystem 4f4d5801-424f-4f54-8000-000000000001.
+[   23.699360] pcie-apple 580000000.pcie: s2r: unbound 3 endpoint(s) before freeze
+[   23.775952] apple-dcp 389c00000.dcp: RTKit: syslog message: BrightnessLCD.cpp:803: [AFK]nitsToDBV: iDAC out of range
+[   23.804234] apple-dcp 389c00000.dcp: RTKit: syslog message: PPipeDCP_H13P.cpp:10490: set_run_mode_safe: deferring: 4 -> 1
+[   23.804241] apple-dcp 389c00000.dcp: RTKit: syslog message: PPipeDCP_H13P.cpp:10395: virtual IOMFBStatus IOMFB::UPPipeDCP_H13P::ready_for_run_mode_change(IOMFB::AppleRegisterStream *): initiating deferred run mod
+[   23.804282] apple-dcp 389c00000.dcp: RTKit: syslog message: UPTSQManager.cpp:150: IOMFBStatus IOMFB::UPTSQManager::power_down_M3(IOMFB::AppleRegisterStream *, UPTSQManager::ModeChangeWaiter *): request mode ch
+[   23.811452] apple-dcp 389c00000.dcp: RTKit: syslog message: UPTSQManager.cpp:162: IOMFBStatus IOMFB::UPTSQManager::power_down_M3(IOMFB::AppleRegisterStream *, UPTSQManager::ModeChangeWaiter *): disabling M3
+[   23.812032] apple-dcp 389c00000.dcp: RTKit: syslog message: PPipeDCP_H13P.cpp:10468: set_run_mode_safe: no need to defer: 1 -> 0
+[   23.812817] apple-dcp 389c00000.dcp: RTKit: syslog message: ck_PCC2DBlm_v5.cpp:3300: Quiescing callback
+[   23.891405] apple-dcp 389c00000.dcp: RTKit: syslog message: eoInterfaceIOAV.cpp:433: IOMFB: VideoInterfaceIOAV::did_power_off: m_power_ctrl->setPower( 0 )
+[   23.891636] apple-dcp 389c00000.dcp: RTKit: syslog message: eoInterfaceIOAV.cpp:146: IOMFB: IOAVVideoInterface terminated
+[   23.891792] apple-dcp 389c00000.dcp: RTKit: syslog message: oInterfaceIOAV.cpp:1094: void VideoInterfaceIOAV::unplug_gated(IOAVVideoInterface *): display HPD removed
+[   23.892233] apple-dcp 389c00000.dcp: RTKit: syslog message: DCPDPDevice.cpp:2971: [AFK]detected SINK_COUNT=1 change without IRQ_HPD
+[   23.893775] apple-dcp 389c00000.dcp: RTKit: syslog message: nifiedPipeline.cpp:1356: set_device_enabled_gated: current state: 1, requested state: 0
+[   23.894121] apple-dcp 389c00000.dcp: dcp_poweroff() done
+[   23.895542] apple-dcp 289c00000.dcp: dcp_dptx_disconnect(port=0)
+[   23.895564] apple-dcp 289c00000.dcp: dcp_hotplug() connected:0 valid_mode:0 nr_modes:0
+[   23.902725] nvme-apple 34bcc0000.nvme: RTKit: syslog message: cmd.c:7963: NVMe shutdown start seg->lba: 0, seg->size: 0
+[   24.311796] nvme-apple 34bcc0000.nvme: RTKit: syslog message: cmd.c:7991: seg->lba 0 saveCtx 1 took 409 ms - clog 22284926
+[   24.329535] apple-dcp 389c00000.dcp: s2r: internal DCP A500: 0
+[   24.329932] apple-dcp 389c00000.dcp: s2r: internal DCP idled and stopped for warm S2R
+[   30.570062] apple_sep 396400000.sep: SEP SLEEP noirq did not gate: -110 state 0x1f0002ff
+[   30.710659] macsmc 2a2400000.smc: RTKit: syslog message: drv_t5078.cpp:1053: Unsupported IRQ Number to read PMU DVC Status
+[   30.742353] apple_pmp 28e700000.pmp: RTKit: Initializing (protocol version 12)
+[   30.744230] apple-sio 39bc00000.sio: RTKit: Initializing (protocol version 12)
+[   30.752072] rtkit-helper 2a9400000.mtp: RTKit: syslog message: touch_pwr_mgr_fsm.c:958: Sending Cumulus Report to enter Dependent Mode (9A)
+[   30.774194] apple-dcp 389c00000.dcp: s2r: disp0 cycle complete: cpu0 0x1f0403ff fe 0x3ff sys 0x3ff (0 0 0 0 0 0)
+[   30.774539] apple-dcp 389c00000.dcp: RTKit: Initializing (protocol version 12)
+[   30.775090] apple-dcp 389c00000.dcp: s2r: internal DCP warm restart complete (0)
+[   30.775964] nvme-apple 34bcc0000.nvme: RTKit: Initializing (protocol version 12)
+[   30.797889] apple-dcp 389c00000.dcp: dcp_poweron() starting
+[   30.798135] apple-dcp 389c00000.dcp: RTKit: syslog message: nifiedPipeline.cpp:1356: set_device_enabled_gated: current state: 0, requested state: 1
+[   30.798996] apple-dcp 389c00000.dcp: RTKit: syslog message: PPipeDCP_H13P.cpp:10468: set_run_mode_safe: no need to defer: 0 -> 1
+[   30.799058] apple-dcp 389c00000.dcp: RTKit: syslog message: ock_Tunables_v1.cpp:651: IOMFB: Writing tunables with target 1
+[   30.800698] apple-dcp 389c00000.dcp: RTKit: syslog message: M3Hal_v1.cpp:197: IOMFB: load LED M3 IMem : size 0x7b74
+[   30.801319] apple-dcp 389c00000.dcp: RTKit: syslog message: M3Hal_v1.cpp:197: IOMFB: load LED M3 DMem : size 0x102e0
+[   30.804025] apple-dcp 389c00000.dcp: RTKit: syslog message: ock_PCC2DLTM_v4.cpp:324: IOMFBStatus IOMFB::UPBlock_PCC2DLTM_v4::set_mcpu_power(IOMFB::AppleRegisterStream *, bool) Loading M3 Hal
+[   30.804038] apple-dcp 389c00000.dcp: RTKit: syslog message: M3Hal_v1.cpp:197: IOMFB: load LTM M3 IMem : size 0x7308
+[   30.804535] apple-dcp 389c00000.dcp: RTKit: syslog message: M3Hal_v1.cpp:197: IOMFB: load LTM M3 DMem : size 0xd190
+[   30.805741] apple-dcp 389c00000.dcp: RTKit: syslog message: ck_PCC2DBlm_v5.cpp:4938: [set_lts_buffer] buffer 0x10001cf8000 Add_lo = 0x1cf8000, Add_hi = 0x100, size 0x2500 stride 0x100
+[   30.816857] apple-dcp 389c00000.dcp: RTKit: syslog message: PPipeDCP_H13P.cpp:10468: set_run_mode_safe: no need to defer: 1 -> 2
+[   30.817528] apple-dcp 389c00000.dcp: RTKit: syslog message: UPPipeDCP_H13P.cpp:1532: IOMFB: videoClock is zero, defaulting to 402280000
+[   30.817627] apple-dcp 389c00000.dcp: RTKit: syslog message: eoInterfaceIOAV.cpp:237: bool VideoInterfaceIOAV::open_ioav_gated(): IOAVVideoInterface open failed
+[   30.817633] apple-dcp 389c00000.dcp: RTKit: syslog message: eoInterfaceIOAV.cpp:296: IOMFB: VideoInterfaceIOAV::power_on: m_power_ctrl->setPower( 1 )
+[   30.823381] apple-dcp 389c00000.dcp: RTKit: syslog message: AppleDCPDPTX.cpp:355: [AFK]powering nub 0x854050
+[   30.823653] apple-dcp 389c00000.dcp: RTKit: syslog message: AppleDCPDPTX.cpp:355: [AFK]powering nub 0x8541d0
+[   30.825125] apple-dcp 389c00000.dcp: dcp_set_power_state_req returned, 9972 ms remaining
+[   30.825134] apple-dcp 389c00000.dcp: set_digital_out_mode(color:1 timing:2) "3024x1890": 120 804560 3024 3032 3064 3104 1890 1992 2074 2160 0x48 0x5
+[   30.825143] apple-dcp 389c00000.dcp: set_digital_out_mode() color mode depth:8 format:0 colorimetry:16 eotf:0 range:0 vrr:0
+[   30.825246] apple-dcp 389c00000.dcp: RTKit: syslog message: nifiedPipeline.cpp:7462: set_digital_out_mode: Modeset requested for colorID: 1, timingID: 2
+[   30.825526] apple-dcp 389c00000.dcp: RTKit: syslog message: PPipeDCP_H13P.cpp:18011: Dual pipe disabled offset 0
+[   30.825532] apple-dcp 389c00000.dcp: RTKit: syslog message: nifiedPipeline.cpp:7465: set_digital_out_mode returned 8000000a
+[   30.825556] apple-dcp 389c00000.dcp: set_digital_out_mode finished:8500
+[   30.866706] nvme-apple 34bcc0000.nvme: RTKit: syslog message: apcie.c:1110: power up done[0]: PMU=Ocarina, PWR=1
+[   30.866713] nvme-apple 34bcc0000.nvme: RTKit: syslog message: apcie.c:1110: power up done[1]: PMU=Undefined, PWR=0
+[   30.866718] nvme-apple 34bcc0000.nvme: RTKit: syslog message: apcie.c:423: APCIe 1 is configured as unused.
+[   30.867063] nvme-apple 34bcc0000.nvme: RTKit: syslog message: pre_nand_eng.c:6158: enabled 1p0v 1, enabled prog-no-exec 1
+[   30.867069] nvme-apple 34bcc0000.nvme: RTKit: syslog message: pre_nand_eng.c:6158: enabled 1p0v 1, enabled prog-no-exec 1
+[   30.867074] nvme-apple 34bcc0000.nvme: RTKit: syslog message: pre_nand_eng.c:6158: enabled 1p0v 1, enabled prog-no-exec 1
+[   30.867078] nvme-apple 34bcc0000.nvme: RTKit: syslog message: pre_nand_eng.c:6158: enabled 1p0v 1, enabled prog-no-exec 1
+[   30.886212] nvme-apple 34bcc0000.nvme: RTKit: syslog message: cmd.c:6438:  boot mode normal
+[   30.947157] apple-dcp 389c00000.dcp: RTKit: syslog message: ileCDIDPDisplay.cpp:119: [AFK]SAC enable: DP=1 CDI=1
+[   30.947163] apple-dcp 389c00000.dcp: RTKit: syslog message: DCPDP13Service.cpp:60: [AFK]version: 14
+[   30.947168] apple-dcp 389c00000.dcp: RTKit: syslog message: DCPDPService.cpp:76: [AFK]version: 14
+[   30.986463] apple-dcp 389c00000.dcp: RTKit: syslog message: eoInterfaceIOAV.cpp:135: IOMFB: IOAVVideoInterface published
+[   30.986606] apple-dcp 389c00000.dcp: RTKit: syslog message: eoInterfaceIOAV.cpp:714: IOMFBStatus VideoInterfaceIOAV::plug_gated(IOAVVideoInterface *, bool): display HPD asserted
+[   30.997518] apple-dcp 389c00000.dcp: dcp_hotplug() connected:1 valid_mode:1 nr_modes:6
+[   30.998172] apple-dcp 389c00000.dcp: RTKit: syslog message: M3Hal_v1.cpp:197: IOMFB: load BLM M3 IMem : size 0x764c
+[   30.998846] apple-dcp 389c00000.dcp: RTKit: syslog message: M3Hal_v1.cpp:197: IOMFB: load BLM M3 DMem : size 0xaf6c
+[   30.999549] apple-dcp 389c00000.dcp: RTKit: syslog message: FBPropertyManager.h:189: value_t<P> IOMFB::PropMgr::getVal(IOMFB::RuntimeProperty) [P = IOMFB::RuntimePropertyType::boolean]: WARNING - type mismatch on
+[   30.999995] apple-dcp 389c00000.dcp: RTKit: syslog message: PPipeDCP_H13P.cpp:10490: set_run_mode_safe: deferring: 2 -> 4
+[   31.000002] apple-dcp 389c00000.dcp: RTKit: syslog message: PPipeDCP_H13P.cpp:10395: virtual IOMFBStatus IOMFB::UPPipeDCP_H13P::ready_for_run_mode_change(IOMFB::AppleRegisterStream *): initiating deferred run mod
+[   31.000110] apple-dcp 389c00000.dcp: RTKit: syslog message: M3Hal_v1.cpp:197: IOMFB: load APT M3 IMem : size 0x7b40
+[   31.000387] apple-dcp 389c00000.dcp: RTKit: syslog message: M3Hal_v1.cpp:197: IOMFB: load APT M3 DMem : size 0x6fd4
+[   31.000637] apple-dcp 389c00000.dcp: RTKit: syslog message: CAHandler.cpp:188: IOMFB load_ca_data: Unrecognized data version 0 (expected 1 or 2)
+[   31.001440] apple-dcp 389c00000.dcp: RTKit: syslog message: PPipeDCP_H13P.cpp:14085: IOMFB Int RTBandwidth: program_M3_rt_config: Using Dashboard 28e3d1208
+[   31.001544] apple-dcp 389c00000.dcp: RTKit: syslog message: UPTSQManager.cpp:133: IOMFB: clearing M3 reset
+[   31.001653] apple-dcp 389c00000.dcp: RTKit: syslog message: UPTSQ_Hal_v1.cpp:349: IOMFB: timebase_offset = 4
+[   31.013860] apple-dcp 389c00000.dcp: RTKit: syslog message: UPTSQManager.cpp:105: IOMFB: switch to normal mode succeeded
+[   31.025388] apple-dcp 389c00000.dcp: RTKit: syslog message: MMailboxHandler.cpp:214: pcc firmware: MailBox Printf is enabled in BLM Pipe Line Init
+[   31.025489] apple-dcp 389c00000.dcp: RTKit: syslog message: PPipeDCP_H13P.cpp:17179: handle_stage1_enable blm_en 1 ltm_en 0
+[   31.032176] apple-dcp 389c00000.dcp: RTKit: syslog message: BrightnessLCD.cpp:803: [AFK]nitsToDBV: iDAC out of range
+[   31.045379] apple-dcp 389c00000.dcp: using firmware-derived EDID metadata for connection 0
+[   31.098299] apple_sep 396400000.sep: the enclave is back from its sleep request
+[   31.100634] aurora 406400000.gpu: RTKit: Initializing (protocol version 12)
+[   31.161963] EXT4-fs (nvme0n1p5): Supports (experimental) DIO atomic writes awu_min: 4096, awu_max: 4096
+[   31.168390] EXT4-fs (nvme0n1p5): mounted filesystem 4f4d5801-424f-4f54-8000-000000000001 r/w with ordered data mode. Quota mode: none.
+[   31.182873] EXT4-fs (nvme0n1p5): unmounting filesystem 4f4d5801-424f-4f54-8000-000000000001.
+[   32.288129] pcie-apple 580000000.pcie: port /soc/pcie@580000000/pci@0,0 lost its link in suspend (status 0x1, link 0xab000200): redoing setup
+[   32.497113] pcie-apple 580000000.pcie: Link up on /soc/pcie@580000000/pci@0,0
+[   32.497128] pcie-apple 580000000.pcie: port /soc/pcie@580000000/pci@0,0 link up after resume (0x9b000001)
+[   32.497140] pcie-apple 580000000.pcie: port /soc/pcie@580000000/pci@1,0 lost its link in suspend (status 0x1, link 0xab000200): redoing setup
+[   32.705104] pcie-apple 580000000.pcie: port /soc/pcie@580000000/pci@1,0 link up after resume (0xd9000001)
+[   32.705118] pcie-apple 580000000.pcie: Link up on /soc/pcie@580000000/pci@1,0
+[   32.705141] pcie-apple 580000000.pcie: s2r: dart-apcie0 tunables restored (0x20c 0x1e000048 -> 0xe40000ff)
+[   32.705167] pcie-apple 580000000.pcie: s2r: dart-apcie1 tunables restored (0x20c 0x1e000048 -> 0xe40000ff)
+[   32.928602] pci 0000:00:00.0: [106b:100c] type 01 class 0x060400 PCIe Root Port
+[   32.932519] OF: /soc/pcie@580000000: no iommu-map translation for id 0x0 on (null)
+[   32.932727] pci 0000:00:01.0: [106b:100c] type 01 class 0x060400 PCIe Root Port
+[   32.934829] OF: /soc/pcie@580000000: no iommu-map translation for id 0x8 on (null)
+[   32.939164] pci 0000:01:00.0: [14e4:4434] type 00 class 0x028000 PCIe Endpoint
+[   32.940377] pci 0000:01:00.1: [14e4:5f72] type 00 class 0x028000 PCIe Endpoint
+[   32.944478] pci 0000:02:00.0: [17a0:9755] type 00 class 0x080501 PCIe Endpoint
+[   32.950141] OF: /soc/pcie@580000000: no iommu-map translation for id 0x0 on (null)
+[   32.950596] pcieport 0000:00:00.0: PME: Signaling with IRQ 131
+[   32.951805] pcieport 0000:00:00.0: AER: enabled with IRQ 131
+[   32.953968] OF: /soc/pcie@580000000: no iommu-map translation for id 0x8 on (null)
+[   32.954294] pcieport 0000:00:01.0: PME: Signaling with IRQ 133
+[   32.954736] pcieport 0000:00:01.0: AER: enabled with IRQ 133
+[   32.955572] brcmfmac 0000:01:00.0: enabling device (0000 -> 0002)
+[   32.969550] brcmfmac: brcmf_fw_alloc_request: using brcm/brcmfmac4388c0-pcie for chip BCM4388/4
+[   33.176193] hci_bcm4377 0000:01:00.1: enabling device (0000 -> 0002)
+[   34.151475] brcmfmac 0000:01:00.0: using bidirectional receive DMA
+[   34.261294] brcmfmac: brcmf_c_process_txcap_blob: TxCap blob found, loading
+[   34.263378] brcmfmac: brcmf_c_process_cal_blob: Calibration blob provided by platform, loading
+[   34.276488] brcmfmac: brcmf_c_preinit_dcmds: Firmware: BCM4388/4 wl0: Jun 11 2023 05:20:59 version 23.20.95.0.40.50.92 FWID 01-ec505a98
+[   34.561089] brcmfmac: brcmf_cfg80211_update_country: country US set in firmware (US rev 0)
+[   34.958501] pcieport 0000:00:01.0: mask Replay Timer Timeout Correctable Errors due to 0000:02:00.0 hardware defect
+[   34.958675] pcie-apple 580000000.pcie: rescanning after S2R power cut: 2 devices
+[   34.959170] sdhci-pci 0000:02:00.0: SDHCI controller found [17a0:9755] (rev 1)
+[   34.959234] sdhci-pci 0000:02:00.0: enabling device (0000 -> 0002)
+[   34.984257] mmc0: SDHCI controller on PCI [0000:02:00.0] using ADMA 64-bit
+[   35.399609] Bluetooth: hci0: HCI LE Coded PHY feature bit is set, but its usage is not supported.
+[   35.451948] Bluetooth: hci0: Failed to read codec capabilities (-22)
+[   35.455552] Bluetooth: hci0: Failed to read codec capabilities (-22)
+[   35.459058] Bluetooth: hci0: Failed to read codec capabilities (-22)
+[   35.462518] Bluetooth: hci0: Failed to read codec capabilities (-22)
+[   35.465950] Bluetooth: hci0: Failed to read codec capabilities (-22)
+[   35.469346] Bluetooth: hci0: Failed to read codec capabilities (-22)
+[   35.472710] Bluetooth: hci0: Failed to read codec capabilities (-22)
+[   35.476048] Bluetooth: hci0: Failed to read codec capabilities (-22)
+[   35.479345] Bluetooth: hci0: Failed to read codec capabilities (-22)
+[   35.482532] Bluetooth: hci0: Failed to read codec capabilities (-22)
+[   48.118559] brcmfmac: brcmf_cfg80211_update_country: country US already set in firmware (US rev 0)
+[   66.933348] mmc0: new UHS-I speed SDR104 SDXC card at address 59b4
+[   66.938243] mmcblk0: mmc0:59b4 SDU1 58.6 GiB
+[   66.944023]  mmcblk0: p1
+[   74.486574] Bluetooth: MGMT ver 1.23
+[   74.548637] Bluetooth: hci0: Failed to read codec capabilities (-22)
+[   74.549780] Bluetooth: hci0: Failed to read codec capabilities (-22)
+[   74.550895] Bluetooth: hci0: Failed to read codec capabilities (-22)
+[   74.552003] Bluetooth: hci0: Failed to read codec capabilities (-22)
+[   74.553112] Bluetooth: hci0: Failed to read codec capabilities (-22)
+[   74.554228] Bluetooth: hci0: Failed to read codec capabilities (-22)
+[   74.555345] Bluetooth: hci0: Failed to read codec capabilities (-22)
+[   74.556479] Bluetooth: hci0: Failed to read codec capabilities (-22)
+[   74.557608] Bluetooth: hci0: Failed to read codec capabilities (-22)
+[   74.558740] Bluetooth: hci0: Failed to read codec capabilities (-22)

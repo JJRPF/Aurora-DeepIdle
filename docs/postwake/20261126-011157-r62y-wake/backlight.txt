@@ -1,0 +1,4 @@
+backlight max=500 initial=140 actual=140
+after 20%: actual=100
+after 100%: actual=500
+after 60%: actual=300
