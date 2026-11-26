@@ -8,8 +8,9 @@ Diffs that go on top of the M2 Pro diffs in the parent folder. With them, the R6
 | `aura-t6021.diff` | `../aura-on-omacom-m1n1-bf6a6417.diff` | Lets T6021 use the T6020 suspend path, and adds what the Max has on top: a sixth soc-cluster (DISPLAY2), the dispext2/3 power words, five gate words macOS 13.5 zeroes at sleep entry, two more IOA error enables, memory-cache controllers 4-7, and room for their runtime MMIO ranges. |
 | `kernel-cancelled-sleep.diff` | the two above | Not Max-specific. Keeps the display and GPU alive when a sleep is cancelled on the way down; see below. |
 | `kernel-commit-late.diff` | any of the above | Not Max-specific. Stops a wake event from cancelling a firmware suspend once its late stage has begun, which avoids a panic in the SEP driver; see below. |
+| `kernel-rtc-rearm.diff` | `kernel-commit-late.diff` | Re-fires an RTC alarm that arrives after the commit point, 15 s later, so it wakes the machine after the cut instead of being lost; see below. |
 
-**Base:** all four diffs were made and tested on the parent diffs at `c2b1eac`. The two kernel diffs below were last tested as a kernel built from exactly the parent diffs at `c2b1eac` plus the three kernel diffs here, with no other changes.
+**Base:** all five diffs were made and tested on the parent diffs at `c2b1eac`. The kernel diffs below were last tested as a kernel built from exactly the parent diffs at `c2b1eac` plus the four kernel diffs here, with no other changes.
 
 No change to the R62Q-R62Y kernel code was needed. The `apple,t6020-pmp-v2` and `apple,t6020-pcie` matches and the disp0 power cycle apply to the Max as they are.
 
@@ -67,7 +68,18 @@ Tested (counts are runs). The alarm cases used one extra test-only delay of 3 s 
 | RTC alarm landing after the noirq stage | panic, 1 of 1; Aura's reset record holds `vpanic` → `emergency_restart` → `do_kernel_restart` | sleep completed, no panic, 2 of 2 |
 | Desktop (Hyprland): device-stage cancel, then a real sleep | | both as before, 1 of 1 |
 
-Cost: the event that would have cancelled the suspend is dropped. An RTC alarm landing after the late or noirq stage did not wake the machine afterwards; it slept until a key press, 4 of 4. Why a wake arriving during the entry is not delivered after the commit is not investigated.
+Cost: the event that would have cancelled the suspend is dropped. An RTC alarm landing after the late or noirq stage did not wake the machine afterwards; it slept until a key press, 4 of 4. Two causes:
+
+- In the late stage device interrupts are still on (`suspend_device_irqs()` runs in `dpm_suspend_noirq()`), so `macsmc_rtc_alarm_irq()` runs as usual: it clears and disarms the PMU alarm and reports no wakeup event. That is also why the suspend wasn't cancelled there even without this diff.
+- After the noirq stage the alarm IRQ is an armed wake IRQ: with this diff it is ignored, its handler never runs, and no new alarm interrupt follows the cut.
+
+## RTC alarm during the sleep entry (`kernel-rtc-rearm.diff`)
+
+Reduces that cost for the first case. When the alarm fires while `pm_wakeup_abort_held()` (from `kernel-commit-late.diff`) is true, `macsmc_rtc_alarm_irq()` re-arms it 15 s later instead of consuming it, so it fires after the cut and wakes the machine. 15 s because the SEP's `suspend_noirq` alone waits 5 s on every sleep here. 26 added lines.
+
+Tested: an RTC alarm timed into a 3 s test-only delay after the late stage. The driver logged `alarm during sleep entry: fired again 15 s later`, and the machine woke by itself after 7.8 s of `SLP_S2R`, 1 of 1 (without this diff it slept until a key press, 3 of 3). On the desktop, a device-stage cancel and a real sleep behaved as before, 1 of 1 each.
+
+Not covered: an alarm firing after the noirq stage. No kernel code runs between that interrupt and the cut, so re-arming it would have to happen in Aura's entry.
 
 ## On the current parent diffs
 
@@ -76,6 +88,7 @@ Against the parent diffs at `929cd58` (Aura 130). Applied only; not built or boo
 - `aura-t6021.diff` applies.
 - `kernel-cancelled-sleep.diff` applies.
 - `kernel-commit-late.diff` applies.
+- `kernel-rtc-rearm.diff` applies.
 - `kernel-t6021-j414c.diff` does not; use `kernel-t6021-j414c-dts-only.diff` (see the update below).
 
 ## Update 2026-11-26: on the current (gating) diffs

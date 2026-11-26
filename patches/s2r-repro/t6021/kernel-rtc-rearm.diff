@@ -1,0 +1,83 @@
+diff --git a/drivers/base/power/wakeup.c b/drivers/base/power/wakeup.c
+index 84189a31c9f5..ffe77a500e85 100644
+--- a/drivers/base/power/wakeup.c
++++ b/drivers/base/power/wakeup.c
+@@ -881,6 +881,13 @@ void pm_wakeup_set_no_abort(bool on)
+ 	WRITE_ONCE(pm_wakeup_no_abort, on);
+ }
+ 
++/* Whether a firmware suspend is past the point where a wake event can cancel it. */
++bool pm_wakeup_abort_held(void)
++{
++	return READ_ONCE(pm_wakeup_no_abort);
++}
++EXPORT_SYMBOL_GPL(pm_wakeup_abort_held);
++
+ bool pm_wakeup_pending(void)
+ {
+ 	unsigned long flags;
+diff --git a/drivers/rtc/rtc-macsmc.c b/drivers/rtc/rtc-macsmc.c
+index e4cd38bab9c0..80c157efcf81 100644
+--- a/drivers/rtc/rtc-macsmc.c
++++ b/drivers/rtc/rtc-macsmc.c
+@@ -13,6 +13,7 @@
+ #include <linux/of.h>
+ #include <linux/platform_device.h>
+ #include <linux/pm_wakeirq.h>
++#include <linux/suspend.h>
+ #include <linux/rtc.h>
+ #include <linux/slab.h>
+ #include <linux/unaligned.h>
+@@ -35,6 +36,12 @@
+ #define RTC_CTRL_ALARM_EVENT	BIT(1)
+ #define RTC_CTRL_ALARM_EN	BIT(6)
+ 
++/*
++ * An alarm that fires once a firmware suspend can no longer be cancelled is fired again this many seconds later,
++ * after the power cut. The SEP's noirq step alone can take 5 s, and Aura's entry another second.
++ */
++#define RTC_ALARM_REARM_SECS	15
++
+ struct macsmc_rtc {
+ 	struct device *dev;
+ 	struct apple_smc *smc;
+@@ -378,6 +385,19 @@ static irqreturn_t macsmc_rtc_alarm_irq(int irq, void *data)
+ 		mutex_unlock(&rtc->alarm_lock);
+ 		return IRQ_NONE;
+ 	}
++	/*
++	 * Past the late stage of a firmware suspend the wake event can't cancel the suspend, and the
++	 * alarm would be lost: fire it again after the power cut instead.
++	 */
++	if (pm_wakeup_abort_held()) {
++		u32 secs = rtc->alarm_secs + RTC_ALARM_REARM_SECS;
++
++		macsmc_rtc_program_alarm(rtc, secs);
++		mutex_unlock(&rtc->alarm_lock);
++		dev_info(rtc->dev, "alarm during sleep entry: fired again %u s later\n",
++			 RTC_ALARM_REARM_SECS);
++		return IRQ_HANDLED;
++	}
+ 	/* One-shot: clear the event and disarm until the alarm is set again */
+ 	macsmc_rtc_program_alarm(rtc, 0);
+ 	mutex_unlock(&rtc->alarm_lock);
+diff --git a/include/linux/suspend.h b/include/linux/suspend.h
+index d7043e170b84..7c63c7e288d0 100644
+--- a/include/linux/suspend.h
++++ b/include/linux/suspend.h
+@@ -502,6 +502,7 @@ static inline bool pm_suspended_storage(void)
+ }
+ 
+ extern bool pm_wakeup_pending(void);
++extern bool pm_wakeup_abort_held(void);
+ extern void pm_system_wakeup(void);
+ extern void pm_system_cancel_wakeup(void);
+ extern void pm_wakeup_clear(unsigned int irq_number);
+@@ -542,6 +543,7 @@ static inline void ksys_sync_helper(void) {}
+ 
+ static inline bool pm_suspended_storage(void) { return false; }
+ static inline bool pm_wakeup_pending(void) { return false; }
++static inline bool pm_wakeup_abort_held(void) { return false; }
+ static inline void pm_system_wakeup(void) {}
+ static inline void pm_wakeup_clear(bool reset) {}
+ static inline void pm_system_irq_wakeup(unsigned int irq_number) {}
