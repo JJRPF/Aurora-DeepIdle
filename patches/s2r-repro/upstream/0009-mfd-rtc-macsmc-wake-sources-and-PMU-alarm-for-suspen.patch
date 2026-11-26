@@ -1,0 +1,275 @@
+From 7fb4ff77295e9dd486e64ae2319fd74d56b78a6f Mon Sep 17 00:00:00 2001
+From: Justin Pfister <git@jjrpf.com>
+Date: Thu, 26 Nov 2026 10:17:18 -0500
+Subject: [PATCH 09/15] mfd, rtc: macsmc: wake sources and PMU alarm for
+ suspend-to-RAM on T602x
+
+Write the SMC wake policy and mask the PMGR AP wake sources the firmware does not keep enabled
+across a sleep. The mask address and the sources are read from /chosen
+(aurora,ap-wake-mask-reg, aurora,ap-wake-sources), which the boot loader fills from the ADT;
+without them the mask is left alone. Add the T602x PMU alarm event byte and clear its fired
+latch on every write.
+
+Signed-off-by: Justin Pfister <git@jjrpf.com>
+---
+ drivers/mfd/macsmc.c     | 101 +++++++++++++++++++++++++++++++++++++++
+ drivers/rtc/rtc-macsmc.c |  61 ++++++++++++++++++++---
+ 2 files changed, 156 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/mfd/macsmc.c b/drivers/mfd/macsmc.c
+index ad4d84f9c3dd..2f6ce929c617 100644
+--- a/drivers/mfd/macsmc.c
++++ b/drivers/mfd/macsmc.c
+@@ -839,10 +839,104 @@ static void apple_smc_write_mbse(struct apple_smc *smc, smc_key value)
+ 		dev_err(smc->dev, "Failed to issue MBSE = %p4ch: %d\n", &value, ret);
+ }
+ 
++/*
++ * The PMGR's AP wake mask: one bit per wake source, a set bit masks the source. The boot loader
++ * publishes the address of its first word and the numbers of the sources the Mac's firmware keeps
++ * enabled across a sleep (from the ADT) in /chosen; without them the mask is left alone. Sources
++ * other than those are masked, so only the alarm and the other real wake events end a sleep.
++ */
++#define APPLE_WAKEMASK_WORDS	16
++
++static u32 wakemask_saved[APPLE_WAKEMASK_WORDS];
++static bool wakemask_set;
++static bool wakemask_wktp_set;
++
++static bool apple_smc_wakemask_dt(u64 *phys, u32 *enabled)
++{
++	struct device_node *chosen = of_find_node_by_path("/chosen");
++	int n, i;
++	u32 bits[APPLE_WAKEMASK_WORDS * 32];
++	bool ok = false;
++
++	if (!chosen)
++		return false;
++	n = of_property_count_u32_elems(chosen, "aurora,ap-wake-sources");
++	if (n <= 0 || n > ARRAY_SIZE(bits) ||
++	    of_property_read_u64(chosen, "aurora,ap-wake-mask-reg", phys) ||
++	    of_property_read_u32_array(chosen, "aurora,ap-wake-sources", bits, n))
++		goto out;
++	memset(enabled, 0, APPLE_WAKEMASK_WORDS * sizeof(u32));
++	for (i = 0; i < n; i++)
++		if (bits[i] < APPLE_WAKEMASK_WORDS * 32)
++			enabled[bits[i] / 32] |= BIT(bits[i] % 32);
++	ok = true;
++out:
++	of_node_put(chosen);
++	return ok;
++}
++
++static void apple_smc_wakemask_apply(struct apple_smc *smc)
++{
++	u32 enabled[APPLE_WAKEMASK_WORDS];
++	void __iomem *m;
++	u64 phys;
++	int i;
++
++	if (wakemask_set || !apple_smc_wakemask_dt(&phys, enabled))
++		return;
++	m = ioremap_np(phys, APPLE_WAKEMASK_WORDS * 4);
++	if (!m)
++		return;
++	for (i = 0; i < APPLE_WAKEMASK_WORDS; i++) {
++		u32 valid;
++
++		wakemask_saved[i] = readl(m + 4 * i);
++		/* The bits the hardware implements are the ones that read back as set. */
++		writel(0xffffffff, m + 4 * i);
++		valid = readl(m + 4 * i);
++		writel(valid & ~enabled[i], m + 4 * i);
++	}
++	iounmap(m);
++	wakemask_set = true;
++}
++
++static void apple_smc_wakemask_restore(struct apple_smc *smc)
++{
++	u32 enabled[APPLE_WAKEMASK_WORDS];
++	void __iomem *m;
++	u64 phys;
++	int i;
++
++	if (!wakemask_set)
++		return;
++	wakemask_set = false;
++	if (!apple_smc_wakemask_dt(&phys, enabled))
++		return;
++	m = ioremap_np(phys, APPLE_WAKEMASK_WORDS * 4);
++	if (!m)
++		return;
++	for (i = 0; i < APPLE_WAKEMASK_WORDS; i++)
++		writel(wakemask_saved[i], m + 4 * i);
++	iounmap(m);
++}
++
++static bool apple_smc_has_wakemask(void)
++{
++	u32 enabled[APPLE_WAKEMASK_WORDS];
++	u64 phys;
++
++	return apple_smc_wakemask_dt(&phys, enabled);
++}
++
+ static void apple_smc_sleep_warn(struct apple_smc *smc)
+ {
+ 	apple_smc_write_mbse(smc, SMC_KEY(slpw));
+ 	smc->sleep_warned = true;
++	if (!smc->sleep_policy && apple_smc_has_wakemask()) {
++		apple_smc_write_u8(smc, SMC_KEY(WKTP), 2);
++		wakemask_wktp_set = true;
++		apple_smc_wakemask_apply(smc);
++	}
+ }
+ 
+ static int apple_smc_notice_idle(struct apple_smc *smc)
+@@ -1716,6 +1810,11 @@ static void apple_smc_complete(struct device *dev)
+ 		}
+ 		smc->sleep_warned = false;
+ 	}
++	if (wakemask_wktp_set) {
++		wakemask_wktp_set = false;
++		apple_smc_write_u8(smc, SMC_KEY(WKTP), 0);
++	}
++	apple_smc_wakemask_restore(smc);
+ 	smc->sleep_policy = NULL;
+ }
+ 
+@@ -1822,6 +1921,8 @@ static int apple_smc_resume_noirq(struct device *dev)
+ 		apple_smc_set_polled(smc, true);
+ 		apple_smc_sleep_wake(smc, false);
+ 		apple_smc_set_polled(smc, false);
++		if (pm_resume_via_firmware())
++			apple_rtkit_restore_mbox(smc->rtk);
+ 	}
+ 
+ 	return 0;
+diff --git a/drivers/rtc/rtc-macsmc.c b/drivers/rtc/rtc-macsmc.c
+index 690a4a84ff90..e4cd38bab9c0 100644
+--- a/drivers/rtc/rtc-macsmc.c
++++ b/drivers/rtc/rtc-macsmc.c
+@@ -45,6 +45,8 @@ struct macsmc_rtc {
+ 	struct nvmem_cell *alarm_ctrl;
+ 	struct nvmem_cell *alarm_value;
+ 	struct nvmem_cell *alarm_mask;
++	/* T602x: the event is a byte of its own, bit 0, cleared by writing 1 */
++	struct nvmem_cell *alarm_event;
+ 	struct mutex alarm_lock;
+ 	u32 alarm_secs;
+ };
+@@ -208,6 +210,50 @@ static int macsmc_rtc_offset_secs(struct macsmc_rtc *rtc, s64 *secs)
+ 	return 0;
+ }
+ 
++/*
++ * The control byte as the alarm code sees it. With a separate event cell
++ * (T602x) the event bit is taken from there. The control byte's own bit 1 is
++ * then a "fired" latch the PMU sets with the event: while it is set a later
++ * alarm clears the enable bit at its second but raises no event and no
++ * interrupt, so every write clears it.
++ */
++static int macsmc_rtc_read_ctrl(struct macsmc_rtc *rtc, u8 *ctrl)
++{
++	u8 ev;
++	int ret;
++
++	ret = macsmc_rtc_read_u8(rtc->alarm_ctrl, ctrl);
++	if (ret || !rtc->alarm_event)
++		return ret;
++	ret = macsmc_rtc_read_u8(rtc->alarm_event, &ev);
++	if (ret)
++		return ret;
++	*ctrl &= ~RTC_CTRL_ALARM_EVENT;
++	if (ev & BIT(0))
++		*ctrl |= RTC_CTRL_ALARM_EVENT;
++	return 0;
++}
++
++static int macsmc_rtc_write_ctrl(struct macsmc_rtc *rtc, u8 ctrl)
++{
++	u8 cur;
++	int ret;
++
++	if (!rtc->alarm_event)
++		return macsmc_rtc_write_u8(rtc->alarm_ctrl, ctrl);
++	if (ctrl & RTC_CTRL_ALARM_EVENT) {
++		ret = macsmc_rtc_write_u8(rtc->alarm_event, BIT(0));
++		if (ret)
++			return ret;
++	}
++	ret = macsmc_rtc_read_u8(rtc->alarm_ctrl, &cur);
++	if (ret)
++		return ret;
++	cur &= ~(RTC_CTRL_ALARM_EN | RTC_CTRL_ALARM_EVENT);
++	return macsmc_rtc_write_u8(rtc->alarm_ctrl,
++				   cur | (ctrl & RTC_CTRL_ALARM_EN));
++}
++
+ /*
+  * Arm the alarm at counter second @secs, or disarm it if @secs is 0. The
+  * other bits of the control byte are kept. A latched event is cleared by
+@@ -219,11 +265,11 @@ static int macsmc_rtc_program_alarm(struct macsmc_rtc *rtc, u32 secs)
+ 	u8 ctrl;
+ 	int ret;
+ 
+-	ret = macsmc_rtc_read_u8(rtc->alarm_ctrl, &ctrl);
++	ret = macsmc_rtc_read_ctrl(rtc, &ctrl);
+ 	if (ret)
+ 		return ret;
+ 	if (ctrl & RTC_CTRL_ALARM_EVENT) {
+-		ret = macsmc_rtc_write_u8(rtc->alarm_ctrl, ctrl);
++		ret = macsmc_rtc_write_ctrl(rtc, ctrl);
+ 		if (ret)
+ 			return ret;
+ 	}
+@@ -233,7 +279,7 @@ static int macsmc_rtc_program_alarm(struct macsmc_rtc *rtc, u32 secs)
+ 		ret = macsmc_rtc_write_u8(rtc->alarm_mask, 1);
+ 		if (ret)
+ 			return ret;
+-		return macsmc_rtc_write_u8(rtc->alarm_ctrl,
++		return macsmc_rtc_write_ctrl(rtc,
+ 					   (ctrl & ~RTC_CTRL_ALARM_EN) |
+ 					   RTC_CTRL_MONITOR);
+ 	}
+@@ -244,7 +290,7 @@ static int macsmc_rtc_program_alarm(struct macsmc_rtc *rtc, u32 secs)
+ 	ret = macsmc_rtc_write_u8(rtc->alarm_mask, 0);
+ 	if (ret)
+ 		return ret;
+-	return macsmc_rtc_write_u8(rtc->alarm_ctrl, ctrl | RTC_CTRL_ALARM_EN |
++	return macsmc_rtc_write_ctrl(rtc, ctrl | RTC_CTRL_ALARM_EN |
+ 				   RTC_CTRL_MONITOR);
+ }
+ 
+@@ -263,7 +309,7 @@ static int macsmc_rtc_read_alarm(struct device *dev, struct rtc_wkalrm *alrm)
+ 		return ret;
+ 
+ 	mutex_lock(&rtc->alarm_lock);
+-	ret = macsmc_rtc_read_u8(rtc->alarm_ctrl, &ctrl);
++	ret = macsmc_rtc_read_ctrl(rtc, &ctrl);
+ 	if (ret)
+ 		goto out;
+ 	p = nvmem_cell_read(rtc->alarm_value, &len);
+@@ -327,7 +373,7 @@ static irqreturn_t macsmc_rtc_alarm_irq(int irq, void *data)
+ 	u8 ctrl;
+ 
+ 	mutex_lock(&rtc->alarm_lock);
+-	if (macsmc_rtc_read_u8(rtc->alarm_ctrl, &ctrl) ||
++	if (macsmc_rtc_read_ctrl(rtc, &ctrl) ||
+ 	    !(ctrl & RTC_CTRL_ALARM_EVENT)) {
+ 		mutex_unlock(&rtc->alarm_lock);
+ 		return IRQ_NONE;
+@@ -370,6 +416,9 @@ static int macsmc_rtc_init_alarm(struct platform_device *pdev,
+ 	rtc->alarm_ctrl = macsmc_rtc_cell_optional(dev, "rtc_ctrl");
+ 	rtc->alarm_value = macsmc_rtc_cell_optional(dev, "rtc_alarm");
+ 	rtc->alarm_mask = macsmc_rtc_cell_optional(dev, "rtc_alarm_mask");
++	rtc->alarm_event = macsmc_rtc_cell_optional(dev, "rtc_alarm_event");
++	if (IS_ERR(rtc->alarm_event))
++		return PTR_ERR(rtc->alarm_event);
+ 	if (IS_ERR(rtc->alarm_ctrl))
+ 		return PTR_ERR(rtc->alarm_ctrl);
+ 	if (IS_ERR(rtc->alarm_value))
+-- 
+2.56.1
+

@@ -1,0 +1,248 @@
+From 126ba342074d87028aa166a221062d23ce8cedd5 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <git@jjrpf.com>
+Date: Thu, 26 Nov 2026 10:17:19 -0500
+Subject: [PATCH 14/15] ASoC, clk: apple: restore the audio path after
+ suspend-to-RAM
+
+Restore the NCO, the MCA and the TAS2764 state lost across the sleep.
+
+Signed-off-by: Justin Pfister <git@jjrpf.com>
+---
+ drivers/clk/clk-apple-nco.c | 71 +++++++++++++++++++++++++++++++++++++
+ sound/soc/apple/mca.c       | 50 ++++++++++++++++++++------
+ sound/soc/codecs/tas2764.c  |  2 +-
+ 3 files changed, 112 insertions(+), 11 deletions(-)
+
+diff --git a/drivers/clk/clk-apple-nco.c b/drivers/clk/clk-apple-nco.c
+index 434c067968bb..b0261f70d9de 100644
+--- a/drivers/clk/clk-apple-nco.c
++++ b/drivers/clk/clk-apple-nco.c
+@@ -15,7 +15,9 @@
+ #include <linux/module.h>
+ #include <linux/of.h>
+ #include <linux/platform_device.h>
++#include <linux/pm.h>
+ #include <linux/spinlock.h>
++#include <linux/suspend.h>
+ 
+ #define NCO_CHANNEL_STRIDE	0x4000
+ #define NCO_CHANNEL_REGSIZE	20
+@@ -254,6 +256,66 @@ static const struct clk_ops applnco_ops = {
+ 	.is_enabled = applnco_is_enabled,
+ };
+ 
++#define NCO_MAX_CHANNELS 8
++
++struct applnco_data {
++	void __iomem *base;
++	unsigned int nchannels;
++	bool saved;
++	u32 ctrl[NCO_MAX_CHANNELS];
++	u32 div[NCO_MAX_CHANNELS];
++	u32 inc1[NCO_MAX_CHANNELS];
++	u32 inc2[NCO_MAX_CHANNELS];
++};
++
++static int applnco_suspend_noirq(struct device *dev)
++{
++	struct applnco_data *data = dev_get_drvdata(dev);
++	unsigned int i;
++
++	data->saved = false;
++	if (!pm_suspend_via_firmware())
++		return 0;
++
++	for (i = 0; i < data->nchannels; i++) {
++		void __iomem *chan = data->base + NCO_CHANNEL_STRIDE * i;
++
++		data->div[i] = readl_relaxed(chan + REG_DIV);
++		data->inc1[i] = readl_relaxed(chan + REG_INC1);
++		data->inc2[i] = readl_relaxed(chan + REG_INC2);
++		data->ctrl[i] = readl_relaxed(chan + REG_CTRL);
++		writel_relaxed(data->ctrl[i] | CTRL_ENABLE, chan + REG_CTRL);
++	}
++	data->saved = true;
++	return 0;
++}
++
++static int applnco_resume_noirq(struct device *dev)
++{
++	struct applnco_data *data = dev_get_drvdata(dev);
++	unsigned int i;
++
++	if (!data->saved)
++		return 0;
++
++	for (i = 0; i < data->nchannels; i++) {
++		void __iomem *chan = data->base + NCO_CHANNEL_STRIDE * i;
++
++		writel_relaxed(data->ctrl[i] & ~CTRL_ENABLE, chan + REG_CTRL);
++		writel_relaxed(data->div[i], chan + REG_DIV);
++		writel_relaxed(data->inc1[i], chan + REG_INC1);
++		writel_relaxed(data->inc2[i], chan + REG_INC2);
++		writel_relaxed(1 << 31, chan + REG_ACCINIT);
++		writel_relaxed(data->ctrl[i], chan + REG_CTRL);
++	}
++	data->saved = false;
++	return 0;
++}
++
++static const struct dev_pm_ops applnco_pm_ops = {
++	NOIRQ_SYSTEM_SLEEP_PM_OPS(applnco_suspend_noirq, applnco_resume_noirq)
++};
++
+ static int applnco_probe(struct platform_device *pdev)
+ {
+ 	struct device_node *np = pdev->dev.of_node;
+@@ -263,6 +325,7 @@ static int applnco_probe(struct platform_device *pdev)
+ 	void __iomem *base;
+ 	struct resource *res;
+ 	struct applnco_tables *tbl;
++	struct applnco_data *data;
+ 	unsigned int nchannels;
+ 	int ret, i;
+ 
+@@ -286,6 +349,13 @@ static int applnco_probe(struct platform_device *pdev)
+ 		return -ENOMEM;
+ 	applnco_compute_tables(tbl);
+ 
++	data = devm_kzalloc(&pdev->dev, sizeof(*data), GFP_KERNEL);
++	if (!data)
++		return -ENOMEM;
++	data->base = base;
++	data->nchannels = min(nchannels, NCO_MAX_CHANNELS);
++	platform_set_drvdata(pdev, data);
++
+ 	for (i = 0; i < nchannels; i++) {
+ 		struct applnco_channel *chan;
+ 
+@@ -330,6 +400,7 @@ static struct platform_driver applnco_driver = {
+ 	.driver = {
+ 		.name = "apple-nco",
+ 		.of_match_table = applnco_ids,
++		.pm = pm_sleep_ptr(&applnco_pm_ops),
+ 	},
+ 	.probe = applnco_probe,
+ };
+diff --git a/sound/soc/apple/mca.c b/sound/soc/apple/mca.c
+index a36266b1aa08..d3c53961c861 100644
+--- a/sound/soc/apple/mca.c
++++ b/sound/soc/apple/mca.c
+@@ -152,8 +152,10 @@ struct mca_cluster {
+ 
+ 	unsigned int bclk_ratio;
+ 
+-	/* RX bit start of the DAI format, once set_fmt has run */
++	/* RX bit start and SERDES config of the DAI format, once set_fmt has run */
+ 	bool fmt_set;
++	bool fmt_lost;
++	u32 fmt_serdes_conf;
+ 	u32 rx_bitstart;
+ 	/* BCLKs by which data received on this cluster's port arrives late */
+ 	u32 rx_delay;
+@@ -385,14 +387,18 @@ static bool mca_fe_clocks_in_use(struct mca_cluster *cl)
+ 	return false;
+ }
+ 
++static void mca_fe_restore_fmt(struct mca_cluster *cl);
++
+ static int mca_fe_prepare(struct snd_pcm_substream *substream,
+ 			  struct snd_soc_dai *dai)
+ {
+ 	struct mca_cluster *cl = mca_dai_to_cluster(dai);
+ 	struct mca_data *mca = cl->host;
+ 
+-	if (cl->clk_provider)
++	if (cl->clk_provider) {
++		mca_fe_restore_fmt(cl);
+ 		return 0;
++	}
+ 
+ 	if (!cl->syncgen_in_use) {
+ 		int port = ffs(mca_fe_get_portmask(substream)) - 1;
+@@ -413,6 +419,7 @@ static int mca_fe_prepare(struct snd_pcm_substream *substream,
+ 			   SYNCGEN_STATUS_EN);
+ 	}
+ 	cl->syncgen_in_use |= 1 << substream->stream;
++	mca_fe_restore_fmt(cl);
+ 
+ 	return 0;
+ }
+@@ -555,6 +562,30 @@ static int mca_fe_set_tdm_slot(struct snd_soc_dai *dai, unsigned int tx_mask,
+ 	return 0;
+ }
+ 
++static void mca_fe_write_fmt(struct mca_cluster *cl)
++{
++	mca_modify(cl, CLUSTER_TX_OFF + REG_TX_SERDES_CONF,
++		   SERDES_CONF_BCLK_POL, cl->fmt_serdes_conf);
++	mca_modify(cl, CLUSTER_RX_OFF + REG_RX_SERDES_CONF,
++		   SERDES_CONF_BCLK_POL, cl->fmt_serdes_conf);
++	writel_relaxed(cl->rx_bitstart,
++		       cl->base + CLUSTER_TX_OFF + REG_TX_SERDES_BITSTART);
++	writel_relaxed(cl->rx_bitstart,
++		       cl->base + CLUSTER_RX_OFF + REG_RX_SERDES_BITSTART);
++}
++
++static void mca_fe_restore_fmt(struct mca_cluster *cl)
++{
++	if (!cl->fmt_lost)
++		return;
++	cl->fmt_lost = false;
++	if (!cl->fmt_set)
++		return;
++	mca_fe_write_fmt(cl);
++	dev_info(cl->host->dev,
++		 "cluster %d: DAI format written again after a firmware suspend\n", cl->no);
++}
++
+ static int mca_fe_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
+ {
+ 	struct mca_cluster *cl = mca_dai_to_cluster(dai);
+@@ -606,16 +637,11 @@ static int mca_fe_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
+ 	if (!fpol_inv)
+ 		goto err;
+ 
+-	mca_modify(cl, CLUSTER_TX_OFF + REG_TX_SERDES_CONF,
+-		   SERDES_CONF_BCLK_POL, serdes_conf);
+-	mca_modify(cl, CLUSTER_RX_OFF + REG_RX_SERDES_CONF,
+-		   SERDES_CONF_BCLK_POL, serdes_conf);
+-	writel_relaxed(bitstart,
+-		       cl->base + CLUSTER_TX_OFF + REG_TX_SERDES_BITSTART);
+-	writel_relaxed(bitstart,
+-		       cl->base + CLUSTER_RX_OFF + REG_RX_SERDES_BITSTART);
++	cl->fmt_serdes_conf = serdes_conf;
+ 	cl->rx_bitstart = bitstart;
+ 	cl->fmt_set = true;
++	cl->fmt_lost = false;
++	mca_fe_write_fmt(cl);
+ 
+ 	return 0;
+ 
+@@ -1606,6 +1632,10 @@ static int __maybe_unused apple_mca_resume_early(struct device *dev)
+ 	if (!pm_resume_via_firmware())
+ 		return 0;
+ 
++	/* Rewrite DAI format at the next prepare once each cluster's power domain is up. */
++	for (i = 0; i < mca->nclusters; i++)
++		mca->clusters[i].fmt_lost = true;
++
+ 	for (i = 0; i < mca->nclusters; i++) {
+ 		struct mca_cluster *cl = &mca->clusters[i];
+ 		const u32 *st = cl->saved_status;
+diff --git a/sound/soc/codecs/tas2764.c b/sound/soc/codecs/tas2764.c
+index 23f9edf4664d..f0cfd03f609f 100644
+--- a/sound/soc/codecs/tas2764.c
++++ b/sound/soc/codecs/tas2764.c
+@@ -442,7 +442,7 @@ static int tas2764_codec_resume(struct snd_soc_component *component)
+ 	 * (its resume_noirq, before this). s2idle keeps the line and the
+ 	 * amps' registers and stays on the path below.
+ 	 */
+-	bool power_on = tas2764->sdz_group && pm_resume_via_firmware();
++	bool power_on = (tas2764->sdz_group || tas2764->sdz_gpio) && pm_resume_via_firmware();
+ 	int ret;
+ 
+ 	if (!tas2764->sdz_group) {
+-- 
+2.56.1
+

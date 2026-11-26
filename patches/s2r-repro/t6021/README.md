@@ -32,3 +32,7 @@ The same kernel with the GPU and PCIe endpoints unbound by hand before the sleep
 - Both diffs also apply on the parent diffs at `c2b1eac` (Aura 129), and Aura builds there, but that combination has not been booted.
 - `aura-t6021.diff` still carries a WFI-only retention path for T6021 (`psci_j414c_retention`). It runs only when the Aura control word has no entry steps, which is not the default, so the default path is the real sleep.
 - Not tested: the full desktop, lid, audio, external displays or a dock, SD card, Bluetooth pairing, overnight drain.
+
+## Update 2026-11-26: on the current (gating) diffs
+
+The `macsmc` hunk of `kernel-t6021-j414c.diff` no longer applies to the refreshed `../kernel-on-omacom-linux-aurora-7.3-8ca67c75ff52.diff` and is no longer needed: macsmc has no `apple,t6020` check or wake table any more. The wake mask address and sources now come from `/chosen` (`aurora,ap-wake-mask-reg`, `aurora,ap-wake-sources`), which Aura fills from the ADT `pmgr` `ap-wake-sources`, for any chip whose ADT has it. Use `kernel-t6021-j414c-dts-only.diff` (the device tree alone) with the refreshed diffs. `aura-t6021.diff` still applies to the refreshed Aura diff. Neither combination has been booted on a J414c; whether the T6021 ADT carries `ap-wake-sources` is not checked.

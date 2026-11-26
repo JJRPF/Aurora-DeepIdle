@@ -1,0 +1,286 @@
+From 0de7d80d32a25bc146802f1b1488f9610f16575a Mon Sep 17 00:00:00 2001
+From: Justin Pfister <git@jjrpf.com>
+Date: Thu, 26 Nov 2026 10:17:18 -0500
+Subject: [PATCH 11/15] drm/asahi: warm restart the G14S GPU firmware across
+ suspend-to-RAM
+
+Keep the GPU bound over the sleep and restart its firmware after the wake.
+
+Signed-off-by: Justin Pfister <git@jjrpf.com>
+---
+ drivers/gpu/drm/asahi/driver.rs | 32 +++++++++++---
+ drivers/gpu/drm/asahi/gpu.rs    | 74 +++++++++++++++++++++++++++++++++
+ drivers/gpu/drm/asahi/regs.rs   | 31 ++++++++++----
+ 3 files changed, 123 insertions(+), 14 deletions(-)
+
+diff --git a/drivers/gpu/drm/asahi/driver.rs b/drivers/gpu/drm/asahi/driver.rs
+index 77ffd32891cd..e631342e967e 100644
+--- a/drivers/gpu/drm/asahi/driver.rs
++++ b/drivers/gpu/drm/asahi/driver.rs
+@@ -50,6 +50,8 @@ pub(crate) struct AsahiPlatformDriverData<'bound> {
+     _reg: drm::Registration<'bound, AsahiDrmDriver>,
+     /// The G17 GPU, whose coprocessors must be stopped when the driver is unbound.
+     g17: Option<Arc<g17::Gpu>>,
++    legacy: Option<Arc<dyn gpu::Gpu>>,
++    asc: Option<regs::AscControl<'bound>>,
+     #[cfg(CONFIG_DRM_ASAHI_G16)]
+     pub(crate) g16: Option<Arc<crate::g16::Gpu>>,
+     m3: Option<M3Backend>,
+@@ -273,17 +275,23 @@ unsafe fn sleep_data<'a>(dev: *mut bindings::device) -> &'a AsahiPlatformDriverD
+     }
+     // SAFETY: Called by the PM core.
+     let data = unsafe { sleep_data(dev) };
+-    match data.g17.as_ref() {
+-        Some(gpu) => kernel::error::from_result(|| gpu.sleep_prepare().map(|_| 0)),
+-        None => EBUSY.to_errno(),
++    if let Some(gpu) = data.g17.as_ref() {
++        kernel::error::from_result(|| gpu.sleep_prepare().map(|_| 0))
++    } else if let Some(gpu) = data.legacy.as_ref() {
++        kernel::error::from_result(|| gpu.sleep_prepare().map(|_| 0))
++    } else {
++        EBUSY.to_errno()
+     }
+ }
+ 
+ /// Runs after every device resumed. Does nothing unless [`sleep_prepare`] stopped the firmware.
+ unsafe extern "C" fn sleep_complete(dev: *mut bindings::device) {
+     // SAFETY: Called by the PM core.
+-    if let Some(gpu) = unsafe { sleep_data(dev) }.g17.as_ref() {
++    let data = unsafe { sleep_data(dev) };
++    if let Some(gpu) = data.g17.as_ref() {
+         gpu.sleep_complete();
++    } else if let (Some(gpu), Some(asc)) = (data.legacy.as_ref(), data.asc.as_ref()) {
++        gpu.sleep_complete(&|| asc.start_cpu());
+     }
+ }
+ 
+@@ -377,7 +385,8 @@ fn probe<'bound>(
+         resources.init_mmio()?;
+ 
+         // Start the coprocessor CPU, so UAT can initialize the handoff
+-        regs::Resources::start_cpu(pdev)?;
++        let asc = regs::AscControl::new(pdev)?;
++        asc.start_cpu();
+ 
+         let fwnode = pdev.as_ref().fwnode().ok_or(EIO)?;
+         let compat: KVec<u32> = fwnode
+@@ -420,6 +429,7 @@ fn probe<'bound>(
+ 
+         let stats = gpu.stats_snapshot();
+         let debug_stats = gpu.raw_stats_snapshot();
++        let legacy = Some(gpu.clone());
+         let data = try_pin_init!(AsahiDrmRegistrationData { gpu, resources });
+ 
+         // SAFETY: `reg` is stored in `AsahiPlatformDriverData` and dropped when the driver is
+@@ -448,6 +458,8 @@ fn probe<'bound>(
+             _device: reg.device().into(),
+             _reg: reg,
+             g17: None,
++            legacy,
++            asc: Some(asc),
+             m3: None,
+             #[cfg(CONFIG_DRM_ASAHI_G16)]
+             g16: None,
+@@ -486,6 +498,8 @@ pub(crate) fn probe_g15<'bound>(
+             _device: reg.device().into(),
+             _reg: reg,
+             g17: None,
++            legacy: None,
++            asc: None,
+             m3: None,
+             #[cfg(CONFIG_DRM_ASAHI_G16)]
+             g16: None,
+@@ -528,6 +542,8 @@ fn probe_t8122<'bound>(
+             _device: reg.device().into(),
+             _reg: reg,
+             g17: None,
++            legacy: None,
++            asc: None,
+             m3: Some(backend),
+             raw_dev: core::ptr::null_mut(),
+             raw_stats: core::ptr::null_mut(),
+@@ -604,6 +620,8 @@ fn probe_g17<'bound>(
+             _device: reg.device().into(),
+             _reg: reg,
+             g17: Some(gpu),
++            legacy: None,
++            asc: None,
+             m3: None,
+             #[cfg(CONFIG_DRM_ASAHI_G16)]
+             g16: None,
+@@ -651,6 +669,8 @@ fn probe_m5<'bound>(
+             _device: reg.device().into(),
+             _reg: reg,
+             g17: None,
++            legacy: None,
++            asc: None,
+             m3: None,
+             #[cfg(CONFIG_DRM_ASAHI_G16)]
+             g16: None,
+@@ -690,6 +710,8 @@ pub(crate) fn probe_g16<'bound>(
+             _device: reg.device().into(),
+             _reg: reg,
+             g17: None,
++            legacy: None,
++            asc: None,
+             m3: None,
+             g16: Some(gpu),
+             raw_dev,
+diff --git a/drivers/gpu/drm/asahi/gpu.rs b/drivers/gpu/drm/asahi/gpu.rs
+index 4817bed0c207..c8be4945323c 100644
+--- a/drivers/gpu/drm/asahi/gpu.rs
++++ b/drivers/gpu/drm/asahi/gpu.rs
+@@ -277,6 +277,7 @@ pub(crate) struct GpuManager {
+     next_mmio_iova: u64,
+     #[pin]
+     rtkit: Mutex<Option<rtkit::RtKit<GpuManager::ver>>>,
++    sleep_idled: AtomicBool,
+     #[pin]
+     rx_channels: Mutex<RxChannels::ver>,
+     rx_work_state: AtomicU32,
+@@ -471,6 +472,12 @@ fn map_timestamp_buffer(
+         bo: gem::ObjectRef,
+         range: Range<usize>,
+     ) -> Result<crate::timestamp::Buffer>;
++    /// Prepare the GPU firmware for a firmware-driven system sleep (S2R).
++    fn sleep_prepare(&self) -> Result {
++        Err(EBUSY)
++    }
++    /// Restart or wake the GPU firmware after a system sleep.
++    fn sleep_complete(&self, _start_cpu: &dyn Fn()) {}
+ }
+ 
+ /// Trait used to abstract the firmware/GPU-dependent variants of the GpuManager.
+@@ -1040,6 +1047,7 @@ fn make_mgr(
+                 io_mappings: KVec::new(),
+                 next_mmio_iova: IOVA_KERN_MMIO_RANGE.start,
+                 rtkit <- new_mutex!(None, "rtkit"),
++                sleep_idled: AtomicBool::new(false),
+                 crashed: AtomicBool::new(false),
+                 event_manager,
+                 stats: stats_snap.clone(),
+@@ -1701,6 +1709,72 @@ fn map_timestamp_buffer(
+             false,
+         )?)
+     }
++
++    fn sleep_prepare(&self) -> Result {
++        if self.is_crashed() {
++            dev_warn!(
++                self.dev.as_ref(),
++                "s2r: GPU firmware already crashed before sleep; skipping idle\n"
++            );
++            return Ok(());
++        }
++        let mut guard = self.rtkit.lock();
++        let rtk = guard.as_mut().as_pin_mut().ok_or(ENODEV)?;
++        rtk.idle()?;
++        self.sleep_idled.store(true, Ordering::Release);
++        dev_info!(self.dev.as_ref(), "s2r: GPU firmware idled for sleep\n");
++        Ok(())
++    }
++
++    fn sleep_complete(&self, start_cpu: &dyn Fn()) {
++        if !self.sleep_idled.swap(false, Ordering::AcqRel) {
++            return;
++        }
++        // SAFETY: Reads a global PM flag word.
++        let real = unsafe { kernel::bindings::pm_resume_via_firmware() };
++        let res = {
++            let mut guard = self.rtkit.lock();
++            if guard.is_none() {
++                Err(ENODEV)
++            } else if !real {
++                guard.as_mut().as_pin_mut().unwrap().wake()
++            } else {
++                guard
++                    .as_mut()
++                    .as_pin_mut()
++                    .unwrap()
++                    .warm_restart()
++                    .and_then(|()| {
++                        start_cpu();
++                        guard.as_mut().as_pin_mut().unwrap().boot()
++                    })
++            }
++        };
++        match res {
++            Ok(()) => {
++                let kick = self.kick_firmware();
++                dev_info!(
++                    self.dev.as_ref(),
++                    "s2r: GPU firmware {} (kick {:?})\n",
++                    if real {
++                        "restarted warm"
++                    } else {
++                        "woken after refused sleep"
++                    },
++                    kick
++                );
++            }
++            Err(e) => {
++                self.crashed.store(true, Ordering::Relaxed);
++                dev_err!(
++                    self.dev.as_ref(),
++                    "s2r: GPU firmware {} failed: {:?}\n",
++                    if real { "warm restart" } else { "wake" },
++                    e
++                );
++            }
++        }
++    }
+ }
+ 
+ #[versions(AGX)]
+diff --git a/drivers/gpu/drm/asahi/regs.rs b/drivers/gpu/drm/asahi/regs.rs
+index 1fde883e6c6d..976033fac282 100644
+--- a/drivers/gpu/drm/asahi/regs.rs
++++ b/drivers/gpu/drm/asahi/regs.rs
+@@ -315,6 +315,28 @@ pub(crate) fn state(&self) -> Result<(u32, u32)> {
+     }
+ }
+ 
++/// Mapped ASC CPU control register for starting/restarting the legacy GPU coprocessor.
++pub(crate) struct AscControl<'drm> {
++    mmio: IoMem<'drm, ASC_CTL_SIZE>,
++}
++
++impl AscControl<'_> {
++    pub(crate) fn new<'bound>(
++        pdev: &'bound platform::Device<Core<'_>>,
++    ) -> Result<AscControl<'bound>> {
++        let asc_req = pdev.io_request_by_name(c_str!("asc")).ok_or(EINVAL)?;
++        let mmio = asc_req.iomap_sized::<ASC_CTL_SIZE>()?;
++        Ok(AscControl { mmio })
++    }
++
++    pub(crate) fn start_cpu(&self) {
++        self.mmio
++            .as_view()
++            .relaxed()
++            .update(ASC_CPU_CONTROL, |r| r.with_const_cpu_run::<1>());
++    }
++}
++
+ /// Device resources for this GPU instance.
+ pub(crate) struct Resources<'drm> {
+     dev: ARef<platform::Device>,
+@@ -356,15 +378,6 @@ pub(crate) fn init_mmio(&self) -> Result {
+         Ok(())
+     }
+ 
+-    /// Start the ASC coprocessor CPU.
+-    pub(crate) fn start_cpu(pdev: &platform::Device<Core<'_>>) -> Result {
+-        let asc_req = pdev.io_request_by_name(c_str!("asc")).ok_or(EINVAL)?;
+-        let asc_mmio = asc_req.iomap_sized::<ASC_CTL_SIZE>()?;
+-        let asc_mmio = asc_mmio.as_view().relaxed();
+-        asc_mmio.update(ASC_CPU_CONTROL, |r| r.with_const_cpu_run::<1>());
+-        Ok(())
+-    }
+-
+     /// Get the GPU identification info from registers.
+     ///
+     /// See [`hw::GpuIdConfig`] for the result.
+-- 
+2.56.1
+

@@ -1,0 +1,115 @@
+From 6bd5518e601f9c1f82e7869507c4296ff0ed0e3e Mon Sep 17 00:00:00 2001
+From: Justin Pfister <git@jjrpf.com>
+Date: Thu, 26 Nov 2026 10:17:19 -0500
+Subject: [PATCH 13/15] pmdomain, phy: apple: keep the always-on domains and
+ the ATC PHY state across S2R
+
+Keep the AFR and GPIO domains on across a firmware sleep, and add the T6020 ATC PHY hardware
+description with a restore after the sleep.
+
+Signed-off-by: Justin Pfister <git@jjrpf.com>
+---
+ drivers/phy/apple/atc.c                | 29 ++++++++++++++++++++++++++
+ drivers/pmdomain/apple/pmgr-pwrstate.c | 25 ++++++++++++++++++++++
+ 2 files changed, 54 insertions(+)
+
+diff --git a/drivers/phy/apple/atc.c b/drivers/phy/apple/atc.c
+index 34d3aa12b8f4..e30616e8e230 100644
+--- a/drivers/phy/apple/atc.c
++++ b/drivers/phy/apple/atc.c
+@@ -7836,6 +7836,14 @@ static int atcphy_suspend(struct device *dev)
+ {
+ 	struct apple_atcphy *atcphy = dev_get_drvdata(dev);
+ 
++	/*
++	 * A firmware-driven S2R power cut resets the PHY while genpd may still
++	 * consider its domain on; mark it for a full restore on resume.
++	 */
++	if (pm_suspend_via_firmware() && pm_suspend_target_state == PM_SUSPEND_MEM &&
++	    atcphy->hw->restore_after_pd_off)
++		WRITE_ONCE(atcphy->pd_was_off, true);
++
+ 	if (atcphy->hw->gen != ATCPHY_GENERATION_T8132 || !atcphy->t8132_ss)
+ 		return 0;
+ 
+@@ -7930,6 +7938,26 @@ static const struct atcphy_hw atcphy_hw_t8103 = {
+ 	.park_pipe_unlocked = true,
+ };
+ 
++/*
++ * T6020/T6021 (M2 Pro/Max): T8103 register layout, but the PIPE lock is only
++ * acknowledged while the dummy PIPE PHY is enabled, as on T8122. iBoot leaves
++ * the bit set; a power-domain reset or S2R cut clears it, after which USB3
++ * starts fail with "Pipehandler lock not acked". Re-enable it on every park
++ * and restore the PHY after a power-domain cut.
++ */
++static const struct atcphy_hw atcphy_hw_t6020 = {
++	.gen = ATCPHY_GENERATION_T8103,
++	.aciophy_lane_mode = ACIOPHY_LANE_MODE_T8103,
++	.aciophy_crossbar = ACIOPHY_CROSSBAR_T8103,
++	.configure_post_tunable = atcphy_configure_post_tunable_t8103,
++	.pipe_mux_clk = PIPEHANDLER_MUX_CTRL_CLK_T8103,
++	.pipe_mux_data = PIPEHANDLER_MUX_CTRL_DATA_T8103,
++	.has_usb4 = true,
++	.park_pipe_unlocked = true,
++	.park_dummy_phy = true,
++	.restore_after_pd_off = true,
++};
++
+ static const struct atcphy_hw atcphy_hw_t8122 = {
+ 	.gen = ATCPHY_GENERATION_T8122,
+ 	.aciophy_lane_mode = ACIOPHY_LANE_MODE_T8122,
+@@ -7984,6 +8012,7 @@ static const struct atcphy_hw atcphy_hw_t8142 = {
+ };
+ 
+ static const struct of_device_id atcphy_match[] = {
++	{ .compatible = "apple,t6020-atcphy", .data = &atcphy_hw_t6020 },
+ 	{ .compatible = "apple,t8103-atcphy", .data = &atcphy_hw_t8103 },
+ 	{ .compatible = "apple,t8122-atcphy", .data = &atcphy_hw_t8122 },
+ 	{ .compatible = "apple,t8132-atcphy", .data = &atcphy_hw_t8132 },
+diff --git a/drivers/pmdomain/apple/pmgr-pwrstate.c b/drivers/pmdomain/apple/pmgr-pwrstate.c
+index 6745b4916365..b73526d0eb8b 100644
+--- a/drivers/pmdomain/apple/pmgr-pwrstate.c
++++ b/drivers/pmdomain/apple/pmgr-pwrstate.c
+@@ -430,6 +430,28 @@ static int apple_pmgr_ps_power_on(struct generic_pm_domain *genpd)
+ 	return ret;
+ }
+ 
++static char *s2r_sleep_keep = "afr,gpio,sep";
++module_param(s2r_sleep_keep, charp, 0644);
++MODULE_PARM_DESC(s2r_sleep_keep, "Comma-separated PMGR domain names kept powered through firmware S2R");
++
++static bool apple_pmgr_ps_s2r_keep(const char *name)
++{
++	const char *p = READ_ONCE(s2r_sleep_keep);
++	size_t nlen;
++
++	if (!p || !*p || !name)
++		return false;
++	nlen = strlen(name);
++	while (*p) {
++		const char *c = strchrnul(p, ',');
++
++		if ((size_t)(c - p) == nlen && !strncmp(p, name, nlen))
++			return true;
++		p = *c ? c + 1 : c;
++	}
++	return false;
++}
++
+ static int apple_pmgr_ps_power_off(struct generic_pm_domain *genpd)
+ {
+ 	struct apple_pmgr_ps *ps = genpd_to_apple_pmgr_ps(genpd);
+@@ -442,6 +464,9 @@ static int apple_pmgr_ps_power_off(struct generic_pm_domain *genpd)
+ 	/* A live coprocessor keeps this domain through system sleep. */
+ 	if (ps->sleep_retained && ps->system_sleep)
+ 		return -EBUSY;
++	if (ps->system_sleep && pm_suspend_via_firmware() &&
++	    apple_pmgr_ps_s2r_keep(genpd->name))
++		return -EBUSY;
+ 	/*
+ 	 * Its driver took it down for the sleep and raises it in its own order. Gating it
+ 	 * here would take its parents too, and genpd would raise them all first at the wake.
+-- 
+2.56.1
+

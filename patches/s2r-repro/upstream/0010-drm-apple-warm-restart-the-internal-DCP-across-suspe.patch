@@ -1,0 +1,497 @@
+From 99928933f016e9b653482b42b622b33dff31f563 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <git@jjrpf.com>
+Date: Thu, 26 Nov 2026 10:17:18 -0500
+Subject: [PATCH 10/15] drm/apple: warm restart the internal DCP across
+ suspend-to-RAM
+
+Restart the internal DCP after a firmware sleep with a display-0 cycle and an RTKit warm
+restart, with a cold-restart fallback from the firmware data and the boot-time display block,
+reset the IOMFB channel depths, and acknowledge unknown IOMFB callbacks.
+
+Signed-off-by: Justin Pfister <git@jjrpf.com>
+---
+ drivers/gpu/drm/apple/dcp.c            | 258 +++++++++++++++++++++++++
+ drivers/gpu/drm/apple/ibootep.c        |  90 ++++++++-
+ drivers/gpu/drm/apple/ibootep.h        |   1 +
+ drivers/gpu/drm/apple/iomfb.c          |   8 +-
+ drivers/gpu/drm/apple/iomfb_template.c |   3 +-
+ 5 files changed, 355 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/gpu/drm/apple/dcp.c b/drivers/gpu/drm/apple/dcp.c
+index b16995083020..372dba3cc334 100644
+--- a/drivers/gpu/drm/apple/dcp.c
++++ b/drivers/gpu/drm/apple/dcp.c
+@@ -12,6 +12,9 @@
+ #include <linux/device/driver.h>
+ #include <linux/dma-mapping.h>
+ #include <linux/dma-fence.h>
++#include <linux/firmware.h>
++#include <linux/io.h>
++#include <linux/unaligned.h>
+ #include <linux/gpio/consumer.h>
+ #include <linux/iommu.h>
+ #include <linux/jiffies.h>
+@@ -9717,6 +9720,256 @@ static void dcp_t8132_sleep_stopped(struct apple_dcp *dcp)
+ 	WRITE_ONCE(dcp->t8132_release_late, false);
+ }
+ 
++/*
++ * Post-S2R warm restart of the internal DCP on T602x:
++ * At firmware-driven S2R suspend, stop AFK queues (0xa4) and idle+stop the
++ * DCP RTKit session while keeping its DRAM, rings, and page tables intact so
++ * its power domains can gate. At resume (synchronously, before DRM calls
++ * dcp_poweron()), power-cycle the disp0 block (cpu0/fe/sys) while preserving
++ * dart-dcp0/dart-disp0, warm-restart RTKit with OSLOG echo enabled, raise
++ * CPU_CONTROL_RUN, boot RTKit, and restart AFK queues (0xa3).
++ * External DCPs are still shut down cleanly at S2R suspend.
++ */
++static bool s2r_fw_restart = true;
++module_param(s2r_fw_restart, bool, 0644);
++MODULE_PARM_DESC(s2r_fw_restart, "Warm-restart internal DCP after firmware S2R");
++
++static struct apple_dcp *dcp_fw_s2r_target;
++static bool dcp_fw_s2r_warm_stopped;
++
++static void dcp_fw_s2r_afk_op(struct apple_dcp *dcp, u16 op)
++{
++	struct apple_dcp_afkep *all[] = {
++		dcp->systemep, dcp->ibootep, dcp->dcpavservep,
++		dcp->avep, dcp->dptxep,
++	};
++	struct apple_dcp_afkep *done[ARRAY_SIZE(all)];
++	unsigned int n = 0, i, j;
++
++	for (i = 0; i < ARRAY_SIZE(all); i++) {
++		if (IS_ERR_OR_NULL(all[i]) || !completion_done(&all[i]->started))
++			continue;
++		for (j = 0; j < n && done[j] != all[i]; j++)
++			;
++		if (j == n) {
++			done[n++] = all[i];
++			apple_rtkit_send_message(dcp->rtk, all[i]->endpoint,
++						 FIELD_PREP(GENMASK_ULL(63, 48), op),
++						 NULL, false);
++		}
++	}
++}
++
++static void __iomem *dcp_fw_s2r_ps_map(struct device_node *ps)
++{
++	struct device_node *pmgr = of_get_parent(ps);
++	struct resource res;
++	void __iomem *p = NULL;
++	u32 off;
++
++	if (pmgr && !of_property_read_u32_index(ps, "reg", 0, &off) &&
++	    !of_address_to_resource(pmgr, 0, &res))
++		p = (res.flags & IORESOURCE_MEM_NONPOSTED) ?
++			ioremap_np(res.start + off, 4) :
++			ioremap(res.start + off, 4);
++	of_node_put(pmgr);
++	return p;
++}
++
++static int dcp_fw_s2r_ps_set(void __iomem *p, u32 val, u32 actual)
++{
++	u32 v;
++
++	writel(val, p);
++	return readl_poll_timeout(p, v, ((v >> 4) & 0xf) == actual, 10, 10000);
++}
++
++static struct device *dcp_fw_s2r_dart_dev(struct device_node *np, const char *prop)
++{
++	struct of_phandle_args args;
++	struct platform_device *pdev;
++
++	if (!np || of_parse_phandle_with_args(np, prop, "#iommu-cells", 0, &args))
++		return NULL;
++	pdev = of_find_device_by_node(args.np);
++	of_node_put(args.np);
++	return pdev ? &pdev->dev : NULL;
++}
++
++static void dcp_fw_s2r_disp0_cycle(struct apple_dcp *dcp)
++{
++	struct device_node *np = dcp->dev->of_node, *cpu0, *fe = NULL, *sys = NULL, *child;
++	void __iomem *pc = NULL, *pf = NULL, *ps = NULL;
++	struct device *darts[2];
++	int held[2] = { -ENODEV, -ENODEV }, r[6] = { 0 }, i;
++
++	cpu0 = of_parse_phandle(np, "resets", 0);
++	if (cpu0)
++		fe = of_parse_phandle(cpu0, "power-domains", 0);
++	if (fe)
++		sys = of_parse_phandle(fe, "power-domains", 0);
++	if (cpu0 && fe && sys) {
++		pc = dcp_fw_s2r_ps_map(cpu0);
++		pf = dcp_fw_s2r_ps_map(fe);
++		ps = dcp_fw_s2r_ps_map(sys);
++	}
++	of_node_put(sys);
++	of_node_put(fe);
++	of_node_put(cpu0);
++	darts[0] = dcp_fw_s2r_dart_dev(np, "iommus");
++	child = of_get_child_by_name(np, "piodma");
++	darts[1] = dcp_fw_s2r_dart_dev(child, "iommus");
++	of_node_put(child);
++	if (!pc || !pf || !ps) {
++		dev_warn(dcp->dev, "s2r: disp0 cycle: PS words not mapped, skipped\n");
++		goto out;
++	}
++
++	for (i = 0; i < 2; i++)
++		if (darts[i])
++			held[i] = apple_dart_sleep_prepare(darts[i]);
++
++	writel(0xf0400ff, pc);
++	r[0] = dcp_fw_s2r_ps_set(pc, 0xf0403f0, 0);
++	r[1] = dcp_fw_s2r_ps_set(pf, 0x3f0, 0);
++	r[2] = dcp_fw_s2r_ps_set(ps, 0x3f0, 0);
++	msleep(12);
++	r[3] = dcp_fw_s2r_ps_set(ps, 0xf, 0xf);
++	writel(0x1000000f, ps);
++	r[4] = dcp_fw_s2r_ps_set(pf, 0xf, 0xf);
++	writel(0x1000000f, pf);
++	writel(0xf040000, pc);
++	r[5] = dcp_fw_s2r_ps_set(pc, 0xf04000f, 0xf);
++	writel(0x1f04000f, pc);
++
++	for (i = 0; i < 2; i++)
++		if (darts[i] && !held[i])
++			apple_dart_sleep_restore_lost(darts[i], true);
++	dev_info(dcp->dev, "s2r: disp0 cycle complete: cpu0 %#x fe %#x sys %#x (%d %d %d %d %d %d)\n",
++		 readl(pc), readl(pf), readl(ps), r[0], r[1], r[2], r[3], r[4], r[5]);
++out:
++	for (i = 0; i < 2; i++)
++		if (darts[i])
++			put_device(darts[i]);
++	if (pc)
++		iounmap(pc);
++	if (pf)
++		iounmap(pf);
++	if (ps)
++		iounmap(ps);
++}
++
++static int dcp_fw_s2r_resume_warm(struct apple_dcp *dcp)
++{
++	void __iomem *control = dcp->coproc_reg + APPLE_DCP_COPROC_CPU_CONTROL;
++	int ret;
++
++	dcp_fw_s2r_warm_stopped = false;
++	if (!pm_resume_via_firmware()) {
++		ret = apple_rtkit_sleep_return(dcp->rtk, control);
++		if (ret == -EAGAIN)
++			ret = apple_rtkit_wake(dcp->rtk);
++		if (!ret)
++			dcp_fw_s2r_afk_op(dcp, 0xa3);
++		dev_info(dcp->dev, "s2r: internal DCP wake after refused sleep (%d)\n", ret);
++		return 0;
++	}
++
++	dcp_fw_s2r_disp0_cycle(dcp);
++	WRITE_ONCE(dcp->crashed, false);
++	apple_rtkit_set_oslog_echo(dcp->rtk, true);
++	ret = apple_rtkit_warm_restart(dcp->rtk);
++	if (ret) {
++		dev_err(dcp->dev, "s2r: internal DCP warm restart failed: %d\n", ret);
++		WRITE_ONCE(dcp->crashed, true);
++		return 0;
++	}
++	writel(APPLE_DCP_COPROC_CPU_CONTROL_RUN, control);
++	ret = apple_rtkit_boot(dcp->rtk);
++	if (ret) {
++		dev_err(dcp->dev, "s2r: internal DCP warm boot failed: %d\n", ret);
++		WRITE_ONCE(dcp->crashed, true);
++		return 0;
++	}
++	dev_info(dcp->dev, "s2r: internal DCP warm restart complete (0)\n");
++	return 0;
++}
++
++static void dcp_fw_s2r_a500_done(struct apple_dcp *dcp, void *out, void *cookie)
++{
++	struct completion *done = cookie;
++
++	complete(done);
++}
++
++static int dcp_fw_s2r_a500(struct apple_dcp *dcp)
++{
++	static const struct dcp_method_entry m = {
++		.name = "s2r_link_sleep",
++		.tag = { 'A', '5', '0', '0' },
++	};
++	DECLARE_COMPLETION_ONSTACK(done);
++	u32 in = 0;
++
++	if (dcp->fw_compat != DCP_FIRMWARE_V_13_5)
++		return 0;
++	dcp_push(dcp, false, &m, sizeof(in), 0, &in, dcp_fw_s2r_a500_done, &done);
++	return wait_for_completion_timeout(&done, msecs_to_jiffies(2000)) ? 0 : -ETIMEDOUT;
++}
++
++static bool dcp_fw_s2r_suspend(struct apple_dcp *dcp)
++{
++	int ret;
++
++	if (!READ_ONCE(s2r_fw_restart) || pm_suspend_target_state != PM_SUSPEND_MEM ||
++	    !pm_suspend_via_firmware() || IS_ERR_OR_NULL(dcp->rtk) ||
++	    READ_ONCE(dcp->crashed))
++		return false;
++	if (!dcp->external && !of_device_is_compatible(dcp->dev->of_node, "apple,dcpext") &&
++	    !IS_ERR_OR_NULL(dcp->coproc_reg)) {
++		void __iomem *ctl = dcp->coproc_reg + APPLE_DCP_COPROC_CPU_CONTROL;
++		int a500_ret = dcp_fw_s2r_a500(dcp);
++
++		dev_info(dcp->dev, "s2r: internal DCP A500: %d\n", a500_ret);
++		if (a500_ret == -ETIMEDOUT) {
++			dcp->ch_cmd.depth = 0;
++			dcp->ch_oobcmd.depth = 0;
++			dcp->ch_cb.depth = 0;
++			dcp->ch_oobcb.depth = 0;
++			dcp->ch_async.depth = 0;
++			dcp->ch_oobasync.depth = 0;
++		}
++		apple_rtkit_set_oslog_echo(dcp->rtk, true);
++		ret = apple_rtkit_idle(dcp->rtk);
++		if (ret) {
++			dev_warn(dcp->dev, "s2r: internal DCP idle_with failed (%d), falling back to shutdown\n",
++				 ret);
++			apple_rtkit_shutdown(dcp->rtk);
++			writel(0, ctl);
++			WRITE_ONCE(dcp->crashed, true);
++			WRITE_ONCE(dcp->ext_dead, true);
++			return true;
++		}
++		apple_rtkit_mailbox_off(dcp->rtk);
++		writel(readl(ctl) & ~APPLE_DCP_COPROC_CPU_CONTROL_RUN, ctl);
++		writel(readl(ctl) & ~APPLE_DCP_COPROC_CPU_CONTROL_RUN, ctl);
++		dcp_fw_s2r_target = dcp;
++		dcp_fw_s2r_warm_stopped = true;
++		dev_info(dcp->dev, "s2r: internal DCP idled and stopped for warm S2R\n");
++		return true;
++	}
++	ret = apple_rtkit_shutdown(dcp->rtk);
++	if (ret) {
++		dev_warn(dcp->dev, "s2r: DCP firmware shutdown failed: %d\n", ret);
++		return false;
++	}
++	if (!IS_ERR_OR_NULL(dcp->coproc_reg))
++		writel(0, dcp->coproc_reg + APPLE_DCP_COPROC_CPU_CONTROL);
++	WRITE_ONCE(dcp->crashed, true);
++	WRITE_ONCE(dcp->ext_dead, true);
++	return true;
++}
++
+ static int dcp_platform_suspend(struct device *dev)
+ {
+ 	struct apple_dcp *dcp = dev_get_drvdata(dev);
+@@ -9864,6 +10117,8 @@ static int dcp_platform_suspend(struct device *dev)
+ 	 * domains to stay on. We need this as we do not support full
+ 	 * shutdown properly yet.
+ 	 */
++	if (dcp_fw_s2r_suspend(dcp))
++		return 0;
+ 	device_set_wakeup_path(dev);
+ 	/* Last: the steps above still talk to the coprocessor. */
+ 	dcp_hold_for_sleep(dcp);
+@@ -9884,6 +10139,9 @@ static int dcp_platform_resume(struct device *dev)
+ 	if (dcp->s2r_stopped)
+ 		return dcp_s2r_resume(dcp);
+ 
++	if (dcp == dcp_fw_s2r_target && dcp_fw_s2r_warm_stopped)
++		return dcp_fw_s2r_resume_warm(dcp);
++
+ 	if (iomfb_is_m4(dcp)) {
+ 		int ret = iomfb_m4_resume(dcp);
+ 
+diff --git a/drivers/gpu/drm/apple/ibootep.c b/drivers/gpu/drm/apple/ibootep.c
+index 7f90f68bf26f..1676ff5d1b0b 100644
+--- a/drivers/gpu/drm/apple/ibootep.c
++++ b/drivers/gpu/drm/apple/ibootep.c
+@@ -396,12 +396,14 @@ static void iboot_query_work(struct work_struct *work)
+ 	atomic_set_release(&query->busy, 0);
+ }
+ 
++static bool ibootep_s2r_internal;
++
+ static struct iboot_query *iboot_find_query(struct apple_dcp *dcp)
+ {
+ 	struct apple_dcp_afkep *ep = READ_ONCE(dcp->ibootep);
+ 	u32 i;
+ 
+-	if (!dcp->external || !ep)
++	if ((!dcp->external && !READ_ONCE(ibootep_s2r_internal)) || !ep)
+ 		return ERR_PTR(-ENODEV);
+ 	for (i = 0; i < AFK_MAX_CHANNEL; i++) {
+ 		struct iboot_query *query = smp_load_acquire(&ep->services[i].cookie);
+@@ -699,7 +701,7 @@ static void disp_service_init(struct apple_epic_service *service, const char *na
+ 	struct iboot_query *query;
+ 	int ret;
+ 
+-	if (!dcp->external)
++	if (!dcp->external && !READ_ONCE(ibootep_s2r_internal))
+ 		return;
+ 	query = devm_kzalloc(dcp->dev, sizeof(*query), GFP_KERNEL);
+ 	if (!query)
+@@ -717,6 +719,8 @@ static void disp_service_init(struct apple_epic_service *service, const char *na
+ 		return;
+ 	}
+ 	smp_store_release(&service->cookie, query);
++	if (!dcp->external)
++		return;
+ 	ret = dcpext_scanout_register(dcp);
+ 	if (ret && ret != -ENODEV)
+ 		dev_warn(dcp->dev, "external pattern interface unavailable: %d\n", ret);
+@@ -741,6 +745,88 @@ static const struct apple_epic_service_ops external_ibootep_ops[] = {
+ 	{}
+ };
+ 
++static int iboot_s2r_pick(struct iboot_query *query, u32 op, u8 *reply, u8 *out)
++{
++	const u8 *payload, *mode;
++	size_t size;
++	u32 count, i;
++	int ret, best = -1;
++
++	ret = iboot_read_query(query, op, reply, &payload, &size);
++	if (!ret)
++		ret = iboot_parse_modes(payload, size, &count);
++	if (ret)
++		return ret;
++	for (i = 0; i < count; i++) {
++		mode = payload + 4 + i * IBOOT_MODE_SIZE;
++		if (get_unaligned_le32(mode) != 1)
++			continue;
++		if (best < 0)
++			best = i;
++		if (op == IBOOT_GET_COLOR_MODES && get_unaligned_le32(mode + 12) == 1 &&
++		    get_unaligned_le32(mode + 16) == 32) {
++			best = i;
++			break;
++		}
++		if (op == IBOOT_GET_TIMING_MODES)
++			break;
++	}
++	if (best < 0)
++		return -ENODATA;
++	memcpy(out, payload + 4 + best * IBOOT_MODE_SIZE, IBOOT_MODE_SIZE);
++	return 0;
++}
++
++/*
++ * After a post-S2R cold restart of the internal DCP, drive the iBoot disp0
++ * service (SetPower(1), HPD/mode query, SetMode) so IOMFB's start_ios_gated()
++ * finds the panel powered and initialized as iBoot hands it over.
++ */
++int ibootep_s2r_bringup(struct apple_dcp *dcp)
++{
++	struct iboot_query *query = ERR_PTR(-EAGAIN);
++	u8 modes[2 * IBOOT_MODE_SIZE], power = 1;
++	u8 *reply;
++	int ret, n;
++
++	WRITE_ONCE(ibootep_s2r_internal, true);
++	if (!dcp->ibootep) {
++		ret = ibootep_init(dcp);
++		if (ret)
++			return ret;
++	}
++	for (n = 0; n < 60; n++) {
++		query = iboot_find_query(dcp);
++		if (!IS_ERR(query))
++			break;
++		msleep(50);
++	}
++	if (IS_ERR(query))
++		return PTR_ERR(query);
++	reply = kzalloc(IBOOT_QUERY_RX_SIZE, GFP_KERNEL);
++	if (!reply)
++		return -ENOMEM;
++	ret = iboot_pattern_command(query, 2, &power, sizeof(power), reply);
++	if (ret)
++		goto out;
++	msleep(100);
++	for (n = 0; n < 10; n++) {
++		ret = iboot_refresh_modes(query, reply);
++		if (ret != -ENOLINK)
++			break;
++		msleep(100);
++	}
++	ret = iboot_s2r_pick(query, IBOOT_GET_TIMING_MODES, reply, modes);
++	if (!ret)
++		ret = iboot_s2r_pick(query, IBOOT_GET_COLOR_MODES, reply, modes + IBOOT_MODE_SIZE);
++	if (ret)
++		goto out;
++	ret = iboot_pattern_command(query, 6, modes, sizeof(modes), reply);
++out:
++	kfree(reply);
++	return ret;
++}
++
+ int ibootep_init(struct apple_dcp *dcp)
+ {
+ 	const struct apple_epic_service_ops *ops = ibootep_ops;
+diff --git a/drivers/gpu/drm/apple/ibootep.h b/drivers/gpu/drm/apple/ibootep.h
+index aa44c2f8754e..d01b464e17de 100644
+--- a/drivers/gpu/drm/apple/ibootep.h
++++ b/drivers/gpu/drm/apple/ibootep.h
+@@ -8,6 +8,7 @@ struct apple_dcp;
+ 
+ /* Read-only publication check; does not send firmware commands. */
+ bool ibootep_is_ready(struct apple_dcp *dcp);
++int ibootep_s2r_bringup(struct apple_dcp *dcp);
+ 
+ /* Queue external HPD/timing/color queries; never call synchronously from AFK RX. */
+ int ibootep_query_modes(struct apple_dcp *dcp);
+diff --git a/drivers/gpu/drm/apple/iomfb.c b/drivers/gpu/drm/apple/iomfb.c
+index 38282c45ba88..9228b889922d 100644
+--- a/drivers/gpu/drm/apple/iomfb.c
++++ b/drivers/gpu/drm/apple/iomfb.c
+@@ -1949,6 +1949,11 @@ void dcp_hotplug(struct work_struct *work)
+ 		return;
+ 	}
+ 	dcp = platform_get_drvdata(pdev);
++	if (!dcp->active && !dcp->external) {
++		dev_info(dcp->dev, "%s() deferred while internal DCP inactive (connected:%d nr_modes:%u)\n",
++			 __func__, connector->connected, dcp->nr_modes);
++		return;
++	}
+ 	dev_info(dcp->dev, "%s() connected:%d valid_mode:%d nr_modes:%u\n", __func__,
+ 		 connector->connected, READ_ONCE(dcp->mode_state.valid), dcp->nr_modes);
+ 	if (READ_ONCE(dcp->mode_state.valid))
+@@ -2167,7 +2172,8 @@ static void dcpep_handle_cb(struct apple_dcp *dcp, enum dcp_context_id context,
+ 		if (dcp->fw_compat == DCP_FIRMWARE_V_26_6_DESKTOP &&
+ 		    READ_ONCE(dcp->desktop->modeset_active))
+ 			WRITE_ONCE(dcp->desktop->modeset_callback_error, true);
+-		if (dcp->fw_compat == DCP_FIRMWARE_H17P ||
++		if (dcp->fw_compat == DCP_FIRMWARE_V_13_5 ||
++		    dcp->fw_compat == DCP_FIRMWARE_H17P ||
+ 		    dcp->fw_compat == DCP_FIRMWARE_V_27_0 ||
+ 		    dcp->fw_compat == DCP_FIRMWARE_V_26_6_DESKTOP) {
+ 			if (hdr->out_len)
+diff --git a/drivers/gpu/drm/apple/iomfb_template.c b/drivers/gpu/drm/apple/iomfb_template.c
+index 0e9064dcb289..41c784b0361f 100644
+--- a/drivers/gpu/drm/apple/iomfb_template.c
++++ b/drivers/gpu/drm/apple/iomfb_template.c
+@@ -4693,14 +4693,13 @@ static void res_is_main_display(struct apple_dcp *dcp, void *out, void *cookie)
+ 	dev_info(dcp->dev, "DCP is_main_display: %d\n", result);
+ 
+ 	dcp->main_display = result;
++	dcp->active = true;
+ 
+ 	connector = dcp->connector;
+ 	if (connector) {
+ 		connector->connected = dcp->nr_modes > 0;
+ 		dcp_queue_hotplug(connector);
+ 	}
+-
+-	dcp->active = true;
+ 	/*
+ 	 * Desktop 26.x publishes no initial panel level that would register
+ 	 * the backlight (see iomfb_cb_pr_publish()): the DRM master registers
+-- 
+2.56.1
+

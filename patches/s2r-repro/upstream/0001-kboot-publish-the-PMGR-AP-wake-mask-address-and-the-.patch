@@ -1,0 +1,71 @@
+From 7443df8f50134800decc40adb063b8f34a58b19b Mon Sep 17 00:00:00 2001
+From: Justin Pfister <git@jjrpf.com>
+Date: Thu, 26 Nov 2026 10:18:01 -0500
+Subject: [PATCH] kboot: publish the PMGR AP wake mask address and the ADT wake
+ sources
+
+Put the 64-bit address of the PMGR AP wake mask (PMGR register block 7, mask at +0xc) and the
+source numbers from the ADT pmgr ap-wake-sources property into /chosen as
+aurora,ap-wake-mask-reg and aurora,ap-wake-sources. A kernel that suspends to RAM through the
+SMC (macsmc) masks every other wake source with it, so only the sources the Mac's own firmware
+keeps enabled across a sleep end the sleep. Nothing changes without the property.
+
+Signed-off-by: Justin Pfister <git@jjrpf.com>
+---
+ src/kboot.c | 33 +++++++++++++++++++++++++++++++++
+ 1 file changed, 33 insertions(+)
+
+diff --git a/src/kboot.c b/src/kboot.c
+index 070d90e6..c2263475 100644
+--- a/src/kboot.c
++++ b/src/kboot.c
+@@ -4453,6 +4453,37 @@ __attribute__((unused)) static int dt_transfer_virtios(void)
+  * memory channels depends on the storage configuration of the host Mac
+  * and can only be determined at runtime.
+  */
++/*
++ * The PMGR's AP wake mask and the wake sources the Mac's firmware keeps enabled in a sleep, for the
++ * macsmc driver. /chosen "aurora,ap-wake-mask-reg" = the 64-bit address of the mask's first word
++ * (PMGR register block 7, mask at +0xc), "aurora,ap-wake-sources" = the source numbers listed in the
++ * ADT pmgr "ap-wake-sources" property (entries of a u32 number and a 32-byte name).
++ */
++static int dt_set_ap_wake_sources(void)
++{
++    int path[8];
++    int pnode = adt_path_offset_trace(adt, "/arm-io/pmgr", path);
++    int node = fdt_path_offset(dt, "/chosen");
++    const struct adt_property *prop;
++    u32 out[64];
++    u64 base;
++    int n = 0;
++
++    if (pnode < 0 || node < 0)
++        return 0;
++    prop = adt_get_property(adt, pnode, "ap-wake-sources");
++    if (!prop || adt_get_reg(adt, path, "reg", 7, &base, NULL) < 0)
++        return 0;
++    for (u32 off = 0; off + 36 <= prop->size && n < 64; off += 36)
++        out[n++] = cpu_to_fdt32(*(const u32 *)((const u8 *)prop->value + off));
++    if (!n)
++        return 0;
++    fdt_setprop_u64(dt, node, "aurora,ap-wake-mask-reg", base + 0xc);
++    fdt_setprop(dt, node, "aurora,ap-wake-sources", out, n * 4);
++    printf("FDT: %d AP wake sources published\n", n);
++    return 0;
++}
++
+ static int dt_set_pmgr(void)
+ {
+     if (chip_id != T8012)
+@@ -4780,6 +4811,8 @@ int kboot_prepare_dt(void *fdt)
+         return -1;
+     if (dt_set_pmgr())
+         return -1;
++    if (dt_set_ap_wake_sources())
++        return -1;
+ #ifndef RELEASE
+     if (dt_transfer_virtios())
+         return 1;
+-- 
+2.56.1
+

@@ -1,0 +1,104 @@
+From 88c89952a70bacf70f1a7606a514f01cc29dcbde Mon Sep 17 00:00:00 2001
+From: Justin Pfister <git@jjrpf.com>
+Date: Thu, 26 Nov 2026 10:17:17 -0500
+Subject: [PATCH 06/15] arm64/efi, psci: make SYSTEM_SUSPEND work through the
+ EFI conduit
+
+Unwind the EFI runtime call after a SYSTEM_SUSPEND resume, and drop the virtmap preempt count
+across a CPU_OFF issued through the EFI conduit, so the conduit can be used for suspend-to-RAM
+and CPU hotplug.
+
+Signed-off-by: Justin Pfister <git@jjrpf.com>
+---
+ arch/arm64/include/asm/efi.h |  1 +
+ arch/arm64/kernel/efi.c      | 24 ++++++++++++++++++++++++
+ drivers/firmware/psci/psci.c | 10 +++++++++-
+ 3 files changed, 34 insertions(+), 1 deletion(-)
+
+diff --git a/arch/arm64/include/asm/efi.h b/arch/arm64/include/asm/efi.h
+index bc7cf4dd00ae..62fae6693a94 100644
+--- a/arch/arm64/include/asm/efi.h
++++ b/arch/arm64/include/asm/efi.h
+@@ -206,5 +206,6 @@ extern struct efi_psci_table {
+ 
+ unsigned long arm64_efi_psci_call(unsigned long function_id, unsigned long arg0,
+ 				  unsigned long arg1, unsigned long arg2);
++void arm64_efi_psci_resumed(void);
+ 
+ #endif /* _ASM_EFI_H */
+diff --git a/arch/arm64/kernel/efi.c b/arch/arm64/kernel/efi.c
+index 78d8551cb924..e38f29c3844c 100644
+--- a/arch/arm64/kernel/efi.c
++++ b/arch/arm64/kernel/efi.c
+@@ -15,6 +15,8 @@
+ #include <linux/screen_info.h>
+ #include <linux/vmalloc.h>
+ 
++#include <uapi/linux/psci.h>
++
+ #include <asm/ctxr_execmem.h>
+ #include <asm/efi.h>
+ #include <asm/stacktrace.h>
+@@ -296,6 +298,17 @@ void __init arm64_efi_init(void)
+ 	arm64_efi_init_psci();
+ }
+ 
++/*
++ * SYSTEM_SUSPEND does not return through arm64_efi_psci_call(): the firmware resumes the
++ * kernel at cpu_resume, so the unwinding half of the call never ran. Do it here, after the
++ * resume path is back in the caller.
++ */
++void arm64_efi_psci_resumed(void)
++{
++	uaccess_ttbr0_disable();
++	efi_virtmap_unload();
++}
++
+ unsigned long arm64_efi_psci_call(unsigned long function_id, unsigned long arg0,
+ 				  unsigned long arg1, unsigned long arg2)
+ {
+@@ -314,7 +327,18 @@ unsigned long arm64_efi_psci_call(unsigned long function_id, unsigned long arg0,
+ 	uaccess_ttbr0_enable();
+ 	post_ttbr_update_workaround();
+ 
++	/*
++	 * A successful CPU_OFF does not return: the CPU comes back later through CPU_ON at the
++	 * kernel's secondary entry, so the preempt_disable() in efi_virtmap_load() would never be
++	 * undone and the re-onlined idle task would start with an extra preempt count ("scheduling
++	 * while atomic"). Interrupts are masked on the dying CPU, so drop the count before the call
++	 * and take it again only if the firmware returns.
++	 */
++	if (function_id == PSCI_0_2_FN_CPU_OFF)
++		preempt_enable_no_resched();
+ 	ret = efi_psci.psci_handler(function_id, arg0, arg1, arg2);
++	if (function_id == PSCI_0_2_FN_CPU_OFF)
++		preempt_disable();
+ 
+ 	uaccess_ttbr0_disable();
+ 	efi_virtmap_unload();
+diff --git a/drivers/firmware/psci/psci.c b/drivers/firmware/psci/psci.c
+index af022bf2cb9f..b6927520b206 100644
+--- a/drivers/firmware/psci/psci.c
++++ b/drivers/firmware/psci/psci.c
+@@ -603,9 +603,17 @@ static int psci_system_suspend(unsigned long unused)
+ 
+ static int psci_system_suspend_enter(suspend_state_t state)
+ {
++	int ret;
++
+ 	pm_set_resume_via_firmware();
+ 
+-	return cpu_suspend(0, psci_system_suspend);
++	ret = cpu_suspend(0, psci_system_suspend);
++#if IS_ENABLED(CONFIG_EFI) && IS_ENABLED(CONFIG_ARM64)
++	/* A successful suspend resumed at cpu_resume: the EFI call never unwound */
++	if (!ret && psci_conduit == SMCCC_CONDUIT_EFI)
++		arm64_efi_psci_resumed();
++#endif
++	return ret;
+ }
+ 
+ static int psci_system_suspend_begin(suspend_state_t state)
+-- 
+2.56.1
+

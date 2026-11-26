@@ -1,0 +1,431 @@
+From 885937b9b2aa2a030292059d9ae0093ed23c7029 Mon Sep 17 00:00:00 2001
+From: Justin Pfister <git@jjrpf.com>
+Date: Thu, 26 Nov 2026 10:17:18 -0500
+Subject: [PATCH 08/15] PCI: apple: zero-unbind suspend-to-RAM for the T6020
+ root complex
+
+Unbind the endpoints before the freeze and rescan them after the power cut, redo the port setup
+after the wake and keep the PCIe domains up through the firmware commit. The hooks are declared
+in include/linux/suspend.h and called from the suspend core.
+
+Signed-off-by: Justin Pfister <git@jjrpf.com>
+---
+ drivers/pci/controller/pcie-apple.c | 294 ++++++++++++++++++++++++++++
+ include/linux/suspend.h             |   3 +
+ kernel/power/suspend.c              |  12 ++
+ 3 files changed, 309 insertions(+)
+
+diff --git a/drivers/pci/controller/pcie-apple.c b/drivers/pci/controller/pcie-apple.c
+index 66b1cbe93663..0cf249fd0ca7 100644
+--- a/drivers/pci/controller/pcie-apple.c
++++ b/drivers/pci/controller/pcie-apple.c
+@@ -527,6 +527,9 @@ struct apple_radio_sleep;
+ struct apple_pcie {
+ 	struct mutex		lock;
+ 	struct device		*dev;
++	struct work_struct	s2r_work;
++	struct list_head	s2r_node;
++	bool			s2r_detached;
+ 	void __iomem            *base;
+ 	void __iomem		*fabric_base;
+ 	void __iomem		*debug_base;
+@@ -654,6 +657,8 @@ struct apple_pcie_port {
+ 	bool			powered;	/* cold train: pwren raised, port not parked yet */
+ 	struct device		*cold_dart;	/* a parked port's DART: gated while the port is parked */
+ 	struct pci_saved_state	*cold_rp_state;	/* a parked port's root port, as it was before the park */
++	struct gpio_desc	*s2r_aux_perst[3];
++	u32			s2r_num_aux_perst;
+ };
+ 
+ static bool apple_radio_writer_closed(struct apple_pcie *pcie);
+@@ -663,6 +668,10 @@ static void __noreturn apple_radio_terminal(void);
+ static int apple_pcie_managed_admit(struct apple_pcie_port *port);
+ static struct apple_pcie *apple_pcie_lookup(struct device *dev);
+ static int apple_pcie_radio_check_cold(struct apple_pcie_port *port);
++static void apple_pcie_s2r_work(struct work_struct *work);
++static void apple_pcie_s2r_pm_unregister(void *data);
++static LIST_HEAD(apple_pcie_s2r_list);
++static DEFINE_MUTEX(apple_pcie_s2r_list_lock);
+ 
+ static void rmw_set(u32 set, void __iomem *addr)
+ {
+@@ -2884,6 +2893,12 @@ static int apple_pcie_setup_link(struct apple_pcie *pcie,
+ 	if (!num_aux_resets) {
+ 		port->perst_gpio = reset;
+ 		port->pwren_gpio = pwren;
++	} else {
++		port->perst_gpio = reset;
++		port->pwren_gpio = pwren;
++		port->s2r_num_aux_perst = num_aux_resets;
++		for (u32 idx = 0; idx < num_aux_resets; idx++)
++			port->s2r_aux_perst[idx] = aux_reset[idx];
+ 	}
+ 
+ have_gpios:
+@@ -5869,6 +5884,14 @@ static int apple_pcie_probe(struct platform_device *pdev)
+ 
+ 	mutex_init(&pcie->lock);
+ 	INIT_LIST_HEAD(&pcie->ports);
++	INIT_WORK(&pcie->s2r_work, apple_pcie_s2r_work);
++	INIT_LIST_HEAD(&pcie->s2r_node);
++	if (!pcie->hw->tunneled) {
++		mutex_lock(&apple_pcie_s2r_list_lock);
++		list_add_tail(&pcie->s2r_node, &apple_pcie_s2r_list);
++		mutex_unlock(&apple_pcie_s2r_list_lock);
++		devm_add_action_or_reset(dev, apple_pcie_s2r_pm_unregister, pcie);
++	}
+ 
+ 	/* Resolve PM dependencies before publishing the PCI hierarchy. */
+ 	if (pcie->hw->tunneled) {
+@@ -6939,6 +6962,17 @@ static int apple_pcie_suspend_noirq(struct device *dev)
+ 		return ret;
+ 	}
+ 	if (!pcie->hw->tunneled) {
++		if (pm_suspend_via_firmware()) {
++			struct apple_pcie_port *port;
++			int i;
++
++			list_for_each_entry(port, &pcie->ports, entry) {
++				port->saved_intmask = apple_pcie_port_readl(port, PORT_INTMSK);
++				for_each_set_bit(i, port->sid_map, port->sid_map_sz)
++					port->saved_rid2sid[i] =
++						apple_pcie_port_readl(port, port_rid2sid_offset(port, i));
++			}
++		}
+ 		if (pm_suspend_no_platform() && pcie->num_pds)
+ 			return apple_pcie_hold_domains(pcie);
+ 		return 0;
+@@ -7556,12 +7590,272 @@ static int apple_pcie_prepare(struct device *dev)
+ 	return apple_radio_prepare(dev);
+ }
+ 
++static bool s2r_resume = true;
++module_param(s2r_resume, bool, 0644);
++MODULE_PARM_DESC(s2r_resume, "Redo conventional port setup and rescan after a firmware S2R power cut");
++
++static void apple_pcie_port_program_msi_s2r(struct apple_pcie_port *port)
++{
++	struct apple_pcie *pcie = port->pcie;
++	u32 val = 0;
++
++	BUILD_BUG_ON(upper_32_bits(DOORBELL_ADDR));
++	apple_pcie_port_writel(port, lower_32_bits(DOORBELL_ADDR),
++				 pcie->hw->port_msiaddr);
++	if (pcie->hw->port_msiaddr_hi)
++		apple_pcie_port_writel(port, 0, pcie->hw->port_msiaddr_hi);
++
++	if (pcie->hw->port_msimap) {
++		for (int i = 0; i < pcie->nvecs; i++)
++			apple_pcie_port_writel(port,
++				FIELD_PREP(PORT_MSIMAP_TARGET, pcie->msi_vector_base + i) |
++				PORT_MSIMAP_ENABLE,
++				pcie->hw->port_msimap + 4 * (i +
++				(pcie->hw->msimap_by_vector ? pcie->msi_vector_base : 0)));
++	} else {
++		apple_pcie_port_writel(port, 0, PORT_MSIBASE);
++		val = ilog2(pcie->nvecs) << PORT_MSICFG_L2MSINUM_SHIFT;
++	}
++
++	apple_pcie_port_writel(port, val | PORT_MSICFG_EN, PORT_MSICFG);
++}
++
++static int apple_pcie_port_power_on_s2r(struct apple_pcie *pcie, struct apple_pcie_port *port)
++{
++	u32 stat;
++	int ret;
++
++	rmw_set(PORT_APPCLK_EN, port->base + PORT_APPCLK);
++
++	gpiod_direction_output(port->perst_gpio, 1);
++	for (u32 idx = 0; idx < port->s2r_num_aux_perst; idx++)
++		gpiod_set_value_cansleep(port->s2r_aux_perst[idx], 1);
++
++	if (port->pwren_gpio) {
++		ret = gpiod_set_value_cansleep(port->pwren_gpio, 1);
++		if (ret)
++			return ret;
++	}
++
++	if (!pcie->hw->retain_clocks) {
++		ret = apple_pcie_setup_refclk(pcie, port);
++		if (ret < 0)
++			return ret;
++	}
++
++	if (port->pwren_gpio)
++		msleep(pcie->hw->pwren_on_ms ?: 100);
++	else
++		usleep_range(100, 200);
++
++	rmw_set(PORT_PERST_OFF, port->base + pcie->hw->port_perst);
++	ret = gpiod_set_value_cansleep(port->perst_gpio, 0);
++	if (ret)
++		return ret;
++	for (u32 idx = 0; idx < port->s2r_num_aux_perst; idx++)
++		gpiod_set_value_cansleep(port->s2r_aux_perst[idx], 0);
++
++	msleep(100);
++	ret = readl_relaxed_poll_timeout(port->base + PORT_STATUS, stat,
++					 stat & PORT_STATUS_READY, 100, 250000);
++	if (ret < 0) {
++		dev_err(pcie->dev, "port %pOF ready wait timeout after S2R\n", port->np);
++		return ret;
++	}
++	return 0;
++}
++
++static struct pci_bus *apple_pcie_find_root_bus(struct device *dev)
++{
++	struct pci_dev *pdev = NULL;
++	struct pci_bus *root = NULL;
++
++	for_each_pci_dev(pdev) {
++		struct pci_host_bridge *hb = pci_find_host_bridge(pdev->bus);
++
++		if (hb && hb->dev.parent == dev) {
++			root = hb->bus;
++			pci_dev_put(pdev);
++			break;
++		}
++	}
++	return root;
++}
++
++static void apple_pcie_s2r_pm_unregister(void *data)
++{
++	struct apple_pcie *pcie = data;
++
++	mutex_lock(&apple_pcie_s2r_list_lock);
++	list_del_init(&pcie->s2r_node);
++	mutex_unlock(&apple_pcie_s2r_list_lock);
++}
++
++static unsigned int apple_pcie_collect_endpoints(struct apple_pcie *pcie,
++						 struct pci_dev **eps,
++						 unsigned int max_eps)
++{
++	struct pci_bus *root;
++	struct pci_dev *rp, *ep;
++	unsigned int n = 0;
++
++	pci_lock_rescan_remove();
++	root = apple_pcie_find_root_bus(pcie->dev);
++	if (root) {
++		list_for_each_entry(rp, &root->devices, bus_list) {
++			if (!rp->subordinate)
++				continue;
++			list_for_each_entry(ep, &rp->subordinate->devices, bus_list) {
++				if (n < max_eps)
++					eps[n++] = pci_dev_get(ep);
++			}
++		}
++	}
++	pci_unlock_rescan_remove();
++	return n;
++}
++
++void apple_pcie_s2r_pre_freeze(suspend_state_t state)
++{
++	struct apple_pcie *pcie;
++	struct pci_dev *eps[16];
++	unsigned int i, n;
++
++	if (state != PM_SUSPEND_MEM || !s2r_resume)
++		return;
++
++	mutex_lock(&apple_pcie_s2r_list_lock);
++	list_for_each_entry(pcie, &apple_pcie_s2r_list, s2r_node) {
++		n = apple_pcie_collect_endpoints(pcie, eps, ARRAY_SIZE(eps));
++		for (i = 0; i < n; i++) {
++			device_release_driver(&eps[i]->dev);
++			pci_dev_put(eps[i]);
++		}
++		pcie->s2r_detached = true;
++		dev_info(pcie->dev, "s2r: unbound %u endpoint(s) before freeze\n", n);
++	}
++	mutex_unlock(&apple_pcie_s2r_list_lock);
++}
++
++void apple_pcie_s2r_post_thaw(void)
++{
++	struct apple_pcie *pcie;
++	struct pci_dev *eps[16];
++	unsigned int i, n;
++
++	if (!s2r_resume)
++		return;
++
++	mutex_lock(&apple_pcie_s2r_list_lock);
++	list_for_each_entry(pcie, &apple_pcie_s2r_list, s2r_node) {
++		if (!pcie->s2r_detached)
++			continue;
++		pcie->s2r_detached = false;
++		n = apple_pcie_collect_endpoints(pcie, eps, ARRAY_SIZE(eps));
++		for (i = 0; i < n; i++) {
++			if (!eps[i]->dev.driver)
++				WARN_ON(device_attach(&eps[i]->dev) < 0);
++			pci_dev_put(eps[i]);
++		}
++		dev_info(pcie->dev, "s2r: refused sleep, re-attached %u endpoint(s)\n", n);
++	}
++	mutex_unlock(&apple_pcie_s2r_list_lock);
++}
++
++static void apple_pcie_s2r_work(struct work_struct *work)
++{
++	struct apple_pcie *pcie = container_of(work, struct apple_pcie, s2r_work);
++	struct device *dev = pcie->dev;
++	struct apple_pcie_port *port;
++	struct pci_bus *root = NULL;
++	struct pci_dev *pdev = NULL, *child, *tmp;
++	bool redone = false, any_up = false;
++	u32 stat;
++	int ret;
++
++	msleep(1500);
++	for (unsigned int attempt = 1; attempt <= 3; attempt++) {
++		if (attempt > 1) {
++			if (any_up)
++				break;
++			msleep(3000);
++		}
++		list_for_each_entry(port, &pcie->ports, entry) {
++			if (apple_pcie_port_readl(port, PORT_LINKSTS) & PORT_LINKSTS_UP)
++				continue;
++			dev_info(dev, "port %pOF lost its link in suspend (status %#x, link %#x): redoing setup\n",
++				 port->np, apple_pcie_port_readl(port, PORT_STATUS),
++				 apple_pcie_port_readl(port, PORT_LINKSTS));
++			if (!port->perst_gpio)
++				continue;
++			ret = apple_pcie_port_power_on_s2r(pcie, port);
++			if (ret) {
++				dev_err(dev, "port %pOF power-on after resume failed: %d\n", port->np, ret);
++				continue;
++			}
++			if (!pcie->hw->retain_clocks) {
++				if (pcie->hw->port_refclk)
++					rmw_clear(PORT_REFCLK_CGDIS, port->base + pcie->hw->port_refclk);
++				else if (port->phy)
++					rmw_set(PHY_LANE_CFG_REFCLKCGEN, port->phy + PHY_LANE_CFG);
++				rmw_clear(PORT_APPCLK_CGDIS, port->base + PORT_APPCLK);
++			}
++			apple_pcie_port_writel(port, ~0, PORT_INTMSK);
++			apple_pcie_port_writel(port, ~0, PORT_INTSTAT);
++			apple_pcie_port_writel(port, ~0, PORT_LINKCMDSTS);
++			apple_pcie_port_program_msi_s2r(port);
++			apple_pcie_port_writel(port, PORT_LTSSMCTL_START, PORT_LTSSMCTL);
++			ret = readl_relaxed_poll_timeout(port->base + PORT_LINKSTS, stat,
++							 stat & PORT_LINKSTS_UP, 1000,
++							 link_up_timeout * 1000);
++			apple_pcie_port_writel(port, port->saved_intmask, PORT_INTMSK);
++			dev_info(dev, "port %pOF link %s after resume (%#x)\n", port->np,
++				 ret ? "still down" : "up", stat);
++			redone = true;
++			if (!ret)
++				any_up = true;
++		}
++	}
++	if (!redone || !any_up)
++		return;
++	pcie->s2r_detached = false;
++	msleep(200);
++	pci_lock_rescan_remove();
++	for_each_pci_dev(pdev) {
++		struct pci_host_bridge *hb = pci_find_host_bridge(pdev->bus);
++
++		if (hb && hb->dev.parent == dev) {
++			root = hb->bus;
++			pci_dev_put(pdev);
++			break;
++		}
++	}
++	if (root) {
++		list_for_each_entry_safe_reverse(child, tmp, &root->devices, bus_list)
++			pci_stop_and_remove_bus_device(child);
++		dev_info(dev, "rescanning after S2R power cut: %u devices\n", pci_rescan_bus(root));
++	}
++	pci_unlock_rescan_remove();
++}
++
++static int apple_pcie_resume(struct device *dev)
++{
++	struct apple_pcie *pcie = apple_pcie_lookup(dev);
++
++	if (pcie->hw->tunneled || !s2r_resume || !pm_resume_via_firmware())
++		return 0;
++	pcie->s2r_detached = false;
++	queue_work(system_long_wq, &pcie->s2r_work);
++	return 0;
++}
++
+ static const struct dev_pm_ops apple_pcie_pm_ops = {
+ 	.prepare = apple_pcie_prepare,
+ 	.complete = apple_radio_complete,
+ 	.suspend_noirq = apple_pcie_suspend_noirq,
+ 	.resume_noirq = apple_pcie_resume_noirq,
+ 	.resume_early = apple_pcie_resume_early,
++	.resume = apple_pcie_resume,
+ };
+ 
+ static const struct of_device_id apple_pcie_of_match[] = {
+diff --git a/include/linux/suspend.h b/include/linux/suspend.h
+index 365437ce2cc0..d7043e170b84 100644
+--- a/include/linux/suspend.h
++++ b/include/linux/suspend.h
+@@ -186,6 +186,9 @@ static inline void pm_set_dark_wake(void)
+ 	pm_suspend_global_flags |= PM_SUSPEND_FLAG_DARK_WAKE;
+ }
+ 
++void apple_pcie_s2r_pre_freeze(suspend_state_t state);
++void apple_pcie_s2r_post_thaw(void);
++
+ /**
+  * pm_suspend_via_firmware - Check if platform firmware will suspend the system.
+  *
+diff --git a/kernel/power/suspend.c b/kernel/power/suspend.c
+index f47ca01fb520..22c4e569336e 100644
+--- a/kernel/power/suspend.c
++++ b/kernel/power/suspend.c
+@@ -369,6 +369,14 @@ static int suspend_test(int level)
+  * hibernation).  Run suspend notifiers, allocate the "suspend" console and
+  * freeze processes.
+  */
++void __weak apple_pcie_s2r_pre_freeze(suspend_state_t state)
++{
++}
++
++void __weak apple_pcie_s2r_post_thaw(void)
++{
++}
++
+ static int suspend_prepare(suspend_state_t state)
+ {
+ 	int error;
+@@ -382,6 +390,8 @@ static int suspend_prepare(suspend_state_t state)
+ 	if (error)
+ 		goto Restore;
+ 
++	apple_pcie_s2r_pre_freeze(state);
++
+ 	filesystems_freeze(filesystem_freeze_enabled);
+ 	trace_suspend_resume(TPS("freeze_processes"), 0, true);
+ 	error = suspend_freeze_processes();
+@@ -392,6 +402,7 @@ static int suspend_prepare(suspend_state_t state)
+ 	dpm_save_failed_step(SUSPEND_FREEZE);
+ 	filesystems_thaw();
+ 	pm_notifier_call_chain(PM_POST_SUSPEND);
++	apple_pcie_s2r_post_thaw();
+  Restore:
+ 	pm_restore_console();
+ 	return error;
+@@ -565,6 +576,7 @@ static void suspend_finish(void)
+ 	suspend_thaw_processes();
+ 	filesystems_thaw();
+ 	pm_notifier_call_chain(PM_POST_SUSPEND);
++	apple_pcie_s2r_post_thaw();
+ 	pm_restore_console();
+ }
+ 
+-- 
+2.56.1
+

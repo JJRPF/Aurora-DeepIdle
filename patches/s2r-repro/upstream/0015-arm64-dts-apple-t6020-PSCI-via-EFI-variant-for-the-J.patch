@@ -1,0 +1,148 @@
+From c54d67d0513e261bb0c0de7a9fb873e114c11edf Mon Sep 17 00:00:00 2001
+From: Justin Pfister <git@jjrpf.com>
+Date: Thu, 26 Nov 2026 10:17:20 -0500
+Subject: [PATCH 15/15] arm64: dts: apple: t6020: PSCI-via-EFI variant for the
+ J414s, fix ane_dart0 domain
+
+Add an opt-in J414s device tree that uses the PSCI-via-EFI conduit (with and without the PMP),
+and move ane_dart0 from ps_pmp to ps_ane_cpu like the other two ANE DARTs.
+
+Signed-off-by: Justin Pfister <git@jjrpf.com>
+---
+ .../boot/dts/apple/t6020-j414s-psci-pmp.dts   |  4 ++
+ .../arm64/boot/dts/apple/t6020-j414s-psci.dts | 39 +++++++++++++++++++
+ arch/arm64/boot/dts/apple/t602x-die0.dtsi     | 32 +++++++++++++--
+ 3 files changed, 72 insertions(+), 3 deletions(-)
+ create mode 100644 arch/arm64/boot/dts/apple/t6020-j414s-psci-pmp.dts
+ create mode 100644 arch/arm64/boot/dts/apple/t6020-j414s-psci.dts
+
+diff --git a/arch/arm64/boot/dts/apple/t6020-j414s-psci-pmp.dts b/arch/arm64/boot/dts/apple/t6020-j414s-psci-pmp.dts
+new file mode 100644
+index 000000000000..7140db7e189f
+--- /dev/null
++++ b/arch/arm64/boot/dts/apple/t6020-j414s-psci-pmp.dts
+@@ -0,0 +1,4 @@
++// SPDX-License-Identifier: GPL-2.0+ OR MIT
++/* Test variant: PSCI-via-EFI conduit (t6020-j414s-psci.dts) with the PMP booted (t6020-j414s-pmp.dts). */
++#define APPLE_USE_PMP
++#include "t6020-j414s-psci.dts"
+diff --git a/arch/arm64/boot/dts/apple/t6020-j414s-psci.dts b/arch/arm64/boot/dts/apple/t6020-j414s-psci.dts
+new file mode 100644
+index 000000000000..661e550b26fa
+--- /dev/null
++++ b/arch/arm64/boot/dts/apple/t6020-j414s-psci.dts
+@@ -0,0 +1,39 @@
++// SPDX-License-Identifier: GPL-2.0+ OR MIT
++/*
++ * MacBook Pro (14-inch, M2 Pro, 2023), CPUs brought up through PSCI
++ *
++ * target-type: J414s
++ *
++ * Opt-in test variant of t6020-j414s.dts for the PSCI-via-EFI conduit: the
++ * secondaries are started and stopped with PSCI CPU_ON/CPU_OFF, served by the
++ * resident bootloader through the LINUX_EFI_ARM_PSCI_HANDLER_TABLE config
++ * table, instead of the spin-table. CPU idle stays with the Apple cpuidle
++ * driver for now, so no idle-states are added.
++ *
++ * Without that config table only the boot CPU comes up, so this must only
++ * be booted with a bootloader that provides it. It is left out of the
++ * Makefile on purpose (same compatible as t6020-j414s.dtb; m1n1 boots the
++ * last DTB that matches). Build it by name.
++ */
++
++#include "t6020-j414s.dts"
++
++/ {
++	psci {
++		compatible = "arm,psci-1.0";
++		method = "efi";
++	};
++};
++
++&cpu_e00 { enable-method = "psci"; };
++&cpu_e01 { enable-method = "psci"; };
++&cpu_e02 { enable-method = "psci"; };
++&cpu_e03 { enable-method = "psci"; };
++&cpu_p00 { enable-method = "psci"; };
++&cpu_p01 { enable-method = "psci"; };
++&cpu_p02 { enable-method = "psci"; };
++&cpu_p03 { enable-method = "psci"; };
++&cpu_p10 { enable-method = "psci"; };
++&cpu_p11 { enable-method = "psci"; };
++&cpu_p12 { enable-method = "psci"; };
++&cpu_p13 { enable-method = "psci"; };
+diff --git a/arch/arm64/boot/dts/apple/t602x-die0.dtsi b/arch/arm64/boot/dts/apple/t602x-die0.dtsi
+index 828f6ac65c4a..b9b7261006d6 100644
+--- a/arch/arm64/boot/dts/apple/t602x-die0.dtsi
++++ b/arch/arm64/boot/dts/apple/t602x-die0.dtsi
+@@ -23,7 +23,7 @@ ane_dart0: iommu@285800000 {
+ 		#iommu-cells = <1>;
+ 		interrupt-parent = <&aic>;
+ 		interrupts = <AIC_IRQ 0 885 IRQ_TYPE_LEVEL_HIGH>;
+-		power-domains = <&ps_pmp>;
++		power-domains = <&ps_ane_cpu>;
+ 		status = "disabled";
+ 	};
+ 
+@@ -311,6 +311,10 @@ nub_spmi0: spmi@29e114000 {
+ 		reg = <0x2 0x9e114000 0x0 0x100>;
+ 		#address-cells = <2>;
+ 		#size-cells = <0>;
++		#interrupt-cells = <2>;
++		interrupt-controller;
++		interrupt-parent = <&aic>;
++		interrupts = <AIC_IRQ 0 724 IRQ_TYPE_LEVEL_HIGH>;
+ 
+ 		pmic1: pmic@b {
+ 			compatible = "apple,maverick-pmic", "apple,spmi-nvmem";
+@@ -321,14 +325,31 @@ nvmem-layout {
+ 				#address-cells = <1>;
+ 				#size-cells = <1>;
+ 
++				rtc_ctrl: rtc-ctrl@1401 {
++					reg = <0x1401 0x1>;
++				};
++
+ 				pm_setting: pm-setting@1405 {
+ 					reg = <0x1405 0x1>;
+ 				};
+ 
++				rtc_alarm: rtc-alarm@140c {
++					reg = <0x140c 0x4>;
++				};
++
+ 				rtc_offset: rtc-offset@1411 {
+ 					reg = <0x1411 0x6>;
+ 				};
+ 
++				rtc_alarm_event: rtc-alarm-event@14c0 {
++					reg = <0x14c0 0x1>;
++				};
++
++				rtc_alarm_mask: rtc-alarm-mask@14c2,0 {
++					reg = <0x14c2 0x1>;
++					bits = <0 1>;
++				};
++
+ 				boot_stage: boot-stage@6001 {
+ 					reg = <0x6001 0x1>;
+ 				};
+@@ -411,8 +432,13 @@ smc_hwmon: hwmon {
+ 
+ 		rtc {
+ 			compatible = "apple,smc-rtc";
+-			nvmem-cells = <&rtc_offset>;
+-			nvmem-cell-names = "rtc_offset";
++			nvmem-cells = <&rtc_offset>, <&rtc_ctrl>, <&rtc_alarm>,
++				<&rtc_alarm_mask>, <&rtc_alarm_event>;
++			nvmem-cell-names = "rtc_offset", "rtc_ctrl", "rtc_alarm",
++				"rtc_alarm_mask", "rtc_alarm_event";
++			/* The PMU alarm, SPMI peripheral interrupt 2 of nub-spmi0 (AIC 724) */
++			interrupts-extended = <&nub_spmi0 2 IRQ_TYPE_EDGE_RISING>;
++			wakeup-source;
+ 		};
+ 	};
+ 
+-- 
+2.56.1
+
