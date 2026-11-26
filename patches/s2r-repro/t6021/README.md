@@ -34,7 +34,7 @@ The same kernel and Aura also run the daily desktop (Hyprland), where sleeps end
 
 A sleep cancelled on the way down (a wake event, or a device refusing) left the display and GPU firmware down: both had been idled early in the suspend, and neither answered the wake that followed (`RTKit: IOP power acknowledgment failed: -62`). On the desktop the compositor then exits. Reproduce with `echo devices > /sys/power/pm_test; echo mem > /sys/power/state`.
 
-The diff (37 added lines):
+The diff (39 added lines):
 
 - **Internal DCP:** on the cancelled path, restart it as after a real sleep (disp0 cycle, warm restart, run, boot), reusing the R62W restart. `appledrm.s2r_refused_cycle=0` gives the old behaviour.
 - **GPU:** idle its firmware in `suspend_late` instead of `.prepare`, so a cancel in the device stage never touches it. This is @nekolyanich's approach from `m2pro-s2r-wip`. `aurora.g14_s2r_idle_late=0` gives the old behaviour.

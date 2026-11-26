@@ -51,10 +51,21 @@ index b97069165103..0ba45d3de29b 100644
              default: 1,
              // permissions: 0,
 diff --git a/drivers/gpu/drm/asahi/driver.rs b/drivers/gpu/drm/asahi/driver.rs
-index e631342e967e..d29b74950181 100644
+index e631342e967e..8a594e332221 100644
 --- a/drivers/gpu/drm/asahi/driver.rs
 +++ b/drivers/gpu/drm/asahi/driver.rs
-@@ -278,12 +278,33 @@ unsafe fn sleep_data<'a>(dev: *mut bindings::device) -> &'a AsahiPlatformDriverD
+@@ -267,7 +267,9 @@ unsafe fn sleep_data<'a>(dev: *mut bindings::device) -> &'a AsahiPlatformDriverD
+     unsafe { &*bindings::dev_get_drvdata(dev).cast() }
+ }
+ 
+-/// Runs before any device suspends, so the GPU goes first and work still in flight can finish.
++/// Runs before any device suspends. G17 stops its firmware here, so that GPU goes first and work
++/// still in flight can finish. The legacy GPU's firmware is idled later, in [`sleep_late`], unless
++/// `g14_s2r_idle_late=0` asks for it here.
+ unsafe extern "C" fn sleep_prepare(dev: *mut bindings::device) -> core::ffi::c_int {
+     // SAFETY: Reads a global flag word.
+     if !unsafe { bindings::pm_suspend_via_firmware() } {
+@@ -278,12 +280,33 @@ unsafe fn sleep_data<'a>(dev: *mut bindings::device) -> &'a AsahiPlatformDriverD
      if let Some(gpu) = data.g17.as_ref() {
          kernel::error::from_result(|| gpu.sleep_prepare().map(|_| 0))
      } else if let Some(gpu) = data.legacy.as_ref() {
@@ -88,7 +99,7 @@ index e631342e967e..d29b74950181 100644
  /// Runs after every device resumed. Does nothing unless [`sleep_prepare`] stopped the firmware.
  unsafe extern "C" fn sleep_complete(dev: *mut bindings::device) {
      // SAFETY: Called by the PM core.
-@@ -298,6 +319,7 @@ unsafe fn sleep_data<'a>(dev: *mut bindings::device) -> &'a AsahiPlatformDriverD
+@@ -298,6 +321,7 @@ unsafe fn sleep_data<'a>(dev: *mut bindings::device) -> &'a AsahiPlatformDriverD
  static SLEEP_OPS: SleepOps = SleepOps(bindings::dev_pm_ops {
      prepare: Some(sleep_prepare),
      complete: Some(sleep_complete),
