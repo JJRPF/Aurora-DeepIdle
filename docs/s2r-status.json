@@ -1,8 +1,8 @@
 {
   "schema": 1,
-  "updated": "2026-11-25T20:15:00-05:00",
-  "overall": 95,
-  "overall_note": "Risk-weighted guess with a wide error bar. The page prefers the live figure in `docs/status.md` when it can read one.",
+  "updated": "2026-11-25T21:20:00-05:00",
+  "overall": 97,
+  "overall_note": "Risk-weighted guess with a wide error bar. Real suspend from the full Omarchy desktop now works; left: speaker check, overnight drain, making it the default boot, upstream PRs.",
   "machine": "14-inch MacBook Pro, M2 Pro (`T6020`, `apple,j414s`), Aurora Silicon Linux",
   "goal": {
     "linux_w": 1.4,
@@ -105,8 +105,8 @@
       "name": "Devices survive power loss",
       "short": "NVMe, USB, SMC, SEP, PCIe, Wi-Fi, BT, SD, Display, GPU",
       "state": "active",
-      "pct": 98,
-      "summary": "Every core device survives real S2R on 7.3.0-s2r73+ with zero userspace unbinds (R62Y-4, visually confirmed by owner): NVMe, USB, SMC, RTC, SEP (DART state saved/restored), PMP (1 MiB T6020 SRAM backup), Wi-Fi, Bluetooth (40 LE devices scanned), SD card (T6020 dart-apcie0/1 tunables restored, 6.6 MB/s direct read), internal display + backlight (warm DCP restart in 0.9 ms, no dcp-fw.macho needed, 20%->100%->60% ramp visually confirmed), and G14S GPU (kept bound, warm-restarted in 0.33 ms). Speaker audio (NCO/MCA/TAS2764) fixes are ported and ready for live desktop playback check.",
+      "pct": 99,
+      "summary": "Every core device survives real S2R on 7.3.0-s2r73+ with zero userspace unbinds (R62Y-4, visually confirmed by owner): NVMe, USB, SMC, RTC, SEP (DART state saved/restored), PMP (1 MiB T6020 SRAM backup), Wi-Fi, Bluetooth (40 LE devices scanned), SD card (T6020 dart-apcie0/1 tunables restored, 6.6 MB/s direct read), internal display + backlight (warm DCP restart in 0.9 ms, no dcp-fw.macho needed, 20%->100%->60% ramp visually confirmed), and G14S GPU (kept bound, warm-restarted in 0.33 ms). Speaker audio (NCO/MCA/TAS2764) fixes are installed; Aura 129 passes the Mac's real amp levels and the speaker driver unlocks, so the live playback check before and after a suspend is the last item.",
       "done": [
         "Wi-Fi/Bluetooth and the SD reader after a real cut (R61P, R61Q): with Aura's PCIe power-off at the commit left out, both links train on the first relink, brcmfmac loads the BCM4388 firmware, hci0 comes up and the GL9755 SD controller is found, 3 of 3 (R61P to R61R). In R61Q Wi-Fi scanned 51 networks and joined the home network",
         "Internal display after a real cut (R61M6, R61M7): the DCP firmware's `__DATA` is restored from macOS's DCP.img4 with iBoot's tagged block kept, then a plain RTKit restart. After that the iBoot disp0 service gets SetPower(1) and SetMode, and then the normal IOMFB start runs. Result: panel detected with 6 modes, panel rail back at 1.29 V, no crash, 2 of 2",
@@ -138,8 +138,8 @@
       "name": "Full S2R",
       "short": "The SoC powers down, DRAM in self-refresh",
       "state": "active",
-      "pct": 96,
-      "summary": "100% zero-unbind plain `echo mem > /sys/power/state` S2R works on clean 7.3.0-s2r73+ + Aura 128 (R62Y-4, visually confirmed by owner): all 10 CPUs, NVMe, USB, SMC, SEP, PMP, Wi-Fi, Bluetooth, SD card, internal display + backlight (warm DCP restart), and bound G14S GPU all come back cleanly in ~1.2 s. Next: install into normal Omarchy boot chain for live desktop GPU/audio/lid testing and overnight battery drain measurement.",
+      "pct": 99,
+      "summary": "Real S2R now works from the live Omarchy desktop (`systemctl suspend`, a 16 min 38 s sleep with everything back, zero errors) on 7.3.0-s2r73+ + Aura 128, with all 10 CPUs, NVMe, USB, SMC, SEP, PMP, Wi-Fi, Bluetooth, SD, display + backlight and the GPU. Next: the overnight battery drain, then making it the default boot.",
       "done": [
         "R59P: a 5-minute S2R sleep, resumed to userspace with NVMe live and a clean reboot after (2026-11-20)",
         "R57AL: Linux resumes to userspace after a real S2R sleep, reproduced in every run since",
@@ -180,9 +180,8 @@
         "2026-11-11, R20b, R20c, R21, R22B (images 70 to 72): APSC off late, EDPRCR cleared on every core, the alarm moved to +70 s: the same reset at the same time"
       ],
       "next": [
-        "Wi-Fi and the SD reader after the wake (phase 4)",
-        "Drain over a whole night, and 20 cycles in a row",
-        "The kernel patches cleaned (TEST code out) and moved onto the rebased linux-aurora base"
+        "Drain over a whole night (`sudo s2r-overnight start` / `report`)",
+        "The kernel patches cleaned (4 compiler warnings) and prepared as upstream PRs"
       ],
       "gate": "20 of 20 cycles; lid, key, keyboard and alarm wakes; about 0.3 W on battery."
     },
@@ -191,11 +190,20 @@
       "trail": "Daily use",
       "name": "Daily use",
       "short": "Lid close just works",
-      "state": "todo",
-      "pct": 0,
-      "summary": "U-Boot passes Aura’s PSCI table on, Omarchy’s suspend uses `deep`, and the patches go to Aurora’s trees.",
-      "done": [],
-      "next": [],
+      "state": "active",
+      "pct": 60,
+      "summary": "The S2R kernel, Aura 129 and the prep service are installed as a second Limine entry (`/OmarchyS2R`, now booting); Omarchy's suspend uses `deep`. Left: speaker check, overnight drain, making it the default, and PRs to Aurora's trees.",
+      "done": [
+        "`/OmarchyS2R` boot entry with the S2R UKI; stock Omarchy entry untouched, boot.bin backed up",
+        "`MemorySleepMode=deep`, T6020 prep service and a sleep hook for repeat cycles",
+        "Real `systemctl suspend` from Hyprland: 997.8 s asleep, clean wake (owner-confirmed)"
+      ],
+      "next": [
+        "Speakers before and after a suspend",
+        "Overnight drain on battery",
+        "Make S2R the default boot",
+        "Upstream PRs to aurora-silicon (kernel, Aura, U-Boot)"
+      ],
       "gate": "Shipped."
     }
   ],
@@ -349,6 +357,7 @@
     { "what": "macOS 15.7.1", "value": "0.24 W", "detail": "5.9 h, 98.7% of it in S2R" }
   ],
   "findings": [
+    { "title": "Real S2R from the live Omarchy desktop works (7.3.0-s2r73+, Aura 128)", "body": "A real `systemctl suspend` in Hyprland slept 997.8 s (16 min 38 s) in SLP_S2R and woke with Hyprland, GPU rendering, display and backlight, Wi-Fi, Bluetooth, SD, NVMe, USB, PMP and SEP all working and no errors. Every device now returns with zero userspace unbinds. Aura 129 (real amp levels from the Mac's device tree, so the speakers can be enabled safely) is booted and reports 'Speaker volumes unlocked'; the playback check before and after a suspend is next." },
     { "title": "The PCIe shutdown isn't needed; one change was the whole fix (R61R)", "body": "A third run, this time without the orderly PCIe shutdown before the sleep. Wi-Fi, Bluetooth and the SD reader came back again and Wi-Fi rejoined the network: 3 of 3. So the fix is one change in our sleep entry: Aura leaves the PCIe power domains on at the commit. The existing relink after the wake does the rest." },
     { "title": "Wi-Fi joins the network after a real S2R, 2 of 2 (R61Q)", "body": "A repeat of R61P with a Wi-Fi check after the wake. Both links trained on the first relink again. Wi-Fi scanned 51 networks and joined the home network on its own, about 20 s after the wake. Bluetooth and the SD controller came up as well." },
     { "title": "Wi-Fi, Bluetooth and the SD reader come back after a real S2R (R61P)", "body": "The cause was our own sleep entry. Since image 64, Aura powered off the three PCIe power domains (apcie_gp_sys, apcie_gpshr_sys, apcie_gp) at the commit, because macOS has them off at that point. With that step left out (aura-ctl bit 20), the sleep still commits (PMU 0x601f = aa, NVMe cold-starts) and both links train on the first relink after the wake. The BCM4388 loads its firmware, Bluetooth comes up as hci0, and the SD controller is found again. The SMC's MEPS 1 after waka is normal: macOS shows it too." },

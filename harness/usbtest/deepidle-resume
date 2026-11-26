@@ -1,11 +1,11 @@
 #!/bin/bash
-# GH-5 / Coordination: reopens all three AGY agents (S2R-AGY, GPU-AGY, Lichen-AGY) after a reboot
+# GH-5 / Coordination: reopens the S2R agent (Claude Code, resumes the last conversation in the S2R worktree) and the GPU-AGY / Lichen-AGY agents after a reboot
 # and instructs each to immediately reconnect to Lichen (Omarchy post-boot hook).
 # Armed by ~/.local/state/deepidle/resume (holds the S2R worktree path); remove that file to stop it.
 STATE=$HOME/.local/state/deepidle
 [ -s "$STATE/resume" ] || exit 0
 DIR=$(head -1 "$STATE/resume"); [ -d "$DIR" ] || exit 0
-echo "$(date '+%F %T') resume launched (S2R-AGY, GPU-AGY, Lichen-AGY)" >> "$STATE/resume.log"
+echo "$(date '+%F %T') resume launched (S2R-Claude, GPU-AGY, Lichen-AGY)" >> "$STATE/resume.log"
 sleep 20
 
 launch_agy() {
@@ -15,8 +15,9 @@ launch_agy() {
         bash -lc "agy --conversation '$conv' --remote-control --dangerously-skip-permissions -i \"\$(cat '$prompt_file')\"; echo 'agy exited: \$?'; exec bash" >/dev/null 2>&1 &
 }
 
-S2R_CONV=$(head -1 "$STATE/agy-conversation" 2>/dev/null)
-launch_agy "S2R-AGY" "$DIR" "${S2R_CONV:-eb6969fe-cb69-4970-b40a-c9b0fdc4d2a9}" "$STATE/prompt.txt"
+# S2R agent: Claude Code, resumes the most recent conversation in the worktree.
+xdg-terminal-exec --title="S2R-Claude" --dir="$DIR" -- \
+    bash -lc "claude --continue --dangerously-skip-permissions \"\$(cat '$STATE/prompt-claude.txt')\"; echo 'claude exited: \$?'; exec bash" >/dev/null 2>&1 &
 sleep 2
 launch_agy "GPU-AGY" "$HOME/dev/Aurora-GPUParity" "6703655e-f34e-4a18-aaa1-8e0fc9935c43" "$STATE/prompt-gpu.txt"
 sleep 2
