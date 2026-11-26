@@ -6054,3 +6054,12 @@ Armed R60H 23:52
 - Cmdline: `aop` has no module parameters at all (`/sys/module/aop/parameters` absent), so `aop.sleep_ap_idle=3` does nothing in this kernel; `mem_sleep_default=deep` is redundant (kernel default is deep when `PM_SUSPEND_MEM` is valid). To be removed from the S2R UKI and `MemorySleepMode=deep` from sleep.conf.
 - Battery note: `capacity` read 10% while `energy_now`/`energy_full` = 34.7/60.2 Wh (57.7%); the percentage was wrong after the reboot. `s2r-overnight` uses energy_now, so its drain figure is unaffected.
 - State left: prep stays OFF (restore: `sudo bash harness/usbtest/prep-restore.sh`).
+
+## 2026-11-26 11:15 Pre-PR cleanup (before the long no-prep run)
+- S2R UKI rebuilt without `aop.sleep_ap_idle=3 mem_sleep_default=deep` (cmdline is now the stock Omarchy one); `10-deep-s2r.conf` moved to `/var/lib/deepidle/sleepconf-off/`. Old UKI: `/var/lib/deepidle/omarchy_linux-aurora-s2r.efi.with-args`. Needs a reboot to prove deep is the default with no cmdline and no sleep.conf.
+- Regression state on the live boot: 0 failed units; SELinux/audit not present on this install (no getenforce, no audit.log), so "0 denials" cannot be claimed, state that in the PR.
+- Gating review of the kernel branch (gh5/s2r-7.3-pr, 35 commits, +1685/-67). Violations of agent-guidelines rule 4 (no model gating, no hardcoded hardware data):
+  1. `drivers/mfd/macsmc.c`: `of_machine_is_compatible("apple,t6020")` gate, hardcoded wake-mask physical address (`T6020_WAKEMASK_PHYS`) and hardcoded `t6020_wake_valid[]` / `t6020_wake_sources[]` tables. Should come from a DT property (wake sources from the ADT/Aura), with the driver acting when the property exists.
+  2. `drivers/pci/controller/pcie-apple.c`: `of_device_is_compatible(..., "apple,t6020-pcie")` gate plus hardcoded DART tunable offset/mask/value table in the S2R path. Should be match data or DT-provided tunables.
+  3. Per-SoC match-data entries (atcphy t6020, pmp-v2) are normal compatible tables, fine.
+  Fixing 1 and 2 means a DT/Aura side first (chicken and egg rule: land the property producer, consumer keeps today's behaviour as fallback). Not done yet; PRs wait for it.
