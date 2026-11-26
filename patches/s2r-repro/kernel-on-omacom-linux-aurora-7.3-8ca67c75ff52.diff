@@ -622,7 +622,7 @@ index e73bae6cb23a..b6927520b206 100644
  
  static int psci_system_suspend_begin(suspend_state_t state)
 diff --git a/drivers/gpu/drm/apple/dcp.c b/drivers/gpu/drm/apple/dcp.c
-index b16995083020..f3b48793f9b0 100644
+index b16995083020..372dba3cc334 100644
 --- a/drivers/gpu/drm/apple/dcp.c
 +++ b/drivers/gpu/drm/apple/dcp.c
 @@ -12,6 +12,9 @@
@@ -635,7 +635,7 @@ index b16995083020..f3b48793f9b0 100644
  #include <linux/gpio/consumer.h>
  #include <linux/iommu.h>
  #include <linux/jiffies.h>
-@@ -9717,6 +9720,261 @@ static void dcp_t8132_sleep_stopped(struct apple_dcp *dcp)
+@@ -9717,6 +9720,256 @@ static void dcp_t8132_sleep_stopped(struct apple_dcp *dcp)
  	WRITE_ONCE(dcp->t8132_release_late, false);
  }
  
@@ -814,11 +814,6 @@ index b16995083020..f3b48793f9b0 100644
 +	return 0;
 +}
 +
-+static void dcp_fw_s2r_afk_stop(void *data)
-+{
-+	dcp_fw_s2r_afk_op(data, 0xa4);
-+}
-+
 +static void dcp_fw_s2r_a500_done(struct apple_dcp *dcp, void *out, void *cookie)
 +{
 +	struct completion *done = cookie;
@@ -897,7 +892,7 @@ index b16995083020..f3b48793f9b0 100644
  static int dcp_platform_suspend(struct device *dev)
  {
  	struct apple_dcp *dcp = dev_get_drvdata(dev);
-@@ -9864,6 +10122,8 @@ static int dcp_platform_suspend(struct device *dev)
+@@ -9864,6 +10117,8 @@ static int dcp_platform_suspend(struct device *dev)
  	 * domains to stay on. We need this as we do not support full
  	 * shutdown properly yet.
  	 */
@@ -906,7 +901,7 @@ index b16995083020..f3b48793f9b0 100644
  	device_set_wakeup_path(dev);
  	/* Last: the steps above still talk to the coprocessor. */
  	dcp_hold_for_sleep(dcp);
-@@ -9884,6 +10144,9 @@ static int dcp_platform_resume(struct device *dev)
+@@ -9884,6 +10139,9 @@ static int dcp_platform_resume(struct device *dev)
  	if (dcp->s2r_stopped)
  		return dcp_s2r_resume(dcp);
  
@@ -1321,7 +1316,7 @@ index 4817bed0c207..c8be4945323c 100644
  
  #[versions(AGX)]
 diff --git a/drivers/gpu/drm/asahi/regs.rs b/drivers/gpu/drm/asahi/regs.rs
-index 1fde883e6c6d..e5415ef49906 100644
+index 1fde883e6c6d..976033fac282 100644
 --- a/drivers/gpu/drm/asahi/regs.rs
 +++ b/drivers/gpu/drm/asahi/regs.rs
 @@ -315,6 +315,28 @@ pub(crate) fn state(&self) -> Result<(u32, u32)> {
@@ -1353,6 +1348,22 @@ index 1fde883e6c6d..e5415ef49906 100644
  /// Device resources for this GPU instance.
  pub(crate) struct Resources<'drm> {
      dev: ARef<platform::Device>,
+@@ -356,15 +378,6 @@ pub(crate) fn init_mmio(&self) -> Result {
+         Ok(())
+     }
+ 
+-    /// Start the ASC coprocessor CPU.
+-    pub(crate) fn start_cpu(pdev: &platform::Device<Core<'_>>) -> Result {
+-        let asc_req = pdev.io_request_by_name(c_str!("asc")).ok_or(EINVAL)?;
+-        let asc_mmio = asc_req.iomap_sized::<ASC_CTL_SIZE>()?;
+-        let asc_mmio = asc_mmio.as_view().relaxed();
+-        asc_mmio.update(ASC_CPU_CONTROL, |r| r.with_const_cpu_run::<1>());
+-        Ok(())
+-    }
+-
+     /// Get the GPU identification info from registers.
+     ///
+     /// See [`hw::GpuIdConfig`] for the result.
 diff --git a/drivers/iommu/apple-dart.c b/drivers/iommu/apple-dart.c
 index 33a29ce9beb0..fff374af3cd8 100644
 --- a/drivers/iommu/apple-dart.c
@@ -2610,6 +2621,20 @@ index 4db916bb89f0..ae27e679a972 100644
  
  /*
   * Echo each OSLOG channel-0 counter the firmware sends, as macOS does. On by default on
+diff --git a/include/linux/suspend.h b/include/linux/suspend.h
+index 365437ce2cc0..d7043e170b84 100644
+--- a/include/linux/suspend.h
++++ b/include/linux/suspend.h
+@@ -186,6 +186,9 @@ static inline void pm_set_dark_wake(void)
+ 	pm_suspend_global_flags |= PM_SUSPEND_FLAG_DARK_WAKE;
+ }
+ 
++void apple_pcie_s2r_pre_freeze(suspend_state_t state);
++void apple_pcie_s2r_post_thaw(void);
++
+ /**
+  * pm_suspend_via_firmware - Check if platform firmware will suspend the system.
+  *
 diff --git a/kernel/power/suspend.c b/kernel/power/suspend.c
 index f47ca01fb520..22c4e569336e 100644
 --- a/kernel/power/suspend.c
