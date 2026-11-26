@@ -36,7 +36,7 @@ The same kernel and Aura also run the daily desktop (Hyprland), where sleeps end
 
 A sleep cancelled on the way down (a wake event, or a device refusing) left the display and GPU firmware down: both had been idled early in the suspend, and neither answered the wake that followed (`RTKit: IOP power acknowledgment failed: -62`). On the desktop the compositor then exits. Reproduce with `echo devices > /sys/power/pm_test; echo mem > /sys/power/state`.
 
-The diff (39 added lines):
+The diff:
 
 - **Internal DCP:** on the cancelled path, restart it as after a real sleep (disp0 cycle, warm restart, run, boot), reusing the R62W restart. `appledrm.s2r_refused_cycle=0` gives the old behaviour.
 - **GPU:** idle its firmware in `suspend_late` instead of `.prepare`, so a cancel in the device stage never touches it. This is @nekolyanich's approach from `m2pro-s2r-wip`. `aurora.g14_s2r_idle_late=0` gives the old behaviour.
@@ -58,7 +58,7 @@ With `kernel-cancelled-sleep.diff`, a cancel in the device stage is safe. A late
 - The GPU firmware is idled in `suspend_late` and has no way back without a real sleep (above).
 - The SEP is told to sleep in its `suspend_noirq` (`noirq_direct`). If the suspend is cancelled after that, `sep_pm_commit_finish()` in `pm_shim.c` panics: `SEP SLEEP was sent without a physical sleep/wake`.
 
-The diff (26 added lines in `drivers/base/power/`): from the start of `dpm_suspend_late()`, `pm_wakeup_pending()` returns false for a firmware-driven suspend until the resume begins. `pm_s2r_commit_late=0` (`/sys/module/kernel/parameters/`) gives the old behaviour.
+The diff: from the start of `dpm_suspend_late()`, `pm_wakeup_pending()` returns false for a firmware-driven suspend until the resume begins. `pm_s2r_commit_late=0` (`/sys/module/kernel/parameters/`) gives the old behaviour.
 
 Tested (counts are runs). The alarm cases used one extra test-only delay of 3 s after the noirq stage, so an RTC alarm could be timed into it:
 
@@ -75,7 +75,7 @@ Cost: the event that would have cancelled the suspend is dropped. An RTC alarm l
 
 ## RTC alarm during the sleep entry (`kernel-rtc-rearm.diff`)
 
-Reduces that cost for the first case. When the alarm fires while `pm_wakeup_abort_held()` (from `kernel-commit-late.diff`) is true, `macsmc_rtc_alarm_irq()` re-arms it 15 s later instead of consuming it, so it fires after the cut and wakes the machine. 15 s because the SEP's `suspend_noirq` alone waits 5 s on every sleep here. 26 added lines.
+Reduces that cost for the first case. When the alarm fires while `pm_wakeup_abort_held()` (from `kernel-commit-late.diff`) is true, `macsmc_rtc_alarm_irq()` re-arms it 15 s later instead of consuming it, so it fires after the cut and wakes the machine. 15 s because the SEP's `suspend_noirq` alone waits 5 s on every sleep here.
 
 Tested: an RTC alarm timed into a 3 s test-only delay after the late stage. The driver logged `alarm during sleep entry: fired again 15 s later`, and the machine woke by itself after 7.8 s of `SLP_S2R`, 1 of 1 (without this diff it slept until a key press, 3 of 3). On the desktop, a device-stage cancel and a real sleep behaved as before, 1 of 1 each.
 
