@@ -6018,3 +6018,7 @@ Armed R60H 23:52
 ## 2026-11-25 21:30 Default boot is now S2R (Aura 129 persistent in boot.bin)
 - Owner heard both speaker tones (before and after a suspend), so Aura 129 (`eed3f571f38b6f84`) is now `/boot/efi/m1n1/boot.bin` (byte-identical to `boot-test.bin`); `limine.conf` `default_entry: 1` is `/OmarchyS2R`. Recovery: `boot-loader-oneshot.bin.bak-129` (the one-shot loader, `193e7d7a`), `boot-stock.bin` (`8166bf50`) and `boot-stock.bin.bak-r62y`; `bootbin.sh restore` puts stock back. PMU flag 00. `update-m1n1` will overwrite this boot.bin with stock; install again after kernel/bootloader package updates.
 - Speaker rules (aurorasilicon.org/docs/contributing): speaker work only with speakerguardd protection active; never disable it or raise limits. Checked on this boot: `speakersafetyd` active, feedback-guard condition rc=0, audio only through `audio_effect.j414-convolver`. Note: installed `speakerguardd` is the 0.1.0.aurora3 package; speakerguardd 2 is 1.0.0-alpha.
+
+## 2026-11-25 21:40 Default-boot reboot verified
+- Plain reboot (PMU flag 00): `7.3.0-s2r73+`, U-Boot `2026.07-g7a366a32dc83-dirty`, stage 2 `v0.1.0-77-g1b39fee5-dirty` (Aura 129 `eed3f571`), `Speaker volumes unlocked`, Lichen reconnected. Status page: overall 98%, phase 6 at 75%.
+- Open: overnight drain (owner), 4 compiler warnings, patches refresh, upstream PRs (Assisted-by line, no AI trailers per aurorasilicon.org contributing rules), `luks-autounlock.sh remove` when unattended testing is over.

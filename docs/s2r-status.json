@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "updated": "2026-11-25T21:20:00-05:00",
-  "overall": 97,
+  "updated": "2026-11-25T21:40:00-05:00",
+  "overall": 98,
   "overall_note": "Risk-weighted guess with a wide error bar. Real suspend from the full Omarchy desktop now works; left: speaker check, overnight drain, making it the default boot, upstream PRs.",
   "machine": "14-inch MacBook Pro, M2 Pro (`T6020`, `apple,j414s`), Aurora Silicon Linux",
   "goal": {
@@ -191,18 +191,19 @@
       "name": "Daily use",
       "short": "Lid close just works",
       "state": "active",
-      "pct": 60,
-      "summary": "The S2R kernel, Aura 129 and the prep service are installed as a second Limine entry (`/OmarchyS2R`, now booting); Omarchy's suspend uses `deep`. Left: speaker check, overnight drain, making it the default, and PRs to Aurora's trees.",
+      "pct": 75,
+      "summary": "S2R is the default boot: Aura 129 is the persistent `boot.bin` and `/OmarchyS2R` is the default Limine entry (a plain reboot with no test flag verified). Speakers work with speakersafetyd protection active, before and after a suspend (owner heard both). Left: overnight drain, then PRs to Aurora's trees.",
       "done": [
         "`/OmarchyS2R` boot entry with the S2R UKI; stock Omarchy entry untouched, boot.bin backed up",
         "`MemorySleepMode=deep`, T6020 prep service and a sleep hook for repeat cycles",
-        "Real `systemctl suspend` from Hyprland: 997.8 s asleep, clean wake (owner-confirmed)"
+        "Real `systemctl suspend` from Hyprland: 997.8 s asleep, clean wake (owner-confirmed)",
+        "Aura 129 persistent in `boot.bin`; plain reboot lands in `7.3.0-s2r73+` with 'Speaker volumes unlocked'; stock and one-shot loader images kept on the ESP",
+        "Speakers before and after a suspend (owner confirmed, speakersafetyd protection active throughout)"
       ],
       "next": [
-        "Speakers before and after a suspend",
-        "Overnight drain on battery",
-        "Make S2R the default boot",
-        "Upstream PRs to aurora-silicon (kernel, Aura, U-Boot)"
+        "Overnight drain on battery (`sudo s2r-overnight start` / `report`)",
+        "Clean the 4 compiler warnings, refresh `patches/s2r-repro/`",
+        "Upstream PRs to aurora-silicon (kernel, Aura, U-Boot) after the drain test"
       ],
       "gate": "Shipped."
     }
@@ -357,6 +358,7 @@
     { "what": "macOS 15.7.1", "value": "0.24 W", "detail": "5.9 h, 98.7% of it in S2R" }
   ],
   "findings": [
+    { "title": "S2R is now the default boot, with working speakers", "body": "Aura 129 passes the Mac's real amplifier levels, the speaker driver unlocks with speaker protection running, and the owner heard a quiet tone before and after a suspend. Aura 129 is now the permanent `boot.bin` and a plain reboot (no test flag) lands in the S2R kernel. The stock images stay on the ESP for recovery." },
     { "title": "Real S2R from the live Omarchy desktop works (7.3.0-s2r73+, Aura 128)", "body": "A real `systemctl suspend` in Hyprland slept 997.8 s (16 min 38 s) in SLP_S2R and woke with Hyprland, GPU rendering, display and backlight, Wi-Fi, Bluetooth, SD, NVMe, USB, PMP and SEP all working and no errors. Every device now returns with zero userspace unbinds. Aura 129 (real amp levels from the Mac's device tree, so the speakers can be enabled safely) is booted and reports 'Speaker volumes unlocked'; the playback check before and after a suspend is next." },
     { "title": "The PCIe shutdown isn't needed; one change was the whole fix (R61R)", "body": "A third run, this time without the orderly PCIe shutdown before the sleep. Wi-Fi, Bluetooth and the SD reader came back again and Wi-Fi rejoined the network: 3 of 3. So the fix is one change in our sleep entry: Aura leaves the PCIe power domains on at the commit. The existing relink after the wake does the rest." },
     { "title": "Wi-Fi joins the network after a real S2R, 2 of 2 (R61Q)", "body": "A repeat of R61P with a Wi-Fi check after the wake. Both links trained on the first relink again. Wi-Fi scanned 51 networks and joined the home network on its own, about 20 s after the wake. Bluetooth and the SD controller came up as well." },
