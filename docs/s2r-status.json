@@ -1,13 +1,13 @@
 {
   "schema": 1,
-  "updated": "2026-11-25T21:40:00-05:00",
-  "overall": 98,
+  "updated": "2026-11-26T07:45:00-05:00",
+  "overall": 99,
   "overall_note": "Risk-weighted guess with a wide error bar. Real suspend from the full Omarchy desktop now works; left: speaker check, overnight drain, making it the default boot, upstream PRs.",
   "machine": "14-inch MacBook Pro, M2 Pro (`T6020`, `apple,j414s`), Aurora Silicon Linux",
   "goal": {
-    "linux_w": 1.4,
+    "linux_w": 0.375,
     "macos_w": 0.24,
-    "linux_night": "23% of the battery a night, about 1.7 days from full with the lid closed",
+    "linux_night": "5% of the battery over a 7.1 h night, about 6 days from full with the lid closed (one night, extrapolated)",
     "macos_night": "5.9 h lid closed on battery, 98.7% of it in S2R"
   },
   "phases": [
@@ -137,9 +137,9 @@
       "trail": "Full S2R",
       "name": "Full S2R",
       "short": "The SoC powers down, DRAM in self-refresh",
-      "state": "active",
-      "pct": 99,
-      "summary": "Real S2R now works from the live Omarchy desktop (`systemctl suspend`, a 16 min 38 s sleep with everything back, zero errors) on 7.3.0-s2r73+ + Aura 128, with all 10 CPUs, NVMe, USB, SMC, SEP, PMP, Wi-Fi, Bluetooth, SD, display + backlight and the GPU. Next: the overnight battery drain, then making it the default boot.",
+      "state": "done",
+      "pct": 100,
+      "summary": "Real S2R from the live Omarchy desktop: a night on battery (7.14 h lid closed) spent 99.6% of the time in S2R at 0.375 W, 5% of the battery (old s2idle ~1.48 W, macOS ~0.24 W); 20 of 20 plus 10 of 10 (with a GPU client drawing across the sleeps) 45 s soak cycles clean.",
       "done": [
         "R59P: a 5-minute S2R sleep, resumed to userspace with NVMe live and a clean reboot after (2026-11-20)",
         "R57AL: Linux resumes to userspace after a real S2R sleep, reproduced in every run since",
@@ -179,10 +179,7 @@
         "2026-11-10, R18C to R18L (images 66 to 69): the secure enclave put in macOS’s sleep state inside Aura’s commit, with and without the SPMI notify enable: the same reset",
         "2026-11-11, R20b, R20c, R21, R22B (images 70 to 72): APSC off late, EDPRCR cleared on every core, the alarm moved to +70 s: the same reset at the same time"
       ],
-      "next": [
-        "Drain over a whole night (`sudo s2r-overnight start` / `report`)",
-        "The kernel patches cleaned (4 compiler warnings) and prepared as upstream PRs"
-      ],
+      "next": [],
       "gate": "20 of 20 cycles; lid, key, keyboard and alarm wakes; about 0.3 W on battery."
     },
     {
@@ -191,19 +188,20 @@
       "name": "Daily use",
       "short": "Lid close just works",
       "state": "active",
-      "pct": 75,
-      "summary": "S2R is the default boot: Aura 129 is the persistent `boot.bin` and `/OmarchyS2R` is the default Limine entry (a plain reboot with no test flag verified). Speakers work with speakersafetyd protection active, before and after a suspend (owner heard both). Left: overnight drain, then PRs to Aurora's trees.",
+      "pct": 90,
+      "summary": "S2R is the default boot, and stays so: Aura 129 is the persistent `boot.bin`, the S2R Limine entry is re-applied by a pacman hook after package updates, its modules are protected from cleanup, and a check reports if `update-m1n1` replaces the boot image. Left: lid, dock/external display, Bluetooth pairing and SD insert checks, the root key in the UKI, and the PRs to Aurora's trees.",
       "done": [
         "`/OmarchyS2R` boot entry with the S2R UKI; stock Omarchy entry untouched, boot.bin backed up",
         "`MemorySleepMode=deep`, T6020 prep service and a sleep hook for repeat cycles",
         "Real `systemctl suspend` from Hyprland: 997.8 s asleep, clean wake (owner-confirmed)",
         "Aura 129 persistent in `boot.bin`; plain reboot lands in `7.3.0-s2r73+` with 'Speaker volumes unlocked'; stock and one-shot loader images kept on the ESP",
-        "Speakers before and after a suspend (owner confirmed, speakersafetyd protection active throughout)"
+        "Speakers before and after a suspend (owner confirmed, speakersafetyd protection active throughout)",
+        "Overnight on battery, lid closed: 7.14 h, 99.6% in S2R, 0.375 W average"
       ],
       "next": [
-        "Overnight drain on battery (`sudo s2r-overnight start` / `report`)",
-        "Clean the 4 compiler warnings, refresh `patches/s2r-repro/`",
-        "Upstream PRs to aurora-silicon (kernel, Aura, U-Boot) after the drain test"
+        "Lid close/open wake, external display or dock, Bluetooth pairing and an SD card after a wake",
+        "Decide about the LUKS key stored in the UKIs (needs the passphrase at boot once removed)",
+        "Upstream PRs to aurora-silicon (kernel, Aura, U-Boot)"
       ],
       "gate": "Shipped."
     }
@@ -358,6 +356,7 @@
     { "what": "macOS 15.7.1", "value": "0.24 W", "detail": "5.9 h, 98.7% of it in S2R" }
   ],
   "findings": [
+    { "title": "A night on battery: 0.375 W, 99.6% of it in S2R", "body": "With the lid closed on the real Omarchy desktop, the Mac spent 7.14 h asleep and was in S2R for 99.6% of that time, using 2.679 Wh (5% of the battery, 70% to 65%): 0.375 W on average. The old s2idle figure on this Mac was about 1.48 W; macOS about 0.24 W. One night, one run. A GPU client drawing across 10 sleeps also came back every time, the case another tester had reported as hanging on the second sleep." },
     { "title": "S2R is now the default boot, with working speakers", "body": "Aura 129 passes the Mac's real amplifier levels, the speaker driver unlocks with speaker protection running, and the owner heard a quiet tone before and after a suspend. Aura 129 is now the permanent `boot.bin` and a plain reboot (no test flag) lands in the S2R kernel. The stock images stay on the ESP for recovery." },
     { "title": "Real S2R from the live Omarchy desktop works (7.3.0-s2r73+, Aura 128)", "body": "A real `systemctl suspend` in Hyprland slept 997.8 s (16 min 38 s) in SLP_S2R and woke with Hyprland, GPU rendering, display and backlight, Wi-Fi, Bluetooth, SD, NVMe, USB, PMP and SEP all working and no errors. Every device now returns with zero userspace unbinds. Aura 129 (real amp levels from the Mac's device tree, so the speakers can be enabled safely) is booted and reports 'Speaker volumes unlocked'; the playback check before and after a suspend is next." },
     { "title": "The PCIe shutdown isn't needed; one change was the whole fix (R61R)", "body": "A third run, this time without the orderly PCIe shutdown before the sleep. Wi-Fi, Bluetooth and the SD reader came back again and Wi-Fi rejoined the network: 3 of 3. So the fix is one change in our sleep entry: Aura leaves the PCIe power domains on at the commit. The existing relink after the wake does the rest." },

@@ -9,6 +9,9 @@
 #   sudo bash bootbin.sh restore                      stock boot.bin back
 #   sudo bash bootbin.sh test <boot-test.bin>         stage a test image (not used until the flag is set)
 #   sudo bash bootbin.sh flag get|set|clear
+#   sudo bash bootbin.sh persist <boot.bin>          S2R default: install a full boot image as boot.bin (the
+#                                                     one-shot loader and stock stay on the ESP as backups) and
+#                                                     record its hash for deepidle-loader-check
 # update-m1n1 (kernel or bootloader package updates) rewrites boot.bin with the stock image: run install again.
 set -eu
 [ "$(id -u)" = 0 ] || { echo "run with sudo"; exit 1; }
@@ -40,9 +43,16 @@ install)
     sha "$2" > $S/loader.sha256
     put "$2" $E/boot.bin
     echo "bootbin: loader installed ($(sha $E/boot.bin | cut -c1-16)), stock kept as boot-stock.bin ($(sha $E/boot-stock.bin | cut -c1-16))" ;;
+persist)
+    [ -s "${2:-}" ] || die "persist <boot.bin>"
+    [ "$(flag_get)" = 00 ] || die "the PMU flag is set: clear it first"
+    [ -e $E/boot-stock.bin ] || die "no boot-stock.bin to fall back on"
+    cp "$2" $S/boot-s2r.bin; sha "$2" > $S/boot.sha256
+    put "$2" $E/boot.bin; rm -f $S/NEEDS_REBUILD
+    echo "bootbin: S2R boot.bin installed ($(sha $E/boot.bin | cut -c1-16)), stock kept as boot-stock.bin" ;;
 restore)
     [ -s $E/boot-stock.bin ] || die "no boot-stock.bin"
-    flag_put 00; put $E/boot-stock.bin $E/boot.bin; rm -f $S/loader.sha256
+    flag_put 00; put $E/boot-stock.bin $E/boot.bin; rm -f $S/loader.sha256 $S/boot.sha256
     echo "bootbin: stock boot.bin restored" ;;
 test)
     [ -s "${2:-}" ] || die "test <boot-test.bin>"
@@ -51,5 +61,5 @@ flag)
     case "${2:-get}" in get) flag_get ;; clear) flag_put 00; echo "bootbin: flag clear" ;;
     set) is_loader || die "boot.bin is not the loader: the flag would do nothing"; [ -s $E/boot-test.bin ] || die "no boot-test.bin staged"; flag_put a5; echo "bootbin: flag set" ;;
     *) die "flag get|set|clear" ;; esac ;;
-*) die "status | install <file> | restore | test <file> | flag get|set|clear" ;;
+*) die "status | install <file> | persist <file> | restore | test <file> | flag get|set|clear" ;;
 esac

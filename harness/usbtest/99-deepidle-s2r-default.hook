@@ -1,0 +1,12 @@
+[Trigger]
+Type = Path
+Operation = Install
+Operation = Upgrade
+Target = usr/lib/modules/*/vmlinuz
+Target = usr/share/limine/*
+Target = usr/lib/asahi-boot/*
+
+[Action]
+Description = Keeping the S2R kernel as the default Limine entry (GH-5)...
+When = PostTransaction
+Exec = /usr/local/sbin/deepidle-s2r-default
