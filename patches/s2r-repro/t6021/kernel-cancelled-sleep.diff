@@ -1,0 +1,98 @@
+diff --git a/drivers/gpu/drm/apple/dcp.c b/drivers/gpu/drm/apple/dcp.c
+index 372dba3cc334..cb4f753e0e95 100644
+--- a/drivers/gpu/drm/apple/dcp.c
++++ b/drivers/gpu/drm/apple/dcp.c
+@@ -9735,6 +9735,9 @@ module_param(s2r_fw_restart, bool, 0644);
+ MODULE_PARM_DESC(s2r_fw_restart, "Warm-restart internal DCP after firmware S2R");
+ 
+ static struct apple_dcp *dcp_fw_s2r_target;
++static bool s2r_refused_cycle = true;
++module_param(s2r_refused_cycle, bool, 0644);
++MODULE_PARM_DESC(s2r_refused_cycle, "After a cancelled sleep restart the internal DCP as after a real one (0: wake it)");
+ static bool dcp_fw_s2r_warm_stopped;
+ 
+ static void dcp_fw_s2r_afk_op(struct apple_dcp *dcp, u16 op)
+@@ -9865,7 +9868,7 @@ static int dcp_fw_s2r_resume_warm(struct apple_dcp *dcp)
+ 	int ret;
+ 
+ 	dcp_fw_s2r_warm_stopped = false;
+-	if (!pm_resume_via_firmware()) {
++	if (!pm_resume_via_firmware() && !READ_ONCE(s2r_refused_cycle)) {
+ 		ret = apple_rtkit_sleep_return(dcp->rtk, control);
+ 		if (ret == -EAGAIN)
+ 			ret = apple_rtkit_wake(dcp->rtk);
+@@ -9874,6 +9877,13 @@ static int dcp_fw_s2r_resume_warm(struct apple_dcp *dcp)
+ 		dev_info(dcp->dev, "s2r: internal DCP wake after refused sleep (%d)\n", ret);
+ 		return 0;
+ 	}
++	/*
++	 * A cancelled sleep leaves the firmware idled and its CPU stopped with the power kept. It
++	 * doesn't answer a wake from that (IOP power ack -62 on T6021), so it takes the same
++	 * restart as after a real sleep: disp0 power cycle, warm restart, run, boot.
++	 */
++	if (!pm_resume_via_firmware())
++		dev_info(dcp->dev, "s2r: sleep was cancelled: restarting the internal DCP as after a real sleep\n");
+ 
+ 	dcp_fw_s2r_disp0_cycle(dcp);
+ 	WRITE_ONCE(dcp->crashed, false);
+diff --git a/drivers/gpu/drm/asahi/asahi_core.rs b/drivers/gpu/drm/asahi/asahi_core.rs
+index b97069165103..0ba45d3de29b 100644
+--- a/drivers/gpu/drm/asahi/asahi_core.rs
++++ b/drivers/gpu/drm/asahi/asahi_core.rs
+@@ -232,6 +232,10 @@ fn init(module: &'static kernel::ThisModule) -> impl PinInit<Self, Error> {
+             default: 0,
+             description: "G15: admit an unpinned GPU firmware build whose TEXT SHA-256 starts with these 8 bytes (bring-up only)",
+         },
++        g14_s2r_idle_late: u32 {
++            default: 1,
++            description: "G14: idle the firmware for a sleep in suspend_late (1) instead of in prepare (0), so a sleep cancelled in the device phase leaves it running",
++        },
+         stats_export: u8 {
+             default: 1,
+             // permissions: 0,
+diff --git a/drivers/gpu/drm/asahi/driver.rs b/drivers/gpu/drm/asahi/driver.rs
+index e631342e967e..d29b74950181 100644
+--- a/drivers/gpu/drm/asahi/driver.rs
++++ b/drivers/gpu/drm/asahi/driver.rs
+@@ -278,12 +278,33 @@ unsafe fn sleep_data<'a>(dev: *mut bindings::device) -> &'a AsahiPlatformDriverD
+     if let Some(gpu) = data.g17.as_ref() {
+         kernel::error::from_result(|| gpu.sleep_prepare().map(|_| 0))
+     } else if let Some(gpu) = data.legacy.as_ref() {
++        // Idled in suspend_late instead: a sleep cancelled in the device phase then never
++        // touches the firmware, which doesn't come back from an idle with its power kept.
++        if crate::module_parameters::g14_s2r_idle_late.value() != 0 {
++            return 0;
++        }
+         kernel::error::from_result(|| gpu.sleep_prepare().map(|_| 0))
+     } else {
+         EBUSY.to_errno()
+     }
+ }
+ 
++/// Runs after every device's suspend callback: the legacy GPU's firmware is idled here.
++unsafe extern "C" fn sleep_late(dev: *mut bindings::device) -> core::ffi::c_int {
++    // SAFETY: Reads a global flag word.
++    if !unsafe { bindings::pm_suspend_via_firmware() }
++        || crate::module_parameters::g14_s2r_idle_late.value() == 0
++    {
++        return 0;
++    }
++    // SAFETY: Called by the PM core.
++    let data = unsafe { sleep_data(dev) };
++    match data.legacy.as_ref() {
++        Some(gpu) => kernel::error::from_result(|| gpu.sleep_prepare().map(|_| 0)),
++        None => 0,
++    }
++}
++
+ /// Runs after every device resumed. Does nothing unless [`sleep_prepare`] stopped the firmware.
+ unsafe extern "C" fn sleep_complete(dev: *mut bindings::device) {
+     // SAFETY: Called by the PM core.
+@@ -298,6 +319,7 @@ unsafe fn sleep_data<'a>(dev: *mut bindings::device) -> &'a AsahiPlatformDriverD
+ static SLEEP_OPS: SleepOps = SleepOps(bindings::dev_pm_ops {
+     prepare: Some(sleep_prepare),
+     complete: Some(sleep_complete),
++    suspend_late: Some(sleep_late),
+     // SAFETY: All-zero is the absence of every other callback.
+     ..unsafe { core::mem::zeroed() }
+ });
