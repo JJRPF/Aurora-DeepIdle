@@ -9,8 +9,9 @@ Diffs that go on top of the M2 Pro diffs in the parent folder. With them, the R6
 | `kernel-cancelled-sleep.diff` | the two above | Not Max-specific. Keeps the display and GPU alive when a sleep is cancelled on the way down; see below. |
 | `kernel-commit-late.diff` | any of the above | Not Max-specific. Stops a wake event from cancelling a firmware suspend once its late stage has begun, which avoids a panic in the SEP driver; see below. |
 | `kernel-rtc-rearm.diff` | `kernel-commit-late.diff` | Re-fires an RTC alarm that arrives after the commit point, 15 s later, so it wakes the machine after the cut instead of being lost; see below. |
+| `kernel-bcm4377-probe.diff` | any kernel | Not Max- or sleep-specific. Fixes a Bluetooth probe failure and the use-after-free behind it, reached when a suspend is cancelled at the freeze stage; see below. |
 
-**Base:** all five diffs were made and tested on the parent diffs at `c2b1eac`. The kernel diffs below were last tested as a kernel built from exactly the parent diffs at `c2b1eac` plus the four kernel diffs here, with no other changes.
+**Base:** all six diffs were made and tested on the parent diffs at `c2b1eac`. The kernel diffs below were last tested as a kernel built from exactly the parent diffs at `c2b1eac` plus the five kernel diffs here, with no other changes.
 
 No change to the R62Q-R62Y kernel code was needed. The `apple,t6020-pmp-v2` and `apple,t6020-pcie` matches and the disp0 power cycle apply to the Max as they are.
 
@@ -81,6 +82,16 @@ Tested: an RTC alarm timed into a 3 s test-only delay after the late stage. The 
 
 Not covered: an alarm firing after the noirq stage. No kernel code runs between that interrupt and the cut, so re-arming it would have to happen in Aura's entry.
 
+## Bluetooth after a suspend cancelled at the freeze stage (`kernel-bcm4377-probe.diff`)
+
+A lid-open about a second after closing cancelled a suspend while tasks were being frozen. `apple_pcie_s2r_post_thaw()` re-attached the Bluetooth function, and its probe failed with `Driver probe function unexpectedly returned 1`. The next wake crashed in `bcm4377_enqueue()`, the next suspend crashed in `bcm4377_hci_wakeup()` inside the suspend notifier, and every suspend after that failed with `-EBUSY` until a reboot.
+
+Cause: `bcm4377_probe()` treats any nonzero return from `hci_register_dev()` as an error, but it returns the new device index on success. After the cancel, user space had been frozen right after the unbind and thawed just before the re-attach, so the old `hci0` was still held; the new device became `hci1`, the probe returned 1, devres freed the device's data, and `hci1` stayed registered. The same check is in upstream `hci_bcm4377.c`.
+
+Repro without a sleep: `bt-rebind-frozen.sh` here pauses `bluetoothd` and `obexd`, unbinds and rebinds `0000:01:00.1`, then resumes them. Without the fix: `hci1` and the probe failure, 1 of 1 (without pausing the daemons the old index is released in time, 1 of 1).
+
+The fix checks `ret < 0`. With it: the same repro gave a working `hci1` with no probe failure, and a real sleep right after came back with Bluetooth re-probed as `hci0`, 1 of 1.
+
 ## On the current parent diffs
 
 Against the parent diffs at `929cd58` (Aura 130). Applied only; not built or booted there:
@@ -89,6 +100,7 @@ Against the parent diffs at `929cd58` (Aura 130). Applied only; not built or boo
 - `kernel-cancelled-sleep.diff` applies.
 - `kernel-commit-late.diff` applies.
 - `kernel-rtc-rearm.diff` applies.
+- `kernel-bcm4377-probe.diff` applies.
 - `kernel-t6021-j414c.diff` does not; use `kernel-t6021-j414c-dts-only.diff` (see the update below).
 
 ## Update 2026-11-26: on the current (gating) diffs
