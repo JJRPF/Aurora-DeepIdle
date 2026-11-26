@@ -6009,3 +6009,8 @@ Armed R60H 23:52
   - **GPU (`aurora 406400000.gpu`):** kept bound & warm-restarted (`kick Ok(())`).
   - **Wi-Fi (`wlan0`):** reconnected + scan clean; **Bluetooth (`hci0`):** 40 LE devices found; **SD card (`mmcblk0p1`):** detected at `t=1s`, `6.6 MB/s` direct read; **NVMe, USB, PMP, SEP:** all clean.
 - Owner gave explicit go-ahead to install Aura 128 + `7.3.0-s2r73+` into the normal Omarchy boot chain and run an overnight battery drain test inside real Omarchy.
+
+## 2026-11-25 21:25 Aura 129 booted in OmarchyS2R: speakers unlocked (Claude Code now the S2R agent)
+- Booted `7.3.0-s2r73+` with Aura 129 (`eed3f571f38b6f84`) via the `/OmarchyS2R` Limine entry: `snd-soc-macaudio sound: Speaker volumes unlocked` (the Mac's real ADT amp levels, no forged limits); `speakersafetyd` active with the J414 profile, `MacBook Speakers` reachable through `audio_effect.j414-convolver`.
+- Quiet 500 Hz tone through the convolver sink (volume 0.4 on the stream, system volume left at 0.15): no errors. `rtcwake -m mem -s 60`: `Speaker volumes locked: System suspend` then `unlocked` on wake, speakersafetyd re-initialised its PCM, second tone played with no errors. (Woke after about 7 s on a keyboard IR event, not the alarm.) Audibility to be confirmed by the owner.
+- The post-boot hook `deepidle-resume` now resumes this Claude Code conversation (`claude --continue`) for the S2R agent instead of S2R-AGY; GPU-AGY and Lichen-AGY unchanged. `docs/s2r-status.json`: overall 97%, phases 4/5 99%, phase 6 60%.
