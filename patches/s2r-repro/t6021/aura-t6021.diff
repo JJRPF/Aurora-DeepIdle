@@ -1,0 +1,495 @@
+diff --git a/src/kboot.c b/src/kboot.c
+index d5eb3113..c420de66 100644
+--- a/src/kboot.c
++++ b/src/kboot.c
+@@ -745,9 +745,10 @@ static int dt_set_psci(void)
+     if (fdt_setprop(dt, node, "aura,psci-runtime-code", code, sizeof(code)))
+         bail("FDT: couldn't set aura,psci-runtime-code\n");
+ 
+-    u64 ranges[2 * 256]; /* image 72: 64 could not hold the twelve external debug pages too */
+-    int n = smp_psci_mmio_ranges(ranges, 256);
+-    fdt64_t mmio[2 * 256];
++    /* image 72: 64 could not hold the twelve external debug pages too; J414c: 384 for eight memory controllers */
++    static u64 ranges[2 * 384];
++    int n = smp_psci_mmio_ranges(ranges, 384);
++    static fdt64_t mmio[2 * 384];
+     for (int i = 0; i < 2 * n; i++)
+         mmio[i] = cpu_to_fdt64(ranges[i]);
+     if (fdt_setprop(dt, node, "aura,psci-runtime-mmio", mmio, 2 * n * sizeof(fdt64_t)))
+diff --git a/src/pmgr.c b/src/pmgr.c
+index 119c0c1c..62fc89b8 100644
+--- a/src/pmgr.c
++++ b/src/pmgr.c
+@@ -795,7 +795,7 @@ void pmgr_ps_tab_build(void)
+     for (size_t i = 0; i < pmgr_devices_len && pmgr_ps_tab_n < PMGR_PS_TAB_MAX; i++) {
+         const struct pmgr_device *d = &pmgr_devices[i];
+         uintptr_t a = pmgr_device_get_addr(0, d);
+-        if (!a || d->psreg_idx == 3 /* image 82: SMC_GPIO hangs too */ || d->psreg_idx == 8 || (d->psreg_idx >= 14 && d->psreg_idx <= 16)) /* images 80, 81: groups 8 (ANE) and 14 (ISP) hang the reader; 15, 16 (VENC, PRORES) are the same kind of page */
++        if (!a || d->psreg_idx >= 19 /* J414c: T6021's extra ps-reg groups (dispext2/3, AMCC4-7, VENC1) are not mapped or snapshotted */ || d->psreg_idx == 3 /* image 82: SMC_GPIO hangs too */ || d->psreg_idx == 8 || (d->psreg_idx >= 14 && d->psreg_idx <= 16)) /* images 80, 81: groups 8 (ANE) and 14 (ISP) hang the reader; 15, 16 (VENC, PRORES) are the same kind of page */
+             continue;
+         pmgr_ps_tab[pmgr_ps_tab_n].addr = a;
+         pmgr_ps_tab[pmgr_ps_tab_n].key = ((u32)d->psreg_idx << 8) | d->addr_offset;
+diff --git a/src/psci.c b/src/psci.c
+index 3b409aaa..cc222a8f 100644
+--- a/src/psci.c
++++ b/src/psci.c
+@@ -114,7 +114,22 @@ static const u64 qs_held[12] = {
+     0x2902801d8ULL, 0x2902801d0ULL, 0x2902801b0ULL, /* disp0_cpu0, _fe, _sys */
+     0x29e2800c8ULL, 0x29e2800d0ULL, 0x29e2800d8ULL, /* atc0_usb, atc1_usb, atc2_usb */
+ };
+-static const u8 qs_cluster_id[5] = {1, 2, 3, 6, 4};
++static const u8 qs_cluster_id[6] = {1, 2, 3, 6, 4, 5}; /* J414c: 5 is DISPLAY2, a seventh soc-cluster only T6021 has */
++#define QS_CLUSTERS (chip_id == T6021 ? 6u : 5u)
++/* J414c: words macOS 13.5 (22G74) writes at its sleep entry on T6021 that the M2 Pro port does not cover. The first
++ * six are power words (dispext2/3 sys, fe, cpu0: target 0). Of the rest, 0x28e69c000 and 0x28e670000 are T6021-only
++ * performance-counter words and 0x28e0cc800 is DISPLAY2's TVM rail; 0x404e90000 and 0x2902a2000 exist on both chips. */
++static const u64 qs_t6021_ps[6] = {
++    0x28e680238ULL, 0x28e680230ULL, 0x28e680220ULL, 0x28e6801e8ULL, 0x28e6801e0ULL, 0x28e6801d0ULL,
++};
++static const u64 qs_t6021_zero[5] = {
++    0x404e90000ULL, 0x2902a2000ULL, 0x28e69c000ULL, 0x28e670000ULL, 0x28e0cc800ULL,
++};
++static struct {
++    u32 saved;
++    u32 ps[6];
++    u32 zero[5];
++} qs_t6021_save __attribute__((aligned(64)));
+ static const u32 qs_clkgen_off[5] = {0x38160, 0x38168, 0x38164, 0x38158, 0x3816c};
+ /* Wake lines (AIC2 event numbers): 724 nub-spmi0 (PMU alarm), 865 smc mailbox recv-not-empty (key/lid events) */
+ static const unsigned wake_irq[2] = {724, 865};
+@@ -129,7 +144,7 @@ static volatile struct {
+     u32 saved; /* bit 0 domains, bit 1 clocks, bit 2 clusters, bit 3 held, 4 AMCC, 5 AIC, 6 EACC */
+     u32 afr, sio, sio_cpu, pll;
+     u32 clk[5];
+-    u32 cluster[5];
++    u32 cluster[6];
+     u32 eacc;              /* image 60h: bit 6, PSCI_S2R_EACC: EACC's cluster word (0x28e088000) before its target went to 0 */
+     u32 held[12];
+     u32 held_mask;
+@@ -140,7 +155,6 @@ static volatile struct {
+     u64 dvfs[3];           /* image 61: bit 7, PSCI_S2R_DVFS: each cluster's CLUSTER_PSTATE before APSC_DIS */
+     u32 fabric[3];         /* image 62: bit 8, PSCI_S2R_FABRIC: the three fabric PS words before macOS's value */
+     u32 atc[8];            /* image 63: bit 9, PSCI_S2R_ATC: atcN_pcie and atcN_common before their target went to 0 */
+-    u32 pcie[3];           /* image 64: bit 10, PSCI_S2R_PCIE */
+     u32 aon[4];            /* image 64: bit 11, PSCI_S2R_AON */
+     u32 pmp[2];            /* image 65: bit 12, PSCI_S2R_PMP */
+ } qs_save __attribute__((aligned(64)));
+@@ -324,11 +338,11 @@ static void psci_quiesce_clusters(void)
+ {
+     u32 fail = 0;
+ 
+-    for (unsigned i = 0; i < 5; i++)
++    for (unsigned i = 0; i < QS_CLUSTERS; i++)
+         qs_save.cluster[i] = read32(QS_CLUSTER + 4 * qs_cluster_id[i]);
+     qs_save.saved |= 4;
+     dc_civac_range((void *)&qs_save, sizeof(qs_save));
+-    for (unsigned i = 0; i < 5; i++) {
++    for (unsigned i = 0; i < QS_CLUSTERS; i++) {
+         u64 a = QS_CLUSTER + 4 * qs_cluster_id[i];
+         write32(a, qs_save.cluster[i] & ~0xf);
+         if (i + 1 > 3)
+@@ -581,9 +595,18 @@ static void psci_quiesce_undo(void)
+     if (qs_save.saved & 64)
+         write32(QS_CLUSTER, qs_save.eacc);
+     if (qs_save.saved & 4) {
+-        for (unsigned i = 0; i < 5; i++)
++        for (unsigned i = 0; i < QS_CLUSTERS; i++)
+             write32(QS_CLUSTER + 4 * qs_cluster_id[i], qs_save.cluster[i]);
+     }
++    dc_ivac_range((void *)&qs_t6021_save, sizeof(qs_t6021_save));
++    if (qs_t6021_save.saved) {
++        for (int i = 4; i >= 0; i--)
++            write32(qs_t6021_zero[i], qs_t6021_save.zero[i]);
++        for (int i = 5; i >= 0; i--)
++            write32(qs_t6021_ps[i], qs_t6021_save.ps[i] & ~(BIT(11) | BIT(9) | BIT(8)));
++        qs_t6021_save.saved = 0;
++        dc_civac_range((void *)&qs_t6021_save, sizeof(qs_t6021_save));
++    }
+     if (qs_save.saved & 1) {
+         write32(QS_SIO_CPU, qs_save.sio_cpu);
+         write32(QS_SIO, qs_save.sio);
+@@ -637,6 +660,11 @@ void psci_ctl_init(void)
+ {
+     volatile u64 lo = 0x21;
+ 
++    // Linux reads the EFI feature table before it can call the runtime handler.
++    psci_efi_table.features[PSCI_FN(PSCI_1_0_FN64_SYSTEM_SUSPEND)] =
++        (chip_id == T6020 || chip_id == T6021) ? PSCI_RET_SUCCESS : PSCI_RET_NOT_SUPPORTED;
++    dc_civac_range(&psci_efi_table, sizeof(psci_efi_table));
++
+     for (unsigned i = 0; i < 8; i++)
+         psci_ctl[i] = 0;
+     psci_ctl[0] = PSCI_CTL_MAGIC_HI | lo;
+@@ -912,8 +940,8 @@ static void psci_force_ps(void)
+ }
+ 
+ /*
+- * image 102 (psci_ctl[5] bit 7): PCIe root-complex teardown written before psci_quiesce_pcie() powers
+- * the PCIe domains off.
++ * image 102 (psci_ctl[5] bit 7): PCIe root-complex and shared PHY teardown.
++ * R61R kept this separate from the retired PCIe domain power-off step.
+  */
+ static void psci_quiesce_pcie_rc(void)
+ {
+@@ -999,6 +1027,30 @@ static void qs_apq_restore(void)
+  * and AUTO_ENABLE (QS_PS_CLEAR) for macOS-OFF entries (val & 0xf == 0) in two reverse passes so
+  * children precede parents and ANE/GFX (with AUTO_ENABLE=1) actually gate.
+  */
++static void psci_quiesce_t6021(void)
++{
++    if (chip_id != T6021)
++        return;
++    for (unsigned i = 0; i < 6; i++)
++        qs_t6021_save.ps[i] = read32(qs_t6021_ps[i]);
++    for (unsigned i = 0; i < 5; i++)
++        qs_t6021_save.zero[i] = read32(qs_t6021_zero[i]);
++    qs_t6021_save.saved = 1;
++    dc_civac_range((void *)&qs_t6021_save, sizeof(qs_t6021_save));
++    for (unsigned i = 0; i < 6; i++) {
++        u64 a = qs_t6021_ps[i];
++        if ((qs_t6021_save.ps[i] & 0xff) == 0)
++            continue;
++        write32(a, qs_t6021_save.ps[i] & ~QS_PS_CLEAR);
++        u64 t0 = qs_now();
++        while ((read32(a) & 0xf0) && qs_now() - t0 < 48000)
++            ;
++    }
++    for (unsigned i = 0; i < 5; i++)
++        write32(qs_t6021_zero[i], 0);
++    sysop("dsb sy");
++}
++
+ static void psci_force_ps_lower(void)
+ {
+     qs_lower_save.n = 0;
+@@ -1072,6 +1124,31 @@ static void psci_replay_mem_clean(void)
+             write64(a, qs_macos_mem[i].val);
+         else
+             write32(a, (u32)qs_macos_mem[i].val);
++        /*
++         * J414c: these are the platform error handler's enables being cleared (AppleT6020 kext, 13.5), captured on
++         * the M2 Pro's four memory-cache controllers. T6021 has eight of the same block. Controllers 4-7 get what the
++         * M2 Pro's last controller gets, the writes common to every controller, right after it; controllers 0-3 are
++         * written as on the M2 Pro.
++         */
++        /*
++         * J414c: the error handler clears every IOA's error enable (+0xa00; AppleT6020 kext _ioaEnableErrors loops
++         * over the device tree's IOA list). T6021's list has two more, 0x480000000 and 0x500000000, in that place.
++         */
++        if (chip_id == T6021 && a == 0x400000a00ULL) {
++            /* only while its bridge is powered (AFNC4_IOA 0x28e6801a0, AFNC5_IOA 0x28e6801b8: actual state 0xf) */
++            if ((read32(0x28e6801a0ULL) & 0xf0) == 0xf0)
++                write32(0x480000a00ULL, 0);
++            if ((read32(0x28e6801b8ULL) & 0xf0) == 0xf0)
++                write32(0x500000a00ULL, 0);
++        }
++        if (chip_id == T6021 && a >= 0x203000000ULL && a < 0x204000000ULL) {
++            for (u64 k = 1; k <= 4; k++) {
++                if (qs_macos_mem[i].size == 8)
++                    write64(a + k * 0x1000000ULL, qs_macos_mem[i].val);
++                else
++                    write32(a + k * 0x1000000ULL, (u32)qs_macos_mem[i].val);
++            }
++        }
+     }
+     sysop("dsb sy");
+     psci_mem_done = 1;
+@@ -1458,9 +1535,9 @@ static void qs_crumb_snapshot(void)
+     /* image 63: likewise 0x600e = qs_atc_state() (only when bit 19 ran) */
+     if (fi <= 0 && (qs_save.saved & 512))
+         q[2] = qs_atc_state();
+-    /* image 64: 0x600c = qs_pcie_aon_state() (only when bit 20 or 21 ran), bit 7 = some ATC word still on:
++    /* image 64: 0x600c = qs_pcie_aon_state() (only when bit 21 ran), bit 7 = some ATC word still on:
+      * 0x600d and 0x600e read 0 after every reset, 0x600c survives */
+-    if (fi <= 0 && (qs_save.saved & (1024 | 2048)))
++    if (fi <= 0 && (qs_save.saved & 2048))
+         q[0] = qs_pcie_aon_state() | (((qs_save.saved & 512) && qs_atc_state()) ? 0x80 : 0);
+     /* image 65: 0x6011 = qs_pmp_state() (only when bit 22 ran; ff otherwise) */
+     if (fi <= 0 && (qs_save.saved & 4096))
+@@ -1886,10 +1963,10 @@ static unsigned long psci_system_suspend(unsigned long entry, unsigned long cont
+     qs_crumb(0x31);
+     qs_ps_snapshot(); /* image 123 */
+     psci_ps_sep_saved = read32(0x290280c00ULL); /* image 118 */
+-    if (chip_id == T6020) /* image 120 */
++    if (chip_id == T6020 || chip_id == T6021) /* image 120 */
+         qs_gpio_snapshot();
+     qs_crumb(0x32);
+-    if (chip_id == T6020) { /* image 119 */
++    if (chip_id == T6020 || chip_id == T6021) { /* image 119 */
+         qs_pport_do(0);
+         qs_crumb(0x33);
+         qs_pport_saved = 1;
+@@ -1994,8 +2071,10 @@ static unsigned long psci_system_suspend(unsigned long entry, unsigned long cont
+         psci_quiesce_aon();
+     if (steps & PSCI_S2R_PMP)
+         psci_quiesce_pmp();
+-    if (clean_mode)
++    if (clean_mode) {
+         psci_force_ps_lower();
++        psci_quiesce_t6021();
++    }
+     if (steps & PSCI_S2R_FABRIC)
+         psci_quiesce_fabric();
+     if (steps & PSCI_S2R_CLUSTERS)
+@@ -2060,7 +2139,7 @@ static unsigned long psci_system_suspend(unsigned long entry, unsigned long cont
+                     u8 pm = qs_pmp_state() | qs_sep_res;
+                     qs_crumb_write(0x6011, &pm, 1);
+                 }
+-                if (qs_save.saved & (1024 | 2048)) {
++                if (qs_save.saved & 2048) {
+                     u8 pa = qs_pcie_aon_state() | (((qs_save.saved & 512) && qs_atc_state()) ? 0x80 : 0);
+                     qs_crumb_write(0x600c, &pa, 1);
+                 }
+@@ -2392,9 +2471,79 @@ static void __attribute__((noinline)) psci_reset_trace(void)
+     }
+ }
+ 
++/* J414c retention only. No PMGR sleep commit or legacy T6020 MMIO replay. */
++static unsigned long psci_j414c_retention(unsigned long entry, unsigned long context)
++{
++    if (!entry || !aic || aic->version != 2 || wake_irq[0] >= aic->nr_irq ||
++        !wdt_psci_base())
++        return PSCI_RET_INTERNAL_FAILURE;
++
++    /* The tested J414c has four cores in each of its three clusters. */
++    for (unsigned cluster = 0; cluster < 3; cluster++) {
++        for (unsigned core = 0; core < 4; core++) {
++            u64 mpidr = cluster ? (BIT(16) | (cluster << 8) | core) : core;
++            if (mpidr && smp_psci_affinity_info(mpidr) != PSCI_AFFINITY_INFO_OFF)
++                return PSCI_RET_DENIED;
++        }
++    }
++
++    unsigned irq = wake_irq[0]; /* J414c RTC: nub-spmi0, AIC die 0, IRQ 724. */
++    u32 bit = BIT(irq & 31);
++    u64 raw = wake_hw_word(0);
++    if (read32(raw) & bit)
++        return PSCI_RET_DENIED;
++
++    static bool rtc_poll_passed;
++    u64 saved_daif = mrs(DAIF);
++    /* WFI wakes on a pending interrupt with DAIF masked. Linux handles it after resume. */
++    asm volatile("msr daifset, #0xf\n isb" ::: "memory");
++    wdt_psci_arm(35);
++    write32(aic->base + aic->regs.mask_clr + 4 * (irq >> 5), bit);
++    sysop("dsb sy");
++
++    if (!rtc_poll_passed) {
++        /* Control: prove the PMU line asserts after Linux has suspended devices. */
++        u64 stop = mrs(CNTPCT_EL0) + 24 * mrs(CNTFRQ_EL0);
++        while (!(read32(raw) & bit) && mrs(CNTPCT_EL0) < stop)
++            sysop("yield");
++        rtc_poll_passed = !!(read32(raw) & bit);
++    } else {
++        u64 cyc = mrs(SYS_IMP_APL_CYC_OVRD);
++        msr(SYS_IMP_APL_CYC_OVRD,
++            (cyc & ~(CYC_OVRD_WFI_MODE_MASK | CYC_OVRD_DISABLE_WFI_RET)) | CYC_OVRD_WFI_MODE(3));
++        sysop("isb");
++        extern void _deep_wfi_helper(void);
++        do {
++            _deep_wfi_helper();
++        } while (!(read32(raw) & bit));
++        msr(SYS_IMP_APL_CYC_OVRD, cyc);
++        sysop("isb");
++    }
++
++    write32(aic->base + aic->regs.mask_set + 4 * (irq >> 5), bit);
++    wdt_psci_disarm();
++    if (!rtc_poll_passed) {
++        msr(DAIF, saved_daif);
++        return PSCI_RET_INTERNAL_FAILURE;
++    }
++    psci_enter(entry, context);
++}
++
+ unsigned long psci_efi_handler(unsigned long fid, unsigned long arg0, unsigned long arg1,
+                                unsigned long arg2)
+ {
++    /*
++     * The suspend path still uses T6020 runtime MMIO and RVBAR setup.
++     * Hold off on exposing it on other chips until their maps are ported.
++     */
++    if (chip_id != T6020 && chip_id != T6021 &&
++        (fid == PSCI_1_0_FN64_SYSTEM_SUSPEND ||
++         (fid == PSCI_1_0_FN_PSCI_FEATURES &&
++          PSCI_FN(arg0) == PSCI_FN(PSCI_1_0_FN64_SYSTEM_SUSPEND))))
++        return PSCI_RET_NOT_SUPPORTED;
++
++
++
+     if (!psci_runtime) {
+         psci_runtime = true;
+         dc_civac_range((void *)&psci_runtime, sizeof(psci_runtime));
+@@ -2411,6 +2560,12 @@ unsigned long psci_efi_handler(unsigned long fid, unsigned long arg0, unsigned l
+         case PSCI_0_2_FN64_CPU_ON:
+             return smp_psci_cpu_on(arg0, arg1, arg2);
+         case PSCI_1_0_FN64_SYSTEM_SUSPEND:
++            /* J414c: retention stays the default; the real cut runs only when Linux has set entry steps */
++            if (chip_id == T6021) {
++                dc_ivac_range((void *)psci_ctl, sizeof(psci_ctl));
++                if (!psci_ctl[1])
++                    return psci_j414c_retention(arg0, arg1);
++            }
+             return psci_system_suspend(arg0, arg1);
+         case PSCI_0_2_FN64_AFFINITY_INFO:
+             return psci_affinity_info(arg0, arg1);
+@@ -2427,7 +2582,7 @@ unsigned long psci_efi_handler(unsigned long fid, unsigned long arg0, unsigned l
+     }
+ }
+ 
+-const struct psci_efi_table psci_efi_table = {
++struct psci_efi_table psci_efi_table = {
+     .version = PSCI_VERSION_1_0,
+     .num_features = PSCI_MAX_FN,
+     .handler = psci_efi_handler,
+@@ -2439,6 +2594,5 @@ const struct psci_efi_table psci_efi_table = {
+             [PSCI_FN(PSCI_0_2_FN_CPU_OFF)] = PSCI_RET_SUCCESS,
+             [PSCI_FN(PSCI_0_2_FN64_CPU_ON)] = PSCI_RET_SUCCESS,
+             [PSCI_FN(PSCI_0_2_FN64_AFFINITY_INFO)] = PSCI_RET_SUCCESS,
+-            [PSCI_FN(PSCI_1_0_FN64_SYSTEM_SUSPEND)] = PSCI_RET_SUCCESS,
+         },
+ };
+diff --git a/src/psci.h b/src/psci.h
+index 9e3fe09a..82bbe1c5 100644
+--- a/src/psci.h
++++ b/src/psci.h
+@@ -63,7 +63,7 @@ struct psci_efi_table {
+     s32 features[PSCI_MAX_FN];
+ };
+ 
+-extern const struct psci_efi_table psci_efi_table;
++extern struct psci_efi_table psci_efi_table;
+ 
+ #define PSCI_S2R_TIMER    BIT(0)
+ #define PSCI_S2R_CORESOFF BIT(1)
+diff --git a/src/smp.c b/src/smp.c
+index a982887f..b601d68b 100644
+--- a/src/smp.c
++++ b/src/smp.c
+@@ -1014,6 +1014,7 @@ int smp_psci_affinity_info(u64 mpidr)
+ static int smp_psci_dispatch(int index, u64 entry, u64 context)
+ {
+     struct spin_table *t = &spin_table[index];
++    bool retained = chip_id == T6021 && psci_cpu_state[index] == PSCI_CPU_OFF;
+ 
+     dc_civac_range(t, sizeof(*t));
+     if (!t->flag || t->target)
+@@ -1030,9 +1031,10 @@ static int smp_psci_dispatch(int index, u64 entry, u64 context)
+     dc_civac_range(&psci_cpu_state[index], 1);
+     sysop("dsb sy");
+ 
++    /* Initial boot uses WFE. A previously offlined J414c core is in WFI. */
+     if (wfe_mode)
+         sysop("sev");
+-    else
++    if (!wfe_mode || retained)
+         smp_send_ipi(index);
+     return PSCI_RET_SUCCESS;
+ }
+@@ -1541,6 +1543,11 @@ void psci_park_c(u64 index)
+         psci_s2r_loops[index][2]++;
+         dc_civac_range((void *)psci_s2r_loops[index], 64);
+     }
++    /* The fast IPI belongs to Aura's parked-core wake, not the incoming kernel. */
++    if (chip_id == T6021 && cpu_features->fast_ipi) {
++        msr(SYS_IMP_APL_IPI_SR_EL1, IPI_SR_PENDING);
++        sysop("isb");
++    }
+     /* the kernel must not inherit WFI_MODE 3: give the core back the CYC_OVRD it had when it called CPU_OFF */
+     if (cpu_features->apple_sysregs_unlocked) {
+         msr(SYS_IMP_APL_CYC_OVRD, cyc_ovrd);
+@@ -1600,6 +1607,8 @@ static void smp_psci_add_range(u64 *ranges, int max, int *n, u64 base, u64 size)
+ int smp_psci_mmio_ranges(u64 *ranges, int max)
+ {
+     int n = 0;
++    /* J414c port: T6021 shares these die-0 ranges with T6020 (22G74 device trees, index for index) */
++    bool t602x = chip_id == T6020 || chip_id == T6021;
+ 
+     for (int i = 0; i < MAX_CPUS; i++) {
+         if (!cpu_info[i].valid)
+@@ -1611,15 +1620,29 @@ int smp_psci_mmio_ranges(u64 *ranges, int max)
+     if (wdt)
+         smp_psci_add_range(ranges, max, &n, wdt, 0x30); /* image 58: WD2 (+0x20..0x2c) too */
+     /* MPMGR_AON's S2R timer (PSCI_S2R_TIMER, psci.c) */
+-    if (chip_id == T6020)
++    if (t602x)
+         smp_psci_add_range(ranges, max, &n, 0x29e5c0000, 0x14000); /* image 84: the whole MPMGR_AON block */
++    if (t602x) {
+         smp_psci_add_range(ranges, max, &n, 0x347400000, 0x10000); /* image 92: ANS, SIO, GFX and PMP coprocessor wrappers (CPU_CONTROL +0x44, mailbox +0x8114) */
+         smp_psci_add_range(ranges, max, &n, 0x39bc00000, 0x10000);
+         smp_psci_add_range(ranges, max, &n, 0x406400000, 0x10000);
+         smp_psci_add_range(ranges, max, &n, 0x28ec00000, 0x10000);
+         smp_psci_add_range(ranges, max, &n, 0x404ea8000, 0x100);   /* image 90: the AP wake-source mask (+0x0c) and status (+0x30) words */
++    }
++    /* J414c: the Max-only words macOS 13.5 writes at its sleep entry (22G74 trace): dispext2/3, DISPLAY2's cluster
++     * word shares the soc-cluster page, and five gate words written 0 right before the cluster DVFS step */
++    if (chip_id == T6021) {
++        smp_psci_add_range(ranges, max, &n, 0x28e6801d0, 0x70);
++        smp_psci_add_range(ranges, max, &n, 0x28e0cc800, 4);
++        smp_psci_add_range(ranges, max, &n, 0x404e90000, 4);
++        smp_psci_add_range(ranges, max, &n, 0x2902a2000, 4);
++        smp_psci_add_range(ranges, max, &n, 0x28e69c000, 4);
++        smp_psci_add_range(ranges, max, &n, 0x28e670000, 4);
++        smp_psci_add_range(ranges, max, &n, 0x480000a00, 4); /* the two T6021-only IOA error enables */
++        smp_psci_add_range(ranges, max, &n, 0x500000a00, 4);
++    }
+     /* image 53's quiesceHW steps (psci.c): MINI 0x4d010, ps_afr, ps_sio(_cpu), ClkGen-SOC, PLL-off */
+-    if (chip_id == T6020) {
++    if (t602x) {
+         smp_psci_add_range(ranges, max, &n, 0x29e2cd010, 4);
+         smp_psci_add_range(ranges, max, &n, 0x29e2c83a0, 0xe0); /* image 83: the state counters */
+         smp_psci_add_range(ranges, max, &n, 0x404e80100, 4);
+@@ -1649,7 +1672,7 @@ int smp_psci_mmio_ranges(u64 *ranges, int max)
+                 smp_psci_add_range(ranges, max, &n, mcc[i] + p * stride + 0x21000, 0x10);
+     }
+     /* image 97: the memory-controller pages macOS writes during its sleep entry (psci_replay_mem) */
+-    if (chip_id == T6020) {
++    if (t602x) {
+         static const u64 pg[] = {
+             0x200020000,
+             0x200024000,
+@@ -1756,32 +1779,38 @@ int smp_psci_mmio_ranges(u64 *ranges, int max)
+         };
+         for (u32 i = 0; i < sizeof(pg) / sizeof(pg[0]); i++)
+             smp_psci_add_range(ranges, max, &n, pg[i], SZ_16K);
++        /* J414c: controllers 4-7 take the pages of the M2 Pro's last controller (psci_replay_mem_clean) */
++        if (chip_id == T6021)
++            for (u32 i = 0; i < sizeof(pg) / sizeof(pg[0]); i++)
++                if (pg[i] >= 0x203000000ULL && pg[i] < 0x204000000ULL)
++                    for (u64 k = 1; k <= 4; k++)
++                        smp_psci_add_range(ranges, max, &n, pg[i] + k * 0x1000000ULL, SZ_16K);
+     }
+     /* image 60b: the PMU's SPMI controller for PSCI_S2R_CRUMB (image 60 faulted on its first read: run R10) */
+     if (psci_crumb_base())
+         smp_psci_add_range(ranges, max, &n, psci_crumb_base(), 0x10);
+     /* image 120: the AP GPIO block, snapshotted at SYSTEM_SUSPEND */
+-    if (chip_id == T6020)
++    if (t602x)
+         smp_psci_add_range(ranges, max, &n, 0x39b028000ULL, 0x4000);
+     /* image 119: internal PCIe ports 0/1 (Wi-Fi, SD): Linux's per-port MSI/RID2SID setup is saved at SYSTEM_SUSPEND */
+-    if (chip_id == T6020) {
++    if (t602x) {
+         smp_psci_add_range(ranges, max, &n, 0x594008000ULL, 0x4000);
+         smp_psci_add_range(ranges, max, &n, 0x595008000ULL, 0x4000);
+     }
+     /* image 66: NOTIFY_ENABLE on nub-spmi0 (on the crumb page) and nub-spmi1 (PSCI_S2R_SPMINOTIFY) */
+-    if (psci_crumb_base() && chip_id == T6020)
++    if (psci_crumb_base() && t602x)
+         smp_psci_add_range(ranges, max, &n, 0x29e154040, 4);
+     /* image 72: each core's external debug block, EDPRCR +0x310 and EDLAR +0xfb0 (PSCI_S2R_EDPRCR) */
+-    if (chip_id == T6020)
++    if (t602x)
+         for (int i = 0; i < MAX_CPUS; i++)
+             if (cpu_info[i].valid)
+                 smp_psci_add_range(ranges, max, &n, 0x210010000ULL + (u64)cpu_info[i].cluster * 0x1000000ULL +
+                                    (u64)cpu_info[i].core * 0x100000ULL, 0x1000);
+     /* image 67: the SEP mailbox's OUTBOX_CTRL (PSCI_S2R_SEP); ps_sep 0x290280c00 is on ps_sio's page */
+-    if (chip_id == T6020)
++    if (t602x)
+         smp_psci_add_range(ranges, max, &n, 0x396408114, 4);
+     /* image 60c: the PMP's request/ack words for the PSCI_S2R_CRUMB snapshot (the CPM power words share a mapped page) */
+-    if (psci_crumb_base() && chip_id == T6020)
++    if (psci_crumb_base() && t602x)
+         smp_psci_add_range(ranges, max, &n, 0x28e3c2000, 0x84);
+     if (aic) {
+         /* the AIC's event page sits at +0xc000 (AIC2); the system-suspend wake poll reads it */
