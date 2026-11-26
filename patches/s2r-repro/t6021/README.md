@@ -7,8 +7,9 @@ Diffs that go on top of the M2 Pro diffs in the parent folder. With them, the R6
 | `kernel-t6021-j414c.diff` | `../kernel-on-omacom-linux-aurora-7.3-8ca67c75ff52.diff` | Adds `t6021-j414c-psci-pmp.dts` (PSCI through EFI, PMP booted, modelled on `t6020-j414s-psci-pmp.dts`). Lets `macsmc` set WKTP and the wake mask on `apple,t6021` as it does on `apple,t6020`. |
 | `aura-t6021.diff` | `../aura-on-omacom-m1n1-bf6a6417.diff` | Lets T6021 use the T6020 suspend path, and adds what the Max has on top: a sixth soc-cluster (DISPLAY2), the dispext2/3 power words, five gate words macOS 13.5 zeroes at sleep entry, two more IOA error enables, memory-cache controllers 4-7, and room for their runtime MMIO ranges. |
 | `kernel-cancelled-sleep.diff` | the two above | Not Max-specific. Keeps the display and GPU alive when a sleep is cancelled on the way down; see below. |
+| `kernel-commit-late.diff` | any of the above | Not Max-specific. Stops a wake event from cancelling a firmware suspend once its late stage has begun, which avoids a panic in the SEP driver; see below. |
 
-**Base:** all three diffs were made and tested on the parent diffs at `c2b1eac`.
+**Base:** all four diffs were made and tested on the parent diffs at `c2b1eac`. The two kernel diffs below were last tested as a kernel built from exactly the parent diffs at `c2b1eac` plus the three kernel diffs here, with no other changes.
 
 No change to the R62Q-R62Y kernel code was needed. The `apple,t6020-pmp-v2` and `apple,t6020-pcie` matches and the disp0 power cycle apply to the Max as they are.
 
@@ -41,7 +42,7 @@ The diff (39 added lines):
 
 Tested (counts are runs):
 
-- This diff, on the desktop with Hyprland: 1 of 1 `pm_test=devices` cancel left the compositor up with 0 failed GPU submits, Wi-Fi and Bluetooth back. 1 of 1 real sleep after it came back (`GPU firmware idled for sleep`, `restarted warm (kick Ok(()))`).
+- This diff, on the desktop with Hyprland: a `pm_test=devices` cancel left the compositor up with 0 failed GPU submits and Wi-Fi and Bluetooth back, 2 of 2; a real sleep after it came back (`GPU firmware idled for sleep`, `restarted warm (kick Ok(()))`), 2 of 2. In a RAM root on the clean build: sleep, cancel, sleep, 1 of 1.
 - The same two changes in an earlier build that also carried the recovery experiments below: DCP restart, 16 of 16 cancelled sleeps in a RAM root and 1 of 1 on the desktop. Later GPU idle, 2 of 2 device-stage cancels in a RAM root and 1 of 1 on the desktop; real sleeps restarted the GPU warm 3 of 3 in a RAM root and 1 of 1 on the desktop.
 
 Not fixed:
@@ -49,12 +50,32 @@ Not fixed:
 - **A GPU that was idled and then not slept stays down.** Plain wake, warm restart, CPU stop then warm restart, and CPU stop, `apple_pmgr_ps_cycle()` of the GFX domain, then warm restart all ended in ETIME, with the GFX power word at `0x1f0003ff`. None of them is in the diff; that path is unchanged.
 - **A cancel after the late stage hangs until the watchdog** (`pm_test=platform`, 2 of 2). The SEP is the last device in the suspend crumbs. Not investigated.
 
+## A wake after the late stage (`kernel-commit-late.diff`)
+
+With `kernel-cancelled-sleep.diff`, a cancel in the device stage is safe. A later cancel is not:
+
+- The GPU firmware is idled in `suspend_late` and has no way back without a real sleep (above).
+- The SEP is told to sleep in its `suspend_noirq` (`noirq_direct`). If the suspend is cancelled after that, `sep_pm_commit_finish()` in `pm_shim.c` panics: `SEP SLEEP was sent without a physical sleep/wake`.
+
+The diff (26 added lines in `drivers/base/power/`): from the start of `dpm_suspend_late()`, `pm_wakeup_pending()` returns false for a firmware-driven suspend until the resume begins. `pm_s2r_commit_late=0` (`/sys/module/kernel/parameters/`) gives the old behaviour.
+
+Tested (counts are runs). The alarm cases used one extra test-only delay of 3 s after the noirq stage, so an RTC alarm could be timed into it:
+
+| Case | Without the diff | With the diff |
+|---|---|---|
+| `pm_test=platform` cancel | did not come back, 3 of 3 (came back 1 of 1 with `module_blacklist=apple_sep`) | not tested |
+| RTC alarm landing after the noirq stage | panic, 1 of 1; Aura's reset record holds `vpanic` → `emergency_restart` → `do_kernel_restart` | sleep completed, no panic, 2 of 2 |
+| Desktop (Hyprland): device-stage cancel, then a real sleep | | both as before, 1 of 1 |
+
+Cost: the event that would have cancelled the suspend is dropped. An RTC alarm landing after the late or noirq stage did not wake the machine afterwards; it slept until a key press, 4 of 4. Why a wake arriving during the entry is not delivered after the commit is not investigated.
+
 ## On the current parent diffs
 
 Against the parent diffs at `929cd58` (Aura 130). Applied only; not built or booted there:
 
 - `aura-t6021.diff` applies.
 - `kernel-cancelled-sleep.diff` applies.
+- `kernel-commit-late.diff` applies.
 - `kernel-t6021-j414c.diff` does not; use `kernel-t6021-j414c-dts-only.diff` (see the update below).
 
 ## Update 2026-11-26: on the current (gating) diffs

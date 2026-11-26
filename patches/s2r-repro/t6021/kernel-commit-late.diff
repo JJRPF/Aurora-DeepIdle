@@ -1,0 +1,74 @@
+--- a/drivers/base/power/main.c
++++ b/drivers/base/power/main.c
+@@ -65,6 +65,16 @@
+ static DEFINE_MUTEX(dpm_list_mtx);
+ static pm_message_t pm_transition;
+ 
++/*
++ * pm_s2r_commit_late: a firmware-driven suspend that has reached its late stage is no longer cancelled by a wake
++ * event. From there the GPU firmware (idled in suspend_late) and the SEP (told in suspend_noirq) only come back
++ * through a physical sleep and wake; a cancel after the SEP was told is a panic in pm_shim.c. The event that would
++ * have cancelled the suspend is not delivered afterwards, so the machine sleeps until its next wake event.
++ */
++static bool pm_s2r_commit_late = true;
++core_param(pm_s2r_commit_late, pm_s2r_commit_late, bool, 0644);
++void pm_wakeup_set_no_abort(bool on); /* drivers/base/power/wakeup.c */
++
+ static DEFINE_MUTEX(async_wip_mtx);
+ static int async_error;
+ 
+@@ -950,6 +960,7 @@
+  */
+ void dpm_resume_noirq(pm_message_t state)
+ {
++	pm_wakeup_set_no_abort(false);
+ 	dpm_noirq_resume_devices(state);
+ 
+ 	resume_device_irqs();
+@@ -1796,6 +1807,8 @@
+ 	struct device *dev;
+ 	int error;
+ 
++	if (pm_s2r_commit_late && pm_suspend_via_firmware())
++		pm_wakeup_set_no_abort(true);
+ 	trace_suspend_resume(TPS("dpm_suspend_late"), state.event, true);
+ 
+ 	pm_transition = state;
+@@ -1850,6 +1863,7 @@
+ 
+ 	error = READ_ONCE(async_error);
+ 	if (error) {
++		pm_wakeup_set_no_abort(false);
+ 		dpm_save_failed_step(SUSPEND_SUSPEND_LATE);
+ 		dpm_resume_early(resume_event(state));
+ 	}
+--- a/drivers/base/power/wakeup.c
++++ b/drivers/base/power/wakeup.c
+@@ -868,11 +868,27 @@
+  * since the old value was stored.  Also return true if the current number of
+  * wakeup events being processed is different from zero.
+  */
++/*
++ * J414c S2R: from the late stage of a firmware-driven suspend on, a wake event no longer cancels
++ * the suspend (see dpm_suspend_late()). The GPU and SEP firmware are told of the sleep there and
++ * only a physical sleep and wake brings them back, so the event is left to wake the machine.
++ */
++static bool pm_wakeup_no_abort;
++
++void pm_wakeup_set_no_abort(bool on);
++void pm_wakeup_set_no_abort(bool on)
++{
++	WRITE_ONCE(pm_wakeup_no_abort, on);
++}
++
+ bool pm_wakeup_pending(void)
+ {
+ 	unsigned long flags;
+ 	bool ret = false;
+ 
++	if (READ_ONCE(pm_wakeup_no_abort))
++		return false;
++
+ 	raw_spin_lock_irqsave(&events_lock, flags);
+ 	if (events_check_enabled) {
+ 		unsigned int cnt, inpr;
