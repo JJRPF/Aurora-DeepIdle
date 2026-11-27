@@ -10,4 +10,8 @@ Thanks all, a few updates from the J414s (M2 Pro, 14").
 
 **@nekolyanich:** thanks for the second-sleep write-up. Still not reproduced on the J414s; my soak is an idle desktop, not a drawing client.
 
-Next: a 4 h battery sleep on this exact configuration, then draft PRs.
+Update: a 4 h sleep (14404 s) on this exact configuration woke on the RTC alarm with 99.9% of it in S2R (`SLP_S2R`), 0 failed units, Wi-Fi back. Its battery reading is not usable (the charger was connected at some point), so the 0.375 W figure is still the one night.
+
+I merged #13 and #14, thank you @muness. The macsmc hunk of the T6021 kernel diff is obsolete after the wake-source change; there is a DTS-only diff next to it. #14's `kernel-commit-late.diff` changes the core PM code for every firmware suspend and adds module parameters, so I am keeping the diffs in the repo and not proposing them upstream; the `hci_bcm4377` probe fix stands on its own and is a candidate for its own PR.
+
+The Aura half is filed as a draft: https://github.com/aurora-silicon/aura/pull/539 . The kernel series is written on the omacom 7.3 integration branch; 4 of its 10 squashed commits conflict with the S2R work already on aurora-silicon/linux main, so it needs a port and a test run before it is filed.

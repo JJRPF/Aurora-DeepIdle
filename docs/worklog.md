@@ -6096,3 +6096,8 @@ Armed R60H 23:52
 - PR #13 (muness, J414c t6021 diffs, patches only) merged. Reviewed: only patches/s2r-repro/t6021/ touched, aura-t6021.diff applies cleanly to gh5-wakemask, the macsmc hunk of the kernel diff no longer applies (gating change removed the t6020 check and table). Added kernel-t6021-j414c-dts-only.diff and a README note.
 - PR texts drafted in docs/pr-drafts/ and emailed. Kernel squashed branch gh5/s2r-7.3-upstream (15 commits); trial onto aurora-silicon/linux main: 6 of 10 apply, 4 conflict (pcie-apple, DCP, asahi, nvme/pm_shim), so a port is needed before the kernel PR.
 - The first 4 h run was woken early by the owner and its drain.sh output was empty because it ran without root (/dev/mem). Restarted with sudo.
+
+## 2026-11-26 19:15 4 h run result, PR 14 merged, Aura PR filed
+- 4 h run (10:49 to 14:49, same boot since 09:10): rtcwake 14404 s wall, SLP_S2R 14385 s (99.9%), wake record MBSE 0x10630, 0 failed units, Wi-Fi back. Drain not usable: drain.sh read the battery higher after (17% to 20%, -199 mW), so the charger was connected at some point; only the 0.375 W night stands.
+- PR #14 (muness) reviewed and merged: patches only, all four kernel diffs apply to gh5/s2r-7.3-gating (rtc-rearm needs commit-late). Not for upstream: core PM change for every firmware suspend, core_param/module parameters. bcm4377 probe fix is a clean independent fix.
+- Aura PR filed as a draft: aurora-silicon/aura#539 (fork JJRPF/aurora-aura, branch feat/ap-wake-sources, 808376b3 on 8521ad7c, compile-checked only). Kernel PR not filed: needs the port (4 of 10 commits conflict with aurora-silicon/linux main).
