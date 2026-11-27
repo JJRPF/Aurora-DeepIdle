@@ -19,6 +19,6 @@ launch_agy() {
 xdg-terminal-exec --title="S2R-Claude" --dir="$DIR" -- \
     bash -lc "claude --continue --dangerously-skip-permissions \"\$(cat '$STATE/prompt-claude.txt')\"; echo 'claude exited: \$?'; exec bash" >/dev/null 2>&1 &
 sleep 2
-launch_agy "GPU-AGY" "$HOME/dev/Aurora-GPUParity" "6703655e-f34e-4a18-aaa1-8e0fc9935c43" "$STATE/prompt-gpu.txt"
+# paused while S2R is the sole focus: launch_agy "GPU-AGY" "$HOME/dev/Aurora-GPUParity" "6703655e-f34e-4a18-aaa1-8e0fc9935c43" "$STATE/prompt-gpu.txt"
 sleep 2
-launch_agy "Lichen-AGY" "$HOME/dev/Lichen" "75d72571-9cfd-4259-99b6-2e77046a36d8" "$STATE/prompt-lichen.txt"
+# paused while S2R is the sole focus: launch_agy "Lichen-AGY" "$HOME/dev/Lichen" "75d72571-9cfd-4259-99b6-2e77046a36d8" "$STATE/prompt-lichen.txt"
