@@ -29,9 +29,12 @@ run_levels() {
 }
 # MODULES="aurora snd_soc_macaudio hci_bcm4377": each is loaded in turn (modprobe pulls its dependencies) and the levels run after each,
 # so a dead-man reset names the module whose presence makes the sleep hang. Empty: just the levels.
+MODS_BEFORE=$(awk '{print $1}' /proc/modules | tr '\n' ' ')
+log "modules at start: $(awk '{print $1}' /proc/modules | sort | tr '\n' ' ')"
 run_levels
 for m in ${MODULES:-}; do
-    modprobe $m && log "loaded $m ($(lsmod | wc -l) modules)" || { log "modprobe $m failed"; continue; }
+    had=no; grep -q "^${m//-/_} " /proc/modules && had=yes
+    modprobe $m && log "loaded $m (was already loaded: $had; $(lsmod | wc -l) modules; $(awk '{print $1}' /proc/modules | sort | comm -13 <(echo $MODS_BEFORE | tr ' ' '\n' | sort) - | tr '\n' ' '))" || { log "modprobe $m failed"; continue; }
     sleep 5; run_levels
     done
 echo none > $PM/pm_test
