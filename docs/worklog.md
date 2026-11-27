@@ -6124,3 +6124,9 @@ Aura main (8521ad7c) + main's own t6020 DTBs (spin-table CPUs, no psci node), st
 - `uname -r` 7.3.0-1-1-ARCH (the test boot ran), `nproc` 10, `cpu@0/enable-method` = spin-table, `/chosen/aurora,s2r-mailbox` present, dmesg: "spin-table CPUs can park: the boot object brings them back", all secondaries up.
 - Restored: boot.bin d1e1b367, S2R default entry (UKI 69e2b7ea), flag clear.
 - Result: step 1 done. The J414s runs the sleep.c architecture's boot path. Next: step 2 (`apple,t6020-sleep` node, compatible and binding, inventory-only profile).
+
+## 2026-11-26 (night): sleep.c port, test boot 3 armed (port kernel, sleep node enabled)
+- Port kernel built as `7.3.0-port+` (LOCALVERSION changed so its modules never touch `7.3.0-s2r73+`), modules installed stripped, UKI `omarchy_linux-aurora-port.efi` (61.9 MB, b2sum a97be003) via the new `harness/usbtest/port-uki.sh`. The first attempt was 86 MB (unstripped modules) and did not fit the ESP; the failed copy's `.new` file was removed.
+- `aura-main-try.sh armport` boots that UKI once (limine entry `/OmarchyPort` first, default 1) with Aura main; `restore` removes the entry.
+- Test image `boot-test.bin.port` (84e97da8): main2 plus `t6020-j414s-sleeptest.dts` (the J414s with the sleep node enabled). Expect "T6020 sleep profile is inventory only" from apple-sleep.
+- Risk noted: if the port kernel fails to boot, the one-shot flag is consumed and the next boot lands on the port entry again with the stock Aura (the kernel has the s2r73 config plus sleep.c, so a failure is unlikely).
