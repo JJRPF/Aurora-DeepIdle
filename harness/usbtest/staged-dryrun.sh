@@ -12,7 +12,13 @@ say "start $(uname -r) deep=$(cat $P/deep) untested_commit=$(cat $P/untested_com
 [ -n "$SKIP" ] && echo $SKIP > $P/dbg_skip
 say "dbg_skip=$(cat $P/dbg_skip 2>/dev/null)"
 say "pmu_notes=$(cat $P/pmu_notes)"
-echo 406400000.gpu > /sys/bus/platform/drivers/aurora/unbind 2>>"$LOG"; say "gpu unbound"
+# Unbinding the GPU takes Hyprland down (its GL framebuffer alloc asserts, and the session with it).
+# The kernel now lets a dry run past the GPU's sleep refusal, so leave it bound unless UNBIND_GPU=1.
+if [ -n "$UNBIND_GPU" ]; then
+  echo 406400000.gpu > /sys/bus/platform/drivers/aurora/unbind 2>>"$LOG"; say "gpu unbound"
+else
+  say "gpu left bound"
+fi
 echo 1 > /sys/power/pm_print_times; echo 1 > /sys/power/pm_debug_messages
 echo deep > /sys/power/mem_sleep; say "mem_sleep $(cat /sys/power/mem_sleep)"
 levels="devices platform processors core none"
