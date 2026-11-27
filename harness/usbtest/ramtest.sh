@@ -22,7 +22,9 @@ bash $H/write-image.sh job "$JOB"
 LOGT=/home/jjr/.config/deepidle/ntfy-log-topic
 [ -s $LOGT ] && install -m 644 $LOGT /boot/deeptest/job/topic
 rm -f /boot/deeptest/failtest; sync
+rm -f /boot/efi/EFI/Linux/deeptest.efi.tmp /boot/efi/EFI/Linux/deeptest.efi /boot/efi/m1n1/*.new   # the ESP is nearly full: the old copy goes first
 bash $H/install-limine.sh $W/deeptest.efi >/dev/null
+[ "$(sha256sum /boot/efi/EFI/Linux/deeptest.efi | cut -c1-64)" = "$(sha256sum $W/deeptest.efi | cut -c1-64)" ] || { echo "deeptest.efi did not reach the ESP (full?)"; exit 1; }
 sudo grep -q '^/DeepTest$' /boot/efi/limine.conf || { echo "no DeepTest entry"; exit 1; }
 bash $BB install $LOADER
 cp $E/boot-stock.bin.bak-r62y $E/boot-stock.bin.new && sync -f $E/boot-stock.bin.new && mv -f $E/boot-stock.bin.new $E/boot-stock.bin

@@ -10,6 +10,12 @@ grep -q deep $PM/mem_sleep || { log "no deep in mem_sleep, stopping"; return 0; 
 echo deep > $PM/mem_sleep
 echo 0 > $P/pmu_notes 2>/dev/null
 [ -n "${SKIP:-}" ] && echo $SKIP > $P/dbg_skip
+[ -e $P/deadman_s ] && echo ${DEADMAN:-60} > $P/deadman_s && log "dead-man $(cat $P/deadman_s) s"
+for drv in ${UNBIND:-}; do   # UNBIND="apple-sio rtkit-helper": drivers unbound before the run, to bisect
+    for d in /sys/bus/*/drivers/$drv; do [ -d $d ] || continue
+        for l in $d/*; do [ -L $l ] && [ -e $l/driver ] && echo "$(basename $l)" > $d/unbind && log "unbound $drv $(basename $l)"; done
+    done
+done
 echo 1 > $PM/pm_print_times; echo 1 > $PM/pm_debug_messages 2>/dev/null
 WDT_P=/sys/module/apple_wdt/parameters/suspend_timeout; [ -e $WDT_P ] && echo 120 > $WDT_P
 for lv in $LEVELS; do
