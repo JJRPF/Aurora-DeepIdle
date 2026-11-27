@@ -7,11 +7,14 @@ LEVELS=${LEVELS:-devices platform processors core none}
 PUSH_TRIES=8
 log "P1 kernel $(uname -r); deep=$(cat $P/deep) untested_commit=$(cat $P/untested_commit); mem_sleep $(cat $PM/mem_sleep); LEVELS=$LEVELS SKIP=${SKIP:-0}"
 grep -q deep $PM/mem_sleep || { log "no deep in mem_sleep, stopping"; return 0; }
-echo deep > $PM/mem_sleep
-echo 0 > $P/pmu_notes 2>/dev/null
-[ -n "${SKIP:-}" ] && echo $SKIP > $P/dbg_skip
-[ -n "${KEEPALIVE:-}" ] && [ -e /sys/module/apple_wdt/parameters/suspend_keepalive ] && echo 1 > /sys/module/apple_wdt/parameters/suspend_keepalive && log "wdt keepalive $(cat /sys/module/apple_wdt/parameters/suspend_keepalive)"
-[ -e $P/deadman_s ] && echo ${DEADMAN:-60} > $P/deadman_s && log "dead-man $(cat $P/deadman_s) s"
+w() { echo "$2" > "$1" 2>/dev/null || log "write of $2 to $1 FAILED"; }
+w $PM/mem_sleep deep
+w $P/pmu_notes 0
+[ -n "${SKIP:-}" ] && w $P/dbg_skip $SKIP
+K=/sys/module/apple_wdt/parameters/suspend_keepalive
+if [ -n "${KEEPALIVE:-}" ]; then [ -e $K ] && w $K 1; log "wdt keepalive: $(cat $K 2>&1)"; push "P1 setup" "wdt keepalive: $(cat $K 2>&1); dbg_skip $(cat $P/dbg_skip); $(tail -2 $LOG | tr '
+' '|')"; fi
+[ -e $P/deadman_s ] && w $P/deadman_s ${DEADMAN:-60} && log "dead-man $(cat $P/deadman_s) s"
 for drv in ${UNBIND:-}; do   # UNBIND="apple-sio rtkit-helper": drivers unbound before the run, to bisect
     for d in /sys/bus/*/drivers/$drv; do [ -d $d ] || continue
         for l in $d/*; do [ -L $l ] && [ -e $l/driver ] && echo "$(basename $l)" > $d/unbind && log "unbound $drv $(basename $l)"; done
