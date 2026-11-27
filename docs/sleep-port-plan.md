@@ -43,3 +43,13 @@ Open for the T6020 profile:
 - Aura's resume path does PCIe port restore (qs_pport) and a GPIO snapshot in firmware. In `sleep.c` these belong in `wake`, or in the kernel's own drivers (aura#529).
 - The wake mask (`apple,wake-enable`) and the wake block address are Aura's `wakemask` (0x29e00400c).
 - Nothing here is booted on the kernel side. The test needs a UKI of the port kernel with its own module tree; the `deeptest` machinery exists (`build-uki.sh` with `MODROOT`), but patched-kernel boots have been fragile before (worklog, R57P to R57U).
+
+### Correction (2026-11-26, later): T6020 macOS traces exist
+
+The step 3 notes above say we hold no T6020 macOS trace. That is wrong. `docs/hv-pmgr-writes-sleep-20261112.txt` (every PMGR write between the SMC's `slpw` and the S2R timer, in order), `hv-asc-writes`, `hv-mem-writes`, `hv-late-writes`, `hv-mpmgr-trace` and `hv-macos-state-at-commit` are macOSTest 14.8.9 under the Aura hypervisor on the J414s. The pmgr trace ends `... 0x28e088000..0x28e088018 cluster words, 0x28e224000 = 0x219/0x21b/0x21a (PLL off), 0x29e5c4000 = 1 (S2R timer)`, the order Aura's recipe already follows. So the T6020 profile can be written in main's own style, measured from macOS, with Aura's proven recipe as the cross-check: where the two disagree, the disagreement is a finding. Owner decision 2026-11-26: start from Aura's recipe (option 1) and check each step against these traces.
+
+Per-step working list for `sleep-t6020.h` (macOS order from the trace):
+1. PMP/ASC/SIO/DCP stops (hv-asc-writes), display and ATC lowering with the PMP mailbox's `0x28e3d1000` power words stepping 0x2700, 0xa700, 0xe700, 0xe300, 0xc300, 0x4300, 0x300, 0x200, 0x0.
+2. Domain lowering in the trace's order (0x2902802e8, 0x2902801b0/d0/d8, 0x28e080248, 0x28e0802b0/b8, 0x28e080258, 0x28e0802c0/d8, 0x290280200..218 fabric, 0x28e080230, 0x29e2800d0).
+3. WD0/WD1 off (0x29e2c4000, 0x29e2c4010), cluster DVFS teardown (0x210e20020, 0x211e20020, 0x212e20020 = 0xc00101/0xc00105), CPU start/stop, the CPM words 0x28e08c030..38.
+4. Cluster words 0x28e088000..18, pmgr_misc 0x28e20c000/400, PLL off 0x28e224000, S2R timer 0x29e5c4000.
