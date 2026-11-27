@@ -6136,3 +6136,8 @@ Aura main (8521ad7c) + main's own t6020 DTBs (spin-table CPUs, no psci node), st
 - apple-sleep probed the enabled node and refused as designed: `apple-sleep 28e080000.sleep-controller: error -EOPNOTSUPP: T6020 sleep profile is inventory only` (probe error -95 at 0.066 s). Nothing touched hardware.
 - Restored: boot.bin d1e1b367, S2R default entry (UKI 69e2b7ea), flag clear, `/OmarchyPort` entry removed. The port UKI stays on the ESP (61.9 MB, 24 MB free) for the next test boot.
 - Step 2 is verified on hardware. The deployment path (port-uki.sh, `aura-main-try.sh armport`) works. Next: `sleep-t6020.h`.
+
+## 2026-11-26 (night): sleep-t6020.h written, test boot 4 armed
+- `drivers/soc/apple/sleep-t6020.h` (new, ~400 lines, branch gh5/port-step2): CPU side reuses T8103's primitives (same ACC/CYC controls, last WFI, PAC restore); commit = Aura's proven recipe order (SEP, held domains, SIO and fabric floor, wake mask valid&~enabled with the 22 ADT sources, clusters P1/P0/E, ClkGen words then PLL off, cluster DVFS off, SPMI notify 0x2000001 on spmi0/1, WD, AIC mask); wake = the reverse. `untested = true`: deep sleep is a dry run unless `untested_commit=1`.
+- Node gained `wake` (0x29e004000) and `cpu-start` (0x28e0a8000); binding updated (8 regs).
+- port-uki.sh: the ESP check counts the UKI it replaces. Port UKI b43e2f2a, image boot-test.bin.port2 (079ec7a4). Test boot 4 armed: dry run of `echo mem > /sys/power/state`, no commit.

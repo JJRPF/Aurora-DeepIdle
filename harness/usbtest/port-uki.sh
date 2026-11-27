@@ -16,7 +16,10 @@ touch /usr/lib/modules/$KREL/.keep
 mkinitcpio -k "$KREL" -g "$T/initramfs.img" 2>&1 | grep -iE "error|warning: no|Image generation" || true
 [ -s "$T/initramfs.img" ] || { echo "initramfs failed"; exit 1; }
 ukify build --linux "$SRC/arch/arm64/boot/Image" --initrd "$T/initramfs.img" --cmdline "$CMD" --uname "$KREL" --output "$T/port.efi" 2>&1 | tail -1
-[ $(stat -c %s "$T/port.efi") -lt $(( $(df --output=avail -B1 /boot/efi | tail -1) )) ] || { echo "UKI too big for the ESP"; exit 1; }
-cp "$T/port.efi" "$OUT.new" && sync -f "$OUT.new" && mv -f "$OUT.new" "$OUT"
+OLD=$(stat -c %s "$OUT" 2>/dev/null || echo 0)
+# the previous port UKI is replaced, so its space counts; it is only ever a one-shot test entry
+[ $(stat -c %s "$T/port.efi") -lt $(( $(df --output=avail -B1 /boot/efi | tail -1) + OLD )) ] || { echo "UKI too big for the ESP"; exit 1; }
+rm -f "$OUT"
+cp "$T/port.efi" "$OUT" && sync -f "$OUT"
 rm -rf "$T"
 echo "port UKI $(b2sum $OUT | cut -c1-16), kernel $KREL"
