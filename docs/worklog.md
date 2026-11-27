@@ -6161,3 +6161,8 @@ Platform level hung again (log ends at BEGIN level=platform). pstore was empty a
 - Log ends at `BEGIN level=platform` (12:08:17); nothing after it, no END. The next boot is at 12:35:24, so the machine stayed hung for ~27 min and the owner had to force a reboot. The 120 s watchdog fallback did not recover it this time (or was not armed in this state).
 - Result: outcome (b), the hang is at or before the late phase, not the noirq phase (bit 32 would have ended the run with -EBUSY). TB5-TB10 all hang at level platform; level devices passes.
 - Restore run after the boot. Hang-prone platform-level tests paused until the owner has seen this.
+
+## 2026-11-27 R1: RAM-root route works (no Pi needed for it)
+- `harness/usbtest/ramtest.sh <boot-test.bin> <job dir>` arms a one-shot DeepTest entry (port kernel UKI + RAM root, no disk, no desktop) with the test boot.bin chain; the default entry is untouched. Jobs: `jobs/p1-levels` (pm_test levels), `jobs/p2-wdidle`. `ramtest.sh restore` = aura-main-try restore. Root image repacked with 7.3.0-port+ modules; ESP is nearly full (stale deeptest.efi copies must be removed before install-limine).
+- R1 (LEVELS=devices, SKIP=33): RAM root booted 7.3.0-port+, `END level=devices rc=0`, back on main by itself after 92 s. Output reaches ntfy (log topic) before each level.
+- Next: p2-wdidle to see whether the loader's 120 s watchdog fires in the RAM root; only then the platform level.
