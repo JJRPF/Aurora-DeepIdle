@@ -6141,3 +6141,6 @@ Aura main (8521ad7c) + main's own t6020 DTBs (spin-table CPUs, no psci node), st
 - `drivers/soc/apple/sleep-t6020.h` (new, ~400 lines, branch gh5/port-step2): CPU side reuses T8103's primitives (same ACC/CYC controls, last WFI, PAC restore); commit = Aura's proven recipe order (SEP, held domains, SIO and fabric floor, wake mask valid&~enabled with the 22 ADT sources, clusters P1/P0/E, ClkGen words then PLL off, cluster DVFS off, SPMI notify 0x2000001 on spmi0/1, WD, AIC mask); wake = the reverse. `untested = true`: deep sleep is a dry run unless `untested_commit=1`.
 - Node gained `wake` (0x29e004000) and `cpu-start` (0x28e0a8000); binding updated (8 regs).
 - port-uki.sh: the ESP check counts the UKI it replaces. Port UKI b43e2f2a, image boot-test.bin.port2 (079ec7a4). Test boot 4 armed: dry run of `echo mem > /sys/power/state`, no commit.
+
+## 2026-11-27 test boot 6 (pstore console)
+Platform level hung again (log ends at BEGIN level=platform). pstore was empty after the reset: the reserve_mem ramoops region (0x107c5400000) does not survive the watchdog reset, so no kernel log. Devices level passes, so the hang is in .prepare (sleep_note via SPMI on T6020, WD1 re-arm, gate_prepare), .prepare_late (V27/SMC/ANS scopes) or noirq suspend. Next: test boot 7 with pmu_notes=0 (staged-dryrun.sh NONOTES=1) to rule out the unverified SPMI scratch writes.

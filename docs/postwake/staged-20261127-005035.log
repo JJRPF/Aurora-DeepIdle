@@ -1,0 +1,4 @@
+00:50:35 start 7.3.0-port+ deep=Y untested_commit=N
+00:50:38 gpu unbound
+00:50:38 mem_sleep s2idle [deep]
+00:50:38 BEGIN level=platform

@@ -8,6 +8,8 @@ mkdir -p "$(dirname "$LOG")"
 say() { echo "$(date +%T) $*" >> "$LOG"; sync -f "$LOG"; }
 P=/sys/module/apple_sleep/parameters
 say "start $(uname -r) deep=$(cat $P/deep) untested_commit=$(cat $P/untested_commit)"
+[ -n "$NONOTES" ] && echo 0 > $P/pmu_notes
+say "pmu_notes=$(cat $P/pmu_notes)"
 echo 406400000.gpu > /sys/bus/platform/drivers/aurora/unbind 2>>"$LOG"; say "gpu unbound"
 echo 1 > /sys/power/pm_print_times; echo 1 > /sys/power/pm_debug_messages
 echo deep > /sys/power/mem_sleep; say "mem_sleep $(cat /sys/power/mem_sleep)"
