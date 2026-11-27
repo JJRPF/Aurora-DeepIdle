@@ -6101,3 +6101,7 @@ Armed R60H 23:52
 - 4 h run (10:49 to 14:49, same boot since 09:10): rtcwake 14404 s wall, SLP_S2R 14385 s (99.9%), wake record MBSE 0x10630, 0 failed units, Wi-Fi back. Drain not usable: drain.sh read the battery higher after (17% to 20%, -199 mW), so the charger was connected at some point; only the 0.375 W night stands.
 - PR #14 (muness) reviewed and merged: patches only, all four kernel diffs apply to gh5/s2r-7.3-gating (rtc-rearm needs commit-late). Not for upstream: core PM change for every firmware suspend, core_param/module parameters. bcm4377 probe fix is a clean independent fix.
 - Aura PR filed as a draft: aurora-silicon/aura#539 (fork JJRPF/aurora-aura, branch feat/ap-wake-sources, 808376b3 on 8521ad7c, compile-checked only). Kernel PR not filed: needs the port (4 of 10 commits conflict with aurora-silicon/linux main).
+
+## 2026-11-26 20:00 Port blocked on a design question, issue filed
+- aura#539 format-check fixed (comment line over 100 columns), amended to 3823d5e1.
+- The port onto aurora-silicon/linux main is not a rebase: main's S2R is drivers/soc/apple/sleep.c (kernel at EL2, no PSCI, aurora,s2r-mailbox, per-chip tables, no T6020 entry) and has no PSCI EFI conduit. Filed aurora-silicon/linux#3336 asking which route (sleep.c entry, opt-in PSCI variant, or the series as it stands). Discord draft in docs/pr-drafts/discord.md. Nothing else filed.
