@@ -6156,3 +6156,8 @@ Platform level hung again (log ends at BEGIN level=platform). pstore was empty a
 - Kernel with the #1694 one-line fix (ane_dart0 on ps_ane_sys) and the asahi driver letting a dry run past its sleep refusal; image boot-test.bin.port3 (dc4d01e2), UKI 5152e9fb. The charger had been flapping (MagSafe orange), fixed by reseating it; the test ran charging.
 - Result: Hyprland and ghostty survived the start (no new coredump), but `platform` still hangs until the reset (log ends at BEGIN level=platform). So the ANE DART domain was not (the only) cause here.
 - dbg_skip=31 (TB8) already ruled out .prepare, the WD re-arm, gate_prepare and the late scope; what is left is the late phase (rtkit-helper, sio, sart `.suspend_late`), the noirq phase (apple-dart force-suspend under firmware suspend, atc phy, spmi, pinctrl, pcie-apple) or the platform wake. The PM core aborts on a pending wakeup in the suspend and late phases only, not in noirq. Next: dbg_skip bit 32 fails .prepare_late with -EBUSY after the late phase, to split late from noirq in one boot.
+
+## 2026-11-27 TB10 (SKIP=33, NONOTES=1, level platform): hard hang, owner force-rebooted
+- Log ends at `BEGIN level=platform` (12:08:17); nothing after it, no END. The next boot is at 12:35:24, so the machine stayed hung for ~27 min and the owner had to force a reboot. The 120 s watchdog fallback did not recover it this time (or was not armed in this state).
+- Result: outcome (b), the hang is at or before the late phase, not the noirq phase (bit 32 would have ended the run with -EBUSY). TB5-TB10 all hang at level platform; level devices passes.
+- Restore run after the boot. Hang-prone platform-level tests paused until the owner has seen this.
