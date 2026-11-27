@@ -1,4 +1,4 @@
-LEVELS="platform"
+LEVELS="devices platform processors core none"
 SKIP=1
 DEADMAN=60
-MODULES="appledrm aurora snd_soc_macaudio hci_bcm4377"
+KEEPALIVE=1
