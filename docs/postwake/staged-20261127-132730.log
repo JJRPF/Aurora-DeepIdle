@@ -1,0 +1,7 @@
+13:27:30 start 7.3.0-port+ deep=Y untested_commit=N
+13:27:30 dead-man 60 s
+13:27:30 dbg_skip=1
+13:27:30 pmu_notes=Y
+13:27:30 gpu left bound
+13:27:30 mem_sleep s2idle [deep]
+13:27:30 BEGIN level=platform
