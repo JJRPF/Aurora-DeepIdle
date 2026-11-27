@@ -14,7 +14,7 @@ VAR=/sys/firmware/efi/efivars/LoaderEntryOneShot-4a67b082-0a4c-41cf-b6c7-440b29b
 BIN=${1:?boot-test.bin}; JOB=${2:?job dir}
 [ -s "$BIN" ] && [ -f "$JOB/job.sh" ] && [ -s $W/root.sfs ] && [ -s $W/deeptest.efi ] || { echo "missing boot.bin, job.sh, root.sfs or deeptest.efi"; exit 1; }
 [ ! -e $VAR ] || { echo "a one-shot request is already set"; exit 1; }
-[ "$(cat /sys/class/power_supply/macsmc-battery/status)" = Charging ] || [ "$(cat /sys/class/power_supply/macsmc-battery/status)" = Full ] || { echo "battery is not charging"; exit 1; }
+PS=/sys/class/power_supply; [ "$(cat $PS/macsmc-ac/online)" = 1 ] && [ "$(cat $PS/macsmc-battery/capacity)" -ge 50 ] || { echo "AC is not online or the battery is under 50%"; exit 1; }   # the charge cap (80%) reads "Not charging"
 mkdir -p $S
 chmod +x $JOB/job.sh
 bash $H/write-image.sh
