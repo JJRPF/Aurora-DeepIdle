@@ -6105,3 +6105,8 @@ Armed R60H 23:52
 ## 2026-11-26 20:00 Port blocked on a design question, issue filed
 - aura#539 format-check fixed (comment line over 100 columns), amended to 3823d5e1.
 - The port onto aurora-silicon/linux main is not a rebase: main's S2R is drivers/soc/apple/sleep.c (kernel at EL2, no PSCI, aurora,s2r-mailbox, per-chip tables, no T6020 entry) and has no PSCI EFI conduit. Filed aurora-silicon/linux#3336 asking which route (sleep.c entry, opt-in PSCI variant, or the series as it stands). Discord draft in docs/pr-drafts/discord.md. Nothing else filed.
+
+## 2026-11-26 21:40 sleep.c port, step 1: Aura main test boot armed
+- Owner agreed to erikwb's route (linux#3336: sleep.c entry, no PSCI conduit, wake sources as apple,wake-enable on the sleep-controller node, aura#539 to be closed). Reply posted on the issue.
+- Aura main (8521ad7c) built with the release flags (BUILDSTD RELEASE CHAINLOADING ESP_STAGE2 USE_CLANG BUILTIN_LOGO=aurora), swapped into boot-test.bin.130 as boot-test.bin.main1 (d3f7f93b). aura-main-try.sh arm: one-shot loader, flag a5, default_entry 3 (stock kernel entry; the PSCI DT of the S2R entry would not boot on Aura main). Rebooting now; the resume prompt restores with aura-main-try.sh restore.
+- Aura main only publishes aurora,s2r-mailbox if the OS runs at EL2 (it does here) and smp_resets_return_here() holds; T6020 has apple_sysregs_unlocked so it should repoint RVBAR here.
