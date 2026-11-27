@@ -1,0 +1,178 @@
+diff --git a/drivers/gpu/drm/apple/dcp.c b/drivers/gpu/drm/apple/dcp.c
+--- a/drivers/gpu/drm/apple/dcp.c	2026-11-27 11:57:06.490807386 -0500
++++ b/drivers/gpu/drm/apple/dcp.c	2026-11-27 11:57:06.491807433 -0500
+@@ -9728,17 +9728,20 @@
+  * dcp_poweron()), power-cycle the disp0 block (cpu0/fe/sys) while preserving
+  * dart-dcp0/dart-disp0, warm-restart RTKit with OSLOG echo enabled, raise
+  * CPU_CONTROL_RUN, boot RTKit, and restart AFK queues (0xa3).
+- * External DCPs are still shut down cleanly at S2R suspend.
++ * The external DCPs (dcpext) take the same stop and restart through their own
++ * dispext blocks, without the AP link release (A500).
+  */
+ static bool s2r_fw_restart = true;
+ module_param(s2r_fw_restart, bool, 0644);
+ MODULE_PARM_DESC(s2r_fw_restart, "Warm-restart internal DCP after firmware S2R");
+ 
+-static struct apple_dcp *dcp_fw_s2r_target;
++static bool s2r_fw_restart_ext = true;
++module_param(s2r_fw_restart_ext, bool, 0644);
++MODULE_PARM_DESC(s2r_fw_restart_ext, "Warm-restart external DCPs after firmware S2R (0: shut them down until reboot)");
++
+ static bool s2r_refused_cycle = true;
+ module_param(s2r_refused_cycle, bool, 0644);
+ MODULE_PARM_DESC(s2r_refused_cycle, "After a cancelled sleep restart the internal DCP as after a real one (0: wake it)");
+-static bool dcp_fw_s2r_warm_stopped;
+ 
+ static void dcp_fw_s2r_afk_op(struct apple_dcp *dcp, u16 op)
+ {
+@@ -9824,7 +9827,7 @@
+ 	darts[1] = dcp_fw_s2r_dart_dev(child, "iommus");
+ 	of_node_put(child);
+ 	if (!pc || !pf || !ps) {
+-		dev_warn(dcp->dev, "s2r: disp0 cycle: PS words not mapped, skipped\n");
++		dev_warn(dcp->dev, "s2r: disp cycle: PS words not mapped, skipped\n");
+ 		goto out;
+ 	}
+ 
+@@ -9848,7 +9851,7 @@
+ 	for (i = 0; i < 2; i++)
+ 		if (darts[i] && !held[i])
+ 			apple_dart_sleep_restore_lost(darts[i], true);
+-	dev_info(dcp->dev, "s2r: disp0 cycle complete: cpu0 %#x fe %#x sys %#x (%d %d %d %d %d %d)\n",
++	dev_info(dcp->dev, "s2r: disp cycle complete: cpu0 %#x fe %#x sys %#x (%d %d %d %d %d %d)\n",
+ 		 readl(pc), readl(pf), readl(ps), r[0], r[1], r[2], r[3], r[4], r[5]);
+ out:
+ 	for (i = 0; i < 2; i++)
+@@ -9862,19 +9865,25 @@
+ 		iounmap(ps);
+ }
+ 
++static bool dcp_fw_s2r_is_ext(struct apple_dcp *dcp)
++{
++	return of_device_is_compatible(dcp->dev->of_node, "apple,dcpext");
++}
++
+ static int dcp_fw_s2r_resume_warm(struct apple_dcp *dcp)
+ {
+ 	void __iomem *control = dcp->coproc_reg + APPLE_DCP_COPROC_CPU_CONTROL;
++	const char *which = dcp_fw_s2r_is_ext(dcp) ? "external" : "internal";
+ 	int ret;
+ 
+-	dcp_fw_s2r_warm_stopped = false;
++	dcp->fw_s2r_warm_stopped = false;
+ 	if (!pm_resume_via_firmware() && !READ_ONCE(s2r_refused_cycle)) {
+ 		ret = apple_rtkit_sleep_return(dcp->rtk, control);
+ 		if (ret == -EAGAIN)
+ 			ret = apple_rtkit_wake(dcp->rtk);
+ 		if (!ret)
+ 			dcp_fw_s2r_afk_op(dcp, 0xa3);
+-		dev_info(dcp->dev, "s2r: internal DCP wake after refused sleep (%d)\n", ret);
++		dev_info(dcp->dev, "s2r: %s DCP wake after refused sleep (%d)\n", which, ret);
+ 		return 0;
+ 	}
+ 	/*
+@@ -9883,25 +9892,26 @@
+ 	 * restart as after a real sleep: disp0 power cycle, warm restart, run, boot.
+ 	 */
+ 	if (!pm_resume_via_firmware())
+-		dev_info(dcp->dev, "s2r: sleep was cancelled: restarting the internal DCP as after a real sleep\n");
++		dev_info(dcp->dev, "s2r: sleep was cancelled: restarting the %s DCP as after a real sleep\n",
++			 which);
+ 
+ 	dcp_fw_s2r_disp0_cycle(dcp);
+ 	WRITE_ONCE(dcp->crashed, false);
+ 	apple_rtkit_set_oslog_echo(dcp->rtk, true);
+ 	ret = apple_rtkit_warm_restart(dcp->rtk);
+ 	if (ret) {
+-		dev_err(dcp->dev, "s2r: internal DCP warm restart failed: %d\n", ret);
++		dev_err(dcp->dev, "s2r: %s DCP warm restart failed: %d\n", which, ret);
+ 		WRITE_ONCE(dcp->crashed, true);
+ 		return 0;
+ 	}
+ 	writel(APPLE_DCP_COPROC_CPU_CONTROL_RUN, control);
+ 	ret = apple_rtkit_boot(dcp->rtk);
+ 	if (ret) {
+-		dev_err(dcp->dev, "s2r: internal DCP warm boot failed: %d\n", ret);
++		dev_err(dcp->dev, "s2r: %s DCP warm boot failed: %d\n", which, ret);
+ 		WRITE_ONCE(dcp->crashed, true);
+ 		return 0;
+ 	}
+-	dev_info(dcp->dev, "s2r: internal DCP warm restart complete (0)\n");
++	dev_info(dcp->dev, "s2r: %s DCP warm restart complete (0)\n", which);
+ 	return 0;
+ }
+ 
+@@ -9935,12 +9945,16 @@
+ 	    !pm_suspend_via_firmware() || IS_ERR_OR_NULL(dcp->rtk) ||
+ 	    READ_ONCE(dcp->crashed))
+ 		return false;
+-	if (!dcp->external && !of_device_is_compatible(dcp->dev->of_node, "apple,dcpext") &&
+-	    !IS_ERR_OR_NULL(dcp->coproc_reg)) {
++	if (!dcp->external && !IS_ERR_OR_NULL(dcp->coproc_reg) &&
++	    (!dcp_fw_s2r_is_ext(dcp) || READ_ONCE(s2r_fw_restart_ext))) {
+ 		void __iomem *ctl = dcp->coproc_reg + APPLE_DCP_COPROC_CPU_CONTROL;
+-		int a500_ret = dcp_fw_s2r_a500(dcp);
++		bool ext = dcp_fw_s2r_is_ext(dcp);
++		int a500_ret = 0;
+ 
+-		dev_info(dcp->dev, "s2r: internal DCP A500: %d\n", a500_ret);
++		if (!ext) {
++			a500_ret = dcp_fw_s2r_a500(dcp);
++			dev_info(dcp->dev, "s2r: internal DCP A500: %d\n", a500_ret);
++		}
+ 		if (a500_ret == -ETIMEDOUT) {
+ 			dcp->ch_cmd.depth = 0;
+ 			dcp->ch_oobcmd.depth = 0;
+@@ -9952,8 +9966,8 @@
+ 		apple_rtkit_set_oslog_echo(dcp->rtk, true);
+ 		ret = apple_rtkit_idle(dcp->rtk);
+ 		if (ret) {
+-			dev_warn(dcp->dev, "s2r: internal DCP idle_with failed (%d), falling back to shutdown\n",
+-				 ret);
++			dev_warn(dcp->dev, "s2r: %s DCP idle_with failed (%d), falling back to shutdown\n",
++				 ext ? "external" : "internal", ret);
+ 			apple_rtkit_shutdown(dcp->rtk);
+ 			writel(0, ctl);
+ 			WRITE_ONCE(dcp->crashed, true);
+@@ -9963,9 +9977,9 @@
+ 		apple_rtkit_mailbox_off(dcp->rtk);
+ 		writel(readl(ctl) & ~APPLE_DCP_COPROC_CPU_CONTROL_RUN, ctl);
+ 		writel(readl(ctl) & ~APPLE_DCP_COPROC_CPU_CONTROL_RUN, ctl);
+-		dcp_fw_s2r_target = dcp;
+-		dcp_fw_s2r_warm_stopped = true;
+-		dev_info(dcp->dev, "s2r: internal DCP idled and stopped for warm S2R\n");
++		dcp->fw_s2r_warm_stopped = true;
++		dev_info(dcp->dev, "s2r: %s DCP idled and stopped for warm S2R\n",
++			 ext ? "external" : "internal");
+ 		return true;
+ 	}
+ 	ret = apple_rtkit_shutdown(dcp->rtk);
+@@ -10149,8 +10163,14 @@
+ 	if (dcp->s2r_stopped)
+ 		return dcp_s2r_resume(dcp);
+ 
+-	if (dcp == dcp_fw_s2r_target && dcp_fw_s2r_warm_stopped)
+-		return dcp_fw_s2r_resume_warm(dcp);
++	if (dcp->fw_s2r_warm_stopped) {
++		dcp_fw_s2r_resume_warm(dcp);
++		/* An external one then takes the usual resume: Type-C work, audio. */
++		if (!dcp_fw_s2r_is_ext(dcp))
++			return 0;
++		if (READ_ONCE(dcp->crashed))
++			WRITE_ONCE(dcp->ext_dead, true);
++	}
+ 
+ 	if (iomfb_is_m4(dcp)) {
+ 		int ret = iomfb_m4_resume(dcp);
+diff --git a/drivers/gpu/drm/apple/dcp-internal.h b/drivers/gpu/drm/apple/dcp-internal.h
+--- a/drivers/gpu/drm/apple/dcp-internal.h	2026-11-27 11:57:06.490807386 -0500
++++ b/drivers/gpu/drm/apple/dcp-internal.h	2026-11-27 11:57:06.491807433 -0500
+@@ -627,6 +627,8 @@
+ 
+ 	/* DCP has crashed */
+ 	bool crashed;
++	/* Firmware idled and stopped for a firmware sleep, restarted warm at resume. */
++	bool fw_s2r_warm_stopped;
+ 	/* Native26 control/property epochs, serialized by the IOMFB owner. */
+ 	struct completion ext26_link_ready;
+ 	bool ext26_services_open;

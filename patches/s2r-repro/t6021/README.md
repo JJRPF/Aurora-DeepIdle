@@ -92,6 +92,12 @@ Repro without a sleep: `bt-rebind-frozen.sh` here pauses `bluetoothd` and `obexd
 
 The fix checks `ret < 0`. With it: the same repro gave a working `hci1` with no probe failure, and a real sleep right after came back with Bluetooth re-probed as `hci0`, 1 of 1.
 
+## External displays after a sleep (`kernel-dcpext-sleep.diff`)
+
+After the first real sleep, external displays stay dark until a reboot. `dcp_fw_s2r_suspend()` gives the internal DCP the warm stop (firmware idled, CPU stopped, memory kept), but it shuts the two external DCPs down and marks them dead (`ext_dead`), and resume skips them. Docking after a sleep logs `RTKit: Endpoint 0x2a is not running` and `dcp_dptx_connect: failed to validate DPTX target 0:2: -110`, and no display is detected. After a fresh boot the same dock brings up both displays.
+
+The external DCPs have the internal one's power layout: `dispextN_cpu0` inside `dispextN_fe` inside `dispextN_sys`. The diff gives them the same stop and restart (power cycle through those domains, warm restart, run, boot), without the internal display's A500, then runs their usual resume (Type-C work, audio service). `appledrm.s2r_fw_restart_ext=0` brings back the shutdown.
+
 ## On the current parent diffs
 
 Against the parent diffs at `929cd58` (Aura 130). Applied only; not built or booted there:
