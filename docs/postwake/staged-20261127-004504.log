@@ -1,0 +1,31 @@
+00:45:04 start 7.3.0-port+ deep=Y untested_commit=N
+00:45:08 gpu unbound
+00:45:08 mem_sleep s2idle [deep]
+00:45:08 BEGIN level=devices
+00:45:14 END level=devices rc=0
+[   39.929172] OOM killer disabled.
+[   39.929173] Freezing remaining freezable tasks
+[   39.930150] Freezing remaining freezable tasks completed (elapsed 0.000 seconds)
+[   39.930165] printk: Suspending console(s) (use no_console_suspend to debug)
+[   39.934143] xhci-hcd xhci-hcd.7.auto: USB bus 1 deregistered
+[   40.165365] apple-dcp 389c00000.dcp: dcp_poweroff() done
+[   40.165433] apple-dcp 289c00000.dcp: dcp_dptx_disconnect(port=0)
+[   40.165511] apple-dcp 289c00000.dcp: dcp_hotplug() connected:0 valid_mode:0 nr_modes:0
+[   40.598073] PM: suspend debug: Waiting for 5 second(s).
+[   45.801497] apple-sart 34bc50000.sart: 8 entries written back after a sleep that didn't happen
+[   45.801569] apple-dcp 389c00000.dcp: dcp_poweron() starting
+[   45.808409] brcmfmac: brcmf_cfg80211_update_country: country US already set in firmware (US rev 0)
+[   45.827856] apple-dcp 389c00000.dcp: dcp_set_power_state_req returned, 9974 ms remaining
+[   45.827870] apple-dcp 389c00000.dcp: set_digital_out_mode(color:1 timing:2) "3024x1964": 120 804560 3024 3032 3064 3104 1964 2066 2074 2160 0x48 0x5
+[   45.827877] apple-dcp 389c00000.dcp: set_digital_out_mode() color mode depth:8 format:0 colorimetry:16 eotf:0 range:0 vrr:0
+[   45.828102] apple-dcp 389c00000.dcp: set_digital_out_mode finished:8500
+[   45.894343] nvme-apple 34bcc0000.nvme: ANS: on after the sleep
+[   45.993387] apple-dcp 389c00000.dcp: dcp_hotplug() connected:1 valid_mode:1 nr_modes:6
+[   46.137451] OOM killer enabled.
+[   46.137452] Restarting tasks: Starting
+[   46.138743] Restarting tasks: Done
+[   46.138810] random: crng reseeded on system resumption
+[   46.139934] iio_aop_las las.0.auto: reports back after sleep (interval 1000000 us): status 0x0
+[   46.140522] PM: suspend exit
+[   46.163255] apple-dcp 389c00000.dcp: using firmware-derived EDID metadata for connection 0
+00:45:17 BEGIN level=platform

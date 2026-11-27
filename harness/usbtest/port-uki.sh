@@ -9,7 +9,7 @@ KREL=$(cat $SRC/include/config/kernel.release)
 [ "$KREL" = 7.3.0-port+ ] || { echo "kernel.release is $KREL, not 7.3.0-port+ (would clash with the S2R modules)"; exit 1; }
 OUT=/boot/efi/EFI/Linux/omarchy_linux-aurora-port.efi
 CMD=$(objcopy -O binary --only-section=.cmdline /boot/efi/EFI/Linux/omarchy_linux-aurora-s2r.efi /dev/stdout | tr -d '\0')
-CMD="$CMD apple_sleep.deep=1"   # test kernel only: offers deep sleep on an untested profile
+CMD="$CMD apple_sleep.deep=1 no_console_suspend ramoops.mem_name=oops ramoops.console_size=524288 ramoops.record_size=65536 ramoops.ecc=0 ramoops.dump_oops=1"   # test kernel only
 T=$(mktemp -d)
 make -C "$SRC" LLVM=1 -j10 modules_install INSTALL_MOD_STRIP=1 >/dev/null
 depmod "$KREL"
