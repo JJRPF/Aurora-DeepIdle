@@ -6116,3 +6116,11 @@ Armed R60H 23:52
 - Only the boot CPU came up: the boot.bin's device tree is still our PSCI-via-EFI one (`psci: invalid "method" property: efi`, `no cpu_on method`), so the secondaries were not started. Not an Aura main problem; step 2's test needs a DT with spin-table CPUs and no psci node.
 - Restored: boot.bin d1e1b367 (Aura 130), S2R default entry (UKI 69e2b7ea), PMU flag 00, boot-stock.bin 8166bf50. The machine is still running this stock test boot until the next reboot.
 - Not checked yet: whether aura#529's wake-time PCIe replay works on T6020 (it needs a sleep that reaches the wake, so it comes with step 2).
+
+## 2026-11-26 (night): sleep.c port, step 1 test boot 2
+
+Aura main (8521ad7c) + main's own t6020 DTBs (spin-table CPUs, no psci node), stock kernel entry, one-shot via `aura-main-try.sh`.
+
+- `uname -r` 7.3.0-1-1-ARCH (the test boot ran), `nproc` 10, `cpu@0/enable-method` = spin-table, `/chosen/aurora,s2r-mailbox` present, dmesg: "spin-table CPUs can park: the boot object brings them back", all secondaries up.
+- Restored: boot.bin d1e1b367, S2R default entry (UKI 69e2b7ea), flag clear.
+- Result: step 1 done. The J414s runs the sleep.c architecture's boot path. Next: step 2 (`apple,t6020-sleep` node, compatible and binding, inventory-only profile).
