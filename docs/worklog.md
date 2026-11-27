@@ -6110,3 +6110,9 @@ Armed R60H 23:52
 - Owner agreed to erikwb's route (linux#3336: sleep.c entry, no PSCI conduit, wake sources as apple,wake-enable on the sleep-controller node, aura#539 to be closed). Reply posted on the issue.
 - Aura main (8521ad7c) built with the release flags (BUILDSTD RELEASE CHAINLOADING ESP_STAGE2 USE_CLANG BUILTIN_LOGO=aurora), swapped into boot-test.bin.130 as boot-test.bin.main1 (d3f7f93b). aura-main-try.sh arm: one-shot loader, flag a5, default_entry 3 (stock kernel entry; the PSCI DT of the S2R entry would not boot on Aura main). Rebooting now; the resume prompt restores with aura-main-try.sh restore.
 - Aura main only publishes aurora,s2r-mailbox if the OS runs at EL2 (it does here) and smp_resets_return_here() holds; T6020 has apple_sysregs_unlocked so it should repoint RVBAR here.
+
+## 2026-11-26 21:35 sleep.c port, step 1 result: Aura main publishes the S2R mailbox on the J414s
+- Test boot reached Linux: stage 2 1.0.0b17-g8521ad7c (aurora-silicon/aura 8521ad7c), the stock 7.3.0-1-1-ARCH kernel, 0 failed units. `/chosen/aurora,s2r-mailbox` = 0x000001000357c440 is published, no `aurora,s2r-unavailable`, so smp_resets_return_here() holds on T6020 (RVBAR repointed). CPUs started at EL2.
+- Only the boot CPU came up: the boot.bin's device tree is still our PSCI-via-EFI one (`psci: invalid "method" property: efi`, `no cpu_on method`), so the secondaries were not started. Not an Aura main problem; step 2's test needs a DT with spin-table CPUs and no psci node.
+- Restored: boot.bin d1e1b367 (Aura 130), S2R default entry (UKI 69e2b7ea), PMU flag 00, boot-stock.bin 8166bf50. The machine is still running this stock test boot until the next reboot.
+- Not checked yet: whether aura#529's wake-time PCIe replay works on T6020 (it needs a sleep that reaches the wake, so it comes with step 2).
