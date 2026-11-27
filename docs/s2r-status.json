@@ -1,8 +1,8 @@
 {
   "schema": 1,
-  "updated": "2026-11-26T11:00:00-05:00",
-  "overall": 99,
-  "overall_note": "Risk-weighted guess with a wide error bar. S2R works from the live desktop on the stock command line with no helper; left: a 4 h battery sleep on the clean configuration, the upstream PRs, and hands-on checks (lid, dock, Bluetooth pairing, SD card, speakers).",
+  "updated": "2026-11-27T14:00:00-05:00",
+  "overall": 60,
+  "overall_note": "Risk-weighted guess with a wide error bar. Down from 99 on 2026-11-26: S2R still works from the live desktop through Aura's PSCI path, but Aurora asked for the kernel's drivers/soc/apple/sleep.c as the route, so the figure now counts that route. Its T6020 profile is written and every pm_test level passes in a RAM-only root; on the desktop boot the platform level hangs and the real commit has not run through it. Not yet tested on that route: lid, dock, Bluetooth pairing, SD card, speakers, cancelled sleep.",
   "machine": "14-inch MacBook Pro, M2 Pro (`T6020`, `apple,j414s`), Aurora Silicon Linux",
   "goal": {
     "linux_w": 0.375,
@@ -105,8 +105,8 @@
       "name": "Devices survive power loss",
       "short": "NVMe, USB, SMC, SEP, PCIe, Wi-Fi, BT, SD, Display, GPU",
       "state": "active",
-      "pct": 99,
-      "summary": "Every core device survives real S2R on 7.3.0-s2r73+ with zero userspace unbinds (R62Y-4, visually confirmed by owner): NVMe, USB, SMC, RTC, SEP (DART state saved/restored), PMP (1 MiB T6020 SRAM backup), Wi-Fi, Bluetooth (40 LE devices scanned), SD card (T6020 dart-apcie0/1 tunables restored, 6.6 MB/s direct read), internal display + backlight (warm DCP restart in 0.9 ms, no dcp-fw.macho needed, 20%->100%->60% ramp visually confirmed), and G14S GPU (kept bound, warm-restarted in 0.33 ms). Speaker audio (NCO/MCA/TAS2764) fixes are installed; Aura 129 passes the Mac's real amp levels and the speaker driver unlocks, so the live playback check before and after a suspend is the last item.",
+      "pct": 75,
+      "summary": "On the Aura path every core device came back after a real S2R with zero userspace unbinds (R62Y-4): NVMe, USB, SMC, RTC, SEP, PMP, Wi-Fi, Bluetooth, SD card, display and the G14S GPU. The kernel route has to carry that. Its `devices` level passes, and so does `platform` in a RAM-only root, but the ANS does not come back after a refused sleep (`ANS did not boot`), and each device-side fix (AIC2, SEP DART, DCP/G14S warm restart, ATC, audio, PMU alarm) still needs its own small PR tested on the J414s.",
       "done": [
         "Wi-Fi/Bluetooth and the SD reader after a real cut (R61P, R61Q): with Aura's PCIe power-off at the commit left out, both links train on the first relink, brcmfmac loads the BCM4388 firmware, hci0 comes up and the GL9755 SD controller is found, 3 of 3 (R61P to R61R). In R61Q Wi-Fi scanned 51 networks and joined the home network",
         "Internal display after a real cut (R61M6, R61M7): the DCP firmware's `__DATA` is restored from macOS's DCP.img4 with iBoot's tagged block kept, then a plain RTKit restart. After that the iBoot disp0 service gets SetPower(1) and SetMode, and then the normal IOMFB start runs. Result: panel detected with 6 modes, panel rail back at 1.29 V, no crash, 2 of 2",
@@ -126,8 +126,8 @@
         "SEP: SLEEP acknowledged and the enclave gated as macOS has it (R18K)"
       ],
       "next": [
-        "Wi-Fi/BT and the SD reader: get the SMC/PMU out of their sleep power state after `waka` (answers asked for on issue #5)",
-        "Display: confirm a picture and the backlight by eye, then move the DCP restart out of TEST code",
+        "ANS after a refused or real sleep on the kernel route",
+        "The device-side PRs, one per driver, each tested on the J414s",
         "20 cycles per device with the power really removed"
       ],
       "gate": "Each device passes 20 cycles with its power actually removed."
@@ -137,9 +137,9 @@
       "trail": "Full S2R",
       "name": "Full S2R",
       "short": "The SoC powers down, DRAM in self-refresh",
-      "state": "done",
-      "pct": 100,
-      "summary": "Real S2R from the live Omarchy desktop: a night on battery (7.14 h lid closed) spent 99.6% of the time in S2R at 0.375 W, 5% of the battery (old s2idle ~1.48 W, macOS ~0.24 W); 20 of 20 plus 10 of 10 (with a GPU client drawing across the sleeps) 45 s soak cycles clean.",
+      "state": "active",
+      "pct": 45,
+      "summary": "Proven on the Aura path: a night on battery (7.14 h lid closed) spent 99.6% of the time in S2R at 0.375 W, 20 of 20 plus 10 of 10 soak cycles. Being reworked into the kernel's `drivers/soc/apple/sleep.c`, the route Aurora asked for. The T6020 profile is written (Aura's recipe, checked against the macOS traces) and every pm_test level passes in a RAM-only root. Not yet: on the desktop boot the platform level hangs hard, and the real commit has not run through the new path.",
       "done": [
         "R59P: a 5-minute S2R sleep, resumed to userspace with NVMe live and a clean reboot after (2026-11-20)",
         "R57AL: Linux resumes to userspace after a real S2R sleep, reproduced in every run since",
@@ -179,7 +179,10 @@
         "2026-11-10, R18C to R18L (images 66 to 69): the secure enclave put in macOS’s sleep state inside Aura’s commit, with and without the SPMI notify enable: the same reset",
         "2026-11-11, R20b, R20c, R21, R22B (images 70 to 72): APSC off late, EDPRCR cleared on every core, the alarm moved to +70 s: the same reset at the same time"
       ],
-      "next": [],
+      "next": [
+        "Find what the desktop state adds that hangs the platform level (userspace, disk root); a reset that works for a hard stall comes first",
+        "Run the commit through sleep.c, then repeat cycles and the long sleep"
+      ],
       "gate": "20 of 20 cycles; lid, key, keyboard and alarm wakes; about 0.3 W on battery."
     },
     {
@@ -188,8 +191,8 @@
       "name": "Daily use",
       "short": "Lid close just works",
       "state": "active",
-      "pct": 90,
-      "summary": "S2R is the default boot, and stays so: Aura 129 is the persistent `boot.bin`, the S2R Limine entry is re-applied by a pacman hook after package updates, its modules are protected from cleanup, and a check reports if `update-m1n1` replaces the boot image. Left: lid, dock/external display, Bluetooth pairing and SD insert checks, the root key in the UKI, and the PRs to Aurora's trees.",
+      "pct": 70,
+      "summary": "S2R is the default boot through Aura 129 and stays so; this keeps working while the kernel route lands. Left: the PRs to Aurora's trees (the sleep.c PR first), which change the shipped mechanism when they merge, and the hands-on checks: lid, dock/external display, Bluetooth pairing, SD card after a wake, speakers, a cancelled sleep. The root key in the UKI stays.",
       "done": [
         "`/OmarchyS2R` boot entry with the S2R UKI; stock Omarchy entry untouched, boot.bin backed up",
         "`MemorySleepMode=deep`, T6020 prep service and a sleep hook for repeat cycles",
