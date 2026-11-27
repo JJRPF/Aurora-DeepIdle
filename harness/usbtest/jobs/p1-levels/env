@@ -1,3 +1,4 @@
 LEVELS=platform
-SKIP=33
+SKIP=1
 DEADMAN=60
+UNBIND="phy-apple-atc apple-spmi apple-gpio-pinctrl"
