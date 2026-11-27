@@ -6130,3 +6130,9 @@ Aura main (8521ad7c) + main's own t6020 DTBs (spin-table CPUs, no psci node), st
 - `aura-main-try.sh armport` boots that UKI once (limine entry `/OmarchyPort` first, default 1) with Aura main; `restore` removes the entry.
 - Test image `boot-test.bin.port` (84e97da8): main2 plus `t6020-j414s-sleeptest.dts` (the J414s with the sleep node enabled). Expect "T6020 sleep profile is inventory only" from apple-sleep.
 - Risk noted: if the port kernel fails to boot, the one-shot flag is consumed and the next boot lands on the port entry again with the stock Aura (the kernel has the s2r73 config plus sleep.c, so a failure is unlikely).
+
+## 2026-11-26 (night): sleep.c port, test boot 3 result
+- Port kernel `7.3.0-port+` (UKI b2sum a97be003) + Aura main 8521ad7c + `t6020-j414s-sleeptest.dtb` booted on the first try: `uname -r` 7.3.0-port+, nproc 10, spin-table CPUs, `/chosen/aurora,s2r-mailbox` present, wlan0 up, display up, 0 failed units.
+- apple-sleep probed the enabled node and refused as designed: `apple-sleep 28e080000.sleep-controller: error -EOPNOTSUPP: T6020 sleep profile is inventory only` (probe error -95 at 0.066 s). Nothing touched hardware.
+- Restored: boot.bin d1e1b367, S2R default entry (UKI 69e2b7ea), flag clear, `/OmarchyPort` entry removed. The port UKI stays on the ESP (61.9 MB, 24 MB free) for the next test boot.
+- Step 2 is verified on hardware. The deployment path (port-uki.sh, `aura-main-try.sh armport`) works. Next: `sleep-t6020.h`.
