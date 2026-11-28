@@ -16,20 +16,21 @@ launch_agy() {
 }
 
 # S2R agent: Claude Code, resumes the most recent conversation in the worktree, inside herdr
-# (a workspace on the persistent herdr server; falls back to a plain terminal if herdr is not usable).
+# (a workspace in the default herdr session; no direct terminal fallback).
 CLAUDE_CMD="claude --continue --dangerously-skip-permissions \"\$(cat '$STATE/prompt-claude.txt')\"; echo \"claude exited: \$?\"; exec bash"
+H="herdr --session default"
 launch_in_herdr() {
     command -v herdr >/dev/null || return 1
-    if ! herdr status server 2>/dev/null | grep -q 'status: running'; then
-        nohup herdr server >> "$STATE/herdr-server.log" 2>&1 &
-        for _ in $(seq 1 20); do
-            herdr status server 2>/dev/null | grep -q 'status: running' && break
+    if ! $H status server 2>/dev/null | grep -q 'status: running'; then
+        nohup herdr --session default server >> "$STATE/herdr-server.log" 2>&1 &
+        for _ in $(seq 1 30); do
+            $H status server 2>/dev/null | grep -q 'status: running' && break
             sleep 1
         done
     fi
-    herdr status server 2>/dev/null | grep -q 'status: running' || return 1
+    $H status server 2>/dev/null | grep -q 'status: running' || return 1
     local out pane
-    out=$(herdr workspace create --cwd "$DIR" --label "S2R-Claude" --no-focus 2>>"$STATE/resume.log") || return 1
+    out=$($H workspace create --cwd "$DIR" --label "S2R-Claude" --no-focus 2>>"$STATE/resume.log") || return 1
     pane=$(printf '%s' "$out" | python3 -c 'import sys,json
 d=json.load(sys.stdin)
 def find(o):
@@ -46,13 +47,18 @@ print(find(d) or "")' 2>/dev/null)
     [ -n "$pane" ] || return 1
     # pane run types the words into the pane's shell, so hand it a script path (no quoting to lose)
     printf '#!/bin/bash\n%s\n' "$CLAUDE_CMD" > "$STATE/claude-launch.sh"
-    herdr pane run "$pane" bash -l "$STATE/claude-launch.sh" >>"$STATE/resume.log" 2>&1
+    $H pane run "$pane" bash -l "$STATE/claude-launch.sh" >>"$STATE/resume.log" 2>&1
 }
-if launch_in_herdr; then
-    echo "$(date '+%F %T') S2R-Claude started in herdr" >> "$STATE/resume.log"
+# only through the default herdr session (no direct terminal); retry, then log the failure
+ok=0
+for try in 1 2 3; do
+    if launch_in_herdr; then ok=1; break; fi
+    sleep 10
+done
+if [ "$ok" = 1 ]; then
+    echo "$(date '+%F %T') S2R-Claude started in the default herdr session" >> "$STATE/resume.log"
 else
-    echo "$(date '+%F %T') herdr launch failed, using a plain terminal" >> "$STATE/resume.log"
-    xdg-terminal-exec --title="S2R-Claude" --dir="$DIR" -- bash -lc "$CLAUDE_CMD" >/dev/null 2>&1 &
+    echo "$(date '+%F %T') herdr (default session) launch FAILED after 3 tries; no terminal fallback" >> "$STATE/resume.log"
 fi
 sleep 2
 # paused while S2R is the sole focus: launch_agy "GPU-AGY" "$HOME/dev/Aurora-GPUParity" "6703655e-f34e-4a18-aaa1-8e0fc9935c43" "$STATE/prompt-gpu.txt"
