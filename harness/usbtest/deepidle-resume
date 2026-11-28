@@ -74,6 +74,12 @@ elif [ "$ok" = 1 ]; then
 else
     echo "$(date '+%F %T') herdr (default session) launch FAILED after 3 tries; no terminal fallback" >> "$STATE/resume.log"
 fi
+# make sure the herdr window itself is on screen (the server alone is headless): attach a client to the default session
+if ! ps -eo args= | grep -qx 'herdr\( --session default\)\?'; then
+    for _ in $(seq 1 30); do pgrep -x Hyprland >/dev/null && break; sleep 2; done
+    xdg-terminal-exec --title="herdr" -- herdr --session default >/dev/null 2>&1 &
+    echo "$(date '+%F %T') herdr client window opened" >> "$STATE/resume.log"
+fi
 sleep 2
 # paused while S2R is the sole focus: launch_agy "GPU-AGY" "$HOME/dev/Aurora-GPUParity" "6703655e-f34e-4a18-aaa1-8e0fc9935c43" "$STATE/prompt-gpu.txt"
 sleep 2

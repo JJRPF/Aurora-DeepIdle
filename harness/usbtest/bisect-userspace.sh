@@ -4,6 +4,9 @@
 # A hang is logged by staged-dryrun.sh (BEGIN with no END); the dog / owner resets it.
 [ "$(id -u)" = 0 ] || { echo "run with sudo"; exit 1; }
 U="sudo -u jjr XDG_RUNTIME_DIR=/run/user/1000 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus systemctl --user"
+if [ -z "$BISECT_UNIT" ]; then   # re-run as a transient system service: stopping the graphical session must not kill this script
+    exec systemd-run --unit=s2r-bisect --collect -E BISECT_UNIT=1 /bin/bash "$0" "$@"
+fi
 G=" $1 "; LEVEL=${2:-platform}
 H=$(cd "$(dirname "$0")" && pwd)
 LOG=/home/jjr/dev/Aurora-DeepIdle/GH-5-S2R-DjNaeemPaths/docs/postwake/staged-$(date +%Y%m%d-%H%M%S).log

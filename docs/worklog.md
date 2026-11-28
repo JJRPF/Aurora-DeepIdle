@@ -6220,3 +6220,8 @@ Platform level hung again (log ends at BEGIN level=platform). pstore was empty a
 
 ## 2026-11-28 resume hook: no duplicate S2R Claude
 - Owner saw several S2R Claude sessions after a reboot. Causes seen: one hook run per boot starts a fresh `claude --continue` while herdr may also restore old panes; a failed `pane run` left a workspace behind before a retry. `deepidle-resume` now takes a flock, skips if a claude already runs with the worktree as cwd, and closes a workspace whose launch failed. (The extra `claude --resume` seen at boot was the grove-mobile workspace restored by herdr, not this hook.)
+
+## 2026-11-28 bisect S1 attempt 1 failed to start; hook and script fixes
+- S1 (stop misc audio bt wifi wm, then platform) was launched from a session child process: stopping NetworkManager/iwd and the compositor killed the script and my tool call (exit 137) before `stopped, running` was logged, so NO suspend was attempted and nothing hung. Wi-Fi stayed down because the restart tail never ran; the owner rebooted (09:18, 09:22). The LUKS prompt on that boot was the owner's observation; not traced (PMU flag 00, stage 2 v0.1.0-78 booted, i.e. the normal chain).
+- herdr: the server did start (omarchy-herdr-server, 09:22:13) and restored this Claude by itself with `--resume`; the hook (new lock/skip) correctly did not start a second one. What was missing was the herdr window: the hook now opens `herdr --session default` in a terminal if no client is running.
+- bisect-userspace.sh now re-execs itself as a transient system unit (`s2r-bisect`) so stopping the session cannot kill it.
