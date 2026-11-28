@@ -44,7 +44,9 @@ def find(o):
             if r: return r
 print(find(d) or "")' 2>/dev/null)
     [ -n "$pane" ] || return 1
-    herdr pane run "$pane" bash -lc "$CLAUDE_CMD" >>"$STATE/resume.log" 2>&1
+    # pane run types the words into the pane's shell, so hand it a script path (no quoting to lose)
+    printf '#!/bin/bash\n%s\n' "$CLAUDE_CMD" > "$STATE/claude-launch.sh"
+    herdr pane run "$pane" bash -l "$STATE/claude-launch.sh" >>"$STATE/resume.log" 2>&1
 }
 if launch_in_herdr; then
     echo "$(date '+%F %T') S2R-Claude started in herdr" >> "$STATE/resume.log"
