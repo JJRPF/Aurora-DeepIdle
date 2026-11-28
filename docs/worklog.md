@@ -6210,3 +6210,6 @@ Platform level hung again (log ends at BEGIN level=platform). pstore was empty a
 
 ## 2026-11-28 resume hook: default herdr session only
 - `deepidle-resume` now starts the S2R Claude through `herdr --session default` (starts that session's server if needed, 3 tries), with no direct-terminal fallback; a failure is logged to resume.log. Installed to ~/.config/omarchy/hooks/post-boot.d/. The owner said reboots as needed are fine.
+
+## 2026-11-28 R13 armed: desktop on the port kernel, platform level, keep-alive on
+- Owner authorised reboots. Port UKI b4d2edfe (keepalive, deadman_s, HID4 unblock). `staged-dryrun.sh` now takes KEEPALIVE=1. Resumed session runs `KEEPALIVE=1 SKIP=1 DEADMAN=60 staged-dryrun.sh platform`; a hang should be reset by the SoC dog; then aura-main-try.sh restore.
