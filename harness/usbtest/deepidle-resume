@@ -5,6 +5,8 @@
 STATE=$HOME/.local/state/deepidle
 [ -s "$STATE/resume" ] || exit 0
 DIR=$(head -1 "$STATE/resume"); [ -d "$DIR" ] || exit 0
+# one launch at a time, and never a second S2R Claude: skip if a claude already runs in the worktree
+exec 9>"$STATE/resume.lock"; flock -n 9 || { echo "$(date '+%F %T') resume skipped (another hook run holds the lock)" >> "$STATE/resume.log"; exit 0; }
 echo "$(date '+%F %T') resume launched (S2R-Claude, GPU-AGY, Lichen-AGY)" >> "$STATE/resume.log"
 sleep 20
 
@@ -45,17 +47,29 @@ def find(o):
             if r: return r
 print(find(d) or "")' 2>/dev/null)
     [ -n "$pane" ] || return 1
+    WS=${pane%%:*}
     # pane run types the words into the pane's shell, so hand it a script path (no quoting to lose)
     printf '#!/bin/bash\n%s\n' "$CLAUDE_CMD" > "$STATE/claude-launch.sh"
-    $H pane run "$pane" bash -l "$STATE/claude-launch.sh" >>"$STATE/resume.log" 2>&1
+    $H pane run "$pane" bash -l "$STATE/claude-launch.sh" >>"$STATE/resume.log" 2>&1 || { $H workspace close "$WS" >>"$STATE/resume.log" 2>&1; return 1; }
 }
 # only through the default herdr session (no direct terminal); retry, then log the failure
+s2r_running() {
+    local p
+    for p in $(ps -eo pid=,args= | awk '$2 ~ /claude$/ {print $1}'); do
+        [ "$(readlink /proc/$p/cwd 2>/dev/null)" = "$DIR" ] && return 0
+    done
+    return 1
+}
 ok=0
+if s2r_running; then ok=2; fi
 for try in 1 2 3; do
+    [ "$ok" = 2 ] && break
     if launch_in_herdr; then ok=1; break; fi
     sleep 10
 done
-if [ "$ok" = 1 ]; then
+if [ "$ok" = 2 ]; then
+    echo "$(date '+%F %T') S2R Claude already running in $DIR; not starting another" >> "$STATE/resume.log"
+elif [ "$ok" = 1 ]; then
     echo "$(date '+%F %T') S2R-Claude started in the default herdr session" >> "$STATE/resume.log"
 else
     echo "$(date '+%F %T') herdr (default session) launch FAILED after 3 tries; no terminal fallback" >> "$STATE/resume.log"
