@@ -10,6 +10,7 @@ P=/sys/module/apple_sleep/parameters
 say "start $(uname -r) deep=$(cat $P/deep) untested_commit=$(cat $P/untested_commit)"
 [ -n "$NONOTES" ] && echo 0 > $P/pmu_notes
 [ -n "$SKIP" ] && echo $SKIP > $P/dbg_skip
+[ -n "$KEEPALIVE" ] && { echo 1 > /sys/module/apple_wdt/parameters/suspend_keepalive; say "wdt keepalive $(cat /sys/module/apple_wdt/parameters/suspend_keepalive)"; }
 [ -e $P/deadman_s ] && echo ${DEADMAN:-60} > $P/deadman_s && say "dead-man $(cat $P/deadman_s) s"
 say "dbg_skip=$(cat $P/dbg_skip 2>/dev/null)"
 say "pmu_notes=$(cat $P/pmu_notes)"
